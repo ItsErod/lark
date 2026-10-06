@@ -154,7 +154,7 @@ Frontend tests cover message rendering, shortcuts, notification rules, and platf
 - macOS universal `.app` and `.dmg`
 - Windows x64 NSIS `.exe` and WiX `.msi`
 
-The workflow uses `tauri-apps/tauri-action`. A push of a `v*` tag (v1, v2, …) builds the same installers and attaches the `.dmg`, `.exe`, and `.msi` to a GitHub Release named after the tag. Branch builds do not create a release. The installers are unsigned.
+The workflow uses `tauri-apps/tauri-action`. A push of a `v*` tag (v1, v2, …) builds the same installers and attaches the `.dmg`, `.exe`, and `.msi` to a GitHub Release named after the tag. The macOS artifact is a universal binary (Apple Silicon and Intel). Branch builds do not create a release. The installers are unsigned. On first launch, macOS users should right-click the app and choose Open.
 
 ## Measured size
 
