@@ -206,10 +206,7 @@ function renderAttachment(
     img.alt = attachment.name;
     img.loading = "lazy";
     img.decoding = "async";
-    if (attachment.width && attachment.height) {
-      img.width = attachment.width;
-      img.height = attachment.height;
-    }
+    reserveBox(img, attachment.width, attachment.height);
     img.src = attachment.url;
     button.append(img);
     button.addEventListener("click", () => onImage(attachment.url!));
@@ -252,12 +249,25 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
   if (embed.image) {
     const img = el("img", "embed-image");
     img.alt = "";
-    img.loading = "lazy";
+    reserveBox(img, undefined, undefined);
     img.src = embed.image;
     card.append(img);
   }
   if (embed.footer) card.append(el("div", "embed-footer", embed.footer));
   return card;
+}
+
+function reserveBox(img: HTMLImageElement, width?: number, height?: number) {
+  if (width && height && width > 0 && height > 0) {
+    img.width = Math.round(width);
+    img.height = Math.round(height);
+    img.style.aspectRatio = `${Math.round(width)} / ${Math.round(height)}`;
+    img.dataset.reserved = "1";
+    img.loading = "lazy";
+    return;
+  }
+  img.dataset.reserved = "0";
+  img.loading = "eager";
 }
 
 function inlineNode(source: string, highlight: boolean): HTMLElement {
