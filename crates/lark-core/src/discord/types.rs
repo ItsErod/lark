@@ -37,6 +37,8 @@ pub struct DiscordGuild {
     pub members: Vec<DiscordMember>,
     #[serde(default)]
     pub presences: Vec<DiscordPresence>,
+    #[serde(default)]
+    pub roles: Vec<DiscordRole>,
 }
 
 /// A gateway presence. User objects here are often just an id.
@@ -67,6 +69,8 @@ pub struct DiscordChannel {
     pub topic: Option<String>,
     #[serde(default)]
     pub recipients: Vec<DiscordUser>,
+    #[serde(default)]
+    pub last_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -206,6 +210,8 @@ pub struct DiscordRole {
     pub color: u32,
     #[serde(default)]
     pub position: i32,
+    #[serde(default)]
+    pub hoist: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -236,6 +242,10 @@ pub struct ClientChannel {
     pub position: i32,
     pub topic: Option<String>,
     pub recipient_ids: Vec<String>,
+    #[serde(default)]
+    pub recipients: Vec<ClientUser>,
+    #[serde(default)]
+    pub last_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -317,6 +327,8 @@ pub struct ClientRole {
     pub name: String,
     pub color: Option<String>,
     pub position: i32,
+    #[serde(default)]
+    pub hoist: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -332,6 +344,34 @@ pub struct ClientMember {
     pub avatar_url: Option<String>,
     #[serde(default)]
     pub custom: String,
+    #[serde(default)]
+    pub activity: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientMutualGuild {
+    pub id: String,
+    pub nick: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientProfile {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    pub avatar_url: Option<String>,
+    pub banner_url: Option<String>,
+    pub accent: Option<String>,
+    pub bio: String,
+    pub pronouns: String,
+    pub nick: Option<String>,
+    pub role_ids: Vec<String>,
+    pub mutual_guilds: Vec<ClientMutualGuild>,
+    pub mutual_friends: u32,
+    pub bot: bool,
+    pub joined_at: String,
 }
 
 pub fn snowflake_ok(value: &str) -> bool {
@@ -377,6 +417,17 @@ pub fn avatar_url(user_id: &str, avatar: &Option<String>) -> Option<String> {
     let ext = if hash.starts_with("a_") { "gif" } else { "png" };
     Some(format!(
         "https://cdn.discordapp.com/avatars/{user_id}/{hash}.{ext}?size=64"
+    ))
+}
+
+pub fn banner_url(user_id: &str, banner: &Option<String>) -> Option<String> {
+    let hash = banner.as_deref()?;
+    if !snowflake_ok(user_id) || !asset_hash_ok(hash) {
+        return None;
+    }
+    let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+    Some(format!(
+        "https://cdn.discordapp.com/banners/{user_id}/{hash}.{ext}?size=480"
     ))
 }
 
@@ -467,6 +518,8 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
         position: channel.position,
         topic: channel.topic.clone(),
         recipient_ids: channel.recipients.iter().map(|u| u.id.clone()).collect(),
+        recipients: channel.recipients.iter().map(user_to_client).collect(),
+        last_message_id: channel.last_message_id.clone(),
     }
 }
 
@@ -565,6 +618,7 @@ pub fn role_to_client(role: &DiscordRole) -> ClientRole {
         name: role.name.clone(),
         color: color_hex(role.color),
         position: role.position,
+        hoist: role.hoist,
     }
 }
 
@@ -584,6 +638,7 @@ pub fn member_to_client(member: &DiscordMember) -> Option<ClientMember> {
         status: "offline".into(),
         avatar_url: avatar_url(&user.id, &user.avatar),
         custom: String::new(),
+        activity: String::new(),
     })
 }
 
@@ -594,34 +649,60 @@ pub fn normalize_presence_status(status: &str) -> String {
     }
 }
 
-fn activity_line(activities: &[serde_json::Value]) -> String {
-    let custom = activities.iter().find_map(|activity| {
-        if activity.get("type").and_then(|value| value.as_i64()) == Some(4) {
-            activity
-                .get("state")
+/// Custom status text, then a short activity line (`Playing …`, `Listening to …`).
+pub fn activity_parts(activities: &[serde_json::Value]) -> (String, String) {
+    let mut custom = String::new();
+    let mut activity = String::new();
+    for item in activities {
+        let kind = item.get("type").and_then(|value| value.as_i64()).unwrap_or(-1);
+        if kind == 4 {
+            let emoji = item
+                .pointer("/emoji/name")
                 .and_then(|value| value.as_str())
-                .filter(|text| !text.is_empty())
-                .map(|text| text.to_string())
-        } else {
-            None
+                .unwrap_or("");
+            let state = item.get("state").and_then(|value| value.as_str()).unwrap_or("");
+            custom = match (emoji.is_empty(), state.is_empty()) {
+                (true, true) => String::new(),
+                (false, true) => emoji.to_string(),
+                (true, false) => state.to_string(),
+                (false, false) => format!("{emoji} {state}"),
+            };
+            continue;
         }
-    });
-    if let Some(custom) = custom {
-        return custom;
-    }
-    activities
-        .iter()
-        .find_map(|activity| {
-            if activity.get("type").and_then(|value| value.as_i64()) == Some(4) {
-                return None;
-            }
-            activity
-                .get("name")
+        if !activity.is_empty() {
+            continue;
+        }
+        let name = item.get("name").and_then(|value| value.as_str()).unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        if kind == 2 {
+            let song = item
+                .get("details")
                 .and_then(|value| value.as_str())
-                .filter(|text| !text.is_empty())
-                .map(|text| text.to_string())
-        })
-        .unwrap_or_default()
+                .filter(|text| !text.is_empty());
+            let artist = item.get("state").and_then(|value| value.as_str()).unwrap_or("");
+            activity = match (song, artist.is_empty()) {
+                (Some(song), false) => format!("Listening to {song} — {artist}"),
+                (Some(song), true) => format!("Listening to {song}"),
+                (None, _) => format!("Listening to {name}"),
+            };
+            continue;
+        }
+        let verb = match kind {
+            0 => "Playing",
+            1 => "Streaming",
+            3 => "Watching",
+            5 => "Competing in",
+            _ => "",
+        };
+        activity = if verb.is_empty() {
+            name.to_string()
+        } else {
+            format!("{verb} {name}")
+        };
+    }
+    (custom, activity)
 }
 
 fn apply_presences(members: &[DiscordMember], presences: &[DiscordPresence]) -> Vec<ClientMember> {
@@ -633,11 +714,13 @@ fn apply_presences(members: &[DiscordMember], presences: &[DiscordPresence]) -> 
         if user.id.is_empty() {
             continue;
         }
+        let (custom, activity) = activity_parts(&presence.activities);
         by_id.insert(
             user.id.clone(),
             (
                 normalize_presence_status(&presence.status),
-                activity_line(&presence.activities),
+                custom,
+                activity,
             ),
         );
     }
@@ -646,10 +729,13 @@ fn apply_presences(members: &[DiscordMember], presences: &[DiscordPresence]) -> 
         let Some(mut client) = member_to_client(member) else {
             continue;
         };
-        if let Some((status, custom)) = by_id.get(&client.id) {
+        if let Some((status, custom, activity)) = by_id.get(&client.id) {
             client.status = status.clone();
             if !custom.is_empty() {
                 client.custom = custom.clone();
+            }
+            if !activity.is_empty() {
+                client.activity = activity.clone();
             }
         }
         out.push(client);
@@ -660,6 +746,263 @@ fn apply_presences(members: &[DiscordMember], presences: &[DiscordPresence]) -> 
 /// Members shipped on GUILD_CREATE, with presence folded in when Discord sent it.
 pub fn roster_from_guild(guild: &DiscordGuild) -> Vec<ClientMember> {
     apply_presences(&guild.members, &guild.presences)
+}
+
+pub fn member_from_list_value(member: &serde_json::Value) -> Option<ClientMember> {
+    let user = member.get("user")?;
+    let id = user.get("id").and_then(|value| value.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return None;
+    }
+    let username = user.get("username").and_then(|value| value.as_str()).unwrap_or("");
+    let global = user
+        .get("global_name")
+        .and_then(|value| value.as_str())
+        .filter(|name| !name.is_empty());
+    let name = global
+        .unwrap_or(if username.is_empty() { "Unknown" } else { username })
+        .to_string();
+    let avatar = user
+        .get("avatar")
+        .and_then(|value| value.as_str())
+        .map(|hash| hash.to_string());
+    let nick = member
+        .get("nick")
+        .and_then(|value| value.as_str())
+        .filter(|nick| !nick.is_empty())
+        .map(|nick| nick.to_string());
+    let role_ids = member
+        .get("roles")
+        .and_then(|value| value.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|value| value.as_str().map(|id| id.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let presence = member.get("presence");
+    let status = presence
+        .and_then(|value| value.get("status"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("offline");
+    let activities = presence
+        .and_then(|value| value.get("activities"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let (custom, activity) = activity_parts(&activities);
+    Some(ClientMember {
+        id: id.to_string(),
+        name,
+        nick,
+        bot: user.get("bot").and_then(|value| value.as_bool()).unwrap_or(false),
+        role_ids,
+        status: normalize_presence_status(status),
+        avatar_url: avatar_url(id, &avatar),
+        custom,
+        activity,
+    })
+}
+
+fn presence_lookup(presences: Option<&serde_json::Value>) -> std::collections::HashMap<String, (String, String, String)> {
+    let mut by_id = std::collections::HashMap::new();
+    let Some(serde_json::Value::Array(list)) = presences else {
+        return by_id;
+    };
+    for presence in list {
+        let id = presence
+            .pointer("/user/id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let activities = presence
+            .get("activities")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let (custom, activity) = activity_parts(&activities);
+        by_id.insert(
+            id.to_string(),
+            (
+                normalize_presence_status(presence.get("status").and_then(|value| value.as_str()).unwrap_or("offline")),
+                custom,
+                activity,
+            ),
+        );
+    }
+    by_id
+}
+
+pub fn friend_from_relationship(
+    value: &serde_json::Value,
+    presences: &std::collections::HashMap<String, (String, String, String)>,
+) -> Option<ClientMember> {
+    if value.get("type").and_then(|kind| kind.as_i64()) != Some(1) {
+        return None;
+    }
+    let user = value.get("user")?;
+    let id = user
+        .get("id")
+        .and_then(|item| item.as_str())
+        .or_else(|| value.get("id").and_then(|item| item.as_str()))
+        .unwrap_or("");
+    if id.is_empty() {
+        return None;
+    }
+    let username = user.get("username").and_then(|item| item.as_str()).unwrap_or("");
+    let global = user
+        .get("global_name")
+        .and_then(|item| item.as_str())
+        .filter(|name| !name.is_empty());
+    let nickname = value
+        .get("nickname")
+        .and_then(|item| item.as_str())
+        .filter(|name| !name.is_empty());
+    let name = nickname
+        .or(global)
+        .unwrap_or(if username.is_empty() { "Unknown" } else { username })
+        .to_string();
+    let avatar = user
+        .get("avatar")
+        .and_then(|item| item.as_str())
+        .map(|hash| hash.to_string());
+    let (status, custom, activity) = presences
+        .get(id)
+        .cloned()
+        .unwrap_or_else(|| ("offline".into(), String::new(), String::new()));
+    Some(ClientMember {
+        id: id.to_string(),
+        name,
+        nick: None,
+        bot: user.get("bot").and_then(|item| item.as_bool()).unwrap_or(false),
+        role_ids: Vec::new(),
+        status,
+        avatar_url: avatar_url(id, &avatar),
+        custom,
+        activity,
+    })
+}
+
+pub fn friends_from_relationships(
+    relationships: &serde_json::Value,
+    presences: Option<&serde_json::Value>,
+) -> Vec<ClientMember> {
+    let lookup = presence_lookup(presences);
+    let Some(list) = relationships.as_array() else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|value| friend_from_relationship(value, &lookup))
+        .collect()
+}
+
+pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
+    let user = value.get("user")?;
+    let id = user.get("id").and_then(|item| item.as_str()).unwrap_or("");
+    if !snowflake_ok(id) {
+        return None;
+    }
+    let username = user.get("username").and_then(|item| item.as_str()).unwrap_or("").to_string();
+    let global = user
+        .get("global_name")
+        .and_then(|item| item.as_str())
+        .filter(|name| !name.is_empty());
+    let name = global.unwrap_or(if username.is_empty() { "Unknown" } else { username.as_str() }).to_string();
+    let avatar = user
+        .get("avatar")
+        .and_then(|item| item.as_str())
+        .map(|hash| hash.to_string());
+    let profile = value.get("user_profile");
+    let banner = profile
+        .and_then(|item| item.get("banner"))
+        .and_then(|item| item.as_str())
+        .or_else(|| user.get("banner").and_then(|item| item.as_str()))
+        .map(|hash| hash.to_string());
+    let bio = profile
+        .and_then(|item| item.get("bio"))
+        .and_then(|item| item.as_str())
+        .or_else(|| user.get("bio").and_then(|item| item.as_str()))
+        .unwrap_or("")
+        .to_string();
+    let pronouns = profile
+        .and_then(|item| item.get("pronouns"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .to_string();
+    let accent_raw = profile
+        .and_then(|item| item.get("accent_color"))
+        .and_then(|item| item.as_u64())
+        .or_else(|| user.get("accent_color").and_then(|item| item.as_u64()));
+    let guild_member = value.get("guild_member");
+    let nick = guild_member
+        .and_then(|item| item.get("nick"))
+        .and_then(|item| item.as_str())
+        .filter(|nick| !nick.is_empty())
+        .map(|nick| nick.to_string());
+    let role_ids = guild_member
+        .and_then(|item| item.get("roles"))
+        .and_then(|item| item.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|item| item.as_str().map(|id| id.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let joined_at = guild_member
+        .and_then(|item| item.get("joined_at"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .to_string();
+    let mutual_guilds = value
+        .get("mutual_guilds")
+        .and_then(|item| item.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|item| {
+                    let id = item.get("id").and_then(|value| value.as_str()).unwrap_or("");
+                    if !snowflake_ok(id) {
+                        return None;
+                    }
+                    Some(ClientMutualGuild {
+                        id: id.to_string(),
+                        nick: item
+                            .get("nick")
+                            .and_then(|value| value.as_str())
+                            .filter(|nick| !nick.is_empty())
+                            .map(|nick| nick.to_string()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mutual_friends = value
+        .get("mutual_friends_count")
+        .and_then(|item| item.as_u64())
+        .or_else(|| {
+            value
+                .get("mutual_friends")
+                .and_then(|item| item.as_array())
+                .map(|list| list.len() as u64)
+        })
+        .unwrap_or(0) as u32;
+    Some(ClientProfile {
+        id: id.to_string(),
+        name,
+        username,
+        avatar_url: avatar_url(id, &avatar),
+        banner_url: banner_url(id, &banner),
+        accent: accent_raw.and_then(|color| color_hex(color as u32)),
+        bio,
+        pronouns,
+        nick,
+        role_ids,
+        mutual_guilds,
+        mutual_friends,
+        bot: user.get("bot").and_then(|item| item.as_bool()).unwrap_or(false),
+        joined_at,
+    })
 }
 
 /// One GUILD_MEMBERS_CHUNK. Later chunks are merged by the shell.
@@ -811,6 +1154,7 @@ mod tests {
         assert_eq!(roster[0].name, "Ethan");
         assert_eq!(roster[0].status, "online");
         assert_eq!(roster[0].custom, "In queue");
+        assert!(roster[0].activity.is_empty());
         assert!(roster[0]
             .avatar_url
             .as_deref()
@@ -831,7 +1175,67 @@ mod tests {
         let extra = roster_from_chunk(&chunk);
         assert_eq!(extra[0].name, "Maya Chen");
         assert_eq!(extra[0].status, "idle");
-        assert_eq!(extra[0].custom, "Battlefield");
+        assert!(extra[0].custom.is_empty());
+        assert_eq!(extra[0].activity, "Playing Battlefield");
         assert_eq!(normalize_presence_status("invisible"), "offline");
+
+        let (custom, activity) = activity_parts(&[serde_json::json!({
+            "type": 4,
+            "state": "In queue",
+            "emoji": {"name": "🔥"}
+        }), serde_json::json!({
+            "type": 2,
+            "name": "Spotify",
+            "details": "Northwind",
+            "state": "Maya Chen"
+        })]);
+        assert_eq!(custom, "🔥 In queue");
+        assert_eq!(activity, "Listening to Northwind — Maya Chen");
+    }
+
+    #[test]
+    fn profile_and_friends_keep_banner_roles_and_presence() {
+        let profile = profile_from_value(&serde_json::json!({
+            "user": {
+                "id": "100000000000000002",
+                "username": "maya",
+                "global_name": "Maya Chen",
+                "avatar": "a_face",
+                "banner": "a_banner"
+            },
+            "user_profile": {"bio": "At the desk", "pronouns": "she/her", "accent_color": 14852442},
+            "guild_member": {
+                "nick": "Maya",
+                "roles": ["100000000000000099"],
+                "joined_at": "2024-01-02T00:00:00.000Z"
+            },
+            "mutual_guilds": [{"id": "100000000000000010", "nick": "Maya"}],
+            "mutual_friends_count": 2
+        })).unwrap();
+        assert_eq!(profile.name, "Maya Chen");
+        assert_eq!(profile.username, "maya");
+        assert_eq!(profile.nick.as_deref(), Some("Maya"));
+        assert_eq!(profile.bio, "At the desk");
+        assert_eq!(profile.pronouns, "she/her");
+        assert_eq!(profile.accent.as_deref(), Some("#e2a15a"));
+        assert!(profile.banner_url.as_deref().unwrap().contains(".gif"));
+        assert!(profile.avatar_url.as_deref().unwrap().contains(".gif"));
+        assert_eq!(profile.role_ids, vec!["100000000000000099"]);
+        assert_eq!(profile.mutual_friends, 2);
+        assert_eq!(profile.mutual_guilds[0].id, "100000000000000010");
+
+        let friends = friends_from_relationships(
+            &serde_json::json!([
+                {"id": "100000000000000002", "type": 1, "user": {"id": "100000000000000002", "username": "maya", "global_name": "Maya Chen", "avatar": "abc"}},
+                {"id": "100000000000000003", "type": 2, "user": {"id": "100000000000000003", "username": "blocked"}}
+            ]),
+            Some(&serde_json::json!([
+                {"user": {"id": "100000000000000002"}, "status": "dnd", "activities": [{"type": 0, "name": "Figma"}]}
+            ])),
+        );
+        assert_eq!(friends.len(), 1);
+        assert_eq!(friends[0].name, "Maya Chen");
+        assert_eq!(friends[0].status, "dnd");
+        assert_eq!(friends[0].activity, "Playing Figma");
     }
 }

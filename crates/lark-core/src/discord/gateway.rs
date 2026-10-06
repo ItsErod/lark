@@ -10,14 +10,16 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use crate::redact::redact;
 
 use super::types::{
-    channel_to_client, guild_to_client, message_to_client, roster_from_chunk, roster_from_guild,
-    user_to_client, ClientChannel, ClientGuild, ClientMember, ClientMessage, ClientUser,
-    DiscordChannel, DiscordGuild, DiscordMessage, DiscordUser,
+    activity_parts, channel_kind_name, channel_to_client, friends_from_relationships,
+    guild_to_client, message_to_client, role_to_client, roster_from_chunk, roster_from_guild,
+    user_to_client, ClientChannel, ClientGuild, ClientMember, ClientMessage, ClientRole,
+    ClientUser, DiscordChannel, DiscordGuild, DiscordMessage, DiscordRole, DiscordUser,
 };
 
 /// Guilds, presence, messages, reactions, typing, and direct messages.
-/// The privileged guild-members intent stays off. The sidebar uses members
-/// shipped on GUILD_CREATE, Request Guild Members (op 8), and the REST list.
+/// The privileged guild-members intent stays off. User sessions identify
+/// without intents, the way the official client does, and the member sidebar
+/// subscribes with opcode 14 (lazy guild ranges).
 pub const CLIENT_INTENTS: u64 = (1 << 0)
     | (1 << 8)
     | (1 << 9)
@@ -35,6 +37,10 @@ pub fn intents_without_message_content(intents: u64) -> u64 {
 pub fn intents_without_presence(intents: u64) -> u64 {
     intents & !(1 << 8)
 }
+
+/// Lazy user notes only. Heavier capabilities rewrite the READY payload
+/// (deduped users, a split supplemental payload) and are left off.
+pub const USER_CAPABILITIES: u64 = 1 << 0;
 
 pub fn gateway_url() -> &'static str {
     "wss://gateway.discord.gg/?v=10&encoding=json"
@@ -91,6 +97,7 @@ pub enum ClientEvent {
         user_id: String,
         status: String,
         custom: String,
+        activity: String,
     },
     ReadState {
         channel_id: String,
@@ -122,6 +129,72 @@ pub enum ClientEvent {
         guild_id: String,
         members: Vec<ClientMember>,
     },
+    /// One GUILD_MEMBER_LIST_UPDATE. The shell applies the ops in order.
+    MemberList {
+        guild_id: String,
+        list_id: String,
+        member_count: u32,
+        online_count: u32,
+        groups: Vec<ClientMemberGroup>,
+        ops: Vec<MemberListOp>,
+    },
+    Roles {
+        guild_id: String,
+        roles: Vec<ClientRole>,
+    },
+    Role {
+        guild_id: String,
+        role: ClientRole,
+        removed: bool,
+    },
+    DirectChannel {
+        channel: ClientChannel,
+        removed: bool,
+    },
+    Friends {
+        friends: Vec<ClientMember>,
+    },
+    FriendRemoved {
+        user_id: String,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientMemberGroup {
+    pub id: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MemberListItem {
+    Group { id: String, count: u32 },
+    Member { member: ClientMember },
+    Empty,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(tag = "op", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MemberListOp {
+    Sync {
+        range: [u32; 2],
+        items: Vec<MemberListItem>,
+    },
+    Insert {
+        index: u32,
+        item: MemberListItem,
+    },
+    Update {
+        index: u32,
+        item: MemberListItem,
+    },
+    Delete {
+        index: u32,
+    },
+    Invalidate {
+        range: [u32; 2],
+    },
 }
 
 #[derive(Debug)]
@@ -150,9 +223,12 @@ pub enum GatewayCommand {
         status: String,
         custom: String,
     },
-    /// Ask Discord for the member sidebar of one open server. Op 8.
-    RequestMembers {
+    /// Subscribe to a channel's member-list ranges. Opcode 14.
+    /// Empty `ranges` clears the subscription for that guild.
+    SubscribeMembers {
         guild_id: String,
+        channel_id: String,
+        ranges: Vec<(u32, u32)>,
     },
 }
 
@@ -166,16 +242,11 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
         } => {
             super::voice::main_voice_state(guild_id.as_deref(), channel_id.as_deref(), *mute, *deaf)
         }
-        GatewayCommand::RequestMembers { guild_id } => json!({
-            "op": 8,
-            "d": {
-                "guild_id": guild_id,
-                "query": "",
-                "limit": 0,
-                "presences": true
-            }
-        })
-        .to_string(),
+        GatewayCommand::SubscribeMembers {
+            guild_id,
+            channel_id,
+            ranges,
+        } => lazy_guild_payload(guild_id, channel_id, ranges),
         GatewayCommand::Presence { status, custom } => {
             let activities = if custom.is_empty() {
                 Vec::<serde_json::Value>::new()
@@ -200,6 +271,31 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
     }
 }
 
+fn lazy_guild_payload(guild_id: &str, channel_id: &str, ranges: &[(u32, u32)]) -> String {
+    let mut channels = serde_json::Map::new();
+    let active = !channel_id.is_empty() && !ranges.is_empty();
+    if active {
+        let encoded: Vec<Vec<u32>> = ranges
+            .iter()
+            .take(3)
+            .map(|(start, end)| vec![*start, *end])
+            .collect();
+        channels.insert(channel_id.to_string(), json!(encoded));
+    }
+    json!({
+        "op": 14,
+        "d": {
+            "guild_id": guild_id,
+            "typing": active,
+            "activities": active,
+            "threads": active,
+            "members": [],
+            "channels": channels
+        }
+    })
+    .to_string()
+}
+
 pub async fn run_gateway<F>(
     token: String,
     mut shutdown: watch::Receiver<bool>,
@@ -210,7 +306,9 @@ pub async fn run_gateway<F>(
 {
     let mut backoff_secs = 1u64;
     let mut session: Option<Session> = None;
-    let mut intents = CLIENT_INTENTS;
+    // User accounts receive every event they can see when intents are omitted.
+    // Opcode 14 member lists are ignored on a bot-style identify that sends intents.
+    let mut intents: Option<u64> = None;
     let mut dropped_content_intent = false;
     let mut dropped_presence_intent = false;
 
@@ -249,7 +347,8 @@ pub async fn run_gateway<F>(
                 break;
             }
             Ok(SessionEnd::DisallowedIntent) if !dropped_content_intent => {
-                intents = intents_without_message_content(intents);
+                let current = intents.unwrap_or(CLIENT_INTENTS);
+                intents = Some(intents_without_message_content(current));
                 dropped_content_intent = true;
                 session = None;
                 emit(ClientEvent::Status {
@@ -259,7 +358,8 @@ pub async fn run_gateway<F>(
                 continue;
             }
             Ok(SessionEnd::DisallowedIntent) if !dropped_presence_intent => {
-                intents = intents_without_presence(intents);
+                let current = intents.unwrap_or(CLIENT_INTENTS);
+                intents = Some(intents_without_presence(current));
                 dropped_presence_intent = true;
                 session = None;
                 emit(ClientEvent::Status {
@@ -302,7 +402,7 @@ pub async fn run_gateway<F>(
 async fn connect_once<F>(
     token: &str,
     session: &mut Option<Session>,
-    intents: u64,
+    intents: Option<u64>,
     shutdown: &mut watch::Receiver<bool>,
     outbound: &mut mpsc::UnboundedReceiver<GatewayCommand>,
     emit: &mut F,
@@ -530,21 +630,31 @@ pub(crate) fn parse_frame(text: &str) -> Result<Incoming, ()> {
     })
 }
 
-pub fn identify_payload(token: &str, intents: u64) -> String {
-    json!({
-        "op": 2,
-        "d": {
-            "token": token,
-            "intents": intents,
-            "properties": {
-                "os": std::env::consts::OS,
-                "browser": "Lark",
-                "device": "Lark"
-            },
-            "compress": false
+pub fn identify_payload(token: &str, intents: Option<u64>) -> String {
+    let mut data = json!({
+        "token": token,
+        "capabilities": USER_CAPABILITIES,
+        "properties": {
+            "os": std::env::consts::OS,
+            "browser": "Lark",
+            "device": "Lark"
+        },
+        "compress": false,
+        "presence": {
+            "status": "unknown",
+            "since": 0,
+            "activities": [],
+            "afk": false
+        },
+        "client_state": {
+            "guild_versions": {},
+            "api_code_version": 0
         }
-    })
-    .to_string()
+    });
+    if let Some(intents) = intents {
+        data["intents"] = json!(intents);
+    }
+    json!({ "op": 2, "d": data }).to_string()
 }
 
 pub fn resume_payload(token: &str, session_id: &str, seq: Option<u64>) -> String {
@@ -587,7 +697,21 @@ fn handle_dispatch(
                         .map(channel_to_client)
                         .collect(),
                 });
-                for marker in &ready.read_state {
+                for guild in &ready.guilds {
+                    if !guild.roles.is_empty() {
+                        emit(ClientEvent::Roles {
+                            guild_id: guild.id.clone(),
+                            roles: guild.roles.iter().map(role_to_client).collect(),
+                        });
+                    }
+                }
+                if let Some(relationships) = ready.relationships.as_ref() {
+                    let friends = friends_from_relationships(relationships, ready.presences.as_ref());
+                    if !friends.is_empty() {
+                        emit(ClientEvent::Friends { friends });
+                    }
+                }
+                for marker in read_markers(ready.read_state.as_ref()) {
                     let Some(channel_id) = marker.get("id").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -621,12 +745,116 @@ fn handle_dispatch(
                         channels: guild.channels.iter().map(channel_to_client).collect(),
                     });
                 }
+                if !guild.roles.is_empty() {
+                    emit(ClientEvent::Roles {
+                        guild_id: guild_id.clone(),
+                        roles: guild.roles.iter().map(role_to_client).collect(),
+                    });
+                }
                 if !roster.is_empty() {
                     emit(ClientEvent::Members {
                         guild_id,
                         members: roster,
                     });
                 }
+            }
+            false
+        }
+        "GUILD_MEMBER_LIST_UPDATE" => {
+            if let Some(event) = member_list_event(data) {
+                emit(event);
+            }
+            false
+        }
+        "GUILD_ROLE_CREATE" | "GUILD_ROLE_UPDATE" => {
+            let guild_id = json_str(data, "guild_id");
+            if let Some(role) = data.get("role").cloned() {
+                if let Ok(role) = serde_json::from_value::<DiscordRole>(role) {
+                    if !guild_id.is_empty() {
+                        emit(ClientEvent::Role {
+                            guild_id,
+                            role: role_to_client(&role),
+                            removed: false,
+                        });
+                    }
+                }
+            }
+            false
+        }
+        "GUILD_ROLE_DELETE" => {
+            let guild_id = json_str(data, "guild_id");
+            let role_id = json_str(data, "role_id");
+            if !guild_id.is_empty() && !role_id.is_empty() {
+                emit(ClientEvent::Role {
+                    guild_id,
+                    role: ClientRole {
+                        id: role_id,
+                        name: String::new(),
+                        color: None,
+                        position: 0,
+                        hoist: false,
+                    },
+                    removed: true,
+                });
+            }
+            false
+        }
+        "CHANNEL_CREATE" | "CHANNEL_UPDATE" | "CHANNEL_DELETE" => {
+            if let Ok(channel) = serde_json::from_value::<DiscordChannel>(data.clone()) {
+                let kind = channel_kind_name(channel.kind);
+                if kind == "dm" || kind == "group" {
+                    emit(ClientEvent::DirectChannel {
+                        channel: channel_to_client(&channel),
+                        removed: name == "CHANNEL_DELETE",
+                    });
+                }
+            }
+            false
+        }
+        "READY_SUPPLEMENTAL" => {
+            if let Some(channels) = data.get("lazy_private_channels").and_then(|v| v.as_array()) {
+                for channel in channels {
+                    if let Ok(channel) = serde_json::from_value::<DiscordChannel>(channel.clone()) {
+                        let kind = channel_kind_name(channel.kind);
+                        if kind == "dm" || kind == "group" {
+                            emit(ClientEvent::DirectChannel {
+                                channel: channel_to_client(&channel),
+                                removed: false,
+                            });
+                        }
+                    }
+                }
+            }
+            false
+        }
+        "RELATIONSHIP_ADD" | "RELATIONSHIP_UPDATE" => {
+            let friends = friends_from_relationships(&Value::Array(vec![data.clone()]), None);
+            if let Some(friend) = friends.into_iter().next() {
+                emit(ClientEvent::Friends { friends: vec![friend] });
+            } else if let Some(user_id) = data
+                .get("id")
+                .and_then(|v| v.as_str())
+                .filter(|id| !id.is_empty())
+            {
+                emit(ClientEvent::FriendRemoved {
+                    user_id: user_id.to_string(),
+                });
+            }
+            false
+        }
+        "RELATIONSHIP_REMOVE" => {
+            let user_id = data
+                .get("id")
+                .and_then(|v| v.as_str())
+                .filter(|id| !id.is_empty())
+                .map(|id| id.to_string())
+                .or_else(|| {
+                    data.pointer("/user/id")
+                        .and_then(|v| v.as_str())
+                        .map(|id| id.to_string())
+                });
+            if let Some(user_id) = user_id {
+                emit(ClientEvent::FriendRemoved { user_id });
             }
             false
         }
@@ -681,24 +909,19 @@ fn handle_dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let custom = data
-                .pointer("/activities")
+            let activities = data
+                .get("activities")
                 .and_then(|v| v.as_array())
-                .and_then(|list| {
-                    list.iter().find_map(|activity| {
-                        activity
-                            .get("state")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                    })
-                })
+                .cloned()
                 .unwrap_or_default();
+            let (custom, activity) = activity_parts(&activities);
             if !user_id.is_empty() {
                 emit(ClientEvent::Presence {
                     guild_id: json_str(data, "guild_id"),
                     user_id,
                     status: json_str(data, "status"),
                     custom,
+                    activity,
                 });
             }
             false
@@ -800,7 +1023,120 @@ struct Ready {
     #[serde(default)]
     private_channels: Vec<DiscordChannel>,
     #[serde(default)]
-    read_state: Vec<Value>,
+    relationships: Option<Value>,
+    #[serde(default)]
+    presences: Option<Value>,
+    #[serde(default)]
+    read_state: Option<Value>,
+}
+
+fn read_markers(value: Option<&Value>) -> Vec<&Value> {
+    match value {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(Value::Object(map)) => map
+            .get("entries")
+            .and_then(|entries| entries.as_array())
+            .map(|items| items.iter().collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn member_list_event(data: &Value) -> Option<ClientEvent> {
+    let guild_id = json_str(data, "guild_id");
+    if guild_id.is_empty() {
+        return None;
+    }
+    let groups: Vec<ClientMemberGroup> = data
+        .get("groups")
+        .and_then(|value| value.as_array())
+        .map(|list| list.iter().filter_map(parse_member_group).collect())
+        .unwrap_or_default();
+    let ops: Vec<MemberListOp> = data
+        .get("ops")
+        .and_then(|value| value.as_array())
+        .map(|list| list.iter().filter_map(parse_member_op).collect())
+        .unwrap_or_default();
+    let member_count = data.get("member_count").and_then(|value| value.as_u64()).unwrap_or(0) as u32;
+    let online_count = data.get("online_count").and_then(|value| value.as_u64()).unwrap_or(0) as u32;
+    if ops.is_empty() && groups.is_empty() && member_count == 0 {
+        return None;
+    }
+    Some(ClientEvent::MemberList {
+        guild_id,
+        list_id: json_str(data, "id"),
+        member_count,
+        online_count,
+        groups,
+        ops,
+    })
+}
+
+fn parse_member_group(value: &Value) -> Option<ClientMemberGroup> {
+    let id = value.get("id").and_then(|item| item.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return None;
+    }
+    Some(ClientMemberGroup {
+        id: id.to_string(),
+        count: value.get("count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+    })
+}
+
+fn parse_range(value: Option<&Value>) -> Option<[u32; 2]> {
+    let list = value?.as_array()?;
+    let start = list.first()?.as_u64()? as u32;
+    let end = list.get(1)?.as_u64()? as u32;
+    if end < start {
+        return None;
+    }
+    Some([start, end])
+}
+
+fn parse_list_item(value: &Value) -> MemberListItem {
+    if let Some(group) = value.get("group") {
+        let id = group.get("id").and_then(|item| item.as_str()).unwrap_or("");
+        if !id.is_empty() {
+            return MemberListItem::Group {
+                id: id.to_string(),
+                count: group.get("count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+            };
+        }
+    }
+    if let Some(member) = value.get("member") {
+        if let Some(member) = super::types::member_from_list_value(member) {
+            return MemberListItem::Member { member };
+        }
+    }
+    MemberListItem::Empty
+}
+
+fn parse_member_op(value: &Value) -> Option<MemberListOp> {
+    match value.get("op").and_then(|item| item.as_str())? {
+        "SYNC" => Some(MemberListOp::Sync {
+            range: parse_range(value.get("range"))?,
+            items: value
+                .get("items")
+                .and_then(|item| item.as_array())
+                .map(|list| list.iter().map(parse_list_item).collect())
+                .unwrap_or_default(),
+        }),
+        "INSERT" => Some(MemberListOp::Insert {
+            index: value.get("index").and_then(|item| item.as_u64())? as u32,
+            item: parse_list_item(value.get("item")?),
+        }),
+        "UPDATE" => Some(MemberListOp::Update {
+            index: value.get("index").and_then(|item| item.as_u64())? as u32,
+            item: parse_list_item(value.get("item")?),
+        }),
+        "DELETE" => Some(MemberListOp::Delete {
+            index: value.get("index").and_then(|item| item.as_u64())? as u32,
+        }),
+        "INVALIDATE" => Some(MemberListOp::Invalidate {
+            range: parse_range(value.get("range"))?,
+        }),
+        _ => None,
+    }
 }
 
 // The reaction helper above is intentionally replaced by passing the event name.
@@ -845,15 +1181,28 @@ mod tests {
 
     #[test]
     fn request_members_is_one_server_and_guild_create_keeps_the_icon() {
-        let payload = gateway_command_payload(&GatewayCommand::RequestMembers {
+        let payload = gateway_command_payload(&GatewayCommand::SubscribeMembers {
             guild_id: "100000000000000010".into(),
+            channel_id: "100000000000000021".into(),
+            ranges: vec![(0, 99), (100, 199)],
         });
         let value: Value = serde_json::from_str(&payload).unwrap();
-        assert_eq!(value["op"], 8);
+        assert_eq!(value["op"], 14);
         assert_eq!(value["d"]["guild_id"], "100000000000000010");
-        assert_eq!(value["d"]["limit"], 0);
-        assert_eq!(value["d"]["presences"], true);
-        assert_eq!(value["d"]["query"], "");
+        assert_eq!(value["d"]["typing"], true);
+        assert_eq!(value["d"]["activities"], true);
+        assert_eq!(value["d"]["channels"]["100000000000000021"][0][0], 0);
+        assert_eq!(value["d"]["channels"]["100000000000000021"][0][1], 99);
+        assert_eq!(value["d"]["channels"]["100000000000000021"][1][0], 100);
+        let cleared = gateway_command_payload(&GatewayCommand::SubscribeMembers {
+            guild_id: "100000000000000010".into(),
+            channel_id: String::new(),
+            ranges: Vec::new(),
+        });
+        let cleared: Value = serde_json::from_str(&cleared).unwrap();
+        assert_eq!(cleared["op"], 14);
+        assert_eq!(cleared["d"]["channels"], json!({}));
+        assert_eq!(cleared["d"]["typing"], false);
 
         let data = json!({
             "id": "100000000000000010",
@@ -882,12 +1231,99 @@ mod tests {
     }
 
     #[test]
+    fn member_list_update_keeps_sync_insert_and_delete() {
+        let data = json!({
+            "guild_id": "100000000000000010",
+            "id": "100000000000000021",
+            "member_count": 3,
+            "online_count": 2,
+            "groups": [{"id": "online", "count": 2}, {"id": "offline", "count": 1}],
+            "ops": [
+                {"op": "SYNC", "range": [0, 99], "items": [
+                    {"group": {"id": "online", "count": 2}},
+                    {"member": {
+                        "user": {"id": "100000000000000001", "username": "ethan", "global_name": "Ethan", "avatar": "abc"},
+                        "roles": ["100000000000000099"],
+                        "nick": "Erod",
+                        "presence": {"status": "online", "activities": [{"type": 4, "state": "In queue", "emoji": {"name": "🔥"}}]}
+                    }}
+                ]},
+                {"op": "INSERT", "index": 2, "item": {"member": {"user": {"id": "100000000000000002", "username": "maya"}, "presence": {"status": "idle", "activities": [{"type": 0, "name": "Figma"}]}}}},
+                {"op": "DELETE", "index": 9},
+                {"op": "INVALIDATE", "range": [100, 199]},
+                {"op": "NOPE"}
+            ]
+        });
+        let mut events = Vec::new();
+        let mut session = None;
+        handle_dispatch("GUILD_MEMBER_LIST_UPDATE", &data, Some(4), &mut session, &mut |event| events.push(event));
+        let ClientEvent::MemberList { list_id, member_count, online_count, groups, ops, .. } = &events[0] else {
+            panic!("expected member list");
+        };
+        assert_eq!(list_id, "100000000000000021");
+        assert_eq!(*member_count, 3);
+        assert_eq!(*online_count, 2);
+        assert_eq!(groups[0].id, "online");
+        assert_eq!(ops.len(), 4);
+        match &ops[0] {
+            MemberListOp::Sync { range, items } => {
+                assert_eq!(*range, [0, 99]);
+                match &items[1] {
+                    MemberListItem::Member { member } => {
+                        assert_eq!(member.nick.as_deref(), Some("Erod"));
+                        assert_eq!(member.status, "online");
+                        assert_eq!(member.custom, "🔥 In queue");
+                        assert_eq!(member.role_ids, vec!["100000000000000099"]);
+                    }
+                    other => panic!("expected member, got {other:?}"),
+                }
+            }
+            other => panic!("expected sync, got {other:?}"),
+        }
+        assert!(matches!(ops[1], MemberListOp::Insert { index: 2, .. }));
+        assert!(matches!(ops[2], MemberListOp::Delete { index: 9 }));
+        assert!(matches!(ops[3], MemberListOp::Invalidate { range: [100, 199] }));
+
+        let ready = json!({
+            "user": {"id": "100000000000000001", "username": "ethan", "global_name": "Ethan"},
+            "session_id": "sess",
+            "private_channels": [{
+                "id": "100000000000000041",
+                "type": 1,
+                "last_message_id": "900",
+                "recipients": [{"id": "100000000000000002", "username": "maya", "global_name": "Maya Chen", "avatar": "abc"}]
+            }],
+            "relationships": [
+                {"id": "100000000000000002", "type": 1, "user": {"id": "100000000000000002", "username": "maya", "global_name": "Maya Chen"}}
+            ],
+            "presences": [{"user": {"id": "100000000000000002"}, "status": "online", "activities": []}],
+            "read_state": {"entries": [{"id": "100000000000000041", "last_message_id": "900", "mention_count": 1}], "partial": false, "version": 1},
+            "guilds": [{"id": "100000000000000010", "name": "Agartha", "roles": [{"id": "100000000000000099", "name": "Mods", "color": 14852442, "position": 3, "hoist": true}]}]
+        });
+        events.clear();
+        handle_dispatch("READY", &ready, Some(1), &mut session, &mut |event| events.push(event));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::Ready { dms, .. } if dms.len() == 1 && dms[0].name == "Maya Chen" && dms[0].recipients.len() == 1)));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::Friends { friends } if friends.len() == 1 && friends[0].status == "online")));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::Roles { roles, .. } if roles.len() == 1 && roles[0].hoist && roles[0].color.as_deref() == Some("#e2a15a"))));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::ReadState { mention_count: 1, .. })));
+
+        events.clear();
+        handle_dispatch("CHANNEL_CREATE", &json!({"id": "100000000000000043", "type": 3, "recipients": [{"id": "100000000000000002", "username": "maya", "global_name": "Maya"}, {"id": "100000000000000003", "username": "jonah", "global_name": "Jonah"}]}), Some(5), &mut session, &mut |event| events.push(event));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::DirectChannel { removed: false, channel } if channel.kind == "group" && channel.name.contains("Maya"))));
+    }
+
+    #[test]
     fn identify_is_labeled_as_lark() {
-        let payload = identify_payload("secret-token-value-example", CLIENT_INTENTS);
+        let payload = identify_payload("secret-token-value-example", None);
         let value: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(value["d"]["properties"]["browser"], "Lark");
         assert_eq!(value["d"]["properties"]["device"], "Lark");
         assert_ne!(value["d"]["properties"]["browser"], "Discord Client");
+        assert!(value["d"].get("intents").is_none());
+        assert_eq!(value["d"]["capabilities"], USER_CAPABILITIES);
+        let with_intents = identify_payload("secret-token-value-example", Some(CLIENT_INTENTS));
+        let with_intents: Value = serde_json::from_str(&with_intents).unwrap();
+        assert_eq!(with_intents["d"]["intents"], CLIENT_INTENTS);
         assert!(payload.contains("secret-token-value-example"));
         let heartbeat = heartbeat_payload(Some(4));
         assert!(heartbeat.contains("\"op\":1"));

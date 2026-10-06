@@ -84,6 +84,26 @@ description = "Ask Discord for the member list of the open server."
 commands.allow = ["request_members"]
 
 [[permission]]
+identifier = "allow-fetch-profile"
+description = "Read one user's profile."
+commands.allow = ["fetch_profile"]
+
+[[permission]]
+identifier = "allow-fetch-dms"
+description = "List direct messages and group direct messages."
+commands.allow = ["fetch_dms"]
+
+[[permission]]
+identifier = "allow-fetch-friends"
+description = "List friends."
+commands.allow = ["fetch_friends"]
+
+[[permission]]
+identifier = "allow-open-dm"
+description = "Open a direct message with one person."
+commands.allow = ["open_dm"]
+
+[[permission]]
 identifier = "allow-fetch-messages"
 description = "Load message history."
 commands.allow = ["fetch_messages"]
