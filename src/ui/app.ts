@@ -35,6 +35,7 @@ import { describePlugin, enabledSources, parseCatalog, validPluginId, type Plugi
 import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
 import { FrameClock } from "../frame";
+import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
@@ -195,6 +196,9 @@ class LarkApp {
   private me: Person = { id: ME, name: "You", status: "online" };
   private liveGuilds: Guild[] = [];
   private liveChannels: Record<string, Channel[]> = {};
+  private channelLoads = new Map<string, Promise<void>>();
+  private channelWaiters = new Map<string, Array<() => void>>();
+  private gatewayReadyAt = 0;
   private liveDms: Channel[] = [];
   private liveMembers: Person[] = [];
   private membersByGuild: Record<string, Person[]> = {};
@@ -3097,14 +3101,71 @@ class LarkApp {
 
   private async ensureChannels(guildId: string) {
     if (this.liveChannels[guildId]) return;
+    const pending = this.channelLoads.get(guildId);
+    if (pending) return pending;
+    const task = this.loadGuildChannels(guildId);
+    this.channelLoads.set(guildId, task);
+    try {
+      await task;
+    } finally {
+      if (this.channelLoads.get(guildId) === task) this.channelLoads.delete(guildId);
+    }
+  }
+
+  /**
+   * Channel lists come from READY and GUILD_CREATE. REST is a single fallback
+   * for the guild on screen, after those events have had time to arrive.
+   */
+  private async loadGuildChannels(guildId: string) {
+    if (this.liveChannels[guildId]) return;
+    const delay = channelRestDelay(Date.now(), this.gatewayReadyAt, CHANNEL_GATEWAY_GRACE_MS);
+    if (delay > 0) {
+      await this.waitForChannels(guildId, delay);
+      if (this.liveChannels[guildId]) return;
+    }
+    if (this.guildId !== guildId || this.liveChannels[guildId]) return;
     try {
       const channels = await invoke<Channel[]>("fetch_guild_channels", { guildId });
+      if (this.liveChannels[guildId]) return;
       this.liveChannels[guildId] = channels.map(normalizeChannel);
       for (const channel of this.liveChannels[guildId]) this.noteChannel(channel);
       if (this.guildId === guildId) this.paint();
     } catch {
       /* GUILD_CREATE may still fill the list. */
     }
+  }
+
+  private waitForChannels(guildId: string, ms: number): Promise<boolean> {
+    if (this.liveChannels[guildId]) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer = 0;
+      let wake: () => void = () => undefined;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        const list = this.channelWaiters.get(guildId);
+        if (list) {
+          const next = list.filter((item) => item !== wake);
+          if (next.length) this.channelWaiters.set(guildId, next);
+          else this.channelWaiters.delete(guildId);
+        }
+        resolve(ok);
+      };
+      wake = () => finish(true);
+      timer = window.setTimeout(() => finish(Boolean(this.liveChannels[guildId])), ms);
+      const list = this.channelWaiters.get(guildId) ?? [];
+      list.push(wake);
+      this.channelWaiters.set(guildId, list);
+    });
+  }
+
+  private wakeChannelWaiters(guildId: string) {
+    const waiters = this.channelWaiters.get(guildId);
+    if (!waiters) return;
+    this.channelWaiters.delete(guildId);
+    for (const wake of waiters) wake();
   }
 
   private async ensureMembers(guildId: string) {
@@ -3443,6 +3504,14 @@ class LarkApp {
       this.directory[this.me.id] = this.me;
       this.liveGuilds = mergeGuilds(event.guilds ?? [], this.liveGuilds);
       this.mergeDms((event.dms ?? []).map(normalizeChannel));
+      this.gatewayReadyAt = Date.now();
+      const bundled = (event as { guildChannels?: { guildId?: string; channels?: Channel[] }[] }).guildChannels ?? [];
+      for (const group of bundled) {
+        if (!group.guildId || !group.channels?.length) continue;
+        this.liveChannels[group.guildId] = group.channels.map(normalizeChannel);
+        for (const channel of this.liveChannels[group.guildId]) this.noteChannel(channel);
+        this.wakeChannelWaiters(group.guildId);
+      }
       this.connection = "Connected";
       void this.ensureHome();
       if (!this.guildId || !this.liveGuilds.some((guild) => guild.id === this.guildId)) {
@@ -3451,9 +3520,7 @@ class LarkApp {
       if (this.guildId) this.liveMembers = this.membersByGuild[this.guildId] ?? [];
       const keepChannel = Boolean(this.channelId && (this.pages[this.channelId]?.length ?? 0) > 0);
       this.paint();
-      for (const guild of this.liveGuilds) {
-        if (!this.liveChannels[guild.id]) void this.ensureChannels(guild.id);
-      }
+      if (this.guildId && !this.liveChannels[this.guildId]) void this.ensureChannels(this.guildId);
       if (this.guildId && !(this.membersByGuild[this.guildId]?.length)) void this.ensureMembers(this.guildId);
       if (!keepChannel) {
         const first = this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
@@ -3507,6 +3574,7 @@ class LarkApp {
         for (const channel of incoming) byId.set(channel.id, channel);
         this.liveChannels[event.guildId] = [...byId.values()];
       } else this.liveChannels[event.guildId] = incoming;
+      this.wakeChannelWaiters(event.guildId);
       for (const channel of this.liveChannels[event.guildId] ?? []) {
         this.noteChannel(channel);
         this.refreshChannelBadge(channel.id);

@@ -56,6 +56,13 @@ pub fn login_progress(url: &str, app_visible_for_ms: Option<u64>) -> LoginProgre
     }
 }
 
+/// WebView2's `ExecuteScript` returns `0x8007139F` (`ERROR_INVALID_STATE`) while a
+/// document is navigating or the controller is closing. The login poll must not
+/// call into the webview in those states; the next finished load is soon enough.
+pub fn login_script_allowed(document_ready: bool, navigating: bool, closing: bool) -> bool {
+    document_ready && !navigating && !closing
+}
+
 pub fn login_wait_message(url: &str) -> &'static str {
     let Some(host) = https_host(url) else {
         return "Waiting for Discord's login window.";
@@ -224,6 +231,11 @@ mod tests {
         assert!(app.to_ascii_lowercase().contains("session token"));
         assert_ne!(login, app);
         assert_ne!(captcha, oauth);
+
+        assert!(!login_script_allowed(false, false, false));
+        assert!(!login_script_allowed(true, true, false));
+        assert!(!login_script_allowed(true, false, true));
+        assert!(login_script_allowed(true, false, false));
 
         let early = login_progress("https://discord.com/channels/@me", Some(0));
         assert_eq!(early.phase, "waiting");

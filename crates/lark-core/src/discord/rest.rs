@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header::{HeaderMap, AUTHORIZATION};
@@ -6,10 +7,11 @@ use reqwest::multipart::{Form, Part};
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use crate::ratelimit::{
-    retry_after_to_ms, route_key, should_send_typing, RateHeaders, RateLimiter,
+    backed_off_retry_ms, jitter_ms, retry_after_to_ms, route_key, should_send_typing, RateHeaders,
+    RateLimiter,
 };
 use crate::redact::redact;
 
@@ -22,6 +24,10 @@ use super::types::{
 };
 
 const API: &str = "https://discord.com/api/v10";
+
+type ChannelResult = Result<Vec<ClientChannel>, String>;
+type ChannelTx = watch::Sender<Option<ChannelResult>>;
+type ChannelRx = watch::Receiver<Option<ChannelResult>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RestError {
@@ -119,6 +125,8 @@ pub struct DiscordRest {
     token: String,
     limiter: Mutex<RateLimiter>,
     typing_at: Mutex<HashMap<String, u64>>,
+    /// One in-flight `GET /guilds/{id}/channels` per guild. Followers wait on it.
+    channel_fetches: StdMutex<HashMap<String, ChannelRx>>,
 }
 
 impl std::fmt::Debug for DiscordRest {
@@ -149,6 +157,7 @@ impl DiscordRest {
             token,
             limiter: Mutex::new(RateLimiter::new()),
             typing_at: Mutex::new(HashMap::new()),
+            channel_fetches: StdMutex::new(HashMap::new()),
         })
     }
 
@@ -163,6 +172,49 @@ impl DiscordRest {
 
     pub async fn guild_channels(&self, guild_id: &str) -> Result<Vec<ClientChannel>, RestError> {
         self.ensure_snowflake(guild_id)?;
+        let role = {
+            let mut inflight = self
+                .channel_fetches
+                .lock()
+                .unwrap_or_else(|err| err.into_inner());
+            if let Some(rx) = inflight.get(guild_id).cloned() {
+                ChannelFetch::Follow(rx)
+            } else {
+                let (tx, rx) = watch::channel(None);
+                inflight.insert(guild_id.to_string(), rx);
+                ChannelFetch::Lead(tx)
+            }
+        };
+        match role {
+            ChannelFetch::Follow(mut rx) => loop {
+                if let Some(result) = rx.borrow().clone() {
+                    return result.map_err(RestError::Message);
+                }
+                if rx.changed().await.is_err() {
+                    return Err(RestError::Message("Could not read channels".into()));
+                }
+            },
+            ChannelFetch::Lead(tx) => {
+                let mut lead = ChannelLead {
+                    rest: self,
+                    id: guild_id,
+                    tx: Some(tx),
+                };
+                let result = self.fetch_guild_channels(guild_id).await;
+                let shared = match &result {
+                    Ok(channels) => Ok(channels.clone()),
+                    Err(err) => Err(err.to_string()),
+                };
+                if let Some(tx) = lead.tx.take() {
+                    let _ = tx.send(Some(shared));
+                }
+                drop(lead);
+                result
+            }
+        }
+    }
+
+    async fn fetch_guild_channels(&self, guild_id: &str) -> Result<Vec<ClientChannel>, RestError> {
         let path = format!("/guilds/{guild_id}/channels");
         let route = route_key("GET", "/guilds/{guild.id}/channels", guild_id);
         let value = self
@@ -624,6 +676,7 @@ impl DiscordRest {
         let url = api_url(path)?;
         let mut network_attempts = 0u32;
         let mut waits = 0u32;
+        let mut rate_limits = 0u32;
         loop {
             if network_attempts >= 6 || waits >= 8 {
                 return Err(RestError::RateLimited);
@@ -656,33 +709,48 @@ impl DiscordRest {
             let response = match request.send().await {
                 Ok(response) => response,
                 Err(err) => {
+                    self.limiter.lock().await.complete_attempt(route);
                     let text = redact(&err.to_string(), &[&self.token]);
                     log_line(&format!("request failed: {text}"));
                     return Err(RestError::Message(explain_transport(&text)));
                 }
             };
-            if let Some(parsed) = rate_headers(response.headers()) {
-                self.limiter
-                    .lock()
-                    .await
-                    .observe_headers(route, &parsed, now_ms());
-            }
-            if response.status().as_u16() == 429 {
+            let status = response.status().as_u16();
+            let parsed_headers = rate_headers(response.headers());
+            if status == 429 {
                 let text = response.text().await.unwrap_or_default();
                 let parsed: TooMany = serde_json::from_str(&text).unwrap_or(TooMany {
                     retry_after: 1.0,
                     global: false,
                 });
                 let retry_ms = retry_after_to_ms(parsed.retry_after);
+                let delay = backed_off_retry_ms(
+                    retry_ms,
+                    rate_limits,
+                    jitter_ms(
+                        now_ms().wrapping_add(u64::from(rate_limits)),
+                        retry_ms.max(200) / 5,
+                    ),
+                );
+                rate_limits = rate_limits.saturating_add(1);
                 eprintln!(
-                    "lark-rest: 429 on {route} retry_after_ms={retry_ms} global={}",
+                    "lark-rest: 429 on {route} retry_after_ms={retry_ms} wait_ms={delay} global={}",
                     parsed.global
                 );
-                self.limiter
-                    .lock()
-                    .await
-                    .observe_429(route, retry_ms, parsed.global, now_ms());
+                let mut limiter = self.limiter.lock().await;
+                if let Some(parsed) = parsed_headers {
+                    limiter.observe_headers(route, &parsed, now_ms());
+                }
+                limiter.observe_429(route, delay, parsed.global, now_ms());
+                limiter.complete_attempt(route);
                 continue;
+            }
+            {
+                let mut limiter = self.limiter.lock().await;
+                if let Some(parsed) = parsed_headers {
+                    limiter.observe_headers(route, &parsed, now_ms());
+                }
+                limiter.complete_attempt(route);
             }
             return Ok(response);
         }
@@ -815,6 +883,31 @@ pub fn now_ms() -> u64 {
 
 fn log_line(line: &str) {
     eprintln!("{line}");
+}
+
+enum ChannelFetch {
+    Lead(ChannelTx),
+    Follow(ChannelRx),
+}
+
+/// Removes the in-flight slot if the leader is cancelled before it publishes.
+struct ChannelLead<'a> {
+    rest: &'a DiscordRest,
+    id: &'a str,
+    tx: Option<ChannelTx>,
+}
+
+impl Drop for ChannelLead<'_> {
+    fn drop(&mut self) {
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(Some(Err("Could not read channels".into())));
+        }
+        self.rest
+            .channel_fetches
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .remove(self.id);
+    }
 }
 
 #[cfg(test)]

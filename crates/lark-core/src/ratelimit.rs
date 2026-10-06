@@ -40,6 +40,10 @@ pub struct RateLimiter {
     pace_ms: u64,
     /// After a window expires and before Discord sends fresh headers, allow one request.
     provisional_window_ms: u64,
+    /// Guild channel lists share a limit before Discord names a bucket. One in flight.
+    template_inflight: HashMap<String, u32>,
+    /// `retry_after` for that shared list, so the next guild does not stampede.
+    template_until: HashMap<String, u64>,
 }
 
 impl Default for RateLimiter {
@@ -57,6 +61,8 @@ impl RateLimiter {
             last_send_ms: HashMap::new(),
             pace_ms: 350,
             provisional_window_ms: 1_000,
+            template_inflight: HashMap::new(),
+            template_until: HashMap::new(),
         }
     }
 
@@ -78,6 +84,17 @@ impl RateLimiter {
                 if now_ms < earliest {
                     consider(&mut best, earliest - now_ms, WaitReason::Pace);
                 }
+            }
+        }
+        if shares_unknown_bucket(route) && !self.has_discord_bucket(route) {
+            let template = route_template(route);
+            if let Some(until) = self.template_until.get(template) {
+                if now_ms < *until {
+                    consider(&mut best, until - now_ms, WaitReason::Bucket);
+                }
+            }
+            if self.template_inflight.get(template).copied().unwrap_or(0) > 0 {
+                consider(&mut best, TEMPLATE_RETRY_MS, WaitReason::Pace);
             }
         }
         match best {
@@ -105,7 +122,23 @@ impl RateLimiter {
         if is_send_route(route) {
             self.last_send_ms.insert(route.to_string(), now_ms);
         }
+        if shares_unknown_bucket(route) && !self.has_discord_bucket(route) {
+            let template = route_template(route).to_string();
+            *self.template_inflight.entry(template).or_insert(0) += 1;
+        }
         Decision::Allowed
+    }
+
+    /// The HTTP attempt finished, with a response or a transport error.
+    /// Drops the shared in-flight hold so the next guild can proceed.
+    pub fn complete_attempt(&mut self, route: &str) {
+        let template = route_template(route);
+        if let Some(count) = self.template_inflight.get_mut(template) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.template_inflight.remove(template);
+            }
+        }
     }
 
     pub fn observe_headers(&mut self, route: &str, headers: &RateHeaders, now_ms: u64) {
@@ -148,6 +181,17 @@ impl RateLimiter {
                 reset_at_ms: until,
             },
         );
+        if shares_unknown_bucket(route) {
+            let template = route_template(route).to_string();
+            let prev = self.template_until.get(&template).copied().unwrap_or(0);
+            if until > prev {
+                self.template_until.insert(template, until);
+            }
+        }
+    }
+
+    fn has_discord_bucket(&self, route: &str) -> bool {
+        matches!(self.route_bucket.get(route), Some(id) if id.as_str() != route)
     }
 
     fn bucket_for(&self, route: &str) -> Option<&Bucket> {
@@ -172,6 +216,42 @@ pub fn is_send_route(route: &str) -> bool {
 
 pub fn route_key(method: &str, template: &str, major: &str) -> String {
     format!("{method} {template}::{major}")
+}
+
+/// Route identity without the major parameter (`GET /guilds/{guild.id}/channels`).
+pub fn route_template(route: &str) -> &str {
+    route.split("::").next().unwrap_or(route)
+}
+
+/// How long a waiter retries while another guild channel request is on the wire.
+const TEMPLATE_RETRY_MS: u64 = 40;
+
+/// `GET /guilds/{guild.id}/channels` is one Discord bucket until a hash arrives.
+/// Firing one request per guild on connect is what produced the 429 storm.
+fn shares_unknown_bucket(route: &str) -> bool {
+    route_template(route) == "GET /guilds/{guild.id}/channels"
+}
+
+/// Wait at least Discord's `retry_after`, then back off and add jitter.
+/// Jitter is added, never subtracted, so the client does not retry early.
+pub fn backed_off_retry_ms(retry_after_ms: u64, prior_429s: u32, jitter_ms: u64) -> u64 {
+    let base = retry_after_ms.max(200);
+    let factor = 1u64 << prior_429s.min(4);
+    let waited = base.saturating_mul(factor).min(60_000);
+    let spread = (waited / 5).max(1);
+    let jitter = jitter_ms % spread;
+    waited.saturating_add(jitter).min(60_000)
+}
+
+/// Deterministic jitter in `0..spread`. `spread <= 1` yields 0.
+pub fn jitter_ms(seed: u64, spread: u64) -> u64 {
+    if spread <= 1 {
+        return 0;
+    }
+    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed.rotate_right(17);
+    x ^= x >> 30;
+    x ^= x >> 27;
+    x % spread
 }
 
 /// Convert Discord's fractional `retry_after` seconds into milliseconds.
@@ -315,6 +395,60 @@ mod tests {
         limiter.observe_headers(&route, &headers("b", 0, 100), 0);
         assert_eq!(limiter.reserve(&route, 100), Decision::Allowed);
         assert!(matches!(limiter.acquire(&route, 100), Decision::Wait { .. }));
+    }
+
+    #[test]
+    fn guild_channel_routes_do_not_burst_before_a_bucket_is_known() {
+        let mut limiter = RateLimiter::new();
+        let a = route_key("GET", "/guilds/{guild.id}/channels", "1");
+        let b = route_key("GET", "/guilds/{guild.id}/channels", "2");
+        assert_eq!(limiter.reserve(&a, 0), Decision::Allowed);
+        assert!(matches!(
+            limiter.reserve(&b, 0),
+            Decision::Wait {
+                reason: WaitReason::Pace,
+                ..
+            }
+        ));
+        limiter.complete_attempt(&a);
+        assert_eq!(limiter.reserve(&b, 0), Decision::Allowed);
+    }
+
+    #[test]
+    fn guild_channel_429_pauses_every_guild_on_that_route() {
+        let mut limiter = RateLimiter::new();
+        let a = route_key("GET", "/guilds/{guild.id}/channels", "1");
+        let b = route_key("GET", "/guilds/{guild.id}/channels", "2");
+        limiter.observe_429(&a, 1_000, false, 0);
+        match limiter.acquire(&b, 0) {
+            Decision::Wait { delay_ms, reason } => {
+                assert_eq!(reason, WaitReason::Bucket);
+                assert_eq!(delay_ms, 1_000);
+            }
+            Decision::Allowed => panic!("expected the sibling guild to wait"),
+        }
+        assert_eq!(limiter.acquire(&b, 1_000), Decision::Allowed);
+    }
+
+    #[test]
+    fn message_gets_are_not_held_by_the_guild_channel_gate() {
+        let mut limiter = RateLimiter::new();
+        let a = route_key("GET", "/channels/{id}/messages", "1");
+        let b = route_key("GET", "/channels/{id}/messages", "2");
+        assert_eq!(limiter.reserve(&a, 0), Decision::Allowed);
+        assert_eq!(limiter.reserve(&b, 0), Decision::Allowed);
+    }
+
+    #[test]
+    fn retry_backoff_honors_retry_after_and_adds_jitter() {
+        assert_eq!(backed_off_retry_ms(1_000, 0, 0), 1_000);
+        assert!(backed_off_retry_ms(1_000, 0, 10_000) >= 1_000);
+        assert!(backed_off_retry_ms(1_000, 0, 10_000) < 1_300);
+        assert_eq!(backed_off_retry_ms(1_000, 1, 0), 2_000);
+        assert_eq!(backed_off_retry_ms(0, 0, 0), 200);
+        assert_eq!(backed_off_retry_ms(90_000, 5, 0), 60_000);
+        assert_eq!(jitter_ms(1, 0), 0);
+        assert!(jitter_ms(42, 50) < 50);
     }
 
     #[test]

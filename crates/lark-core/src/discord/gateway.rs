@@ -51,6 +51,14 @@ pub fn gateway_url() -> &'static str {
     "wss://gateway.discord.gg/?v=10&encoding=json"
 }
 
+/// Channels that arrived on the same gateway payload as the guild.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GuildChannelSnapshot {
+    pub guild_id: String,
+    pub channels: Vec<ClientChannel>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(
     tag = "kind",
@@ -66,6 +74,9 @@ pub enum ClientEvent {
         user: ClientUser,
         guilds: Vec<ClientGuild>,
         dms: Vec<ClientChannel>,
+        /// Present when READY included channel lists. Empty for unavailable guilds.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        guild_channels: Vec<GuildChannelSnapshot>,
     },
     Channels {
         guild_id: String,
@@ -842,6 +853,7 @@ fn handle_dispatch(
                         .iter()
                         .map(channel_to_client)
                         .collect(),
+                    guild_channels: guild_channel_snapshots(&ready.guilds),
                 });
                 for guild in &ready.guilds {
                     if !guild.roles.is_empty() {
@@ -1227,6 +1239,17 @@ fn handle_dispatch(
     }
 }
 
+fn guild_channel_snapshots(guilds: &[DiscordGuild]) -> Vec<GuildChannelSnapshot> {
+    guilds
+        .iter()
+        .filter(|guild| !guild.channels.is_empty())
+        .map(|guild| GuildChannelSnapshot {
+            guild_id: guild.id.clone(),
+            channels: guild.channels.iter().map(channel_to_client).collect(),
+        })
+        .collect()
+}
+
 fn emit_guild_shell(
     user_id: &str,
     guild: &DiscordGuild,
@@ -1540,7 +1563,7 @@ mod tests {
         });
         events.clear();
         handle_dispatch("READY", &ready, Some(1), &mut session, &mut |event| events.push(event));
-        assert!(events.iter().any(|event| matches!(event, ClientEvent::Ready { dms, .. } if dms.len() == 1 && dms[0].name == "Maya Chen" && dms[0].recipients.len() == 1)));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::Ready { dms, guild_channels, .. } if dms.len() == 1 && dms[0].name == "Maya Chen" && dms[0].recipients.len() == 1 && guild_channels.is_empty())));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Friends { friends } if friends.len() == 1 && friends[0].status == "online")));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Roles { roles, .. } if roles.len() == 1 && roles[0].hoist && roles[0].color.as_deref() == Some("#e2a15a"))));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::ReadState { mention_count: 1, .. })));
@@ -1780,6 +1803,13 @@ mod tests {
         let mut events = Vec::new();
         let mut session = None;
         assert!(handle_dispatch("READY", &data, Some(1), &mut session, &mut |event| events.push(event)));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::Ready { guild_channels, .. }
+                if guild_channels.len() == 1
+                    && guild_channels[0].guild_id == "100000000000000010"
+                    && guild_channels[0].channels[0].name == "general"
+        )));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Folders { folders } if folders[0].name.as_deref() == Some("Work"))));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::ReadState { mention_count: 1, .. })));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::GuildAccess { access } if access.my_roles == vec!["100000000000000099"] && access.permissions == "1024")));
