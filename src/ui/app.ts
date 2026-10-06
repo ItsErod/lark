@@ -36,11 +36,27 @@ import {
   validateThemeCss,
 } from "../themes";
 import { rowEstimate, sliceWindow } from "../virtual";
+import {
+  applyMemberOps,
+  emptyMemberList,
+  groupMembers,
+  highestIndex,
+  memberSubtitle,
+  rangesForScroll,
+  roleColor,
+  sortDms,
+  sortPeople,
+  visibleRows,
+  type MemberListState,
+  type MemberListWire,
+  type RoleInfo,
+} from "../members";
 import { memberNote, mergeGuilds, mergePeople, personFromMember, type RawMember } from "../roster";
 import { nextScrollTop, PANEL_SCROLL_SELECTOR, pixelDelta } from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
-import { clear, colorFor, el, icon, initials, portrait, paths } from "./dom";
+import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import { renderMessage } from "./messages";
+import { renderProfileCard, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 
 interface VoiceMember {
@@ -139,7 +155,16 @@ class LarkApp {
   private liveDms: Channel[] = [];
   private liveMembers: Person[] = [];
   private membersByGuild: Record<string, Person[]> = {};
+  private memberLists: Record<string, MemberListState> = {};
   private memberPhase: Record<string, "loading" | "done"> = {};
+  private memberRanges = "";
+  private memberScrollTimer = 0;
+  private peopleTimer = 0;
+  private rolesByGuild: Record<string, RoleInfo[]> = {};
+  private friends: Person[] = [];
+  private friendsOpen = false;
+  private directory: Record<string, Person> = {};
+  private wireProfile: WireProfile | null = null;
   private liveRoles: Record<string, string> = {};
   private userNames: Record<string, string> = {};
   private typingNames: { channelId: string; name: string; until: number }[] = [];
@@ -501,10 +526,11 @@ class LarkApp {
     else this.root.style.fontFamily = fontStack(appearance.font_family);
     const rail = appearance.show_server_rail ? "72px" : "0px";
     const channelW = appearance.channel_list === "hidden" ? "0px" : "240px";
-    const members = appearance.show_member_list && this.guildId && !this.narrow ? "240px" : "0px";
+    const dmSidebar = !this.guildId && !this.friendsOpen && this.currentChannelIsDm();
+    const members = appearance.show_member_list && !this.narrow && (this.guildId || dmSidebar) ? "240px" : "0px";
     this.rail.hidden = !appearance.show_server_rail;
     this.channelPane.hidden = appearance.channel_list === "hidden" && !this.drawer;
-    this.membersEl.hidden = !appearance.show_member_list || !this.guildId || this.narrow;
+    this.membersEl.hidden = members === "0px";
     if (this.stage) {
       this.stage.classList.toggle("is-split", Boolean(this.splitId) && !this.narrow);
       this.splitPane.hidden = !this.splitId || this.narrow;
@@ -908,7 +934,12 @@ class LarkApp {
   }
 
   private dms(): Channel[] {
-    return this.demo ? demoDms : this.liveDms;
+    return sortDms(this.demo ? demoDms : this.liveDms);
+  }
+
+  private currentChannelIsDm(): boolean {
+    const channel = this.currentChannel();
+    return channel?.kind === "dm" || channel?.kind === "group";
   }
 
   private channelsOf(guildId: string): Channel[] {
@@ -1000,13 +1031,22 @@ class LarkApp {
   }
 
   private selectGuild(id: string | null) {
+    const previous = this.guildId;
     this.guildId = id;
     this.drawer = false;
-    if (!this.demo && id) {
-      this.liveMembers = this.membersByGuild[id] ?? [];
-      void this.ensureGuild(id);
+    if (id === null) {
+      this.friendsOpen = true;
+      this.channelId = "";
+      this.msgSig = "";
+      if (!this.demo && previous) this.queueMemberSubscribe(previous, "", []);
+    } else {
+      this.friendsOpen = false;
+      if (!this.demo) {
+        this.liveMembers = this.membersByGuild[id] ?? [];
+        void this.ensureGuild(id);
+      }
     }
-    const first = this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
+    const first = id ? this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "announcement" || channel.kind === "forum") : undefined;
     this.paint();
     if (first) void this.openChannel(first.id);
   }
@@ -1017,13 +1057,29 @@ class LarkApp {
   }
 
   private paintChannels() {
+    const kept = this.channelPane.querySelector(".channel-scroll")?.scrollTop ?? 0;
     clear(this.channelPane);
     const head = el("div", "channel-head");
     const guild = this.guilds().find((item) => item.id === this.guildId);
     head.append(el("h1", "", guild ? guild.name : "Direct messages"));
     const scroll = el("div", "channel-scroll");
     if (!this.guildId) {
-      for (const dm of this.dms()) scroll.append(this.channelButton(dm, true));
+      const friends = el("button", `channel-row${this.friendsOpen ? " is-selected" : ""}`);
+      friends.type = "button";
+      friends.append(icon(paths.users), el("span", "row-label", "Friends"));
+      const online = this.friends.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
+      if (online) friends.append(el("span", "badge", String(online)));
+      friends.addEventListener("click", () => {
+        this.friendsOpen = true;
+        this.channelId = "";
+        this.drawer = false;
+        this.msgSig = "";
+        this.paint();
+      });
+      scroll.append(friends, el("div", "category", "Direct messages"));
+      const dms = this.dms();
+      if (!dms.length) scroll.append(el("p", "empty", "No direct messages yet."));
+      for (const dm of dms) scroll.append(this.channelButton(dm, true));
     } else {
       const list = this.channelsOf(this.guildId);
       const categories = list.filter((channel) => channel.kind === "category");
@@ -1044,11 +1100,16 @@ class LarkApp {
     who.append(el("strong", "", me.name), el("span", "", me.custom || this.connection));
     profile.append(wrap, who);
     profile.addEventListener("click", () => {
-      this.statusOpen = !this.statusOpen;
-      this.popout = this.statusOpen ? me : null;
-      this.paintPopout();
+      if (this.statusOpen && this.popout?.id === me.id) {
+        this.popout = null;
+        this.statusOpen = false;
+        this.paintPopout();
+        return;
+      }
+      this.openProfile(me, true);
     });
     this.channelPane.append(head, scroll, profile);
+    scroll.scrollTop = kept;
   }
 
   private channelButton(channel: Channel, dm: boolean): HTMLButtonElement {
@@ -1060,9 +1121,14 @@ class LarkApp {
     button.type = "button";
     if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : paths.hash));
     else {
-      const face = el("div", "avatar sm", initials(channel.name));
-      face.style.background = colorFor(channel.id);
-      button.append(face);
+      const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
+      const known = recipient ? this.directory[recipient.id] : undefined;
+      const wrap = el("div", "avatar-wrap");
+      wrap.append(
+        portrait(known?.name || recipient?.name || channel.name, recipient?.id || channel.id, known?.avatarUrl || recipient?.avatarUrl, true),
+        channel.kind === "dm" ? el("i", `status ${known?.status ?? "offline"}`) : el("i"),
+      );
+      button.append(wrap);
     }
     button.append(el("span", "row-label", channel.name));
     if (muted) button.append(el("span", "faint", "muted"));
@@ -1124,6 +1190,11 @@ class LarkApp {
     }
     this.openedAt = performance.now();
     this.msgSig = "";
+    this.friendsOpen = false;
+    if (!this.demo && this.guildId) {
+      const prefix = `${this.guildId}:${id}:`;
+      if (!this.memberRanges.startsWith(prefix)) this.queueMemberSubscribe(this.guildId, id, [[0, 99]]);
+    }
     this.paint();
     this.prefetchAround(id);
     this.syncBadge();
@@ -1177,7 +1248,8 @@ class LarkApp {
       });
       row.append(menu);
     }
-    row.append(el("h2", "", channel ? (channel.kind === "dm" || channel.kind === "group" ? channel.name : `# ${channel.name}`) : "Lark"));
+    const heading = this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? channel.name : `# ${channel.name}`) : "Lark";
+    row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
     title.append(row);
     if (channel?.topic) title.append(el("div", "topic", channel.topic));
@@ -1260,6 +1332,10 @@ class LarkApp {
   }
 
   private paintMessages() {
+    if (this.friendsOpen && !this.guildId) {
+      this.paintFriends();
+      return;
+    }
     const id = this.channelId;
     const list = id ? this.pages[id] ?? [] : [];
     const row = rowEstimate(this.config.appearance.density);
@@ -1402,56 +1478,130 @@ class LarkApp {
     return { users, roles: this.demo ? ({} as Record<string, string>) : this.liveRoles, channels: channelNames, meId: this.meId() };
   }
 
-  private paintMembers() {
-    clear(this.membersEl);
-    if (this.membersEl.hidden) return;
-    const head = el("div", "member-head");
-    head.append(el("h2", "", this.guildId ? "Members" : "People"));
-    const scroll = el("div", "member-scroll");
-    const roster = this.demo ? people : this.liveMembers;
-    const anyPresence = roster.some((person) => person.status && person.status !== "offline");
-    const groups: [string, Person["status"] | "any"][] = anyPresence
-      ? [
-          ["Online", "online"],
-          ["Idle", "idle"],
-          ["Do not disturb", "dnd"],
-          ["Offline", "offline"],
-        ]
-      : [["Members", "any"]];
-    const note = memberNote(Boolean(this.guildId), roster.length, this.guildId ? this.memberPhase[this.guildId] : undefined);
-    if (note) scroll.append(el("p", "empty", note));
-    const cap = 400;
-    let shown = 0;
-    for (const [label, status] of groups) {
-      const group = roster.filter((person) => status === "any" || (person.status ?? "offline") === status);
+  private paintFriends() {
+    const sig = `friends|${this.friends.map((person) => `${person.id}:${person.status}:${person.custom}:${person.activity}`).join(",")}`;
+    if (sig === this.msgSig) return;
+    this.msgSig = sig;
+    clear(this.messagesEl);
+    this.typingEl.textContent = "";
+    const board = el("div", "friends-board");
+    const roster = sortPeople(this.demo ? people.filter((person) => person.id !== this.meId()) : this.friends);
+    if (!roster.length) {
+      board.append(el("p", "empty", "Friends show up here once Discord sends them. Direct messages stay in the list on the left."));
+    }
+    const sections: [string, Person[]][] = [
+      ["Online", roster.filter((person) => person.status === "online")],
+      ["Idle", roster.filter((person) => person.status === "idle")],
+      ["Do not disturb", roster.filter((person) => person.status === "dnd")],
+      ["Offline", roster.filter((person) => person.status !== "online" && person.status !== "idle" && person.status !== "dnd")],
+    ];
+    for (const [label, group] of sections) {
       if (!group.length) continue;
-      const room = Math.max(0, cap - shown);
-      const visible = group.slice(0, room);
-      if (!visible.length) continue;
-      scroll.append(el("div", "member-group", `${label} — ${group.length}`));
-      shown += visible.length;
-      for (const person of visible) {
-        const row = el("div", "member-row");
+      board.append(el("h3", "member-group", `${label} — ${group.length}`));
+      for (const person of group) {
+        const row = el("button", "friend-row");
+        row.type = "button";
         const wrap = el("div", "avatar-wrap");
-        wrap.append(portrait(person.name, person.id, person.avatarUrl, true), el("i", `status ${person.status ?? "offline"}`));
+        wrap.append(portrait(person.name, person.id, person.avatarUrl, false), el("i", `status ${person.status ?? "offline"}`));
         const copy = el("div", "member-copy");
-        const line = person.custom || (person.id === this.meId() ? "You" : status === "any" ? (person.bot ? "Bot" : "") : statusLabel(person.status));
+        const line = memberSubtitle(person) || statusLabel(person.status);
         copy.append(el("strong", "", person.name), el("span", "", line));
         row.append(wrap, copy);
         row.addEventListener("click", () => {
-          this.popout = person;
-          this.statusOpen = false;
-          this.paintPopout();
+          this.openProfile(person);
         });
-        scroll.append(row);
+        row.addEventListener("dblclick", () => void this.openDm(person.id));
+        board.append(row);
       }
     }
-    if (roster.length > shown) scroll.append(el("p", "empty", `Showing ${shown} of ${roster.length} members.`));
+    this.messagesEl.append(board);
+  }
+
+  private paintMembers() {
+    const kept = this.membersEl.querySelector(".member-scroll")?.scrollTop ?? 0;
     clear(this.membersEl);
+    if (this.membersEl.hidden) return;
+    const head = el("div", "member-head");
+    const scroll = el("div", "member-scroll");
+    if (!this.guildId) {
+      head.append(el("h2", "", "In this conversation"));
+      const channel = this.currentChannel();
+      const ids = channel?.recipients?.map((item) => item.id) ?? channel?.recipientIds ?? [];
+      const peopleHere = ids.flatMap((id) => {
+        if (this.directory[id]) return [this.directory[id]];
+        const recipient = channel?.recipients?.find((item) => item.id === id);
+        return recipient ? [{ id: recipient.id, name: recipient.name, avatarUrl: recipient.avatarUrl, bot: recipient.bot, status: "offline" as const }] : [];
+      });
+      if (!peopleHere.length && channel) {
+        scroll.append(this.memberButton({ id: channel.id, name: channel.name, status: "offline" }));
+      }
+      for (const person of peopleHere) scroll.append(this.memberButton(person));
+      this.membersEl.append(head, scroll);
+      return;
+    }
+    const roles = this.rolesByGuild[this.guildId] ?? [];
+    const list = this.demo ? null : this.currentMemberList();
+    const rows = list && list.rows.size ? visibleRows(list, roles) : null;
+    const roster = this.demo ? people : this.liveMembers;
+    const sections = rows ? null : groupMembers(roster, roles);
+    const count = rows ? rows.filter((row) => row.type === "member").length : roster.length;
+    const online = list?.onlineCount || roster.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
+    const total = list?.memberCount || roster.length;
+    head.append(el("h2", "", "Members"));
+    if (total) head.append(el("p", "member-count", `${online.toLocaleString()} online · ${total.toLocaleString()} members`));
+    const waiting = Boolean(list && list.memberCount > 0 && !rows?.length);
+    const note = waiting ? "Loading members…" : memberNote(true, count, this.memberPhase[this.guildId]);
+    if (note && !rows?.length) scroll.append(el("p", "empty", note));
+    if (rows) {
+      for (const row of rows) {
+        if (row.type === "group") {
+          const label = el("div", "member-group", `${row.label} — ${row.count}`);
+          if (row.color) label.style.color = row.color;
+          scroll.append(label);
+        } else scroll.append(this.memberButton(row.person, row.color));
+      }
+      const highest = highestIndex(list);
+      if (list && list.memberCount > count && highest >= 0 && highest + 1 < list.memberCount) {
+        scroll.append(el("p", "empty", "Scroll for more."));
+      }
+    } else if (sections) {
+      for (const section of sections) {
+        const label = el("div", "member-group", `${section.label} — ${section.count}`);
+        if (section.color) label.style.color = section.color;
+        scroll.append(label);
+        for (const person of section.people) scroll.append(this.memberButton(person, roleColor(person.roleIds, roles) || person.color || null));
+      }
+    }
+    scroll.addEventListener("scroll", () => {
+      window.clearTimeout(this.memberScrollTimer);
+      this.memberScrollTimer = window.setTimeout(() => this.onMemberScroll(scroll), 120);
+    }, { passive: true });
     this.membersEl.append(head, scroll);
+    scroll.scrollTop = kept;
+  }
+
+  private memberButton(person: Person, color?: string | null): HTMLButtonElement {
+    const row = el("button", "member-row");
+    row.type = "button";
+    const wrap = el("div", "avatar-wrap");
+    wrap.append(portrait(person.name, person.id, person.avatarUrl, true), el("i", `status ${person.status ?? "offline"}`));
+    const copy = el("div", "member-copy");
+    const name = el("strong", "", person.name);
+    if (color) name.style.color = color;
+    const title = el("div", "member-name");
+    title.append(name);
+    if (person.bot) title.append(el("span", "bot-tag", "BOT"));
+    const line = memberSubtitle(person);
+    copy.append(title);
+    if (line) copy.append(el("span", "", line));
+    row.append(wrap, copy);
+    row.addEventListener("click", () => this.openProfile(person));
+    return row;
   }
 
   private paintComposer() {
+    const wrap = this.composer.closest(".composer-wrap");
+    if (wrap instanceof HTMLElement) wrap.hidden = this.friendsOpen && !this.guildId;
     const channel = this.currentChannel();
     this.composer.placeholder = channel ? `Message ${channel.kind === "text" ? "#" : ""}${channel.name}` : "Message";
     clear(this.composerBanner);
@@ -2129,7 +2279,12 @@ class LarkApp {
       return;
     }
     if (event.key === "Escape") {
-      if (this.settings) this.closeSettings();
+      if (this.popout) {
+        this.popout = null;
+        this.statusOpen = false;
+        this.wireProfile = null;
+        this.paintPopout();
+      } else if (this.settings) this.closeSettings();
       else if (this.lightbox) {
         this.lightbox = null;
         this.paintLightbox();
@@ -2260,22 +2415,16 @@ class LarkApp {
 
   private async ensureMembers(guildId: string) {
     if (this.memberPhase[guildId] !== "done") this.memberPhase[guildId] = "loading";
-    void invoke("request_members", { guildId }).catch(() => undefined);
     try {
-      const roles = await invoke<{ id: string; name: string }[]>("fetch_roles", { guildId });
-      for (const role of roles) this.liveRoles[role.id] = role.name;
+      const roles = await invoke<RoleInfo[]>("fetch_roles", { guildId });
+      this.rememberRoles(guildId, roles);
     } catch {
-      /* Role colors are optional. */
+      /* GUILD_CREATE still delivers role colors. */
     }
-    try {
-      const members = await invoke<RawMember[]>("fetch_members", { guildId });
-      const roster = members.map(personFromMember).filter((person): person is Person => Boolean(person));
-      if (roster.length) this.storeMembers(guildId, roster);
-    } catch {
-      /* User tokens are often refused on the REST member route. Gateway chunks still fill the sidebar. */
-    }
+    const channelId = this.guildId === guildId ? this.channelId : "";
+    if (channelId) this.queueMemberSubscribe(guildId, channelId, [[0, 99]]);
     window.setTimeout(() => {
-      if (this.memberPhase[guildId] === "loading" && !(this.membersByGuild[guildId]?.length)) {
+      if (this.memberPhase[guildId] === "loading" && !this.guildHasMembers(guildId)) {
         this.memberPhase[guildId] = "done";
         if (this.guildId === guildId) this.paintMembers();
       }
@@ -2283,11 +2432,223 @@ class LarkApp {
     if (this.guildId === guildId) this.paintMembers();
   }
 
+  private guildHasMembers(guildId: string): boolean {
+    if (this.membersByGuild[guildId]?.length) return true;
+    return Object.entries(this.memberLists).some(([key, list]) => key.startsWith(`${guildId}:`) && list.rows.size > 0);
+  }
+
+  private queueMemberSubscribe(guildId: string, channelId: string, ranges: [number, number][]) {
+    const key = `${guildId}:${channelId}:${ranges.map((range) => range.join("-")).join(",")}`;
+    if (key === this.memberRanges) return;
+    this.memberRanges = key;
+    void invoke("request_members", { guildId, channelId, ranges }).catch(() => undefined);
+  }
+
+  private onMemberScroll(scroll: HTMLElement) {
+    if (this.demo || !this.guildId || !this.channelId) return;
+    const list = this.currentMemberList();
+    const hint = (list?.memberCount ?? 0) + (list?.groups.length ?? 0);
+    const nearEnd = scroll.scrollTop + scroll.clientHeight > scroll.scrollHeight - 120;
+    if (!nearEnd && scroll.scrollTop < 48) return;
+    const ranges = rangesForScroll(scroll.scrollTop, scroll.clientHeight || 640, hint);
+    this.queueMemberSubscribe(this.guildId, this.channelId, ranges);
+  }
+
+  private onMemberList(guildId: string, event: MemberListWire) {
+    const listId = event.listId || this.channelId || "everyone";
+    const key = `${guildId}:${listId}`;
+    const state = this.memberLists[key] ?? emptyMemberList(listId);
+    applyMemberOps(state, { ...event, listId });
+    this.memberLists[key] = state;
+    for (const row of state.rows.values()) {
+      if (row.kind !== "member") continue;
+      this.directory[row.person.id] = row.person;
+      this.userNames[row.person.id] = row.person.name;
+    }
+    this.memberPhase[guildId] = "done";
+    if (this.guildId === guildId) this.paintMembers();
+  }
+
+  private currentMemberList(): MemberListState | null {
+    if (!this.guildId) return null;
+    const exact = this.memberLists[`${this.guildId}:${this.channelId}`];
+    if (exact?.rows.size) return exact;
+    const everyone = this.memberLists[`${this.guildId}:everyone`];
+    if (everyone?.rows.size) return everyone;
+    const prefix = `${this.guildId}:`;
+    const found = Object.entries(this.memberLists).find(([key, list]) => key.startsWith(prefix) && list.rows.size);
+    return found?.[1] ?? exact ?? everyone ?? null;
+  }
+
+  private rememberRoles(guildId: string, roles: RoleInfo[]) {
+    const prev = new Map((this.rolesByGuild[guildId] ?? []).map((role) => [role.id, role]));
+    for (const role of roles) {
+      if (!role?.id) continue;
+      prev.set(role.id, {
+        id: role.id,
+        name: role.name || "role",
+        color: role.color || null,
+        position: role.position ?? 0,
+        hoist: Boolean(role.hoist),
+      });
+      this.liveRoles[role.id] = role.name || "role";
+    }
+    this.rolesByGuild[guildId] = [...prev.values()];
+  }
+
+  private async ensureHome() {
+    try {
+      const channels = await invoke<Channel[]>("fetch_dms");
+      this.mergeDms(channels.map(normalizeChannel));
+    } catch {
+      /* READY private channels still fill the list. */
+    }
+    try {
+      const friends = await invoke<RawMember[]>("fetch_friends");
+      this.storeFriends(friends.map(personFromMember).filter((person): person is Person => Boolean(person)));
+    } catch {
+      /* Relationships on READY still fill the friends list. */
+    }
+    if (!this.guildId) this.paint();
+  }
+
+  private mergeDms(incoming: Channel[]) {
+    const byId = new Map(this.liveDms.map((channel) => [channel.id, channel]));
+    for (const channel of incoming) {
+      if (channel.kind !== "dm" && channel.kind !== "group") continue;
+      const prev = byId.get(channel.id);
+      byId.set(channel.id, prev ? {
+        ...prev,
+        ...channel,
+        recipients: channel.recipients?.length ? channel.recipients : prev.recipients,
+        recipientIds: channel.recipientIds?.length ? channel.recipientIds : prev.recipientIds,
+        lastMessageId: channel.lastMessageId || prev.lastMessageId,
+      } : channel);
+      for (const recipient of channel.recipients ?? []) {
+        const known = this.directory[recipient.id];
+        this.directory[recipient.id] = {
+          id: recipient.id,
+          name: known?.name || recipient.name,
+          bot: recipient.bot,
+          status: known?.status ?? "offline",
+          custom: known?.custom,
+          activity: known?.activity,
+          avatarUrl: recipient.avatarUrl || known?.avatarUrl || null,
+        };
+        this.userNames[recipient.id] = this.directory[recipient.id].name;
+      }
+    }
+    this.liveDms = [...byId.values()];
+  }
+
+  private storeFriends(incoming: Person[]) {
+    const byId = new Map(this.friends.map((person) => [person.id, person]));
+    for (const person of incoming) {
+      const prev = byId.get(person.id);
+      const next = prev ? {
+        ...prev,
+        ...person,
+        status: person.status || prev.status,
+        custom: person.custom || prev.custom,
+        activity: person.activity || prev.activity,
+        avatarUrl: person.avatarUrl || prev.avatarUrl,
+      } : person;
+      byId.set(person.id, next);
+      this.directory[person.id] = next;
+      this.userNames[person.id] = next.name;
+    }
+    this.friends = [...byId.values()];
+  }
+
+  private notePresence(userId: string, status: Person["status"], custom: string, activity: string) {
+    const apply = (person: Person) => {
+      person.status = status;
+      person.custom = custom;
+      person.activity = activity;
+    };
+    const known = this.directory[userId];
+    if (known) apply(known);
+    else this.directory[userId] = { id: userId, name: this.userNames[userId] || "Someone", status, custom, activity };
+    const friend = this.friends.find((person) => person.id === userId);
+    if (friend) apply(friend);
+    for (const bucket of Object.values(this.membersByGuild)) {
+      const person = bucket.find((item) => item.id === userId);
+      if (person) apply(person);
+    }
+    for (const list of Object.values(this.memberLists)) {
+      for (const row of list.rows.values()) {
+        if (row.kind === "member" && row.person.id === userId) apply(row.person);
+      }
+    }
+    if (this.me.id === userId) apply(this.me);
+  }
+
+  private schedulePeoplePaint() {
+    if (this.peopleTimer) return;
+    this.peopleTimer = window.setTimeout(() => {
+      this.peopleTimer = 0;
+      if (this.view !== "app") return;
+      this.paintMembers();
+      if (!this.guildId) this.paintChannels();
+      if (this.friendsOpen && !this.guildId) {
+        this.msgSig = "";
+        this.paintMessages();
+      }
+    }, 50);
+  }
+
+  private async openDm(userId: string) {
+    const existing = this.dms().find((channel) => channel.kind === "dm" && (channel.recipientIds?.includes(userId) || channel.recipients?.some((item) => item.id === userId)));
+    if (existing) {
+      this.friendsOpen = false;
+      void this.openChannel(existing.id);
+      return;
+    }
+    if (this.demo) return;
+    try {
+      const channel = normalizeChannel(await invoke<Channel>("open_dm", { userId }));
+      this.mergeDms([channel]);
+      this.friendsOpen = false;
+      void this.openChannel(channel.id);
+    } catch (err) {
+      this.toast("Direct message", err instanceof Error ? err.message : "Couldn't open that conversation.");
+    }
+  }
+
+  private openProfile(person: Person, statusPicker = false) {
+    this.popout = person;
+    this.statusOpen = statusPicker;
+    this.wireProfile = this.wireProfile?.id === person.id ? this.wireProfile : null;
+    this.paintPopout();
+    if (this.demo) return;
+    const userId = person.id;
+    const guildId = this.guildId;
+    void invoke<WireProfile>("fetch_profile", { userId, guildId }).then((profile) => {
+      if (this.popout?.id !== userId) return;
+      this.wireProfile = profile;
+      if (profile.avatarUrl) person.avatarUrl = profile.avatarUrl;
+      if (profile.nick) person.name = profile.nick;
+      this.paintPopout();
+    }).catch(() => undefined);
+  }
+
+  private profileRoles(person: Person): ProfileRole[] {
+    const ids = this.wireProfile?.id === person.id ? this.wireProfile.roleIds ?? person.roleIds : person.roleIds;
+    const roles = this.guildId ? this.rolesByGuild[this.guildId] ?? [] : [];
+    return roles
+      .filter((role) => ids?.includes(role.id) && role.id !== this.guildId)
+      .sort((a, b) => b.position - a.position)
+      .map((role) => ({ id: role.id, name: role.name, color: role.color || null }));
+  }
+
   private storeMembers(guildId: string, incoming: Person[]) {
     if (!incoming.length) return;
     this.membersByGuild[guildId] = mergePeople(this.membersByGuild[guildId] ?? [], incoming);
     this.memberPhase[guildId] = "done";
-    for (const person of this.membersByGuild[guildId]) this.userNames[person.id] = person.name;
+    for (const person of this.membersByGuild[guildId]) {
+      this.userNames[person.id] = person.name;
+      this.directory[person.id] = { ...this.directory[person.id], ...person, avatarUrl: person.avatarUrl || this.directory[person.id]?.avatarUrl };
+    }
     if (this.guildId === guildId) {
       this.liveMembers = this.membersByGuild[guildId];
       this.paintMembers();
@@ -2358,9 +2719,11 @@ class LarkApp {
         avatarUrl: event.user.avatarUrl,
       };
       this.userNames[this.me.id] = this.me.name;
+      this.directory[this.me.id] = this.me;
       this.liveGuilds = mergeGuilds(event.guilds ?? [], this.liveGuilds);
-      this.liveDms = (event.dms ?? []).map(normalizeChannel);
+      this.mergeDms((event.dms ?? []).map(normalizeChannel));
       this.connection = "Connected";
+      void this.ensureHome();
       if (!this.guildId || !this.liveGuilds.some((guild) => guild.id === this.guildId)) {
         this.guildId = this.liveGuilds[0]?.id ?? null;
       }
@@ -2375,6 +2738,31 @@ class LarkApp {
     } else if (event.kind === "members" && event.guildId && event.members) {
       const roster = event.members.map(personFromMember).filter((person): person is Person => Boolean(person));
       this.storeMembers(event.guildId, roster);
+    } else if (event.kind === "memberList" && event.guildId) {
+      this.onMemberList(event.guildId, event as MemberListWire);
+    } else if (event.kind === "roles" && event.guildId) {
+      this.rememberRoles(event.guildId, ((event as { roles?: RoleInfo[] }).roles ?? []));
+      if (this.guildId === event.guildId) this.paintMembers();
+    } else if (event.kind === "role" && event.guildId) {
+      const payload = event as { role?: RoleInfo; removed?: boolean };
+      if (payload.removed && payload.role?.id) {
+        this.rolesByGuild[event.guildId] = (this.rolesByGuild[event.guildId] ?? []).filter((role) => role.id !== payload.role?.id);
+        delete this.liveRoles[payload.role.id];
+      } else if (payload.role) this.rememberRoles(event.guildId, [payload.role]);
+      if (this.guildId === event.guildId) this.paintMembers();
+    } else if (event.kind === "directChannel") {
+      const payload = event as { channel?: Channel; removed?: boolean };
+      if (payload.removed && payload.channel) this.liveDms = this.liveDms.filter((channel) => channel.id !== payload.channel?.id);
+      else if (payload.channel) this.mergeDms([normalizeChannel(payload.channel)]);
+      if (!this.guildId) this.paintChannels();
+    } else if (event.kind === "friends") {
+      const friends = ((event as { friends?: RawMember[] }).friends ?? []).map(personFromMember).filter((person): person is Person => Boolean(person));
+      this.storeFriends(friends);
+      this.schedulePeoplePaint();
+    } else if (event.kind === "friendRemoved") {
+      const userId = String((event as { userId?: string }).userId ?? "");
+      this.friends = this.friends.filter((person) => person.id !== userId);
+      this.schedulePeoplePaint();
     } else if (event.kind === "channels" && event.guildId && event.channels) {
       this.liveChannels[event.guildId] = event.channels.map(normalizeChannel);
       if (event.guildId === this.guildId && !this.channelId) {
@@ -2445,16 +2833,10 @@ class LarkApp {
     } else if (event.kind === "presence" && event.userId) {
       const status = asStatus(String((event as { status?: string }).status ?? "offline"));
       const custom = String((event as { custom?: string }).custom ?? "");
-      const guildId = String((event as { guildId?: string }).guildId ?? "");
-      const buckets = guildId && this.membersByGuild[guildId] ? [this.membersByGuild[guildId]] : Object.values(this.membersByGuild);
-      for (const bucket of buckets) {
-        const person = bucket.find((item) => item.id === event.userId);
-        if (!person) continue;
-        person.status = status;
-        person.custom = custom;
-      }
+      const activity = String((event as { activity?: string }).activity ?? "");
+      this.notePresence(event.userId, status, custom, activity);
       if (this.guildId && this.membersByGuild[this.guildId]) this.liveMembers = this.membersByGuild[this.guildId];
-      this.paintMembers();
+      this.schedulePeoplePaint();
     } else if (event.kind === "readState" && event.channelId) {
       const mention = Number((event as { mentionCount?: number }).mentionCount ?? 0);
       if (event.channelId !== this.channelId) this.mentions[event.channelId] = mention;
@@ -2975,35 +3357,50 @@ class LarkApp {
       return;
     }
     if (!pop) {
-      pop = el("div", "popout");
+      pop = el("div", "profile-layer");
       pop.id = "lark-popout";
       this.root.append(pop);
     }
-    clear(pop);
     const person = this.popout;
-    pop.append(el("strong", "", person.name), el("div", "", statusLabel(person.status)), person.custom ? el("div", "hint", person.custom) : el("div"));
-    if (this.statusOpen && person.id === this.meId()) {
-      for (const status of ["online", "idle", "dnd", "invisible"] as const) {
-        const button = el("button", "text-button", status);
-        button.type = "button";
-        button.addEventListener("click", () => this.setStatus(status, person.custom ?? ""));
-        pop.append(button);
-      }
-      const custom = el("input");
-      custom.value = person.custom ?? "";
-      custom.placeholder = "Custom status";
-      custom.setAttribute("aria-label", "Custom status");
-      custom.addEventListener("change", () => this.setStatus(person.status ?? "online", custom.value));
-      pop.append(custom);
-    }
-    const close = el("button", "ghost", "Close");
-    close.type = "button";
-    close.addEventListener("click", () => {
-      this.popout = null;
-      this.statusOpen = false;
-      this.paintPopout();
+    const details = this.wireProfile?.id === person.id ? this.wireProfile : null;
+    const mutualNames = (details?.mutualGuilds ?? [])
+      .map((guild) => this.guilds().find((item) => item.id === guild.id)?.name)
+      .filter((name): name is string => Boolean(name))
+      .slice(0, 8);
+    renderProfileCard(pop, {
+      person,
+      self: person.id === this.meId(),
+      statusPicker: this.statusOpen && person.id === this.meId(),
+      roles: this.profileRoles(person),
+      details: details ? {
+        id: details.id,
+        name: details.name,
+        username: details.username,
+        avatarUrl: details.avatarUrl,
+        bannerUrl: details.bannerUrl,
+        accent: details.accent,
+        bio: details.bio ?? "",
+        pronouns: details.pronouns ?? "",
+        nick: details.nick,
+        mutualNames,
+        mutualGuilds: details.mutualGuilds?.length ?? 0,
+        mutualFriends: details.mutualFriends ?? 0,
+        joinedAt: details.joinedAt,
+      } : null,
+    }, {
+      onClose: () => {
+        this.popout = null;
+        this.statusOpen = false;
+        this.wireProfile = null;
+        this.paintPopout();
+      },
+      onMessage: person.id === this.meId() ? undefined : () => {
+        this.popout = null;
+        this.paintPopout();
+        void this.openDm(person.id);
+      },
+      onStatus: (status, custom) => this.setStatus(status, custom),
     });
-    pop.append(close);
   }
 
   private enabledPlugins(): PluginSource[] {
@@ -3599,6 +3996,8 @@ function normalizeChannel(channel: Channel): Channel {
     parentId: channel.parentId ?? null,
     topic: channel.topic ?? null,
     recipientIds: channel.recipientIds ?? [],
+    recipients: channel.recipients ?? [],
+    lastMessageId: channel.lastMessageId ?? null,
   };
 }
 

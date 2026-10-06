@@ -7,7 +7,9 @@ export interface RawMember {
   bot?: boolean;
   status?: string;
   custom?: string;
+  activity?: string;
   avatarUrl?: string | null;
+  roleIds?: string[];
 }
 
 const LIVE = new Set(["online", "idle", "dnd"]);
@@ -26,7 +28,9 @@ export function personFromMember(member: RawMember): Person | null {
     bot: Boolean(member.bot),
     status,
     custom: member.custom?.trim() || "",
+    activity: member.activity?.trim() || "",
     avatarUrl: member.avatarUrl || null,
+    roleIds: (member.roleIds ?? []).filter((id) => Boolean(id)),
   };
 }
 
@@ -47,7 +51,9 @@ export function mergePeople(current: Person[], incoming: Person[]): Person[] {
       name: person.name || prev.name,
       status: incomingLive ? person.status : previousLive ? prev.status : person.status ?? prev.status,
       custom: person.custom || prev.custom,
+      activity: person.activity || prev.activity,
       avatarUrl: person.avatarUrl || prev.avatarUrl || null,
+      roleIds: person.roleIds?.length ? person.roleIds : prev.roleIds,
     });
   }
   return [...byId.values()];

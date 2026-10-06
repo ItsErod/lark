@@ -309,10 +309,37 @@ button { cursor: pointer; }
 @keyframes shine { to { background-position: -200% 0; } }
 
 .member-group { margin: 16px 8px 4px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
-.member-row { cursor: default; }
-.member-copy { display: flex; flex-direction: column; min-width: 0; }
+.member-row { cursor: pointer; }
+.member-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.member-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .member-copy strong, .profile-chip strong, .channel-head h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.member-copy span { color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-copy > span { color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-count { margin: 2px 0 0; color: var(--faint); font-size: 12px; }
+.bot-tag { flex: none; font-size: 10px; letter-spacing: 0.04em; background: var(--accent); color: var(--accent-ink, #1a1815); border-radius: 4px; padding: 1px 4px; }
+.friend-row { width: 100%; text-align: left; border: 0; background: transparent; border-radius: 12px; display: flex; gap: 12px; align-items: center; padding: 8px 10px; color: inherit; }
+.friend-row:hover, .member-row:hover { background: var(--bg-3); }
+.friends-board { padding: 18px 20px 32px; display: flex; flex-direction: column; gap: 2px; }
+.profile-layer { position: fixed; inset: 0; z-index: 24; }
+.profile-backdrop { position: absolute; inset: 0; border: 0; background: transparent; padding: 0; }
+.profile-card {
+  position: absolute; top: 56px; right: 16px; width: min(340px, calc(100% - 32px));
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  box-shadow: var(--shadow); display: flex; flex-direction: column;
+}
+.profile-banner { height: 104px; background-size: cover; background-position: center; }
+.profile-face { margin-top: -42px; padding: 0 16px; }
+.profile-card .avatar { width: 84px; height: 84px; border-radius: 28px; font-size: 28px; box-shadow: 0 0 0 6px var(--bg-2); }
+.profile-card .avatar-wrap { width: 84px; height: 84px; }
+.profile-body { padding: 8px 16px 16px; display: grid; gap: 8px; }
+.profile-body h2 { margin: 0; font-size: 20px; }
+.profile-body h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.profile-handle, .profile-status, .profile-activity, .profile-since, .profile-section p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.profile-status-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.profile-card input { width: 100%; background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: inherit; }
+.role-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-3); border-radius: 99px; padding: 3px 8px; font-size: 12px; }
+.role-swatch { width: 10px; height: 10px; border-radius: 99px; display: inline-block; }
+.profile-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: grid; z-index: 20; }
 .overlay[hidden] { display: none; }

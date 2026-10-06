@@ -14,9 +14,10 @@ use crate::ratelimit::{
 use crate::redact::redact;
 
 use super::types::{
-    member_to_client, message_to_client, role_to_client, safe_file_name, snowflake_ok,
-    validate_outgoing, ClientChannel, ClientMember, ClientMessage, ClientRole, DiscordChannel,
-    DiscordMember, DiscordMessage, DiscordRole, DiscordUser,
+    friends_from_relationships, member_to_client, message_to_client, profile_from_value,
+    role_to_client, safe_file_name, snowflake_ok, validate_outgoing, ClientChannel, ClientMember,
+    ClientMessage, ClientProfile, ClientRole, DiscordChannel, DiscordMember, DiscordMessage,
+    DiscordRole, DiscordUser,
 };
 
 const API: &str = "https://discord.com/api/v10";
@@ -184,6 +185,77 @@ impl DiscordRest {
         let roles: Vec<DiscordRole> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read roles".into()))?;
         Ok(roles.iter().map(role_to_client).collect())
+    }
+
+    pub async fn private_channels(&self) -> Result<Vec<ClientChannel>, RestError> {
+        let value = self
+            .send_json(
+                Method::GET,
+                "GET /users/@me/channels",
+                "me",
+                "/users/@me/channels",
+                None,
+            )
+            .await?;
+        let channels: Vec<DiscordChannel> = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read direct messages".into()))?;
+        Ok(channels
+            .iter()
+            .map(super::types::channel_to_client)
+            .filter(|channel| channel.kind == "dm" || channel.kind == "group")
+            .collect())
+    }
+
+    pub async fn relationships(&self) -> Result<Vec<ClientMember>, RestError> {
+        let value = self
+            .send_json(
+                Method::GET,
+                "GET /users/@me/relationships",
+                "me",
+                "/users/@me/relationships",
+                None,
+            )
+            .await?;
+        Ok(friends_from_relationships(&value, None))
+    }
+
+    pub async fn open_dm(&self, user_id: &str) -> Result<ClientChannel, RestError> {
+        self.ensure_snowflake(user_id)?;
+        let value = self
+            .send_json(
+                Method::POST,
+                "POST /users/@me/channels",
+                "me",
+                "/users/@me/channels",
+                Some(json!({ "recipient_id": user_id })),
+            )
+            .await?;
+        let channel: DiscordChannel = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not open that conversation".into()))?;
+        Ok(super::types::channel_to_client(&channel))
+    }
+
+    pub async fn user_profile(
+        &self,
+        user_id: &str,
+        guild_id: Option<&str>,
+    ) -> Result<ClientProfile, RestError> {
+        self.ensure_snowflake(user_id)?;
+        let guild = guild_id.filter(|id| snowflake_ok(id));
+        let path = match guild {
+            Some(guild) => format!(
+                "/users/{user_id}/profile?with_mutual_guilds=true&with_mutual_friends_count=true&guild_id={guild}"
+            ),
+            None => format!(
+                "/users/{user_id}/profile?with_mutual_guilds=true&with_mutual_friends_count=true"
+            ),
+        };
+        let route = route_key("GET", "/users/{user.id}/profile", user_id);
+        let value = self
+            .send_json(Method::GET, &route, user_id, &path, None)
+            .await?;
+        profile_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not read that profile".into()))
     }
 
     pub async fn members(&self, guild_id: &str) -> Result<Vec<ClientMember>, RestError> {

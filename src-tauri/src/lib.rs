@@ -143,6 +143,10 @@ pub fn run() {
             fetch_roles,
             fetch_members,
             request_members,
+            fetch_profile,
+            fetch_dms,
+            fetch_friends,
+            open_dm,
             fetch_messages,
             send_message,
             edit_message,
@@ -450,9 +454,41 @@ async fn fetch_members(
         .map_err(|err| err.to_string())
 }
 
+fn member_ranges(raw: Option<Vec<Vec<u32>>>) -> Vec<(u32, u32)> {
+    let Some(raw) = raw else {
+        return vec![(0, 99)];
+    };
+    let mut out = Vec::new();
+    for pair in raw {
+        if out.len() == 3 {
+            break;
+        }
+        let Some(start) = pair.first().copied() else {
+            continue;
+        };
+        let Some(end) = pair.get(1).copied() else {
+            continue;
+        };
+        if end < start || end - start > 99 {
+            continue;
+        }
+        out.push((start, end));
+    }
+    out
+}
+
 #[tauri::command]
-async fn request_members(state: State<'_, Shared>, guild_id: String) -> Result<(), String> {
+async fn request_members(
+    state: State<'_, Shared>,
+    guild_id: String,
+    channel_id: Option<String>,
+    ranges: Option<Vec<Vec<u32>>>,
+) -> Result<(), String> {
     if !lark_core::discord::snowflake_ok(&guild_id) {
+        return Err("That id is not a Discord snowflake.".into());
+    }
+    let channel_id = channel_id.unwrap_or_default();
+    if !channel_id.is_empty() && !lark_core::discord::snowflake_ok(&channel_id) {
         return Err("That id is not a Discord snowflake.".into());
     }
     let gateway = state
@@ -462,8 +498,59 @@ async fn request_members(state: State<'_, Shared>, guild_id: String) -> Result<(
         .clone()
         .ok_or_else(|| "Not connected.".to_string())?;
     gateway
-        .send(lark_core::discord::GatewayCommand::RequestMembers { guild_id })
+        .send(lark_core::discord::GatewayCommand::SubscribeMembers {
+            guild_id,
+            channel_id,
+            ranges: member_ranges(ranges),
+        })
         .map_err(|_| "Gateway is closed.".to_string())
+}
+
+#[tauri::command]
+async fn fetch_profile(
+    state: State<'_, Shared>,
+    user_id: String,
+    guild_id: Option<String>,
+) -> Result<lark_core::discord::ClientProfile, String> {
+    rest(&state)
+        .await?
+        .user_profile(&user_id, guild_id.as_deref())
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_dms(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::ClientChannel>, String> {
+    rest(&state)
+        .await?
+        .private_channels()
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_friends(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::ClientMember>, String> {
+    rest(&state)
+        .await?
+        .relationships()
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn open_dm(
+    state: State<'_, Shared>,
+    user_id: String,
+) -> Result<lark_core::discord::ClientChannel, String> {
+    rest(&state)
+        .await?
+        .open_dm(&user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

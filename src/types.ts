@@ -109,8 +109,17 @@ export interface Person {
   bot?: boolean;
   status?: "online" | "idle" | "dnd" | "offline" | "invisible";
   custom?: string;
+  activity?: string;
   color?: string;
   avatarUrl?: string | null;
+  roleIds?: string[];
+}
+
+export interface ChannelRecipient {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  bot?: boolean;
 }
 
 export interface Channel {
@@ -121,6 +130,8 @@ export interface Channel {
   position: number;
   topic?: string | null;
   recipientIds?: string[];
+  recipients?: ChannelRecipient[];
+  lastMessageId?: string | null;
   unread?: number;
   mentions?: number;
 }
