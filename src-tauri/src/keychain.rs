@@ -4,13 +4,22 @@
 //! Reads and writes run on the main thread. Unsigned macOS builds cannot show
 //! the Keychain prompt from a background thread (error -25308), which made
 //! Save and connect fail in the packaged app after the token was written.
+//!
+//! `keyring` must be built with `apple-native` and `windows-native`. Without
+//! those features every `Entry::new` is an empty in-memory mock, so a save
+//! returns success and the next load reports that nothing was stored.
 
 use std::cell::Cell;
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use lark_core::credential_failure_message;
 use lark_core::credential_store_label;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use lark_core::{
+    credential_failure_message, credential_mismatch_after_save_message,
+    credential_unreadable_after_save_message,
+};
 use tauri::AppHandle;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use zeroize::Zeroize;
 
 thread_local! {
     static ON_MAIN_THREAD: Cell<bool> = const { Cell::new(false) };
@@ -78,7 +87,28 @@ fn entry() -> Result<keyring::Entry, String> {
 fn native_save(token: &str) -> Result<(), String> {
     entry()?
         .set_password(token)
-        .map_err(|err| store_error(&err))
+        .map_err(|err| store_error(&err))?;
+    // Load through a new entry, the same way the next launch does. A mock
+    // store keeps the secret only on the entry that wrote it.
+    let mut loaded = match entry()?.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => {
+            return Err(credential_unreadable_after_save_message(&store_label()));
+        }
+        Err(err) => {
+            return Err(format!(
+                "Couldn't read the token back after saving it. {}",
+                store_error(&err)
+            ));
+        }
+    };
+    let matches = loaded == token;
+    loaded.zeroize();
+    if matches {
+        Ok(())
+    } else {
+        Err(credential_mismatch_after_save_message(&store_label()))
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

@@ -36,6 +36,14 @@ describe("sign-in screen", () => {
   });
 });
 
+describe("credential store dependency", () => {
+  it("builds keyring with the real macOS and Windows stores", () => {
+    const manifest = readFileSync("src-tauri/Cargo.toml", "utf8");
+    expect(manifest).toContain('features = ["apple-native", "windows-native"]');
+    expect(manifest).not.toMatch(/^keyring = "3"$/m);
+  });
+});
+
 describe("production CSP", () => {
   it("is an object so Tauri can nonce the IPC script", () => {
     const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")) as {
