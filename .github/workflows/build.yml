@@ -80,6 +80,12 @@ jobs:
           echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install frontend dependencies
         run: npm ci
+      - name: Set the installer version from the tag
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+        shell: bash
+        env:
+          LARK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+        run: node .github/scripts/set-release-version.mjs
       - name: Build
         if: github.ref_type != 'tag' && (github.event_name != 'workflow_dispatch' || inputs.tag == '')
         uses: tauri-apps/tauri-action@v0

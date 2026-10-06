@@ -766,6 +766,7 @@ class LarkApp {
       return;
     }
     if (payload.detail) {
+      this.tokenNote = "";
       this.signInBusy = payload.detail;
       this.paintGate();
     }
