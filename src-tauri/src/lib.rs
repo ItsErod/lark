@@ -4,6 +4,7 @@ mod login;
 mod paths;
 mod refresh;
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
@@ -31,6 +32,8 @@ struct Shared {
     voice: Arc<std::sync::Mutex<VoiceSlot>>,
     voice_stop: Mutex<Option<watch::Sender<bool>>>,
     speaking: watch::Sender<bool>,
+    voice_audio: watch::Sender<lark_core::discord::voice_media::VoiceAudio>,
+    voice_volumes: Arc<std::sync::Mutex<HashMap<String, f32>>>,
     screen_stop: Mutex<Option<watch::Sender<bool>>>,
     screen_dirty: Arc<AtomicBool>,
     hide_on_close: Arc<AtomicBool>,
@@ -75,6 +78,7 @@ pub fn run() {
             });
             let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
             let (speaking, _) = watch::channel(false);
+            let (voice_audio, _) = watch::channel(lark_core::discord::voice_media::VoiceAudio::default());
             let shared = Shared {
                 config: Mutex::new(config),
                 paths: Resolved {
@@ -96,6 +100,8 @@ pub fn run() {
                 })),
                 voice_stop: Mutex::new(None),
                 speaking,
+                voice_audio,
+                voice_volumes: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 screen_stop: Mutex::new(None),
                 screen_dirty: Arc::new(AtomicBool::new(false)),
                 hide_on_close: hide_on_close.clone(),
@@ -162,6 +168,10 @@ pub fn run() {
             join_voice,
             leave_voice,
             set_voice_self,
+            set_voice_transmit,
+            set_voice_audio,
+            set_voice_volume,
+            list_audio_devices,
             set_presence,
             ack_message,
             fetch_pins,
@@ -380,12 +390,12 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
                         "token": ""
                     }))
                 }
-                ClientEvent::VoiceState { user_id, session_id, guild_id, .. } => {
+                ClientEvent::VoiceState(state) => {
                     if let Ok(mut slot) = voice_slot.lock() {
-                        if slot.user_id == *user_id && !session_id.is_empty() {
-                            slot.session_id = session_id.clone();
-                            if !guild_id.is_empty() {
-                                slot.guild_id = guild_id.clone();
+                        if slot.user_id == state.user_id && !state.session_id.is_empty() {
+                            slot.session_id = state.session_id.clone();
+                            if !state.guild_id.is_empty() {
+                                slot.guild_id = state.guild_id.clone();
                             }
                         }
                     }
@@ -864,6 +874,12 @@ async fn join_voice(
     channel_id: String,
     mute: bool,
     deaf: bool,
+    epoch: u64,
+    vad: bool,
+    sensitivity: u8,
+    noise_suppression: bool,
+    input_device: String,
+    output_device: String,
 ) -> Result<(), String> {
     stop_voice(&state).await;
     let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
@@ -887,22 +903,40 @@ async fn join_voice(
         .map_err(|_| "Gateway is closed.".to_string())?;
     let (tx, rx) = watch::channel(false);
     *state.voice_stop.lock().await = Some(tx);
+    let _ = state.speaking.send(!mute && vad);
+    let _ = state.voice_audio.send(lark_core::discord::voice_media::VoiceAudio {
+        deafened: deaf,
+        vad,
+        sensitivity: sensitivity.min(100),
+        noise_suppression,
+        input_device,
+        output_device,
+    });
     let speaking = state.speaking.subscribe();
+    let audio = state.voice_audio.subscribe();
+    let volumes = state.voice_volumes.clone();
     let slot = state.voice.clone();
     let server_id = guild_id.unwrap_or(channel_id);
     tauri::async_runtime::spawn(async move {
-        let ready = wait_for_voice(&slot, &server_id).await;
-        let Ok(hello) = ready else {
-            let _ = app.emit("discord", serde_json::json!({"kind": "voiceLink", "state": "reconnecting", "detail": "Voice server did not answer"}));
+        let ready = wait_for_voice(&slot, &server_id, &rx).await;
+        if *rx.borrow() {
+            return;
+        }
+        let Ok(mut hello) = ready else {
+            let _ = app.emit(
+                "discord",
+                serde_json::json!({"kind": "voiceLink", "state": "reconnecting", "detail": "Voice server did not answer", "epoch": epoch}),
+            );
             return;
         };
-        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, move |event| {
+        hello.epoch = epoch;
+        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, audio, volumes, move |event| {
             let payload = match event {
-                lark_core::discord::voice_link::VoiceLinkEvent::Status { state, detail } => {
-                    serde_json::json!({"kind": "voiceLink", "state": state, "detail": detail})
+                lark_core::discord::voice_link::VoiceLinkEvent::Status { state, detail, epoch } => {
+                    serde_json::json!({"kind": "voiceLink", "state": state, "detail": detail, "epoch": epoch})
                 }
-                lark_core::discord::voice_link::VoiceLinkEvent::Speaking { user_id, speaking } => {
-                    serde_json::json!({"kind": "voiceSpeaking", "userId": user_id, "speaking": speaking})
+                lark_core::discord::voice_link::VoiceLinkEvent::Speaking { user_id, speaking, epoch } => {
+                    serde_json::json!({"kind": "voiceSpeaking", "userId": user_id, "speaking": speaking, "epoch": epoch})
                 }
             };
             let _ = app.emit("discord", payload);
@@ -912,8 +946,15 @@ async fn join_voice(
     Ok(())
 }
 
-async fn wait_for_voice(slot: &Arc<std::sync::Mutex<VoiceSlot>>, server_id: &str) -> Result<lark_core::discord::voice_link::VoiceHello, ()> {
+async fn wait_for_voice(
+    slot: &Arc<std::sync::Mutex<VoiceSlot>>,
+    server_id: &str,
+    cancel: &watch::Receiver<bool>,
+) -> Result<lark_core::discord::voice_link::VoiceHello, ()> {
     for _ in 0..40 {
+        if *cancel.borrow() {
+            return Err(());
+        }
         if let Ok(guard) = slot.lock() {
             if !guard.endpoint.is_empty() && !guard.token.is_empty() && !guard.session_id.is_empty() && !guard.user_id.is_empty() {
                 return Ok(lark_core::discord::voice_link::VoiceHello {
@@ -922,6 +963,7 @@ async fn wait_for_voice(slot: &Arc<std::sync::Mutex<VoiceSlot>>, server_id: &str
                     user_id: guard.user_id.clone(),
                     session_id: guard.session_id.clone(),
                     token: guard.token.clone(),
+                    epoch: 0,
                 });
             }
         }
@@ -952,7 +994,12 @@ async fn leave_voice(state: State<'_, Shared>) -> Result<(), String> {
 
 #[tauri::command]
 async fn set_voice_self(state: State<'_, Shared>, mute: bool, deaf: bool) -> Result<(), String> {
-    let _ = state.speaking.send(!mute);
+    if mute {
+        let _ = state.speaking.send(false);
+    }
+    let mut audio = state.voice_audio.borrow().clone();
+    audio.deafened = deaf;
+    let _ = state.voice_audio.send(audio);
     let (guild_id, channel_id) = {
         let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
         (
@@ -969,6 +1016,48 @@ async fn set_voice_self(state: State<'_, Shared>, mute: bool, deaf: bool) -> Res
         });
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn set_voice_transmit(state: State<'_, Shared>, transmit: bool) -> Result<(), String> {
+    let _ = state.speaking.send(transmit);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_voice_audio(
+    state: State<'_, Shared>,
+    deafened: bool,
+    vad: bool,
+    sensitivity: u8,
+    noise_suppression: bool,
+    input_device: String,
+    output_device: String,
+) -> Result<(), String> {
+    let _ = state.voice_audio.send(lark_core::discord::voice_media::VoiceAudio {
+        deafened,
+        vad,
+        sensitivity: sensitivity.min(100),
+        noise_suppression,
+        input_device,
+        output_device,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_voice_volume(state: State<'_, Shared>, user_id: String, volume: u16) -> Result<(), String> {
+    let gain = (volume as f32 / 100.0).clamp(0.0, 2.0);
+    if let Ok(mut volumes) = state.voice_volumes.lock() {
+        volumes.insert(user_id, gain);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn list_audio_devices() -> serde_json::Value {
+    let (inputs, outputs) = lark_core::discord::voice_io::list_input_output();
+    serde_json::json!({ "inputs": inputs, "outputs": outputs })
 }
 
 #[tauri::command]

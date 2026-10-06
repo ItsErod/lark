@@ -82,6 +82,7 @@ import {
   shouldLoadOlder,
 } from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
+import { applyVoiceState, participantsIn, replaceGuildVoice, setSpeaking, setVolume, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import { renderMessage } from "./messages";
 import { renderProfileCard, type ProfileRole, type WireProfile } from "./profile";
@@ -92,6 +93,11 @@ interface VoiceMember {
   name: string;
   speaking: boolean;
   volume: number;
+  avatarUrl?: string | null;
+  selfMute?: boolean;
+  selfDeaf?: boolean;
+  serverMute?: boolean;
+  serverDeaf?: boolean;
 }
 
 interface VoiceSession {
@@ -99,6 +105,7 @@ interface VoiceSession {
   guildId: string | null;
   name: string;
   status: "connecting" | "connected" | "reconnecting";
+  detail?: string;
   muted: boolean;
   deafened: boolean;
   members: VoiceMember[];
@@ -239,6 +246,10 @@ class LarkApp {
   private countEl: HTMLElement | null = null;
   private splitId: string | null = null;
   private voice: VoiceSession | null = null;
+  private voiceRoster: VoiceRoster = {};
+  private voiceEpoch = 0;
+  private cpalInputs: string[] = [];
+  private cpalOutputs: string[] = [];
   private shareOn = false;
   private shareMotion = false;
   private pttHeld = false;
@@ -626,8 +637,19 @@ class LarkApp {
       roles: [{ id: NORTHWIND, permissions: "1024" }],
       myRoles: [],
     };
+    this.seedDemoVoice();
     this.paint();
     void this.openChannel(CRIT);
+  }
+
+  private seedDemoVoice() {
+    const channelId = demoChannels[NORTHWIND].find((channel) => channel.kind === "voice")?.id;
+    if (!channelId) return;
+    replaceGuildVoice(this.voiceRoster, NORTHWIND, [
+      { guildId: NORTHWIND, channelId, userId: booth[0].id, name: booth[0].name },
+      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true },
+    ]);
+    setSpeaking(this.voiceRoster, booth[0].id, true);
   }
 
   private paint() {
@@ -1307,7 +1329,7 @@ class LarkApp {
       const categoryIds = new Set(categories.map((category) => category.id));
       const loose = list.filter((channel) => channel.kind !== "category" && channel.kind !== "thread" && (!channel.parentId || !categoryIds.has(channel.parentId)));
       const appendChannel = (channel: Channel) => {
-        scroll.append(this.channelButton(channel, false));
+        scroll.append(this.channelBlock(channel));
         for (const thread of threads.filter((item) => item.parentId === channel.id)) scroll.append(this.channelButton(thread, false));
       };
       for (const channel of loose) appendChannel(channel);
@@ -1341,8 +1363,54 @@ class LarkApp {
       }
       this.openProfile(me, true);
     });
-    this.channelPane.append(head, scroll, profile);
+    const panel = this.voice ? this.voicePanel() : null;
+    if (panel) this.channelPane.append(head, scroll, panel, profile);
+    else this.channelPane.append(head, scroll, profile);
     scroll.scrollTop = kept;
+  }
+
+  private channelBlock(channel: Channel): HTMLElement {
+    const button = this.channelButton(channel, false);
+    if (channel.kind !== "voice" || !this.guildId) return button;
+    const people = participantsIn(this.voiceRoster, this.guildId, channel.id);
+    if (!people.length) return button;
+    const block = el("div", "voice-block has-people");
+    block.append(button);
+    const roster = el("div", "voice-roster");
+    for (const person of people) roster.append(this.voiceUserRow(person));
+    block.append(roster);
+    return block;
+  }
+
+  private voiceUserRow(person: VoiceParticipant): HTMLElement {
+    const row = el("div", `voice-user${person.speaking ? " is-speaking" : ""}`);
+    row.dataset.voiceUser = person.userId;
+    row.append(portrait(person.name, person.userId, person.avatarUrl, true));
+    row.append(el("span", "voice-user-name", person.name));
+    const flags = el("span", "voice-flags");
+    if (person.selfDeaf || person.serverDeaf) flags.append(icon(paths.headphonesOff));
+    if (person.selfMute || person.serverMute || person.selfDeaf || person.serverDeaf) flags.append(icon(paths.micOff));
+    if (flags.childElementCount) row.append(flags);
+    return row;
+  }
+
+  private voicePanel(): HTMLElement {
+    const session = this.voice;
+    const panel = el("section", "voice-panel");
+    panel.setAttribute("aria-label", "Voice controls");
+    const copy = el("div", "voice-panel-copy");
+    copy.append(
+      el("span", `voice-state is-${session?.status ?? "connecting"}`, voiceStatusLabel(session?.status ?? "connecting")),
+      el("strong", "", session?.name ?? "Voice"),
+    );
+    const detail = session?.detail?.trim();
+    if (detail) copy.append(el("span", "voice-detail", detail));
+    const actions = el("div", "voice-panel-actions");
+    actions.append(this.iconButton("Disconnect", paths.hangup, () => this.leaveVoice(), false));
+    actions.append(this.iconButton(session?.muted ? "Unmute" : "Mute", session?.muted ? paths.micOff : paths.mic, () => this.toggleMute(), Boolean(session?.muted)));
+    actions.append(this.iconButton(session?.deafened ? "Undeafen" : "Deafen", session?.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session?.deafened)));
+    panel.append(copy, actions);
+    return panel;
   }
 
   private channelButton(channel: Channel, dm: boolean): HTMLButtonElement {
@@ -2545,9 +2613,12 @@ class LarkApp {
       }));
     } else if (this.section === "voice") {
       wrap.append(el("h2", "", "Voice & Video"), el("p", "lede", "Push to talk, voice activity, and a cheap noise gate. Echo cancellation stays off; it needs a heavy audio processor."));
+      void this.loadAudioDevices();
       wrap.append(this.choice(["vad", "ptt"], this.config.voice.mode, (value) => {
         this.config.voice.mode = value === "ptt" ? "ptt" : "vad";
         this.persist();
+        this.refreshSpeaking();
+        this.pushTransmit();
       }));
       const sense = el("input");
       sense.type = "range";
@@ -2557,21 +2628,25 @@ class LarkApp {
       sense.addEventListener("input", () => {
         this.config.voice.sensitivity = Number(sense.value);
         this.persist();
+        this.pushVoiceAudio();
       });
       wrap.append(el("div", "hint", "Voice activity sensitivity"), sense);
       wrap.append(this.toggle("Noise suppression", this.config.voice.noise_suppression, (value) => {
         this.config.voice.noise_suppression = value;
         this.persist();
+        this.pushVoiceAudio();
       }));
       wrap.append(el("h3", "", "Devices"));
       wrap.append(el("p", "lede", "Lark stores the device you pick. Voice uses these ids when it opens the microphone."));
-      wrap.append(this.devicePicker("Input", this.config.voice.input_device, this.audioInputs, (value) => {
+      wrap.append(this.devicePicker("Input", this.config.voice.input_device, this.captureDevices(), (value) => {
         this.config.voice.input_device = value;
         this.persist();
+        this.pushVoiceAudio();
       }));
-      wrap.append(this.devicePicker("Output", this.config.voice.output_device, this.audioOutputs, (value) => {
+      wrap.append(this.devicePicker("Output", this.config.voice.output_device, this.playbackDevices(), (value) => {
         this.config.voice.output_device = value;
         this.persist();
+        this.pushVoiceAudio();
       }));
       wrap.append(this.devicePicker("Camera", this.config.voice.video_device, this.videoInputs, (value) => {
         this.config.voice.video_device = value;
@@ -2910,6 +2985,7 @@ class LarkApp {
       event.preventDefault();
       this.pttHeld = true;
       this.refreshSpeaking();
+      this.pushTransmit();
     }
     else if (target === this.composer && matchShortcut(event, shortcuts.edit_last, os) && !this.composer.value) {
       event.preventDefault();
@@ -3316,6 +3392,8 @@ class LarkApp {
         void invoke("stop_qr_login").catch(() => undefined);
         void invoke("cancel_browser_login").catch(() => undefined);
       }
+      this.voiceRoster = {};
+      this.voice = null;
       this.me = {
         id: event.user.id,
         name: event.user.name,
@@ -3580,24 +3658,40 @@ class LarkApp {
       this.syncBadge();
       this.paintChannels();
       this.paintRail();
-    } else if (event.kind === "voiceState") {
-      const userId = event.userId ?? "";
-      const channelId = String((event as { channelId?: string }).channelId ?? "");
-      if (this.voice && userId && userId !== this.meId()) {
-        const existing = this.voice.members.find((member) => member.id === userId);
-        if (channelId && channelId === this.voice.channelId && !existing) {
-          this.voice.members.push({ id: userId, name: this.userNames[userId] ?? "Someone", speaking: false, volume: 100 });
-        }
-        if (existing && !channelId) this.voice.members = this.voice.members.filter((member) => member.id !== userId);
-        this.paintVoice();
-      }
-    } else if (event.kind === "voiceLink" ) {
+    } else if (event.kind === "voiceStates" && event.guildId) {
+      const states = ((event as { states?: VoiceStateInput[] }).states ?? []).map((state) => this.hydrateVoice(state, event.guildId ?? ""));
+      replaceGuildVoice(this.voiceRoster, event.guildId, states);
+      this.syncCallMembers();
+      this.paintChannels();
+      this.paintVoice();
+    } else if (event.kind === "voiceState" && event.userId) {
+      const raw = event as VoiceStateInput;
+      const state = this.hydrateVoice({ ...raw, guildId: String(raw.guildId ?? event.guildId ?? ""), userId: event.userId }, String(raw.guildId ?? ""));
+      applyVoiceState(this.voiceRoster, state);
+      if (state.name && state.name !== "Someone") this.userNames[state.userId] = state.name;
+      this.syncCallMembers();
+      this.paintChannels();
+      this.paintVoice();
+    } else if (event.kind === "voiceSpeaking" && event.userId) {
+      const epoch = Number((event as { epoch?: number }).epoch ?? 0);
+      if (epoch && epoch !== this.voiceEpoch) return;
+      this.markSpeaking(event.userId, Boolean((event as { speaking?: boolean }).speaking));
+    } else if (event.kind === "voiceLink") {
+      const epoch = Number((event as { epoch?: number }).epoch ?? 0);
+      if (epoch && epoch !== this.voiceEpoch) return;
       const state = String((event as { state?: string }).state ?? "");
+      const detail = String((event as { detail?: string }).detail ?? "");
       if (this.voice && (state === "connected" || state === "connecting" || state === "reconnecting")) {
-        this.voice.status = state;
+        this.voice.status = state as VoiceSession["status"];
+        this.voice.detail = friendlyVoiceDetail(detail);
         this.paintVoice();
+        this.paintChannels();
       }
-      if (state === "left") this.voice = null;
+      if (state === "left" && epoch === this.voiceEpoch) {
+        this.voice = null;
+        this.paintVoice();
+        this.paintChannels();
+      }
     } else if (event.kind === "typing" && event.channelId && event.userId !== this.meId()) {
       const name = event.username || this.userNames[event.userId ?? ""] || "Someone";
       this.typingNames = this.typingNames.filter((item) => item.channelId !== event.channelId || item.name !== name);
@@ -3613,6 +3707,7 @@ class LarkApp {
     if (matchShortcut(event, this.config.shortcuts.push_to_talk, this.platform.os)) {
       this.pttHeld = false;
       this.refreshSpeaking();
+      this.pushTransmit();
     }
   }
 
@@ -3662,10 +3757,15 @@ class LarkApp {
   }
 
   private joinVoice(channel: Channel) {
-    const self: VoiceMember = { id: this.meId(), name: this.demo ? "Ethan Park" : this.me.name, speaking: false, volume: 100 };
-    const others: VoiceMember[] = this.demo
-      ? booth.map((person) => ({ ...person, volume: this.volumes(person.id) }))
-      : [];
+    this.voiceEpoch += 1;
+    const epoch = this.voiceEpoch;
+    applyVoiceState(this.voiceRoster, {
+      guildId: this.guildId ?? "",
+      channelId: channel.id,
+      userId: this.meId(),
+      name: this.demo ? "Ethan Park" : this.me.name,
+      avatarUrl: this.me.avatarUrl ?? null,
+    });
     this.voice = {
       channelId: channel.id,
       guildId: this.guildId,
@@ -3673,63 +3773,211 @@ class LarkApp {
       status: "connecting",
       muted: false,
       deafened: false,
-      members: [self, ...others],
+      members: [],
     };
+    this.syncCallMembers();
+    this.paintChannels();
     this.paintVoice();
-    window.setTimeout(() => {
-      if (!this.voice || this.voice.channelId !== channel.id) return;
-      this.voice.status = "connected";
-      this.refreshSpeaking();
-      this.paintVoice();
-    }, 180);
-    if (!this.demo) {
-      void invoke("join_voice", { guildId: this.guildId, channelId: channel.id, mute: false, deaf: false }).catch((err) => {
-        this.toast("Voice", err instanceof Error ? err.message : "Couldn't join.");
-      });
+    if (this.demo) {
+      window.setTimeout(() => {
+        if (!this.voice || this.voice.channelId !== channel.id) return;
+        this.voice.status = "connected";
+        this.refreshSpeaking();
+        this.paintChannels();
+        this.paintVoice();
+      }, 180);
+      return;
     }
-  }
-
-  private volumes(id: string): number {
-    return this.voice?.members.find((member) => member.id === id)?.volume ?? 100;
+    void invoke("join_voice", {
+      guildId: this.guildId,
+      channelId: channel.id,
+      mute: false,
+      deaf: false,
+      epoch,
+      vad: this.config.voice.mode === "vad",
+      sensitivity: this.config.voice.sensitivity,
+      noiseSuppression: this.config.voice.noise_suppression,
+      inputDevice: this.config.voice.input_device,
+      outputDevice: this.config.voice.output_device,
+    }).catch((err) => {
+      this.toast("Voice", err instanceof Error ? err.message : "Couldn't join.");
+      this.leaveVoice();
+    });
+    void this.loadAudioDevices();
   }
 
   private leaveVoice() {
+    const guildId = this.voice?.guildId ?? "";
+    if (this.voice) applyVoiceState(this.voiceRoster, { guildId, channelId: "", userId: this.meId() });
     this.voice = null;
     this.shareOn = false;
     this.pttHeld = false;
     if (!this.demo) void invoke("leave_voice").catch(() => undefined);
     this.paintVoice();
+    this.paintChannels();
   }
 
   private toggleMute() {
     if (!this.voice) return;
     this.voice.muted = !this.voice.muted;
-    if (this.voice.muted) this.voice.deafened = false;
+    if (!this.voice.muted) this.voice.deafened = false;
+    this.mirrorSelfFlags();
     this.refreshSpeaking();
     this.pushVoiceState();
+    this.pushTransmit();
     this.paintVoice();
+    this.paintChannels();
   }
 
   private toggleDeafen() {
     if (!this.voice) return;
     this.voice.deafened = !this.voice.deafened;
-    if (this.voice.deafened) this.voice.muted = true;
+    this.voice.muted = this.voice.deafened;
+    this.mirrorSelfFlags();
     this.refreshSpeaking();
     this.pushVoiceState();
+    this.pushTransmit();
     this.paintVoice();
+    this.paintChannels();
   }
 
   private pushVoiceState() {
     if (!this.voice || this.demo) return;
     void invoke("set_voice_self", { mute: this.voice.muted, deaf: this.voice.deafened }).catch(() => undefined);
+    this.pushVoiceAudio();
+  }
+
+  private pushTransmit() {
+    if (!this.voice || this.demo) return;
+    const transmit = !this.voice.muted && (this.config.voice.mode === "ptt" ? this.pttHeld : true);
+    void invoke("set_voice_transmit", { transmit }).catch(() => undefined);
+  }
+
+  private pushVoiceAudio() {
+    if (!this.voice || this.demo) return;
+    void invoke("set_voice_audio", {
+      deafened: this.voice.deafened,
+      vad: this.config.voice.mode === "vad",
+      sensitivity: this.config.voice.sensitivity,
+      noiseSuppression: this.config.voice.noise_suppression,
+      inputDevice: this.config.voice.input_device,
+      outputDevice: this.config.voice.output_device,
+    }).catch(() => undefined);
   }
 
   private refreshSpeaking() {
     if (!this.voice) return;
-    const self = this.voice.members[0];
+    const self = this.voice.members.find((member) => member.id === this.meId());
     if (!self) return;
-    const vad = this.config.voice.mode === "vad" && this.config.voice.sensitivity > 5;
-    self.speaking = !this.voice.muted && (this.config.voice.mode === "ptt" ? this.pttHeld : vad);
+    if (this.demo) {
+      const vad = this.config.voice.mode === "vad" && this.config.voice.sensitivity > 5;
+      const speaking = !this.voice.muted && (this.config.voice.mode === "ptt" ? this.pttHeld : vad);
+      self.speaking = speaking;
+      setSpeaking(this.voiceRoster, self.id, speaking);
+      return;
+    }
+    if (this.voice.muted || (this.config.voice.mode === "ptt" && !this.pttHeld)) {
+      self.speaking = false;
+      setSpeaking(this.voiceRoster, self.id, false);
+    }
+  }
+
+  private mirrorSelfFlags() {
+    if (!this.voice) return;
+    applyVoiceState(this.voiceRoster, {
+      guildId: this.voice.guildId ?? "",
+      channelId: this.voice.channelId,
+      userId: this.meId(),
+      name: this.me.name,
+      avatarUrl: this.me.avatarUrl ?? null,
+      selfMute: this.voice.muted,
+      selfDeaf: this.voice.deafened,
+    });
+  }
+
+  private syncCallMembers() {
+    if (!this.voice) return;
+    const people = participantsIn(this.voiceRoster, this.voice.guildId ?? "", this.voice.channelId);
+    const volumes = new Map(this.voice.members.map((member) => [member.id, member.volume]));
+    this.voice.members = people.map((person) => ({
+      id: person.userId,
+      name: person.name,
+      speaking: person.speaking,
+      volume: volumes.get(person.userId) ?? person.volume,
+      avatarUrl: person.avatarUrl,
+      selfMute: person.selfMute,
+      selfDeaf: person.selfDeaf,
+      serverMute: person.serverMute,
+      serverDeaf: person.serverDeaf,
+    }));
+  }
+
+  private markSpeaking(userId: string, speaking: boolean) {
+    const known = Object.values(this.voiceRoster).some((person) => person.userId === userId);
+    if (!known && this.voice) {
+      const person = this.knownPerson(userId);
+      applyVoiceState(this.voiceRoster, {
+        guildId: this.voice.guildId ?? "",
+        channelId: this.voice.channelId,
+        userId,
+        name: person?.name ?? "Someone",
+        avatarUrl: person?.avatarUrl ?? null,
+      });
+      this.syncCallMembers();
+      this.paintChannels();
+      this.paintVoice();
+    }
+    setSpeaking(this.voiceRoster, userId, speaking);
+    const member = this.voice?.members.find((item) => item.id === userId);
+    if (member) member.speaking = speaking;
+    const selector = `[data-voice-user="${CSS.escape(userId)}"]`;
+    for (const node of this.root.querySelectorAll(selector)) node.classList.toggle("is-speaking", speaking);
+  }
+
+  private hydrateVoice(state: VoiceStateInput, fallbackGuild: string): VoiceStateInput {
+    const known = state.userId ? this.knownPerson(state.userId) : null;
+    return {
+      guildId: state.guildId || fallbackGuild,
+      channelId: state.channelId ?? "",
+      userId: state.userId,
+      name: state.name || known?.name || "",
+      avatarUrl: state.avatarUrl ?? known?.avatarUrl ?? null,
+      selfMute: Boolean(state.selfMute),
+      selfDeaf: Boolean(state.selfDeaf),
+      serverMute: Boolean(state.serverMute),
+      serverDeaf: Boolean(state.serverDeaf),
+    };
+  }
+
+  private knownPerson(id: string): { name: string; avatarUrl: string | null } | null {
+    if (id === this.me.id || (this.demo && id === this.meId())) {
+      const person = this.demo ? people.find((item) => item.id === id) : this.me;
+      if (person) return { name: person.name, avatarUrl: person.avatarUrl ?? null };
+    }
+    if (this.demo) {
+      const person = people.find((item) => item.id === id);
+      if (person) return { name: person.name, avatarUrl: person.avatarUrl ?? null };
+    }
+    for (const bucket of Object.values(this.membersByGuild)) {
+      const person = bucket.find((item) => item.id === id);
+      if (person) return { name: person.name, avatarUrl: person.avatarUrl ?? null };
+    }
+    const name = this.userNames[id];
+    return name ? { name, avatarUrl: null } : null;
+  }
+
+  private async loadAudioDevices() {
+    if (this.demo || !isTauri()) return;
+    try {
+      const listed = await invoke<{ inputs: string[]; outputs: string[] }>("list_audio_devices");
+      this.cpalInputs = listed.inputs ?? [];
+      this.cpalOutputs = listed.outputs ?? [];
+      if (this.voice) this.paintVoice();
+      if (this.settings && this.section === "voice") this.renderSettings();
+    } catch {
+      this.cpalInputs = [];
+      this.cpalOutputs = [];
+    }
   }
 
   private toggleSplit() {
@@ -3828,19 +4076,26 @@ class LarkApp {
     sense.append(range);
     dock.append(sense);
     const devices = el("div", "voice-devices");
-    devices.append(this.deviceSelect("Microphone", ["Default microphone", "Studio USB", "Built-in"], this.config.voice.input_device, (value) => {
-      this.config.voice.input_device = value;
+    devices.append(this.deviceSelect("Microphone", this.deviceChoices(this.cpalInputs, this.config.voice.input_device), this.deviceValue(this.config.voice.input_device), (value) => {
+      this.config.voice.input_device = value === "Default" ? "" : value;
       this.persist();
+      this.pushVoiceAudio();
     }));
-    devices.append(this.deviceSelect("Speakers", ["Default speakers", "Headphones"], this.config.voice.output_device, (value) => {
-      this.config.voice.output_device = value;
+    devices.append(this.deviceSelect("Speakers", this.deviceChoices(this.cpalOutputs, this.config.voice.output_device), this.deviceValue(this.config.voice.output_device), (value) => {
+      this.config.voice.output_device = value === "Default" ? "" : value;
       this.persist();
+      this.pushVoiceAudio();
     }));
     dock.append(devices);
     const peopleEl = el("div", "voice-people");
     for (const member of this.voice.members) {
       const row = el("div", `voice-person${member.speaking ? " is-speaking" : ""}`);
-      row.append(el("span", "speaking-dot", member.speaking ? "Speaking" : "Quiet"), el("strong", "", member.name));
+      row.dataset.voiceUser = member.id;
+      row.append(portrait(member.name, member.id, member.avatarUrl, true), el("strong", "", member.name));
+      const flags = el("span", "voice-flags");
+      if (member.selfDeaf || member.serverDeaf) flags.append(icon(paths.headphonesOff));
+      if (member.selfMute || member.serverMute || member.selfDeaf || member.serverDeaf) flags.append(icon(paths.micOff));
+      if (flags.childElementCount) row.append(flags);
       if (member.id !== this.meId()) {
         const vol = el("input");
         vol.type = "range";
@@ -3850,6 +4105,8 @@ class LarkApp {
         vol.setAttribute("aria-label", `Volume for ${member.name}`);
         vol.addEventListener("input", () => {
           member.volume = Number(vol.value);
+          setVolume(this.voiceRoster, member.id, member.volume);
+          if (!this.demo) void invoke("set_voice_volume", { userId: member.id, volume: member.volume }).catch(() => undefined);
         });
         row.append(vol);
       }
@@ -3888,6 +4145,37 @@ class LarkApp {
     button.type = "button";
     button.addEventListener("click", onClick);
     return button;
+  }
+
+  private iconButton(label: string, path: string, onClick: () => void, hot: boolean): HTMLButtonElement {
+    const button = el("button", hot ? "icon-button is-hot" : "icon-button");
+    button.type = "button";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.append(icon(path));
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  private captureDevices(): { id: string; label: string }[] {
+    if (this.cpalInputs.length) return this.cpalInputs.map((name) => ({ id: name, label: name }));
+    return this.audioInputs;
+  }
+
+  private playbackDevices(): { id: string; label: string }[] {
+    if (this.cpalOutputs.length) return this.cpalOutputs.map((name) => ({ id: name, label: name }));
+    return this.audioOutputs;
+  }
+
+  private deviceChoices(listed: string[], current: string): string[] {
+    const names = ["Default", ...listed.filter((name) => name && name !== "Default")];
+    const chosen = current.trim();
+    if (chosen && chosen !== "Default" && !names.includes(chosen)) names.push(chosen);
+    return names;
+  }
+
+  private deviceValue(current: string): string {
+    return current.trim() ? current : "Default";
   }
 
   private deviceSelect(label: string, options: string[], current: string, onChange: (value: string) => void): HTMLElement {
@@ -5213,6 +5501,18 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function voiceStatusLabel(status: VoiceSession["status"]): string {
+  if (status === "connected") return "Voice Connected";
+  if (status === "reconnecting") return "Reconnecting…";
+  return "Connecting…";
+}
+
+function friendlyVoiceDetail(detail: string): string {
+  const text = detail.trim();
+  if (!text || text.startsWith("aead_") || text.startsWith("xsalsa20")) return "";
+  return text;
 }
 
 function statusLabel(status: Person["status"]): string {

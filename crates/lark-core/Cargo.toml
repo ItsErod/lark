@@ -7,7 +7,10 @@ publish = false
 
 [dependencies]
 aes-gcm = "0.10"
+# `static` compiles the bundled Opus sources when the system has no libopus.
+audiopus_sys = { version = "0.2", features = ["static"] }
 chacha20poly1305 = "0.10"
+cpal = "0.15"
 futures-util = "0.3"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
@@ -22,4 +25,5 @@ tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 toml = "0.8"
 urlencoding = "2"
+xsalsa20poly1305 = "0.9"
 zeroize = "1"

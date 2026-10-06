@@ -15,9 +15,10 @@ use super::shell::{
 };
 use super::types::{
     activity_parts, channel_kind_name, channel_to_client, friends_from_relationships,
-    guild_to_client, message_to_client, role_to_client, roster_from_chunk, roster_from_guild,
-    user_to_client, ClientChannel, ClientGuild, ClientMember, ClientMessage, ClientRole,
-    ClientUser, DiscordChannel, DiscordGuild, DiscordMessage, DiscordRole, DiscordUser,
+    guild_to_client, message_to_client, parse_guild_voice_states, parse_voice_state, role_to_client,
+    roster_from_chunk, roster_from_guild, user_to_client, ClientChannel, ClientGuild, ClientMember,
+    ClientMessage, ClientRole, ClientUser, ClientVoiceState, DiscordChannel, DiscordGuild,
+    DiscordMessage, DiscordRole, DiscordUser,
 };
 
 /// Guilds, presence, messages, reactions, typing, and direct messages.
@@ -128,13 +129,10 @@ pub enum ClientEvent {
         endpoint: String,
         token: String,
     },
-    VoiceState {
+    VoiceState(ClientVoiceState),
+    VoiceStates {
         guild_id: String,
-        channel_id: String,
-        user_id: String,
-        session_id: String,
-        mute: bool,
-        deaf: bool,
+        states: Vec<ClientVoiceState>,
     },
     Threads {
         guild_id: String,
@@ -878,6 +876,16 @@ fn handle_dispatch(
                 if !entries.is_empty() {
                     emit(ClientEvent::GuildNotify { entries });
                 }
+                if let Some(guilds) = data.get("guilds").and_then(|value| value.as_array()) {
+                    for guild in guilds {
+                        let Some(states) = parse_guild_voice_states(guild) else { continue };
+                        let guild_id = guild.get("id").and_then(|value| value.as_str()).unwrap_or("");
+                        if guild_id.is_empty() {
+                            continue;
+                        }
+                        emit(ClientEvent::VoiceStates { guild_id: guild_id.to_string(), states });
+                    }
+                }
                 return true;
             }
             false
@@ -904,6 +912,9 @@ fn handle_dispatch(
                         guild_id: guild.id.clone(),
                         members: roster,
                     });
+                }
+                if let Some(states) = parse_guild_voice_states(data) {
+                    emit(ClientEvent::VoiceStates { guild_id: guild.id.clone(), states });
                 }
             }
             false
@@ -1177,22 +1188,9 @@ fn handle_dispatch(
             false
         }
         "VOICE_STATE_UPDATE" => {
-            emit(ClientEvent::VoiceState {
-                guild_id: json_str(data, "guild_id"),
-                channel_id: json_str(data, "channel_id"),
-                user_id: json_str(data, "user_id"),
-                session_id: json_str(data, "session_id"),
-                mute: data.get("mute").and_then(|v| v.as_bool()).unwrap_or(false)
-                    || data
-                        .get("self_mute")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                deaf: data.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false)
-                    || data
-                        .get("self_deaf")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-            });
+            if let Some(state) = parse_voice_state(data, "") {
+                emit(ClientEvent::VoiceState(state));
+            }
             false
         }
         "THREAD_CREATE" | "THREAD_UPDATE" => {
@@ -1550,6 +1548,52 @@ mod tests {
         events.clear();
         handle_dispatch("CHANNEL_CREATE", &json!({"id": "100000000000000043", "type": 3, "recipients": [{"id": "100000000000000002", "username": "maya", "global_name": "Maya"}, {"id": "100000000000000003", "username": "jonah", "global_name": "Jonah"}]}), Some(5), &mut session, &mut |event| events.push(event));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::DirectChannel { removed: false, channel } if channel.kind == "group" && channel.name.contains("Maya"))));
+    }
+
+    #[test]
+    fn guild_create_and_voice_updates_carry_who_is_in_the_channel() {
+        let data = json!({
+            "id": "100000000000000010",
+            "name": "Agartha",
+            "voice_states": [{
+                "channel_id": "100000000000000026",
+                "user_id": "100000000000000003",
+                "session_id": "s1",
+                "self_mute": false,
+                "self_deaf": true,
+                "member": {"nick": "Jonah", "user": {"id": "100000000000000003", "username": "jonah", "avatar": "abcd"}}
+            }]
+        });
+        let mut events = Vec::new();
+        let mut session = None;
+        handle_dispatch("GUILD_CREATE", &data, Some(1), &mut session, &mut |event| events.push(event));
+        match events.iter().find(|event| matches!(event, ClientEvent::VoiceStates { .. })) {
+            Some(ClientEvent::VoiceStates { guild_id, states }) => {
+                assert_eq!(guild_id, "100000000000000010");
+                assert_eq!(states.len(), 1);
+                assert_eq!(states[0].name, "Jonah");
+                assert!(states[0].self_deaf);
+                assert_eq!(states[0].channel_id, "100000000000000026");
+            }
+            _ => panic!("expected voice states"),
+        }
+        let leave = json!({
+            "guild_id": "100000000000000010",
+            "channel_id": null,
+            "user_id": "100000000000000003",
+            "session_id": "s1",
+            "self_mute": true
+        });
+        let mut left = Vec::new();
+        handle_dispatch("VOICE_STATE_UPDATE", &leave, Some(2), &mut session, &mut |event| left.push(event));
+        match &left[0] {
+            ClientEvent::VoiceState(state) => {
+                assert!(state.channel_id.is_empty());
+                assert!(state.self_mute);
+                assert_eq!(state.session_id, "s1");
+            }
+            _ => panic!("expected voice state"),
+        }
     }
 
     #[test]

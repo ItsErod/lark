@@ -184,6 +184,7 @@ button.category:hover { color: var(--text); }
 .row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel-row.is-muted { color: var(--faint); font-style: italic; font-weight: 500; }
 .channel-row.is-voice { opacity: 0.72; }
+.voice-block.has-people .channel-row.is-voice { opacity: 1; }
 .channel-row svg { width: 20px; height: 20px; flex: none; }
 .profile-chip {
   width: 100%; text-align: left; border: 0; background: var(--bg-panel); color: inherit;
@@ -488,9 +489,32 @@ kbd, .kbd { font-family: var(--mono); background: var(--bg-0); border-radius: 6p
 }
 
 .virtual, .message-column { display: flex; flex-direction: column; width: 100%; }
+.voice-block { display: flex; flex-direction: column; }
+.voice-roster { display: flex; flex-direction: column; gap: 1px; margin: 0 0 4px 28px; }
+.voice-user {
+  display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 2px 8px; border-radius: 6px; color: var(--muted);
+}
+.voice-user .avatar { width: 24px; height: 24px; border-radius: 50%; font-size: 10px; }
+.voice-user.is-speaking .avatar { box-shadow: 0 0 0 2px var(--ok); }
+.voice-user-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--heading); }
+.voice-flags { margin-left: auto; display: flex; gap: 4px; color: var(--muted); flex: none; }
+.voice-flags svg { width: 14px; height: 14px; }
+.voice-panel {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 8px 8px; padding: 8px 10px; border-radius: 8px; background: var(--bg-panel); flex: none;
+}
+.voice-panel-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.voice-panel-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.voice-state { font-size: 12px; font-weight: 700; color: var(--ok); }
+.voice-state.is-connecting, .voice-state.is-reconnecting { color: var(--muted); }
+.voice-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.voice-panel-actions { display: flex; gap: 6px; flex: none; }
+.voice-panel .icon-button.is-hot { background: var(--danger); color: white; border-color: transparent; }
 .voice-dock { margin: 0 16px 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); display: grid; gap: 8px; }
 .voice-head, .voice-controls, .voice-devices, .share-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .voice-person { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+.voice-person .avatar { width: 24px; height: 24px; border-radius: 50%; font-size: 10px; }
+.voice-person.is-speaking .avatar { box-shadow: 0 0 0 2px var(--ok); }
 .voice-person.is-speaking .speaking-dot { color: var(--ok); }
 .speaking-dot { font-size: 12px; color: var(--faint); min-width: 64px; }
 .voice-person input, .voice-sense input { flex: 1; }
