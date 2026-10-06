@@ -737,6 +737,7 @@ class LarkApp {
     if (!existing) {
       renderSignIn(this.gate, this.signInState(), {
         onDiscord: () => void this.openDiscordLogin(),
+        onBrowser: () => void this.openBrowserLogin(),
         onPreview: () => this.enterDemo(),
         onSave: (token) => void this.saveToken(token),
       });
@@ -775,11 +776,36 @@ class LarkApp {
     this.tokenNote = "";
     this.paintGate();
     try {
+      await invoke("cancel_browser_login");
       await invoke("open_discord_login");
     } catch (err) {
       this.signInBusy = "";
       this.tokenNote = commandError(err, "Couldn't open Discord's login page.");
       this.paintGate();
+    }
+  }
+
+  private async openBrowserLogin() {
+    if (!isTauri()) {
+      this.tokenNote = "Sign in in the browser opens Discord in your system browser from the Lark app on macOS or Windows. This preview only shows the screen.";
+      this.paintGate();
+      return;
+    }
+    this.signInBusy = "Opening Discord in your browser…";
+    this.tokenNote = "";
+    this.qrWatching = false;
+    this.paintGate();
+    try {
+      await invoke("stop_qr_login");
+      await invoke("open_browser_login");
+      this.signInBusy = "Waiting for Discord in your browser. Finish password, captcha, and 2FA there. Lark is waiting for a one-time grant.";
+      if (this.view === "gate") this.paintGate();
+    } catch (err) {
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't open Discord in the browser.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
     }
   }
 
@@ -796,6 +822,7 @@ class LarkApp {
       this.view = "gate";
       this.tokenNote = payload.detail || "Discord sign-in failed.";
       this.paint();
+      this.ensureQr();
       return;
     }
     if (payload.detail) {
@@ -854,6 +881,7 @@ class LarkApp {
     this.paintGate();
     try {
       await invoke("stop_qr_login");
+      await invoke("cancel_browser_login");
       await invoke("set_token", { token });
       await invoke("connect");
       this.signInBusy = "Connecting to Discord…";
@@ -2298,7 +2326,10 @@ class LarkApp {
       this.tokenNote = "";
       this.signInBusy = "";
       this.qrWatching = false;
-      if (isTauri()) void invoke("stop_qr_login").catch(() => undefined);
+      if (isTauri()) {
+        void invoke("stop_qr_login").catch(() => undefined);
+        void invoke("cancel_browser_login").catch(() => undefined);
+      }
       this.me = {
         id: event.user.id,
         name: event.user.name,

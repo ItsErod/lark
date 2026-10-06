@@ -1,3 +1,4 @@
+pub mod browser_handoff;
 pub mod gateway;
 pub mod page;
 pub mod remote_auth;

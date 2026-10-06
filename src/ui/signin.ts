@@ -11,6 +11,7 @@ export interface SignInState {
 
 export interface SignInActions {
   onDiscord: () => void;
+  onBrowser: () => void;
   onPreview: () => void;
   onSave: (token: string) => void;
 }
@@ -35,6 +36,11 @@ export function renderSignIn(host: HTMLElement, state: SignInState, actions: Sig
   discord.type = "button";
   discord.addEventListener("click", actions.onDiscord);
   card.append(discord);
+
+  const browser = el("button", "ghost signin-browser", copy.browserButton);
+  browser.type = "button";
+  browser.addEventListener("click", actions.onBrowser);
+  card.append(browser);
 
   card.append(renderQr(copy, state));
 

@@ -34,6 +34,16 @@ description = "Open Discord's own login page in a separate window."
 commands.allow = ["open_discord_login"]
 
 [[permission]]
+identifier = "allow-open-browser-login"
+description = "Open Discord's login page in the system browser and accept a one-time loopback grant."
+commands.allow = ["open_browser_login"]
+
+[[permission]]
+identifier = "allow-cancel-browser-login"
+description = "Stop waiting for a system-browser sign-in grant."
+commands.allow = ["cancel_browser_login"]
+
+[[permission]]
 identifier = "allow-start-qr-login"
 description = "Start Discord's mobile QR login."
 commands.allow = ["start_qr_login"]
