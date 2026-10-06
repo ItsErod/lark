@@ -8,9 +8,9 @@ Lark is a personal Discord client for one account on macOS and Windows. It is no
 
 Installers are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
-- [macOS universal .dmg](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.4_universal.dmg) — Apple Silicon and Intel
-- [Windows setup .exe](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.4_x64-setup.exe)
-- [Windows .msi](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.4_x64_en-US.msi)
+- [macOS universal .dmg](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.5_universal.dmg) — Apple Silicon and Intel
+- [Windows setup .exe](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.5_x64-setup.exe)
+- [Windows .msi](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.5_x64_en-US.msi)
 
 macOS 11 or newer, or 64-bit Windows 10 or newer. Windows on ARM is not built.
 
@@ -30,7 +30,7 @@ The first screen has **Sign in with Discord**, **Sign in in your browser**, and 
 
 **Sign in in your browser** opens that same login page in your system browser. Password, two-factor, and captcha stay on Discord’s site. After you sign in, Discord’s page sends a one-time grant to Lark on this computer. Lark exchanges it and stores the session in the macOS Keychain or Windows Credential Manager. The separate login window is unchanged.
 
-**Scan with the Discord mobile app** is Discord’s QR login. If that step asks for a captcha, use **Sign in with Discord** instead.
+**Scan with the Discord mobile app** is Discord’s QR login. The app shows a live code after Discord accepts the handshake, or the reason it could not. The sample code in the browser preview is not a session. If that step asks for a captcha, use **Sign in with Discord** or **Sign in in your browser** instead.
 
 **Advanced** accepts a pasted user token. Quotes, line breaks, and an `Authorization:` label are removed. A bot token or an OAuth bearer token is refused.
 

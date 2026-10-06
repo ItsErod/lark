@@ -24,10 +24,14 @@ use crate::keychain;
 const LOGIN_LABEL: &str = "discord-login";
 const LOGIN_URL: &str = "https://discord.com/login";
 const POLL_EVERY: Duration = Duration::from_millis(500);
+const LOGIN_LOAD_WAIT: Duration = Duration::from_secs(20);
+const LOGIN_DID_NOT_LOAD: &str = "Discord's login page did not load in the app window. Use Sign in in your browser.";
 
 struct LoginWatch {
     poll_id: AtomicU64,
     captured: AtomicBool,
+    /// A real https document finished loading. about:blank does not count.
+    loaded: AtomicBool,
     url: Mutex<String>,
     app_since: Mutex<Option<Instant>>,
 }
@@ -37,6 +41,7 @@ fn watch() -> &'static LoginWatch {
     WATCH.get_or_init(|| LoginWatch {
         poll_id: AtomicU64::new(0),
         captured: AtomicBool::new(false),
+        loaded: AtomicBool::new(false),
         url: Mutex::new(LOGIN_URL.to_string()),
         app_since: Mutex::new(None),
     })
@@ -49,6 +54,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 fn reset_watch() {
     let watch = watch();
     watch.captured.store(false, Ordering::SeqCst);
+    watch.loaded.store(false, Ordering::SeqCst);
     *lock(&watch.url) = LOGIN_URL.to_string();
     *lock(&watch.app_since) = None;
 }
@@ -103,11 +109,20 @@ fn build_login_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     let url = LOGIN_URL
         .parse()
         .map_err(|_| "Discord's login URL could not be parsed.".to_string())?;
+    // Lark's CSP is injected only into the app's own HTML. This window loads
+    // Discord's https page, so that policy does not apply here. The window must
+    // be created off the main thread: WebViewWindowBuilder deadlocks WebView2
+    // when it runs inside a synchronous command, and the window stays white.
     WebviewWindowBuilder::new(app, LOGIN_LABEL, WebviewUrl::External(url))
         .title("Sign in with Discord")
         .inner_size(480.0, 760.0)
         .min_inner_size(380.0, 560.0)
+        .resizable(true)
+        .transparent(false)
+        .focused(true)
+        .center()
         .incognito(true)
+        .background_color(tauri::webview::Color(0x31, 0x33, 0x38, 255))
         .on_navigation(|url| navigation_allowed(url.as_str()))
         .on_new_window(|url, _features| {
             if navigation_allowed(url.as_str()) {
@@ -121,6 +136,9 @@ fn build_login_window(app: &AppHandle) -> Result<WebviewWindow, String> {
             note_location(&current);
             if payload.event() != PageLoadEvent::Finished {
                 return;
+            }
+            if payload.url().scheme() == "https" {
+                watch().loaded.store(true, Ordering::SeqCst);
             }
             if watch().captured.load(Ordering::SeqCst) {
                 return;
@@ -141,6 +159,7 @@ fn spawn_session_poll(app: AppHandle, poll_id: u64) {
     tauri::async_runtime::spawn(async move {
         let mut announced = String::new();
         let mut reported_failure = false;
+        let opened = Instant::now();
         loop {
             if watch().poll_id.load(Ordering::SeqCst) != poll_id {
                 break;
@@ -152,6 +171,11 @@ fn spawn_session_poll(app: AppHandle, poll_id: u64) {
                 break;
             };
             if watch().poll_id.load(Ordering::SeqCst) != poll_id {
+                break;
+            }
+            if !watch().loaded.load(Ordering::SeqCst) && opened.elapsed() > LOGIN_LOAD_WAIT {
+                let _ = app.emit("login-status", note("failed", LOGIN_DID_NOT_LOAD));
+                let _ = window.close();
                 break;
             }
             match probe_session(window).await {

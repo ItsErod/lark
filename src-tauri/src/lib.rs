@@ -255,9 +255,14 @@ fn set_token(app: AppHandle, token: String) -> Result<(), String> {
     })?
 }
 
+/// Async, and the window is built on the blocking pool.
+/// `WebviewWindowBuilder` deadlocks WebView2 on Windows when it runs on the main
+/// thread inside a synchronous command, which leaves a blank white window.
 #[tauri::command]
-fn open_discord_login(app: AppHandle) -> Result<(), String> {
-    login::open_discord_login(&app)
+async fn open_discord_login(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || login::open_discord_login(&app))
+        .await
+        .map_err(|_| "Couldn't open Discord's login page.".to_string())?
 }
 
 #[tauri::command]

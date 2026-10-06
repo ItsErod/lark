@@ -399,8 +399,9 @@ kbd, .kbd { font-family: var(--mono); background: var(--bg-0); border-radius: 6p
 .signin-browser { width: 100%; margin: 0 0 14px; }
 .qr-block { display: grid; justify-items: center; gap: 8px; margin: 4px 0 12px; text-align: center; }
 .qr-block h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.qr-slot { width: 232px; height: 232px; background: #fff; border-radius: 16px; padding: 8px; }
+.qr-slot { width: 232px; height: 232px; background: #fff; border-radius: 16px; padding: 8px; display: grid; place-items: center; }
 .qr-slot svg { width: 100%; height: 100%; display: block; }
+.qr-pending { margin: 0; padding: 12px; color: #1a1815; font-size: 13px; line-height: 1.4; text-align: center; }
 .qr-status, .gate-busy, .gate-error { margin: 0; }
 .gate-error { color: var(--text); background: var(--accent-soft); border-radius: 12px; padding: 10px 12px; }
 .advanced { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }

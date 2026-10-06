@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { commandError, OAUTH_NOTE, PREVIEW_QR_URL, signInCopy, signInErrorVisible } from "./signin";
+import { commandError, gateQr, OAUTH_NOTE, PREVIEW_QR_URL, QR_PREPARING, signInCopy, signInErrorVisible } from "./signin";
 
 describe("sign-in screen", () => {
   it("keeps manual paste under Advanced and does not offer OAuth", () => {
@@ -17,6 +17,28 @@ describe("sign-in screen", () => {
     expect(OAUTH_NOTE).not.toMatch(/authorize app/i);
     expect(PREVIEW_QR_URL.startsWith("https://discord.com/ra/")).toBe(true);
     expect(PREVIEW_QR_URL).not.toContain("token");
+  });
+
+  it("does not offer the sample QR as a desktop login code", () => {
+    const preview = gateQr(false);
+    const desktop = gateQr(true);
+    expect(preview.svg.startsWith("<svg")).toBe(true);
+    expect(preview.status).toBe("Scan with the Discord mobile app");
+    expect(desktop.svg).toBe("");
+    expect(desktop.status).toBe(QR_PREPARING);
+    expect(desktop.status.toLowerCase()).toContain("preparing");
+  });
+
+  it("opens Discord off the main thread and does not hand the URL to Explorer", () => {
+    const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
+    expect(lib).toMatch(/async fn open_discord_login/);
+    expect(lib).toContain("spawn_blocking");
+    const browser = readFileSync("src-tauri/src/browser_login.rs", "utf8");
+    expect(browser).not.toContain('Command::new("explorer")');
+    expect(browser).toContain("ShellExecuteW");
+    const handoff = readFileSync("crates/lark-core/src/discord/browser_handoff.rs", "utf8");
+    expect(handoff).toContain("ShellExecute");
+    expect(handoff).toContain("explorer.exe");
   });
 
   it("shows a specific error and hides an empty one", () => {

@@ -8,7 +8,7 @@ use std::thread;
 
 use lark_core::discord::browser_handoff::{
     bind_loopback, browser_login_url, finish_browser_login, is_browser_login_url, new_handoff_key,
-    GrantError, BROWSER_LOGIN_TIMEOUT,
+    system_browser, GrantError, SystemBrowser, BROWSER_LOGIN_TIMEOUT,
 };
 use lark_core::normalize_user_token;
 use tauri::{AppHandle, Emitter};
@@ -95,7 +95,18 @@ fn open_system_browser(url: &str) -> Result<(), String> {
     if !is_browser_login_url(url) {
         return Err("Refusing to open a sign-in page that is not Discord's login.".into());
     }
-    let mut command = browser_command(url);
+    // The login URL always contains `?` and `=`. On Windows those characters are
+    // Explorer switches, so launching Explorer opens a folder window.
+    match system_browser(std::env::consts::OS) {
+        SystemBrowser::ShellExecute => shell_execute_https(url),
+        SystemBrowser::MacOpen => spawn_detached("open", url),
+        SystemBrowser::XdgOpen => spawn_detached("xdg-open", url),
+    }
+}
+
+fn spawn_detached(program: &str, url: &str) -> Result<(), String> {
+    let mut command = Command::new(program);
+    command.arg(url);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -109,18 +120,89 @@ fn open_system_browser(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn browser_command(url: &str) -> Command {
-    if cfg!(target_os = "windows") {
-        let mut command = Command::new("explorer");
-        command.arg(url);
-        command
-    } else if cfg!(target_os = "macos") {
-        let mut command = Command::new("open");
-        command.arg(url);
-        command
-    } else {
-        let mut command = Command::new("xdg-open");
-        command.arg(url);
-        command
+/// Opens an https URL with the default browser via `ShellExecuteW`.
+/// Never `explorer.exe` and never `cmd /c start`: `?` and `=` would be treated as
+/// Explorer switches, and `&` would be a `cmd` command separator.
+#[cfg(windows)]
+fn shell_execute_https(url: &str) -> Result<(), String> {
+    let url = url.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::Builder::new()
+        .name("lark-browser".into())
+        .spawn(move || {
+            let _ = tx.send(shell_execute_on_this_thread(&url));
+        })
+        .map_err(|_| "Couldn't open the system browser for Discord's login page.".to_string())?;
+    rx.recv()
+        .map_err(|_| "Couldn't open the system browser for Discord's login page.".to_string())?
+}
+
+#[cfg(windows)]
+fn shell_execute_on_this_thread(url: &str) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    const COINIT_APARTMENTTHREADED: u32 = 0x2;
+    const COINIT_DISABLE_OLE1DDE: u32 = 0x4;
+    const SW_SHOWNORMAL: i32 = 1;
+    const RPC_E_CHANGED_MODE: i32 = 0x8001_0106u32 as i32;
+
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoInitializeEx(reserved: *mut std::ffi::c_void, coinit: u32) -> i32;
+        fn CoUninitialize();
     }
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            lp_operation: *const u16,
+            lp_file: *const u16,
+            lp_parameters: *const u16,
+            lp_directory: *const u16,
+            n_show_cmd: i32,
+        ) -> isize;
+    }
+
+    let verb: Vec<u16> = OsStr::new("open")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let file: Vec<u16> = OsStr::new(url)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        let hr = CoInitializeEx(
+            std::ptr::null_mut(),
+            COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE,
+        );
+        let uninit = hr == 0 || hr == 1;
+        if hr != 0 && hr != 1 && hr != RPC_E_CHANGED_MODE {
+            return Err("Couldn't open the system browser for Discord's login page.".into());
+        }
+        let inst = ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+        if uninit {
+            CoUninitialize();
+        }
+        if inst > 32 {
+            Ok(())
+        } else {
+            Err("Couldn't open the system browser for Discord's login page.".into())
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_execute_https(_url: &str) -> Result<(), String> {
+    Err("ShellExecute is only used on Windows.".into())
 }

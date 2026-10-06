@@ -32,6 +32,7 @@ const EXCHANGE_URL: &str = "https://discord.com/api/v9/auth/handoff/exchange";
 const RPC_VERSION: &str = "1";
 const COMMAND: &str = "BROWSER_HANDOFF";
 const DONE_URL: &str = "https://discord.com/handoff?done=true";
+const USER_AGENT: &str = concat!("Lark/", env!("CARGO_PKG_VERSION"), " (personal client)");
 pub const BROWSER_LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 pub const TIMEOUT_DETAIL: &str =
     "The browser sign-in timed out. Finish it on Discord's page, or try again.";
@@ -99,6 +100,39 @@ pub fn browser_login_url(port: u16, key: &str) -> Result<String, String> {
         "https://discord.com/login?redirect_to={}",
         urlencoding::encode(&handoff)
     ))
+}
+
+/// How the shell opens Discord's login page.
+///
+/// Windows must use `ShellExecuteW` / `ShellExecuteEx`. `explorer.exe` parses
+/// `?` and `=` in its command line as its own switches, so
+/// `explorer https://discord.com/login?redirect_to=...` opens a File Explorer
+/// window instead of the default browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemBrowser {
+    ShellExecute,
+    MacOpen,
+    XdgOpen,
+}
+
+impl SystemBrowser {
+    /// Program spawned to open the URL. `None` means the URL is passed to
+    /// ShellExecute, not to a child process such as `explorer.exe`.
+    pub fn child_program(self) -> Option<&'static str> {
+        match self {
+            SystemBrowser::ShellExecute => None,
+            SystemBrowser::MacOpen => Some("open"),
+            SystemBrowser::XdgOpen => Some("xdg-open"),
+        }
+    }
+}
+
+pub fn system_browser(os: &str) -> SystemBrowser {
+    match os {
+        "windows" => SystemBrowser::ShellExecute,
+        "macos" => SystemBrowser::MacOpen,
+        _ => SystemBrowser::XdgOpen,
+    }
 }
 
 pub fn is_browser_login_url(url: &str) -> bool {
@@ -261,7 +295,7 @@ pub async fn exchange_at(url: &str, key: &str, handoff_token: &str) -> Result<St
         return Err("Discord's sign-in grant was empty.".into());
     }
     let client = reqwest::Client::builder()
-        .user_agent("Lark/2.2.4 (personal client)")
+        .user_agent(USER_AGENT)
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -748,6 +782,22 @@ mod tests {
         assert!(!is_browser_login_url(&format!(
             "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D1%26key%3D{key}&token=1"
         )));
+    }
+
+    #[test]
+    fn windows_login_url_is_not_handed_to_explorer() {
+        let key = new_handoff_key();
+        let url = browser_login_url(54321, &key).unwrap();
+        assert!(url.contains('?'));
+        assert!(url.contains('='));
+        let browser = system_browser("windows");
+        assert_eq!(browser, SystemBrowser::ShellExecute);
+        assert_eq!(browser.child_program(), None);
+        assert_ne!(system_browser("macos").child_program(), Some("explorer"));
+        assert_eq!(system_browser("macos").child_program(), Some("open"));
+        assert_eq!(system_browser("linux").child_program(), Some("xdg-open"));
+        assert!(USER_AGENT.starts_with("Lark/"));
+        assert!(!USER_AGENT.contains("explorer"));
     }
 
     #[tokio::test(flavor = "current_thread")]

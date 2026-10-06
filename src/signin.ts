@@ -6,9 +6,16 @@ export function previewQr(): string {
   return PREVIEW_QR_SVG;
 }
 
+/** The desktop app must not show the sample QR. Scanning it does not sign in. */
+export function gateQr(desktop: boolean): { svg: string; status: string } {
+  if (desktop) return { svg: "", status: QR_PREPARING };
+  return { svg: previewQr(), status: QR_CAPTION };
+}
+
 export const DISCORD_BUTTON = "Sign in with Discord";
 export const BROWSER_BUTTON = "Sign in in your browser";
 export const QR_CAPTION = "Scan with the Discord mobile app";
+export const QR_PREPARING = "Preparing a Discord QR code…";
 export const ADVANCED_LABEL = "Advanced";
 export const PREVIEW_BUTTON = "Preview with sample data";
 export const SAVE_BUTTON = "Save and connect";
