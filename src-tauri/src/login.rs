@@ -9,7 +9,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use lark_core::discord::page::{
-    logged_in_discord_url, login_progress, login_wait_message, navigation_allowed,
+    logged_in_discord_url, login_progress, login_script_allowed, login_wait_message,
+    navigation_allowed,
 };
 use lark_core::discord::remote_auth::{login_with_qr, QrOutcome};
 use lark_core::normalize_user_token;
@@ -32,6 +33,10 @@ struct LoginWatch {
     captured: AtomicBool,
     /// A real https document finished loading. about:blank does not count.
     loaded: AtomicBool,
+    /// A top-level navigation is in progress. ExecuteScript returns 0x8007139F.
+    navigating: AtomicBool,
+    /// The window is being cleared and closed. Do not eval into it.
+    closing: AtomicBool,
     url: Mutex<String>,
     app_since: Mutex<Option<Instant>>,
 }
@@ -42,6 +47,8 @@ fn watch() -> &'static LoginWatch {
         poll_id: AtomicU64::new(0),
         captured: AtomicBool::new(false),
         loaded: AtomicBool::new(false),
+        navigating: AtomicBool::new(false),
+        closing: AtomicBool::new(false),
         url: Mutex::new(LOGIN_URL.to_string()),
         app_since: Mutex::new(None),
     })
@@ -55,6 +62,8 @@ fn reset_watch() {
     let watch = watch();
     watch.captured.store(false, Ordering::SeqCst);
     watch.loaded.store(false, Ordering::SeqCst);
+    watch.navigating.store(false, Ordering::SeqCst);
+    watch.closing.store(false, Ordering::SeqCst);
     *lock(&watch.url) = LOGIN_URL.to_string();
     *lock(&watch.app_since) = None;
 }
@@ -86,6 +95,7 @@ pub fn open_discord_login(app: &AppHandle) -> Result<(), String> {
     if fresh {
         reset_watch();
     }
+    watch().closing.store(false, Ordering::SeqCst);
     let poll_id = watch().poll_id.fetch_add(1, Ordering::SeqCst) + 1;
     let window = if fresh {
         build_login_window(app)?
@@ -135,8 +145,10 @@ fn build_login_window(app: &AppHandle) -> Result<WebviewWindow, String> {
             let current = payload.url().as_str().to_string();
             note_location(&current);
             if payload.event() != PageLoadEvent::Finished {
+                watch().navigating.store(true, Ordering::SeqCst);
                 return;
             }
+            watch().navigating.store(false, Ordering::SeqCst);
             if payload.url().scheme() == "https" {
                 watch().loaded.store(true, Ordering::SeqCst);
             }
@@ -164,7 +176,7 @@ fn spawn_session_poll(app: AppHandle, poll_id: u64) {
             if watch().poll_id.load(Ordering::SeqCst) != poll_id {
                 break;
             }
-            if watch().captured.load(Ordering::SeqCst) {
+            if watch().captured.load(Ordering::SeqCst) || watch().closing.load(Ordering::SeqCst) {
                 break;
             }
             let Some(window) = app.get_webview_window(LOGIN_LABEL) else {
@@ -241,6 +253,16 @@ enum StoreResult {
 }
 
 async fn probe_session(window: WebviewWindow) -> Probe {
+    let state = watch();
+    if !login_script_allowed(
+        state.loaded.load(Ordering::SeqCst),
+        state.navigating.load(Ordering::SeqCst),
+        state.closing.load(Ordering::SeqCst),
+    ) {
+        return Probe::Pending {
+            href: current_url(),
+        };
+    }
     let (tx, rx) = tokio::sync::oneshot::channel();
     let slot = std::sync::Arc::new(Mutex::new(Some(tx)));
     let slot_for_callback = slot.clone();
@@ -323,6 +345,11 @@ fn store_session(app: &AppHandle, raw: &str) -> StoreResult {
         Ok(Ok(())) => {
             let app = app.clone();
             let _ = app.clone().run_on_main_thread(move || {
+                // Stop the poll before touching the webview. ExecuteScript during
+                // clear/close is the 0x8007139F spam from tauri_runtime_wry.
+                let state = watch();
+                state.closing.store(true, Ordering::SeqCst);
+                state.poll_id.fetch_add(1, Ordering::SeqCst);
                 if let Some(win) = app.get_webview_window(LOGIN_LABEL) {
                     let _ = win.clear_all_browsing_data();
                     let _ = win.close();
