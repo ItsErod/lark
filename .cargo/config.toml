@@ -1,0 +1,5 @@
+# GitHub's macOS and Windows runners ship CMake 4, which refuses the
+# cmake_minimum_required in the Opus sources bundled by audiopus_sys.
+# CMake reads this variable itself and keeps that configure step working.
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"

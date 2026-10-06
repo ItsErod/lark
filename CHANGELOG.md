@@ -4,9 +4,9 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
-## Unreleased
+## [2.3.0](https://github.com/ItsErod/lark/releases/tag/v2.3.0) — 2026-10-06
 
-v2.3.0 has no tag and no GitHub Release. These notes will be filled in when that version is published.
+Discord dark is the default theme, and the open text channel stays stable while messages load. Chat includes mentions and history. Members, presence, profiles, and DMs come from the gateway. The app shell adds folders, badges, settings, and notifications. A voice channel shows who is in it and carries call audio.
 
 ## [2.2.5](https://github.com/ItsErod/lark/releases/tag/v2.2.5) — 2026-10-06
 
