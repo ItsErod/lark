@@ -230,6 +230,7 @@ where
     let mut interval = Duration::from_millis(41_250);
     let mut next_heartbeat = Instant::now() + interval;
     let mut saw_hello = false;
+    let mut waiting_for_ack = false;
 
     loop {
         if *stop.borrow() {
@@ -243,6 +244,9 @@ where
                 }
             }
             _ = tokio::time::sleep(wait), if saw_hello => {
+                if let Err(detail) = begin_heartbeat(&mut waiting_for_ack) {
+                    return Ok(Step::Retry(detail.into()));
+                }
                 if write.send(Message::Text(r#"{"op":"heartbeat"}"#.into())).await.is_err() {
                     return Ok(Step::Retry("The QR connection dropped. Trying again.".into()));
                 }
@@ -262,6 +266,7 @@ where
                         let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
                         let op = value.get("op").and_then(|op| op.as_str()).unwrap_or("");
                         match op {
+                            "heartbeat_ack" => note_heartbeat_ack(&mut waiting_for_ack),
                             "hello" => {
                                 let ms = value.get("heartbeat_interval").and_then(|v| v.as_u64()).unwrap_or(41_250);
                                 interval = Duration::from_millis(ms.max(1_000));
@@ -313,6 +318,18 @@ where
     }
 }
 
+fn begin_heartbeat(waiting_for_ack: &mut bool) -> Result<(), &'static str> {
+    if *waiting_for_ack {
+        return Err("The QR connection stopped answering. Trying again.");
+    }
+    *waiting_for_ack = true;
+    Ok(())
+}
+
+fn note_heartbeat_ack(waiting_for_ack: &mut bool) {
+    *waiting_for_ack = false;
+}
+
 fn terminal_qr_failure(detail: &str) -> bool {
     let lower = detail.to_ascii_lowercase();
     lower.contains("captcha") || lower.contains("http 401") || lower.contains("http 403")
@@ -347,7 +364,7 @@ async fn exchange_ticket(ticket: &str, handshake: &Handshake) -> Result<String, 
         let lower = body.to_ascii_lowercase();
         if lower.contains("captcha") {
             return Err(
-                "Discord asked for a captcha before finishing QR login. Use Sign in with Discord instead. Password, 2FA, and the captcha stay on Discord's own page."
+                "Discord asked for a captcha before finishing QR login. Use Sign in with Discord or Sign in in your browser. Password, 2FA, and the captcha stay on Discord's own page."
                     .into(),
             );
         }
@@ -463,6 +480,48 @@ mod tests {
             .to_str()
             .unwrap()
             .contains("Lark"));
+    }
+
+    #[test]
+    fn a_missed_heartbeat_ack_ends_the_qr_session() {
+        let mut waiting = false;
+        assert!(begin_heartbeat(&mut waiting).is_ok());
+        assert!(waiting);
+        let missed = begin_heartbeat(&mut waiting).unwrap_err();
+        assert!(missed.to_ascii_lowercase().contains("stopped answering"));
+        note_heartbeat_ack(&mut waiting);
+        assert!(!waiting);
+        assert!(begin_heartbeat(&mut waiting).is_ok());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "opens a Discord remote-auth session"]
+    async fn gateway_returns_a_live_qr() {
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let svg = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let svg_cb = svg.clone();
+        let stop_slot = std::sync::Arc::new(std::sync::Mutex::new(Some(stop_tx)));
+        let stop_cb = stop_slot.clone();
+        let run = login_with_qr(
+            move |update| {
+                if update.phase == "qr" && update.svg.starts_with("<svg") {
+                    *svg_cb.lock().unwrap_or_else(|err| err.into_inner()) = update.svg;
+                    if let Some(tx) = stop_cb.lock().unwrap_or_else(|err| err.into_inner()).take() {
+                        let _ = tx.send(true);
+                    }
+                }
+            },
+            stop_rx,
+        );
+        let outcome = tokio::time::timeout(Duration::from_secs(30), run)
+            .await
+            .expect("QR gateway timed out");
+        let outcome = outcome.expect("QR gateway failed");
+        assert!(matches!(outcome, QrOutcome::Cancelled));
+        let drawn = svg.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        assert!(drawn.starts_with("<svg"));
+        assert!(!drawn.to_ascii_lowercase().contains("<script"));
+        assert!(!drawn.to_ascii_lowercase().contains("javascript:"));
     }
 
     #[test]

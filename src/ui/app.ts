@@ -38,7 +38,7 @@ import {
 import { rowEstimate, sliceWindow } from "../virtual";
 import { memberNote, mergeGuilds, mergePeople, personFromMember, type RawMember } from "../roster";
 import { nextScrollTop, PANEL_SCROLL_SELECTOR, pixelDelta } from "../scroll";
-import { commandError, previewQr, QR_CAPTION } from "../signin";
+import { commandError, gateQr, QR_CAPTION } from "../signin";
 import { clear, colorFor, el, icon, initials, portrait, paths } from "./dom";
 import { renderMessage } from "./messages";
 import { patchSignIn, renderSignIn } from "./signin";
@@ -230,7 +230,9 @@ class LarkApp {
     }
     if (params.has("demo")) this.enterDemo();
     else {
-      this.qrSvg = previewQr();
+      const initial = gateQr(isTauri());
+      this.qrSvg = initial.svg;
+      this.qrStatus = initial.status;
       this.paint();
     }
     if (isTauri()) await this.bootDesktop();
@@ -732,7 +734,11 @@ class LarkApp {
   }
 
   private paintGate() {
-    if (!this.qrSvg) this.qrSvg = previewQr();
+    if (!this.qrSvg && !isTauri()) {
+      const initial = gateQr(false);
+      this.qrSvg = initial.svg;
+      this.qrStatus = initial.status;
+    }
     const existing = this.gate.querySelector(".gate-card");
     if (!existing) {
       renderSignIn(this.gate, this.signInState(), {
@@ -846,7 +852,8 @@ class LarkApp {
     } else if (payload.phase === "stopped") {
       this.qrWatching = false;
       this.signInBusy = "";
-      this.qrStatus = payload.detail || "QR login stopped.";
+      this.qrSvg = "";
+      this.qrStatus = payload.detail || "QR login stopped. Use Sign in in your browser.";
       this.tokenNote = this.qrStatus;
     } else if (payload.phase === "failed") {
       this.qrStatus = payload.detail || "The QR code failed. A new one is coming.";
@@ -2052,8 +2059,9 @@ class LarkApp {
     this.view = "gate";
     this.demo = false;
     this.qrWatching = false;
-    this.qrSvg = previewQr();
-    this.qrStatus = QR_CAPTION;
+    const initial = gateQr(isTauri());
+    this.qrSvg = initial.svg;
+    this.qrStatus = initial.status;
     this.tokenNote = "";
     this.signInBusy = "";
     this.connection = "Signed out";

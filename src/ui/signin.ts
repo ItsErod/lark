@@ -74,8 +74,7 @@ export function renderSignIn(host: HTMLElement, state: SignInState, actions: Sig
 
 export function patchSignIn(host: HTMLElement, state: SignInState) {
   const slot = host.querySelector(".qr-slot");
-  const svg = svgMarkup(state.qrSvg);
-  if (slot && svg) slot.innerHTML = svg;
+  if (slot) paintQrSlot(slot, state);
   const status = host.querySelector(".qr-status");
   if (status) status.textContent = state.qrStatus;
   let error = host.querySelector(".gate-card > .gate-error");
@@ -112,8 +111,7 @@ function renderQr(copy: SignInCopy, state: SignInState): HTMLElement {
   const slot = el("div", "qr-slot");
   slot.setAttribute("role", "img");
   slot.setAttribute("aria-label", copy.qrCaption);
-  const svg = svgMarkup(state.qrSvg);
-  if (svg) slot.innerHTML = svg;
+  paintQrSlot(slot, state);
   block.append(slot, el("p", "qr-status", state.qrStatus));
   return block;
 }
@@ -137,6 +135,15 @@ function renderAdvanced(copy: SignInCopy, actions: SignInActions): HTMLElement {
   const hint = el("p", "gate-note", "Paste is the fallback. Quotes, line breaks, and an Authorization label are removed before the token is saved.");
   details.append(summary, label, save, hint);
   return details;
+}
+
+function paintQrSlot(slot: Element, state: SignInState) {
+  const svg = svgMarkup(state.qrSvg);
+  if (svg) {
+    slot.innerHTML = svg;
+    return;
+  }
+  slot.replaceChildren(el("p", "qr-pending", state.qrStatus || "QR login is not ready."));
 }
 
 function svgMarkup(svg: string): string {
