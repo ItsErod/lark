@@ -11,6 +11,15 @@ pub struct DiscordUser {
     pub avatar: Option<String>,
     #[serde(default)]
     pub bot: bool,
+    /// Present on mention users. Guild nickname wins over the global name.
+    #[serde(default)]
+    pub member: Option<DiscordNick>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordNick {
+    #[serde(default)]
+    pub nick: Option<String>,
 }
 
 impl DiscordUser {
@@ -117,13 +126,45 @@ pub struct DiscordMessage {
     #[serde(default)]
     pub mentions: Vec<DiscordUser>,
     #[serde(default)]
-    pub mention_everyone: bool,
-    #[serde(default)]
     pub mention_roles: Vec<String>,
     #[serde(default)]
+    pub mention_everyone: bool,
+    #[serde(default)]
     pub referenced_message: Option<Box<DiscordMessage>>,
+    #[serde(default)]
+    pub message_reference: Option<DiscordReference>,
+    #[serde(default)]
+    pub sticker_items: Vec<DiscordSticker>,
+    #[serde(default)]
+    pub member: Option<DiscordMember>,
+    #[serde(default)]
+    pub thread: Option<DiscordThreadPreview>,
     #[serde(rename = "type", default)]
     pub kind: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordReference {
+    #[serde(default)]
+    pub message_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscordSticker {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub format_type: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscordThreadPreview {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub message_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -164,6 +205,16 @@ pub struct DiscordEmbed {
     pub image: Option<DiscordEmbedMedia>,
     #[serde(default)]
     pub thumbnail: Option<DiscordEmbedMedia>,
+    #[serde(default)]
+    pub video: Option<DiscordEmbedMedia>,
+    #[serde(default)]
+    pub provider: Option<DiscordEmbedProvider>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordEmbedProvider {
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -192,6 +243,8 @@ pub struct DiscordEmbedFooter {
 pub struct DiscordEmbedMedia {
     #[serde(default)]
     pub url: String,
+    #[serde(default)]
+    pub proxy_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -265,10 +318,10 @@ pub struct ClientChannel {
     pub parent_id: Option<String>,
     pub position: i32,
     pub topic: Option<String>,
-    pub recipient_ids: Vec<String>,
+    pub     recipient_ids: Vec<String>,
     #[serde(default)]
     pub recipients: Vec<ClientUser>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_message_id: Option<String>,
     #[serde(default)]
     pub overwrites: Vec<ClientOverwrite>,
@@ -315,6 +368,41 @@ pub struct ClientEmbed {
     pub footer: Option<String>,
     pub image: Option<String>,
     pub thumbnail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientEmoji {
+    pub id: String,
+    pub name: String,
+    pub animated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientMention {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSticker {
+    pub id: String,
+    pub name: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientThread {
+    pub id: String,
+    pub name: String,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -343,6 +431,8 @@ pub struct ClientMessage {
     pub author_id: String,
     pub author_name: String,
     pub author_bot: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_avatar: Option<String>,
     pub content: String,
     pub timestamp: String,
     pub edited: bool,
@@ -350,6 +440,10 @@ pub struct ClientMessage {
     pub embeds: Vec<ClientEmbed>,
     pub reactions: Vec<ClientReaction>,
     pub mention_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mention_users: Vec<ClientMention>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mention_role_ids: Vec<String>,
     pub mention_everyone: bool,
     #[serde(default)]
     pub mention_roles: Vec<String>,
@@ -357,6 +451,10 @@ pub struct ClientMessage {
     pub guild_id: Option<String>,
     pub reply: Option<ClientReply>,
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stickers: Vec<ClientSticker>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<ClientThread>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -492,9 +590,7 @@ pub fn guild_icon_url(guild_id: &str, icon: &Option<String>) -> Option<String> {
 fn asset_hash_ok(hash: &str) -> bool {
     !hash.is_empty()
         && hash.len() <= 64
-        && hash
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 pub fn initials(name: &str) -> String {
@@ -548,15 +644,15 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
             .filter(|n| !n.is_empty())
             .collect();
         if names.is_empty() {
-            channel.name.clone().unwrap_or_else(|| "Direct message".into())
+            channel
+                .name
+                .clone()
+                .unwrap_or_else(|| "Direct message".into())
         } else {
             names.join(", ")
         }
     } else {
-        channel
-            .name
-            .clone()
-            .unwrap_or_else(|| "channel".into())
+        channel.name.clone().unwrap_or_else(|| "channel".into())
     };
     ClientChannel {
         id: channel.id.clone(),
@@ -585,38 +681,110 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
     }
 }
 
+fn nick_or_name(nick: Option<&str>, fallback: String) -> String {
+    nick.map(str::trim)
+        .filter(|nick| !nick.is_empty())
+        .map(|nick| nick.to_string())
+        .unwrap_or(fallback)
+}
+
+fn mention_name(user: &DiscordUser) -> String {
+    let nick = user
+        .member
+        .as_ref()
+        .and_then(|member| member.nick.as_deref());
+    let name = nick_or_name(nick, user.display_name());
+    if name.is_empty() {
+        "someone".into()
+    } else {
+        name
+    }
+}
+
+fn message_author_name(message: &DiscordMessage) -> String {
+    let nick = message
+        .member
+        .as_ref()
+        .and_then(|member| member.nick.as_deref());
+    let fallback = message
+        .author
+        .as_ref()
+        .map(|user| user.display_name())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Unknown".into());
+    nick_or_name(nick, fallback)
+}
+
+fn collapse_preview(mut text: String) -> String {
+    text = text.replace(['\n', '\r'], " ");
+    let count = text.chars().count();
+    let mut preview: String = text.chars().take(80).collect();
+    if count > 80 {
+        preview.push('…');
+    }
+    preview
+}
+
+fn reply_from(referenced: &DiscordMessage) -> ClientReply {
+    let mut text = if referenced.content.is_empty() {
+        if !referenced.attachments.is_empty() {
+            "Attachment".into()
+        } else if !referenced.sticker_items.is_empty() {
+            "Sticker".into()
+        } else {
+            "Click to see message".into()
+        }
+    } else {
+        referenced.content.clone()
+    };
+    for user in &referenced.mentions {
+        let label = format!("@{}", mention_name(user));
+        text = text.replace(&format!("<@{}>", user.id), &label);
+        text = text.replace(&format!("<@!{}>", user.id), &label);
+    }
+    ClientReply {
+        id: referenced.id.clone(),
+        author_name: message_author_name(referenced),
+        preview: collapse_preview(text),
+    }
+}
+
+fn sticker_url(id: &str, format: i32) -> Option<String> {
+    if !snowflake_ok(id) {
+        return None;
+    }
+    let ext = match format {
+        4 => "gif",
+        1 | 2 => "png",
+        _ => return None,
+    };
+    Some(format!(
+        "https://media.discordapp.net/stickers/{id}.{ext}?size=160"
+    ))
+}
+
 pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
     let author = message.author.as_ref();
-    let reply = message.referenced_message.as_ref().map(|referenced| {
-        let preview = if referenced.content.is_empty() {
-            "Attachment".into()
-        } else {
-            let mut text = referenced.content.clone();
-            if text.chars().count() > 80 {
-                text = text.chars().take(80).collect::<String>() + "…";
-            }
-            text
-        };
-        ClientReply {
-            id: referenced.id.clone(),
-            author_name: referenced
-                .author
-                .as_ref()
-                .map(|u| u.display_name())
-                .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| "someone".into()),
-            preview,
-        }
-    });
+    let reply = if let Some(referenced) = message.referenced_message.as_ref() {
+        Some(reply_from(referenced))
+    } else {
+        message
+            .message_reference
+            .as_ref()
+            .and_then(|reference| reference.message_id.clone())
+            .map(|id| ClientReply {
+                id,
+                author_name: "Original message".into(),
+                preview: "Message deleted".into(),
+            })
+    };
     ClientMessage {
         id: message.id.clone(),
         channel_id: message.channel_id.clone(),
         author_id: author.map(|u| u.id.clone()).unwrap_or_default(),
-        author_name: author
-            .map(|u| u.display_name())
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| "Unknown".into()),
+        author_name: message_author_name(message),
         author_bot: author.map(|u| u.bot).unwrap_or(false),
+        author_avatar: author.and_then(|user| avatar_url(&user.id, &user.avatar)),
         content: message.content.clone(),
         timestamp: message.timestamp.clone(),
         edited: message.edited_timestamp.is_some(),
@@ -638,7 +806,11 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
             .reactions
             .iter()
             .map(|reaction| ClientReaction {
-                emoji: reaction.emoji.name.clone().unwrap_or_else(|| "emoji".into()),
+                emoji: reaction
+                    .emoji
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "emoji".into()),
                 emoji_id: reaction.emoji.id.clone(),
                 animated: reaction.emoji.animated,
                 count: reaction.count,
@@ -646,6 +818,15 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
             })
             .collect(),
         mention_ids: message.mentions.iter().map(|u| u.id.clone()).collect(),
+        mention_users: message
+            .mentions
+            .iter()
+            .map(|user| ClientMention {
+                id: user.id.clone(),
+                name: mention_name(user),
+            })
+            .collect(),
+        mention_role_ids: message.mention_roles.clone(),
         mention_everyone: message.mention_everyone,
         mention_roles: message
             .mention_roles
@@ -656,7 +837,44 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
         guild_id: message.guild_id.clone().filter(|id| snowflake_ok(id)),
         reply,
         kind: kind_name(message.kind).into(),
+        stickers: message
+            .sticker_items
+            .iter()
+            .map(|sticker| ClientSticker {
+                url: sticker_url(&sticker.id, sticker.format_type),
+                id: sticker.id.clone(),
+                name: if sticker.name.is_empty() {
+                    "Sticker".into()
+                } else {
+                    sticker.name.clone()
+                },
+            })
+            .collect(),
+        thread: message.thread.as_ref().map(|thread| ClientThread {
+            id: thread.id.clone(),
+            name: thread
+                .name
+                .clone()
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "Thread".into()),
+            count: thread.message_count,
+        }),
     }
+}
+
+fn embed_media(media: &DiscordEmbedMedia) -> Option<String> {
+    media
+        .proxy_url
+        .as_deref()
+        .filter(|url| !url.is_empty())
+        .map(|url| url.to_string())
+        .or_else(|| {
+            if media.url.is_empty() {
+                None
+            } else {
+                Some(media.url.clone())
+            }
+        })
 }
 
 fn embed_to_client(embed: &DiscordEmbed) -> ClientEmbed {
@@ -676,8 +894,14 @@ fn embed_to_client(embed: &DiscordEmbed) -> ClientEmbed {
             })
             .collect(),
         footer: embed.footer.as_ref().map(|f| f.text.clone()),
-        image: embed.image.as_ref().map(|m| m.url.clone()),
-        thumbnail: embed.thumbnail.as_ref().map(|m| m.url.clone()),
+        image: embed.image.as_ref().and_then(embed_media),
+        thumbnail: embed.thumbnail.as_ref().and_then(embed_media),
+        video: embed.video.as_ref().and_then(embed_media),
+        provider: embed
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.name.clone())
+            .filter(|name| !name.is_empty()),
     }
 }
 
@@ -1089,7 +1313,11 @@ pub fn roster_from_chunk(data: &serde_json::Value) -> Vec<ClientMember> {
     apply_presences(&members, &presences)
 }
 
-pub fn validate_outgoing(content: &str, file_count: usize, file_bytes: u64) -> Result<(), &'static str> {
+pub fn validate_outgoing(
+    content: &str,
+    file_count: usize,
+    file_bytes: u64,
+) -> Result<(), &'static str> {
     if content.chars().count() > 2_000 {
         return Err("Messages are limited to 2,000 characters.");
     }
@@ -1106,10 +1334,7 @@ pub fn validate_outgoing(content: &str, file_count: usize, file_bytes: u64) -> R
 }
 
 pub fn safe_file_name(name: &str) -> String {
-    let base = name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("file");
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("file");
     let cleaned: String = base
         .chars()
         .map(|c| if c.is_control() { '_' } else { c })
@@ -1165,9 +1390,62 @@ mod tests {
         assert_eq!(client.embeds[0].color.as_deref(), Some("#e2a15a"));
         assert_eq!(client.reply.as_ref().unwrap().author_name, "Jonah Adler");
         assert_eq!(client.reactions[0].emoji, "🔥");
+        assert_eq!(client.mention_users[0].name, "ethan");
         assert_eq!(kind_name(7), "join");
         assert_eq!(channel_kind_name(2), "voice");
         assert_eq!(channel_kind_name(4), "category");
+    }
+
+    #[test]
+    fn message_mapping_keeps_nicks_stickers_and_previews() {
+        let raw = r#"{
+            "id": "77",
+            "channel_id": "42",
+            "type": 19,
+            "content": "reply <@100000000000000002>",
+            "author": {"id": "100000000000000007", "username": "maya", "global_name": "Maya Chen", "avatar": "deadbeef"},
+            "member": {"nick": "Erod"},
+            "mentions": [{
+                "id": "100000000000000002",
+                "username": "ethan",
+                "global_name": "Ethan",
+                "member": {"nick": "Booth"}
+            }],
+            "mention_roles": ["100000000000000099"],
+            "sticker_items": [{"id": "100000000000000088", "name": "wave", "format_type": 4}],
+            "embeds": [{
+                "title": "Clip",
+                "provider": {"name": "Tenor"},
+                "video": {"url": "https://media.tenor.com/clip.mp4", "proxy_url": "https://media.discordapp.net/external/clip.mp4"},
+                "image": {"url": "", "proxy_url": "https://media.discordapp.net/external/still.png"}
+            }],
+            "message_reference": {"message_id": "70"}
+        }"#;
+        let parsed: DiscordMessage = serde_json::from_str(raw).unwrap();
+        let client = message_to_client(&parsed);
+        assert_eq!(client.author_name, "Erod");
+        assert!(client.author_avatar.unwrap().contains("deadbeef"));
+        assert_eq!(client.mention_users[0].name, "Booth");
+        assert_eq!(client.mention_role_ids, vec!["100000000000000099"]);
+        assert!(client.stickers[0]
+            .url
+            .as_deref()
+            .unwrap()
+            .ends_with(".gif?size=160"));
+        assert_eq!(client.embeds[0].provider.as_deref(), Some("Tenor"));
+        assert!(client.embeds[0]
+            .video
+            .as_deref()
+            .unwrap()
+            .contains("media.discordapp.net"));
+        assert_eq!(
+            client.reply.as_ref().unwrap().author_name,
+            "Original message"
+        );
+
+        let deleted = r#"{"id":"71","channel_id":"42","type":19,"message_reference":{"message_id":"1"},"referenced_message":null}"#;
+        let gone = message_to_client(&serde_json::from_str(deleted).unwrap());
+        assert_eq!(gone.reply.as_ref().unwrap().preview, "Message deleted");
     }
 
     #[test]

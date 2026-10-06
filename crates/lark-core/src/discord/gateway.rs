@@ -78,8 +78,21 @@ pub enum ClientEvent {
     MessageUpdate {
         channel_id: String,
         message_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         content: Option<String>,
         edited: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        embeds: Option<Vec<super::types::ClientEmbed>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attachments: Option<Vec<super::types::ClientAttachment>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stickers: Option<Vec<super::types::ClientSticker>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reactions: Option<Vec<super::types::ClientReaction>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mention_ids: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mention_users: Option<Vec<super::types::ClientMention>>,
     },
     MessageDelete {
         channel_id: String,
@@ -128,6 +141,10 @@ pub enum ClientEvent {
         channel_id: String,
         threads: Vec<ClientChannel>,
     },
+    Roles {
+        guild_id: String,
+        roles: Vec<super::types::ClientRole>,
+    },
     Guild {
         guild: ClientGuild,
     },
@@ -143,10 +160,6 @@ pub enum ClientEvent {
         online_count: u32,
         groups: Vec<ClientMemberGroup>,
         ops: Vec<MemberListOp>,
-    },
-    Roles {
-        guild_id: String,
-        roles: Vec<ClientRole>,
     },
     Role {
         guild_id: String,
@@ -1058,14 +1071,41 @@ fn handle_dispatch(
             false
         }
         "MESSAGE_UPDATE" => {
-            if let Ok(message) = serde_json::from_value::<DiscordMessage>(data.clone()) {
-                emit(ClientEvent::MessageUpdate {
-                    channel_id: message.channel_id,
-                    message_id: message.id,
-                    content: Some(message.content),
-                    edited: true,
-                });
+            let channel_id = json_str(data, "channel_id");
+            let message_id = json_str(data, "id");
+            if channel_id.is_empty() || message_id.is_empty() {
+                return false;
             }
+            let client = serde_json::from_value::<DiscordMessage>(data.clone())
+                .ok()
+                .map(|message| message_to_client(&message));
+            emit(ClientEvent::MessageUpdate {
+                channel_id,
+                message_id,
+                content: data
+                    .get("content")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                edited: true,
+                embeds: data
+                    .get("embeds")
+                    .and_then(|_| client.as_ref().map(|message| message.embeds.clone())),
+                attachments: data
+                    .get("attachments")
+                    .and_then(|_| client.as_ref().map(|message| message.attachments.clone())),
+                stickers: data
+                    .get("sticker_items")
+                    .and_then(|_| client.as_ref().map(|message| message.stickers.clone())),
+                reactions: data
+                    .get("reactions")
+                    .and_then(|_| client.as_ref().map(|message| message.reactions.clone())),
+                mention_ids: data
+                    .get("mentions")
+                    .and_then(|_| client.as_ref().map(|message| message.mention_ids.clone())),
+                mention_users: data
+                    .get("mentions")
+                    .and_then(|_| client.as_ref().map(|message| message.mention_users.clone())),
+            });
             false
         }
         "MESSAGE_DELETE" => {
@@ -1563,6 +1603,42 @@ mod tests {
         assert_eq!(value["kind"], "messageDelete");
         assert_eq!(value["channelId"], "1");
         assert_eq!(value["messageId"], "2");
+    }
+
+    #[test]
+    fn message_update_omits_content_when_discord_did_not_send_it() {
+        let data = json!({
+            "id": "55",
+            "channel_id": "42",
+            "embeds": [{"title": "Preview", "provider": {"name": "Tenor"}, "video": {"url": "https://media.tenor.com/clip.mp4"}}]
+        });
+        let mut events = Vec::new();
+        handle_dispatch("MESSAGE_UPDATE", &data, None, &mut None, &mut |event| {
+            events.push(event);
+        });
+        match &events[0] {
+            ClientEvent::MessageUpdate {
+                content,
+                embeds,
+                edited,
+                ..
+            } => {
+                assert!(content.is_none());
+                assert!(*edited);
+                assert_eq!(
+                    embeds.as_ref().unwrap()[0].title.as_deref(),
+                    Some("Preview")
+                );
+                assert!(embeds.as_ref().unwrap()[0]
+                    .video
+                    .as_deref()
+                    .unwrap()
+                    .contains("tenor"));
+            }
+            other => panic!("expected message update, got {other:?}"),
+        }
+        let value = serde_json::to_value(&events[0]).unwrap();
+        assert!(value.get("content").is_none());
     }
 
     #[test]

@@ -16,9 +16,9 @@ use crate::redact::redact;
 use super::shell::{invite_code_ok, invite_from_json, ClientInvite};
 use super::types::{
     friends_from_relationships, member_to_client, message_to_client, profile_from_value,
-    role_to_client, safe_file_name, snowflake_ok, validate_outgoing, ClientChannel, ClientMember,
-    ClientMessage, ClientProfile, ClientRole, DiscordChannel, DiscordMember, DiscordMessage,
-    DiscordRole, DiscordUser,
+    role_to_client, safe_file_name, snowflake_ok, validate_outgoing, ClientChannel, ClientEmoji,
+    ClientMember, ClientMessage, ClientProfile, ClientRole, DiscordChannel, DiscordMember,
+    DiscordMessage, DiscordRole, DiscordUser,
 };
 
 const API: &str = "https://discord.com/api/v10";
@@ -324,6 +324,46 @@ impl DiscordRest {
         let messages: Vec<DiscordMessage> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read pins".into()))?;
         Ok(messages.iter().map(message_to_client).collect())
+    }
+
+    pub async fn set_pin(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        pinned: bool,
+    ) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let method = if pinned { Method::PUT } else { Method::DELETE };
+        let verb = if pinned { "PUT" } else { "DELETE" };
+        let route = route_key(verb, "/channels/{channel.id}/pins/{message.id}", channel_id);
+        let path = format!("/channels/{channel_id}/pins/{message_id}");
+        let response = self.send(method, &route, &path, None, &[]).await?;
+        if response.status().is_success() || response.status().as_u16() == 204 {
+            return Ok(());
+        }
+        let _ = Self::json_body(response, &self.token).await?;
+        Ok(())
+    }
+
+    pub async fn emojis(&self, guild_id: &str) -> Result<Vec<ClientEmoji>, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/emojis");
+        let route = route_key("GET", "/guilds/{guild.id}/emojis", guild_id);
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
+        let emojis: Vec<GuildEmoji> = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read emoji".into()))?;
+        Ok(emojis
+            .into_iter()
+            .filter(|emoji| emoji.available && snowflake_ok(&emoji.id) && !emoji.name.is_empty())
+            .map(|emoji| ClientEmoji {
+                id: emoji.id,
+                name: emoji.name,
+                animated: emoji.animated,
+            })
+            .collect())
     }
 
     pub async fn active_threads(&self, channel_id: &str) -> Result<Vec<ClientChannel>, RestError> {
@@ -680,6 +720,21 @@ struct TooMany {
 struct DiscordError {
     #[serde(default)]
     message: String,
+}
+
+#[derive(Deserialize)]
+struct GuildEmoji {
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    animated: bool,
+    #[serde(default = "emoji_available")]
+    available: bool,
+}
+
+fn emoji_available() -> bool {
+    true
 }
 
 pub fn api_url(path: &str) -> Result<String, RestError> {

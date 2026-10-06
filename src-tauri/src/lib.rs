@@ -165,6 +165,10 @@ pub fn run() {
             set_presence,
             ack_message,
             fetch_pins,
+            pin_message,
+            unpin_message,
+            fetch_emojis,
+            fetch_threads,
             search_messages,
             set_unread,
             preview_invite,
@@ -987,6 +991,26 @@ async fn ack_message(state: State<'_, Shared>, channel_id: String, message_id: S
 #[tauri::command]
 async fn fetch_pins(state: State<'_, Shared>, channel_id: String) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
     rest(&state).await?.pins(&channel_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn pin_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
+    rest(&state).await?.set_pin(&channel_id, &message_id, true).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn unpin_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
+    rest(&state).await?.set_pin(&channel_id, &message_id, false).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_emojis(state: State<'_, Shared>, guild_id: String) -> Result<Vec<lark_core::discord::ClientEmoji>, String> {
+    rest(&state).await?.emojis(&guild_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_threads(state: State<'_, Shared>, channel_id: String) -> Result<Vec<lark_core::discord::ClientChannel>, String> {
+    rest(&state).await?.active_threads(&channel_id).await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]

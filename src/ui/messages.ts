@@ -2,7 +2,7 @@ import { formatAbsolute, formatRelative } from "../pack/relative";
 import type { ViewMessage } from "../render/message";
 import { emojiCdnUrl, formatBytes, type Block, type Inline } from "../render/content";
 import { highlightCode, inlineLang } from "../syntax";
-import { colorFor, el, formatClock, formatDay, icon, initials, paths } from "./dom";
+import { colorFor, el, formatClock, formatDay, icon, initials, paths, portrait } from "./dom";
 
 export function renderMessage(
   view: ViewMessage,
@@ -14,10 +14,14 @@ export function renderMessage(
     remoteEmoji: boolean;
     mine: boolean;
     onReply: () => void;
+    onJump?: () => void;
     onEdit: () => void;
     onDelete: () => void;
-    onReact: (emoji: string) => void;
+    onPin?: () => void;
+    onThread?: () => void;
+    onReact: (emoji: string, emojiId?: string | null) => void;
     onImage: (url: string) => void;
+    jumped?: boolean;
     now?: number;
     quickReactions?: string[];
     bookmarked?: boolean;
@@ -29,20 +33,20 @@ export function renderMessage(
 ): HTMLElement {
   const wrap = el("div", "message-wrap");
   if (options.showDay) wrap.append(el("div", "day-sep", formatDay(view.timestamp)));
-  if (options.divider) wrap.append(el("div", "unread-sep", "New"));
+  if (options.divider) wrap.append(el("div", "unread-sep", "New messages"));
   if (view.kind === "join" || view.kind === "system") {
     wrap.append(el("div", "system-line", view.raw || `${view.authorName} joined`));
     return wrap;
   }
   const effects = new Set(view.effects ?? []);
-  const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}${effects.has("compact-media") ? " is-compact-media" : ""}`);
+  const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}${options.jumped ? " is-jump" : ""}${effects.has("compact-media") ? " is-compact-media" : ""}`);
   article.dataset.id = view.id;
   if (options.density === "irc") {
     article.classList.add("is-irc");
   } else if (options.density === "compact") {
     article.append(timeStamp(view, options, "gutter"));
   } else if (!options.grouped) {
-    article.append(avatar(view.authorName, view.authorId));
+    article.append(portrait(view.authorName, view.authorId, view.authorAvatar));
   } else {
     article.append(timeStamp(view, options, "gutter hover-time"));
   }
@@ -60,7 +64,9 @@ export function renderMessage(
   if (view.reply) {
     const reply = el("button", "reply-ref");
     reply.type = "button";
+    reply.title = "Jump to message";
     reply.append(el("span", "reply-name", view.reply.authorName), el("span", "reply-preview", view.reply.preview));
+    reply.addEventListener("click", () => options.onJump?.());
     body.append(reply);
   }
   if (options.density === "irc") {
@@ -111,14 +117,19 @@ export function renderMessage(
     chip.append(el("span", "", sticker.name));
     body.append(chip);
   }
-  if (view.thread) body.append(el("div", "thread-chip", `Thread · ${view.thread.name} · ${view.thread.count}`));
+  if (view.thread) {
+    const chip = el("button", "thread-chip", `Thread · ${view.thread.name} · ${view.thread.count}`);
+    chip.type = "button";
+    chip.addEventListener("click", () => options.onThread?.());
+    body.append(chip);
+  }
   if (view.reactions.length) {
     const row = el("div", "reactions");
     for (const reaction of view.reactions) {
       const button = el("button", `reaction${reaction.me ? " is-mine" : ""}`);
       button.type = "button";
-      button.append(el("span", "reaction-emoji", reaction.emoji), el("span", "reaction-count", String(reaction.count)));
-      button.addEventListener("click", () => options.onReact(reaction.emoji));
+      button.append(reactionFace(reaction, options.remoteEmoji), el("span", "reaction-count", String(reaction.count)));
+      button.addEventListener("click", () => options.onReact(reaction.emoji, reaction.emojiId));
       row.append(button);
     }
     body.append(row);
@@ -146,6 +157,7 @@ export function renderMessage(
   if (options.onHideAuthor) actions.append(textAction("Hide", options.onHideAuthor));
   actions.append(actionButton("Add reaction", paths.plus, () => options.onReact("picker")));
   actions.append(actionButton("Reply", paths.reply, options.onReply));
+  if (options.onPin) actions.append(actionButton("Pin", paths.pin, options.onPin));
   if (options.mine) {
     actions.append(actionButton("Edit", paths.pencil, options.onEdit));
     actions.append(actionButton("Delete", paths.trash, options.onDelete));
@@ -195,6 +207,16 @@ function avatar(name: string, id: string): HTMLElement {
   return node;
 }
 
+function reactionFace(reaction: ViewMessage["reactions"][number], remoteEmoji: boolean): HTMLElement {
+  const remote = remoteEmoji && reaction.emojiId ? emojiCdnUrl(reaction.emojiId, reaction.animated) : null;
+  if (!remote) return el("span", "reaction-emoji", reaction.emoji);
+  const img = el("img", "emoji");
+  img.alt = reaction.emoji;
+  img.src = remote;
+  img.addEventListener("error", () => img.replaceWith(el("span", "reaction-emoji", reaction.emoji || "emoji")));
+  return img;
+}
+
 function renderAttachment(
   attachment: ViewMessage["attachments"][number],
   onImage: (url: string) => void,
@@ -211,6 +233,22 @@ function renderAttachment(
     button.append(img);
     button.addEventListener("click", () => onImage(attachment.url!));
     return button;
+  }
+  if ((attachment.kind === "video" || attachment.kind === "audio") && attachment.url) {
+    const media = el(attachment.kind === "video" ? "video" : "audio", attachment.kind === "video" ? "attachment-video" : "attachment-audio");
+    media.controls = true;
+    media.preload = "metadata";
+    media.src = attachment.url;
+    if (attachment.kind === "audio") media.setAttribute("aria-label", attachment.name);
+    return media;
+  }
+  if (attachment.url) {
+    const link = el("a", "file-chip");
+    link.href = attachment.url;
+    link.target = "_blank";
+    link.rel = "noreferrer noopener";
+    link.append(el("strong", "", attachment.name), el("span", "", formatBytes(attachment.bytes)));
+    return link;
   }
   const row = el("div", "file-chip");
   row.append(el("strong", "", attachment.name), el("span", "", formatBytes(attachment.bytes)));
@@ -241,18 +279,35 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
     const fields = el("div", "embed-fields");
     for (const field of embed.fields) {
       const item = el("div", field.inline ? "embed-field is-inline" : "embed-field");
-      item.append(el("div", "field-name", field.name), el("div", "field-value", field.value));
+      const value = el("div", "field-value");
+      renderBlocks(value, field.value, remoteEmoji);
+      item.append(el("div", "field-name", field.name), value);
       fields.append(item);
     }
     card.append(fields);
   }
-  if (embed.image) {
+  if (embed.video) {
+    const video = el("video", "embed-video");
+    video.src = embed.video;
+    video.preload = "metadata";
+    video.playsInline = true;
+    const loop = /tenor|giphy/i.test(embed.provider ?? "") || /tenor|giphy/i.test(embed.video);
+    if (loop) {
+      video.muted = true;
+      video.loop = true;
+      video.autoplay = true;
+    } else {
+      video.controls = true;
+    }
+    card.append(video);
+  } else if (embed.image || embed.thumbnail) {
     const img = el("img", "embed-image");
     img.alt = "";
     reserveBox(img, undefined, undefined);
-    img.src = embed.image;
+    img.src = embed.image || embed.thumbnail || "";
     card.append(img);
   }
+  if (embed.provider) card.append(el("div", "embed-footer", embed.provider));
   if (embed.footer) card.append(el("div", "embed-footer", embed.footer));
   return card;
 }
@@ -303,6 +358,22 @@ function renderBlocks(parent: HTMLElement, blocks: Block[], remoteEmoji: boolean
       const quote = el("blockquote", "quote");
       renderBlocks(quote, block.c, remoteEmoji, false, inlineCode);
       host.append(quote);
+    } else if (block.t === "h") {
+      const heading = el(block.level === 1 ? "h3" : block.level === 2 ? "h4" : "h5", `md-h md-h${block.level}`);
+      renderInlines(heading, block.c, remoteEmoji, inlineCode);
+      host.append(heading);
+    } else if (block.t === "ul" || block.t === "ol") {
+      const list = el(block.t, "md-list");
+      for (const item of block.items) {
+        const row = el("li");
+        renderInlines(row, item, remoteEmoji, inlineCode);
+        list.append(row);
+      }
+      host.append(list);
+    } else if (block.t === "sub") {
+      const sub = el("div", "md-sub");
+      renderInlines(sub, block.c, remoteEmoji, inlineCode);
+      host.append(sub);
     } else {
       const paragraph = el("p", "paragraph");
       renderInlines(paragraph, block.c, remoteEmoji, inlineCode);

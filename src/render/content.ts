@@ -22,7 +22,11 @@ export type Inline =
 export type Block =
   | { t: "p"; c: Inline[] }
   | { t: "quote"; c: Block[] }
-  | { t: "pre"; lang: string | null; v: string };
+  | { t: "pre"; lang: string | null; v: string }
+  | { t: "h"; level: 1 | 2 | 3; c: Inline[] }
+  | { t: "ul"; items: Inline[][] }
+  | { t: "ol"; items: Inline[][] }
+  | { t: "sub"; c: Inline[] };
 
 export interface ParseResult {
   blocks: Block[];
@@ -51,6 +55,7 @@ function parseTextBlocks(text: string, ctx: RenderContext, flag: { me: boolean }
   const blocks: Block[] = [];
   let para: string[] = [];
   let quote: string[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
   const flushPara = () => {
     if (!para.length) return;
     const body = para.join("\n");
@@ -64,20 +69,65 @@ function parseTextBlocks(text: string, ctx: RenderContext, flag: { me: boolean }
     quote = [];
     blocks.push({ t: "quote", c: parseTextBlocks(inner, ctx, flag) });
   };
-  for (const line of lines) {
+  const flushList = () => {
+    if (!list) return;
+    const items = list.items.map((item) => parseInlines(item, ctx, flag));
+    blocks.push(list.ordered ? { t: "ol", items } : { t: "ul", items });
+    list = null;
+  };
+  const flushAll = () => {
+    flushList();
+    flushQuote();
+    flushPara();
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.startsWith(">>>")) {
+      flushAll();
+      const rest = [line.replace(/^>>>\s?/, ""), ...lines.slice(index + 1)].join("\n");
+      blocks.push({ t: "quote", c: parseTextBlocks(rest, ctx, flag) });
+      return blocks;
+    }
     if (line.startsWith(">")) {
+      flushList();
       flushPara();
       quote.push(line);
-    } else if (line === "") {
+      continue;
+    }
+    const header = /^(#{1,3}) (\S.*)$/.exec(line);
+    if (header) {
+      flushAll();
+      blocks.push({ t: "h", level: header[1].length as 1 | 2 | 3, c: parseInlines(header[2], ctx, flag) });
+      continue;
+    }
+    const sub = /^-# (\S.*)$/.exec(line);
+    if (sub) {
+      flushAll();
+      blocks.push({ t: "sub", c: parseInlines(sub[1], ctx, flag) });
+      continue;
+    }
+    const bullet = /^[-*] (\S.*)$/.exec(line);
+    const ordered = /^(\d{1,2})\. (\S.*)$/.exec(line);
+    if (bullet || ordered) {
       flushQuote();
       flushPara();
-    } else {
-      flushQuote();
-      para.push(line);
+      const orderedList = Boolean(ordered);
+      if (!list || list.ordered !== orderedList) {
+        flushList();
+        list = { ordered: orderedList, items: [] };
+      }
+      list.items.push(ordered ? ordered[2] : bullet![1]);
+      continue;
     }
+    if (line === "") {
+      flushAll();
+      continue;
+    }
+    flushList();
+    flushQuote();
+    para.push(line);
   }
-  flushQuote();
-  flushPara();
+  flushAll();
   return blocks;
 }
 
@@ -233,6 +283,11 @@ function tryToken(
   if (match && isHttp(match[1])) {
     return { node: { t: "link", href: match[1], label: match[1] }, next: i + match[0].length };
   }
+  match = /^\[([^\[\]\n]{1,200})\]\((https?:\/\/[^\s)]+)\)/.exec(rest);
+  if (match && isHttp(match[2])) {
+    const href = trimUrl(match[2]);
+    if (isHttp(href)) return { node: { t: "link", href, label: match[1] }, next: i + match[0].length };
+  }
   match = /^https?:\/\/[^\s<]+/.exec(rest);
   if (match) {
     const href = trimUrl(match[0]);
@@ -292,24 +347,40 @@ export function emojiCdnUrl(id: string, animated: boolean): string | null {
   return `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "webp"}?size=48`;
 }
 
+const MEDIA_HOSTS = new Set([
+  "cdn.discordapp.com",
+  "media.discordapp.net",
+  "media.tenor.com",
+  "c.tenor.com",
+  "media.giphy.com",
+  "i.giphy.com",
+]);
+
+function mediaHost(hostname: string): boolean {
+  if (MEDIA_HOSTS.has(hostname)) return true;
+  if (/^images-ext-\d+\.discordapp\.net$/.test(hostname)) return true;
+  if (/^media\d\.giphy\.com$/.test(hostname)) return true;
+  return false;
+}
+
 export function safeMediaUrl(url: string): string | null {
   if (url.startsWith("blob:")) return url;
   if (url.startsWith("/media/") && !url.includes("..") && !url.includes("\\")) return url;
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") return null;
-    if (parsed.hostname === "cdn.discordapp.com" || parsed.hostname === "media.discordapp.net") {
-      return parsed.toString();
-    }
+    if (mediaHost(parsed.hostname)) return parsed.toString();
   } catch {
     return null;
   }
   return null;
 }
 
-export function attachmentKind(att: { contentType?: string; name: string }): "image" | "file" {
+export function attachmentKind(att: { contentType?: string; name: string }): "image" | "video" | "audio" | "file" {
   const type = att.contentType ?? "";
   if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(att.name)) return "video";
+  if (type.startsWith("audio/") || /\.(mp3|ogg|wav|m4a)$/i.test(att.name)) return "audio";
   if (/\.(png|jpe?g|gif|webp|avif|svg)$/i.test(att.name)) return "image";
   return "file";
 }
