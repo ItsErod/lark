@@ -142,7 +142,9 @@ pub fn run() {
             toggle_reaction,
             typing,
             read_theme,
+            write_theme,
             list_themes,
+            set_window_material,
             list_plugins,
             join_voice,
             leave_voice,
@@ -514,8 +516,65 @@ fn read_theme(state: State<'_, Shared>, name: String) -> Result<String, String> 
 }
 
 #[tauri::command]
+fn write_theme(state: State<'_, Shared>, name: String, css: String) -> Result<(), String> {
+    lark_core::config::validate_theme_name(&name).map_err(|err| err.to_string())?;
+    lark_core::config::validate_theme_css(&css).map_err(|err| err.to_string())?;
+    let path = state.paths.themes_dir.join(format!("{name}.css"));
+    fs::write(path, css).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn list_themes(state: State<'_, Shared>) -> Vec<String> {
     list_stems(&state.paths.themes_dir, "css")
+}
+
+#[tauri::command]
+fn set_window_material(app: AppHandle, material: String) -> Result<bool, String> {
+    if material != "vibrancy" && material != "none" {
+        return Err("Unknown window material.".into());
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Lark window is not open.".to_string())?;
+    apply_window_material(&window, &material)
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn apply_window_material(window: &tauri::WebviewWindow, material: &str) -> Result<bool, String> {
+    let effects = if material == "vibrancy" {
+        Some(native_effects())
+    } else {
+        None
+    };
+    match window.set_effects(effects) {
+        Ok(()) => Ok(material == "vibrancy"),
+        Err(err) => {
+            log::warn!("window material: {err}");
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn apply_window_material(window: &tauri::WebviewWindow, material: &str) -> Result<bool, String> {
+    let _ = (window, material);
+    Ok(false)
+}
+
+#[cfg(target_os = "macos")]
+fn native_effects() -> tauri::utils::config::WindowEffectsConfig {
+    tauri::utils::config::WindowEffectsConfig {
+        effects: vec![tauri::utils::WindowEffect::HudWindow],
+        ..Default::default()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn native_effects() -> tauri::utils::config::WindowEffectsConfig {
+    tauri::utils::config::WindowEffectsConfig {
+        effects: vec![tauri::utils::WindowEffect::MicaDark],
+        ..Default::default()
+    }
 }
 
 #[tauri::command]

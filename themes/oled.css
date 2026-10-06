@@ -1,0 +1,26 @@
+/* Lark theme: OLED. True black so unused pixels stay off. No shadow blur. */
+:root {
+  color-scheme: dark;
+  --bg-0: #000000;
+  --bg-1: #000000;
+  --bg-2: #000000;
+  --bg-3: #0c0c0c;
+  --bg-4: #161616;
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #f2f2f2;
+  --muted: #b5b5b5;
+  --faint: #8f8f8f;
+  --accent: #4da3ff;
+  --accent-ink: #041018;
+  --accent-soft: rgba(77, 163, 255, 0.16);
+  --ok: #3dd68c;
+  --idle: #f5c451;
+  --busy: #ff6b6b;
+  --danger: #ff6b6b;
+  --mention-bg: rgba(77, 163, 255, 0.16);
+  --mention-fg: #b9dcff;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

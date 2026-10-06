@@ -104,9 +104,19 @@ description = "Read a theme stylesheet."
 commands.allow = ["read_theme"]
 
 [[permission]]
+identifier = "allow-write-theme"
+description = "Save a theme stylesheet."
+commands.allow = ["write_theme"]
+
+[[permission]]
 identifier = "allow-list-themes"
 description = "List installed themes."
 commands.allow = ["list_themes"]
+
+[[permission]]
+identifier = "allow-set-window-material"
+description = "Turn native window vibrancy on or off."
+commands.allow = ["set_window_material"]
 
 [[permission]]
 identifier = "allow-list-plugins"

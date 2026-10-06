@@ -12,6 +12,21 @@ import { captureBackend, encoderName, formatBitrate, planShare } from "../share"
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
+import {
+  applyRootOverrides,
+  filterThemes,
+  galleryEntries,
+  loadImportedThemes,
+  parseThemeCss,
+  previewVars,
+  serializeImportedThemes,
+  themeFromJson,
+  themeIdFromFilename,
+  themeTitle,
+  themeToJson,
+  THEME_ID,
+  validateThemeCss,
+} from "../themes";
 import { rowEstimate, sliceWindow } from "../virtual";
 import { commandError, previewQr, QR_CAPTION } from "../signin";
 import { clear, colorFor, el, icon, initials, paths } from "./dom";
@@ -135,6 +150,11 @@ class LarkApp {
   private searchOpen = false;
   private pinsOpen = false;
   private themeOpen = false;
+  private themeFilter = "";
+  private extraThemeIds: string[] = [];
+  private themeCache = new Map<string, string>();
+  private imported = new Map<string, string>();
+  private materialWanted: string | null = null;
   private popout: Person | null = null;
   private statusOpen = false;
   private upload = 0;
@@ -153,6 +173,9 @@ class LarkApp {
         this.config = defaultConfig();
       }
     }
+    this.imported = loadImportedThemes(localStorage.getItem("lark.imported-themes.v1"));
+    for (const [id, css] of this.imported) this.themeCache.set(id, css);
+    this.extraThemeIds = [...this.imported.keys()];
     this.seedUnreads();
     this.drafts = readJson("lark.drafts.v1") as Record<string, string>;
     try {
@@ -231,7 +254,11 @@ class LarkApp {
       };
       this.config = sanitizeConfig(await invoke("get_config"));
       const { listen } = await import("@tauri-apps/api/event");
-      await listen("theme-changed", () => void this.applyTheme());
+      await listen("theme-changed", () => {
+        this.themeCache.clear();
+        for (const [id, css] of this.imported) this.themeCache.set(id, css);
+        void this.applyTheme();
+      });
       await listen<{ kind: string }>("config-changed", () => {
         if (!this.settings) void this.reloadConfig();
       });
@@ -396,11 +423,13 @@ class LarkApp {
     this.root.dataset.density = appearance.density;
     this.root.dataset.narrow = this.narrow ? "on" : "off";
     const guild = this.guilds().find((item) => item.id === this.guildId);
-    const accent = (guild && this.config.accents[guild.id]) || guild?.accent;
+    const accent = guild && this.config.accents[guild.id];
     if (accent) this.root.style.setProperty("--accent", accent);
+    else this.root.style.removeProperty("--accent");
     this.root.dataset.drawer = this.drawer ? "on" : "off";
     this.root.style.setProperty("--ui-size", `${appearance.font_size}px`);
-    this.root.style.fontFamily = fontStack(appearance.font_family);
+    if (appearance.font_family === "inter") this.root.style.removeProperty("font-family");
+    else this.root.style.fontFamily = fontStack(appearance.font_family);
     const rail = appearance.show_server_rail ? "72px" : "0px";
     const channelW = appearance.channel_list === "hidden" ? "0px" : "252px";
     const members = appearance.show_member_list && this.guildId && !this.narrow ? "236px" : "0px";
@@ -426,24 +455,213 @@ class LarkApp {
 
   private async applyTheme() {
     const name = this.config.appearance.theme;
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) return;
+    if (!THEME_ID.test(name)) return;
     try {
-      const css = isTauri() && !import.meta.env.DEV
-        ? await invoke<string>("read_theme", { name })
-        : await fetch(`/themes/${name}.css`, { cache: "no-store" }).then((res) => {
-            if (!res.ok) throw new Error("missing theme");
-            return res.text();
-          });
+      const css = await this.fetchThemeCss(name);
       let style = document.getElementById("lark-theme");
       if (!style) {
         style = document.createElement("style");
         style.id = "lark-theme";
         document.head.append(style);
       }
-      if (style.textContent !== css) style.textContent = css;
+      if (style.textContent !== css) {
+        style.textContent = css;
+        this.themeCache.set(name, css);
+        if (this.settings && this.section === "appearance") this.paintThemeGallery();
+      } else {
+        this.themeCache.set(name, css);
+      }
+      document.documentElement.dataset.theme = name;
+      this.syncMaterial(parseThemeCss(css).material);
     } catch {
       /* Keep the last good theme. */
     }
+  }
+
+  private async fetchThemeCss(name: string): Promise<string> {
+    if (!THEME_ID.test(name)) throw new Error("invalid theme");
+    if (!isTauri()) {
+      const imported = this.imported.get(name);
+      if (imported) return imported;
+    }
+    if (isTauri()) return invoke<string>("read_theme", { name });
+    const res = await fetch(`/themes/${name}.css`, { cache: "no-store" });
+    if (!res.ok) throw new Error("missing theme");
+    return res.text();
+  }
+
+  private syncMaterial(material: "none" | "vibrancy") {
+    if (this.materialWanted === material) return;
+    this.materialWanted = material;
+    if (!isTauri()) {
+      document.documentElement.classList.remove("is-vibrancy");
+      return;
+    }
+    void invoke<boolean>("set_window_material", { material })
+      .then((on) => {
+        if (this.materialWanted !== material) return;
+        document.documentElement.classList.toggle("is-vibrancy", Boolean(on));
+      })
+      .catch(() => {
+        if (this.materialWanted === material) this.materialWanted = null;
+        document.documentElement.classList.remove("is-vibrancy");
+      });
+  }
+
+  private async refreshThemeIndex() {
+    const ids = [...this.imported.keys()];
+    if (isTauri()) {
+      try {
+        ids.push(...(await invoke<string[]>("list_themes")));
+      } catch {
+        /* The shipped list still renders. */
+      }
+    }
+    const pending = galleryEntries(ids).filter((theme) => !this.themeCache.has(theme.id));
+    await Promise.all(
+      pending.map(async (theme) => {
+        try {
+          this.themeCache.set(theme.id, await this.fetchThemeCss(theme.id));
+        } catch {
+          /* A listed file can be missing during a refresh. */
+        }
+      }),
+    );
+    const changed = ids.length !== this.extraThemeIds.length || ids.some((id, index) => id !== this.extraThemeIds[index]);
+    this.extraThemeIds = ids;
+    if (this.settings && this.section === "appearance" && (changed || pending.length > 0)) this.paintThemeGallery();
+  }
+
+  private selectTheme(id: string) {
+    if (!THEME_ID.test(id)) return;
+    for (const name of ["--bg-0", "--bg-2", "--text"]) this.root.style.removeProperty(name);
+    this.config.appearance.theme = id;
+    this.persist();
+    this.paint();
+    if (this.settings && this.section === "appearance") this.paintThemeGallery();
+  }
+
+  private paintThemeGallery(root: ParentNode = this.settingsEl) {
+    const grid = root.querySelector(".theme-gallery");
+    if (!(grid instanceof HTMLElement)) return;
+    clear(grid);
+    const visible = filterThemes(galleryEntries(this.extraThemeIds), this.themeFilter);
+    for (const theme of visible) grid.append(this.themeCard(theme));
+    const empty = root.querySelector(".theme-empty");
+    if (!visible.length) {
+      if (!empty) grid.insertAdjacentElement("afterend", el("p", "theme-empty hint", "No theme matches that."));
+    } else {
+      empty?.remove();
+    }
+  }
+
+  private themeCard(theme: { id: string; title: string; blurb: string }): HTMLButtonElement {
+    const on = this.config.appearance.theme === theme.id;
+    const card = el("button", `theme-card${on ? " is-on" : ""}`);
+    card.type = "button";
+    card.setAttribute("aria-label", `Apply ${theme.title}`);
+    card.setAttribute("aria-pressed", on ? "true" : "false");
+    const live = el("div", "theme-live");
+    live.setAttribute("aria-hidden", "true");
+    const css = this.themeCache.get(theme.id);
+    if (css) {
+      const parsed = parseThemeCss(css);
+      live.style.colorScheme = parsed.colorScheme;
+      for (const [key, value] of Object.entries(previewVars(css))) live.style.setProperty(key, value);
+    } else {
+      live.classList.add("is-pending");
+    }
+    const rail = el("div", "theme-live-rail");
+    rail.append(el("i", "is-on"), el("i"), el("i"));
+    const channels = el("div", "theme-live-channels");
+    channels.append(el("span"), el("span", "is-on"), el("span"));
+    const chat = el("div", "theme-live-chat");
+    const pips = el("span", "theme-live-pips");
+    for (const pip of ["ok", "idle", "busy"] as const) {
+      const dot = el("i");
+      dot.style.background = `var(--${pip})`;
+      pips.append(dot);
+    }
+    chat.append(el("strong", "", "Lark"), el("b"), el("b", "short"), pips);
+    live.append(rail, channels, chat);
+    const meta = el("div", "theme-meta");
+    meta.append(el("strong", "", theme.title), el("span", "", theme.blurb));
+    if (on) meta.append(el("span", "theme-on", "On"));
+    card.append(live, meta);
+    card.addEventListener("click", () => this.selectTheme(theme.id));
+    return card;
+  }
+
+  private async importTheme(file: File) {
+    let text = "";
+    try {
+      text = await file.text();
+    } catch {
+      this.toast("Theme", "Couldn't read that file.");
+      return;
+    }
+    if (text.length > 16 * 1024) {
+      this.toast("Theme", "Theme file is too large.");
+      return;
+    }
+    let id = "";
+    let css = "";
+    try {
+      const trimmed = text.trim();
+      const filenameId = themeIdFromFilename(file.name) ?? undefined;
+      if (file.name.toLowerCase().endsWith(".json") || trimmed.startsWith("{")) {
+        const parsed = themeFromJson(text, filenameId);
+        id = parsed.id;
+        css = parsed.css;
+      } else {
+        if (!filenameId) throw new Error("Name the file with letters, numbers, and hyphens.");
+        const problem = validateThemeCss(text);
+        if (problem) throw new Error(problem);
+        id = filenameId;
+        css = text.endsWith("\n") ? text : `${text}\n`;
+      }
+    } catch (err) {
+      this.toast("Theme", err instanceof Error ? err.message : "That file is not a Lark theme.");
+      return;
+    }
+    if (isTauri()) {
+      try {
+        await invoke("write_theme", { name: id, css });
+      } catch (err) {
+        this.toast("Theme", err instanceof Error ? err.message : "Couldn't save that theme.");
+        return;
+      }
+    } else {
+      this.imported.set(id, css);
+      localStorage.setItem("lark.imported-themes.v1", serializeImportedThemes(this.imported));
+    }
+    this.themeCache.set(id, css);
+    if (!this.extraThemeIds.includes(id)) this.extraThemeIds.push(id);
+    this.selectTheme(id);
+    this.toast("Theme", `Applied ${themeTitle(id)}.`);
+  }
+
+  private async exportTheme(kind: "css" | "json") {
+    const id = this.config.appearance.theme;
+    let css = (!isTauri() ? this.imported.get(id) : undefined) ?? this.themeCache.get(id);
+    if (!css) {
+      try {
+        css = await this.fetchThemeCss(id);
+        this.themeCache.set(id, css);
+      } catch {
+        this.toast("Theme", "This theme isn't loaded yet.");
+        return;
+      }
+    }
+    const overrides: Record<string, string> = {};
+    for (const name of ["--bg-0", "--bg-2", "--text"]) {
+      const value = this.root.style.getPropertyValue(name).trim();
+      if (value) overrides[name] = value;
+    }
+    if (this.guildId && this.config.accents[this.guildId]) overrides["--accent"] = this.config.accents[this.guildId];
+    const next = applyRootOverrides(css, overrides);
+    const body = kind === "json" ? themeToJson(id, next) : next;
+    downloadFile(`${id}.${kind}`, body, kind === "json" ? "application/json" : "text/css");
   }
 
   private paintGate() {
@@ -1373,6 +1591,7 @@ class LarkApp {
     this.settings = true;
     this.settingsEl.hidden = false;
     this.renderSettings();
+    if (this.section === "appearance") void this.refreshThemeIndex();
   }
 
   private closeSettings() {
@@ -1402,6 +1621,7 @@ class LarkApp {
       button.addEventListener("click", () => {
         this.section = id;
         this.renderSettings();
+        if (id === "appearance") void this.refreshThemeIndex();
       });
       nav.append(button);
     }
@@ -1417,27 +1637,43 @@ class LarkApp {
   private settingsSection(): HTMLElement {
     const wrap = el("div");
     if (this.section === "appearance") {
-      wrap.append(el("h2", "", "Appearance"), el("p", "lede", "Themes are CSS files. Saving one reloads it while Lark is open."));
-      const grid = el("div", "theme-grid");
-      for (const theme of [
-        ["modern-dark", "Modern dark", "#17140f", "#e2a15a"],
-        ["daylight", "Daylight", "#f7f1e7", "#b86a2a"],
-        ["ink-contrast", "Ink contrast", "#000000", "#ffd15a"],
-      ] as const) {
-        const card = el("button", `theme-card${this.config.appearance.theme === theme[0] ? " is-on" : ""}`);
-        card.type = "button";
-        const swatch = el("div", "swatch");
-        swatch.style.background = `linear-gradient(135deg, ${theme[2]}, ${theme[3]})`;
-        card.append(swatch, el("strong", "", theme[1]));
-        card.addEventListener("click", () => {
-          this.config.appearance.theme = theme[0];
-          this.persist();
-          this.paint();
-          this.renderSettings();
-        });
-        grid.append(card);
-      }
-      wrap.append(grid, el("div", "hint", "Font"));
+      wrap.append(el("h2", "", "Appearance"), el("p", "lede", "Each card is that theme's own colours. One click applies it."));
+      const filter = el("input", "theme-filter");
+      filter.type = "search";
+      filter.placeholder = "Filter themes";
+      filter.value = this.themeFilter;
+      filter.setAttribute("aria-label", "Filter themes");
+      filter.addEventListener("input", () => {
+        this.themeFilter = filter.value;
+        this.paintThemeGallery();
+      });
+      wrap.append(filter);
+      const grid = el("div", "theme-gallery");
+      wrap.append(grid);
+      this.paintThemeGallery(wrap);
+      const actions = el("div", "theme-actions");
+      const exportCss = el("button", "text-button", "Export CSS");
+      exportCss.type = "button";
+      exportCss.addEventListener("click", () => void this.exportTheme("css"));
+      const exportJson = el("button", "text-button", "Export JSON");
+      exportJson.type = "button";
+      exportJson.addEventListener("click", () => void this.exportTheme("json"));
+      const importBtn = el("button", "text-button", "Import");
+      importBtn.type = "button";
+      const file = el("input", "theme-file");
+      file.type = "file";
+      file.accept = ".css,.json,text/css,application/json";
+      file.setAttribute("aria-label", "Import theme file");
+      file.tabIndex = -1;
+      file.addEventListener("change", () => {
+        const picked = file.files?.[0];
+        file.value = "";
+        if (picked) void this.importTheme(picked);
+      });
+      importBtn.addEventListener("click", () => file.click());
+      actions.append(exportCss, exportJson, importBtn, file);
+      wrap.append(actions, el("p", "hint", "CSS and JSON carry the same colours. Frosted uses the system material on macOS and Windows, and stays opaque elsewhere. Themes do not blur or animate the message list."));
+      wrap.append(el("div", "hint", "Font"));
       wrap.append(this.choice(["inter", "system", "serif", "mono"], this.config.appearance.font_family, (value) => {
         this.config.appearance.font_family = value as AppConfig["appearance"]["font_family"];
         this.persist();
@@ -2147,6 +2383,9 @@ class LarkApp {
     else if (id === "theme") {
       this.themeOpen = true;
       this.paintTheme();
+    } else if (id === "themes") {
+      this.section = "appearance";
+      this.openSettings();
     } else if (id === "mute") this.toggleMute();
     else if (id === "deafen") this.toggleDeafen();
     else if (id === "leave-voice") this.leaveVoice();
@@ -2418,7 +2657,7 @@ class LarkApp {
     }
     clear(overlay);
     const card = el("div", "theme-editor");
-    card.append(el("h2", "", "Theme editor"));
+    card.append(el("h2", "", "Theme editor"), el("p", "hint", "Export from Appearance to save these colours as CSS or JSON."));
     const preview = el("div", "theme-preview");
     preview.append(el("strong", "", "Northwind"), el("p", "", "The mark sits on ink. Unread stays apricot."));
     const fields: [string, string][] = [
@@ -2524,6 +2763,16 @@ class LarkApp {
     }
     return this.guildId;
   }
+}
+
+function downloadFile(filename: string, body: string, type: string) {
+  const blob = new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function isTauri(): boolean {

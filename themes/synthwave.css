@@ -1,0 +1,26 @@
+/* Lark theme: Synthwave. Deep purple and hot pink. The neon is the colour, not a blur. */
+:root {
+  color-scheme: dark;
+  --bg-0: #0d0221;
+  --bg-1: #16042a;
+  --bg-2: #1a0b36;
+  --bg-3: #2a1450;
+  --bg-4: #3b1d6e;
+  --line: rgba(255, 42, 109, 0.28);
+  --text: #f8f1ff;
+  --muted: #cbbbe4;
+  --faint: #9a86bf;
+  --accent: #ff2a6d;
+  --accent-ink: #1a0410;
+  --accent-soft: rgba(255, 42, 109, 0.16);
+  --ok: #05d9e8;
+  --idle: #f7e14b;
+  --busy: #ff7a45;
+  --danger: #ff7a45;
+  --mention-bg: rgba(5, 217, 232, 0.14);
+  --mention-fg: #7eecf4;
+  --shadow: 0 0 0 1px rgba(255, 42, 109, 0.35);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

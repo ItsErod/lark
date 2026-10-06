@@ -1,0 +1,26 @@
+/* Lark theme: Gruvbox dark. Warm charcoal and an orange accent. */
+:root {
+  color-scheme: dark;
+  --bg-0: #1d2021;
+  --bg-1: #282828;
+  --bg-2: #282828;
+  --bg-3: #3c3836;
+  --bg-4: #504945;
+  --line: rgba(235, 219, 178, 0.12);
+  --text: #ebdbb2;
+  --muted: #d5c4a1;
+  --faint: #bdae93;
+  --accent: #fe8019;
+  --accent-ink: #1d2021;
+  --accent-soft: rgba(254, 128, 25, 0.16);
+  --ok: #b8bb26;
+  --idle: #fabd2f;
+  --busy: #fb4934;
+  --danger: #fb4934;
+  --mention-bg: rgba(254, 128, 25, 0.16);
+  --mention-fg: #fe8019;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
