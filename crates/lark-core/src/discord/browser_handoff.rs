@@ -261,7 +261,7 @@ pub async fn exchange_at(url: &str, key: &str, handoff_token: &str) -> Result<St
         return Err("Discord's sign-in grant was empty.".into());
     }
     let client = reqwest::Client::builder()
-        .user_agent("Lark/2.2.2 (personal client)")
+        .user_agent("Lark/2.2.4 (personal client)")
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
         .build()

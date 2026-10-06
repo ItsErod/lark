@@ -2217,7 +2217,7 @@ dependencies = [
 
 [[package]]
 name = "lark"
-version = "2.2.2"
+version = "2.2.4"
 dependencies = [
  "env_logger",
  "keyring",
@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "lark-core"
-version = "2.2.2"
+version = "2.2.4"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",

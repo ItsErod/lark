@@ -23,6 +23,7 @@
     "allow-fetch-guild-channels",
     "allow-fetch-roles",
     "allow-fetch-members",
+    "allow-request-members",
     "allow-fetch-messages",
     "allow-send-message",
     "allow-edit-message",

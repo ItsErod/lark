@@ -13,8 +13,8 @@ export const people: Person[] = [
 const byName = Object.fromEntries(people.map((person) => [person.name, person.id]));
 
 export const guilds: Guild[] = [
-  { id: "100000000000000010", name: "Northwind", initials: "N", accent: "#e2a15a" },
-  { id: "100000000000000011", name: "Night Market", initials: "NM", mentions: 1, accent: "#c46b4a" },
+  { id: "100000000000000010", name: "Northwind", initials: "N", accent: "#e2a15a", iconUrl: "/favicon.svg" },
+  { id: "100000000000000011", name: "Night Market", initials: "NM", mentions: 1, accent: "#c46b4a", iconUrl: "/favicon.svg" },
 ];
 
 export const channels: Record<string, Channel[]> = {

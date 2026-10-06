@@ -142,6 +142,7 @@ pub fn run() {
             fetch_guild_channels,
             fetch_roles,
             fetch_members,
+            request_members,
             fetch_messages,
             send_message,
             edit_message,
@@ -442,6 +443,22 @@ async fn fetch_members(
         .members(&guild_id)
         .await
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn request_members(state: State<'_, Shared>, guild_id: String) -> Result<(), String> {
+    if !lark_core::discord::snowflake_ok(&guild_id) {
+        return Err("That id is not a Discord snowflake.".into());
+    }
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
+    gateway
+        .send(lark_core::discord::GatewayCommand::RequestMembers { guild_id })
+        .map_err(|_| "Gateway is closed.".to_string())
 }
 
 #[tauri::command]
