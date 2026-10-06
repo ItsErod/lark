@@ -181,9 +181,24 @@ button { cursor: pointer; }
 .reaction.is-mine { border-color: var(--accent); background: var(--accent-soft); }
 .message-actions {
   position: absolute; top: -14px; right: 16px; display: none; gap: 2px; background: var(--bg-3);
-  border: 1px solid var(--line); border-radius: 10px; padding: 2px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 2px; z-index: 2;
 }
-.message:hover .message-actions { display: flex; }
+.message:hover .message-actions, .message:focus-within .message-actions { display: flex; }
+.message-actions .text-action { width: auto; padding: 0 8px; font-size: 12px; }
+.message-actions .react-quick { width: 30px; font-size: 14px; }
+.message.is-compact-media .image-frame { max-width: 160px; }
+.message.is-compact-media .image-preview,
+.message.is-compact-media .embed-image { max-height: 72px; width: auto; object-fit: cover; }
+.message.is-compact-media .sticker img { max-height: 48px; width: auto; }
+.plugin-card {
+  display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-1);
+}
+.plugin-card .hint { margin: 0; }
+.bookmark-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
+.bookmark-row { text-align: left; border: 1px solid var(--line); background: var(--bg-1); border-radius: 10px; padding: 8px 10px; color: var(--text); }
+.bookmark-row strong { display: block; }
+.schedule-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .picker {
   display: flex; gap: 4px; background: var(--bg-3); border: 1px solid var(--line); border-radius: 12px; padding: 6px; width: fit-content; margin-top: 6px;
 }
@@ -204,6 +219,8 @@ button { cursor: pointer; }
 .composer textarea {
   width: 100%; border: 0; resize: none; background: transparent; outline: none; min-height: 24px; max-height: 160px; line-height: 1.45;
 }
+.composer-banner input, .schedule-row input { background: var(--bg-0); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.settings-body h3 { margin: 18px 0 6px; font-size: 15px; }
 .composer-banner, .banner, .toast {
   display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--accent-soft);
   border-radius: 10px; padding: 6px 8px; margin-bottom: 6px;
@@ -225,6 +242,8 @@ button { cursor: pointer; }
   background: var(--bg-2); border: 1px solid var(--line); box-shadow: var(--shadow);
 }
 .switcher-card { width: min(560px, calc(100% - 32px)); margin: 12vh auto auto; border-radius: 16px; overflow: hidden; align-self: start; }
+.switcher-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 12px 0; }
+.plugin-card input { width: 100%; border: 1px solid var(--line); background: var(--bg-0); color: var(--text); border-radius: 8px; padding: 8px 10px; }
 .switcher-card input, .field input, .token-input {
   width: 100%; border: 0; background: transparent; outline: none; padding: 14px 16px;
 }

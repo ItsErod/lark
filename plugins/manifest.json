@@ -1,3 +1,94 @@
 {
-  "plugins": ["highlight-mentions", "code-badge", "hide-joins", "edit-log", "collapse-long", "translate"]
+  "plugins": [
+    {
+      "id": "highlight-mentions",
+      "name": "Highlight mentions",
+      "description": "Wash messages that mention you."
+    },
+    {
+      "id": "code-badge",
+      "name": "Code badge",
+      "description": "Mark messages that contain a code block."
+    },
+    {
+      "id": "hide-joins",
+      "name": "Hide joins",
+      "description": "Drop member join and other system lines."
+    },
+    {
+      "id": "edit-log",
+      "name": "Edit log",
+      "description": "Badge a message after it is edited."
+    },
+    {
+      "id": "collapse-long",
+      "name": "Collapse long messages",
+      "description": "Fold messages longer than 280 characters."
+    },
+    {
+      "id": "translate",
+      "name": "Translate",
+      "description": "Local glossary only. No network, no token."
+    },
+    {
+      "id": "message-translate",
+      "name": "Message translator",
+      "description": "Click Translate for a local phrase book. No network and no token."
+    },
+    {
+      "id": "inline-syntax",
+      "name": "Inline syntax",
+      "description": "Color inline code the same way fenced blocks are colored."
+    },
+    {
+      "id": "quiet-media",
+      "name": "Quiet media",
+      "description": "Hide link previews and shrink images. The link text stays."
+    },
+    {
+      "id": "send-later",
+      "name": "Send later",
+      "description": "Queue one message at a time from the composer. Nothing sends early, and nothing sends in a burst."
+    },
+    {
+      "id": "quick-react",
+      "name": "Quick reactions",
+      "description": "A short emoji bar on hover. One click is one reaction, same as the picker."
+    },
+    {
+      "id": "keyword-ping",
+      "name": "Keyword ping",
+      "description": "Highlight words, and ping on a mentions-only channel when one appears. Mute still wins."
+    },
+    {
+      "id": "auto-away",
+      "name": "Auto away",
+      "description": "After a few quiet minutes, set idle once. Activity sets you back. Do not disturb stays put."
+    },
+    {
+      "id": "now-playing",
+      "name": "Now playing",
+      "description": "Put a listening line on your status. Manual, or the media session if the system exposes one. No Spotify login and no token."
+    },
+    {
+      "id": "bookmarks",
+      "name": "Bookmarks",
+      "description": "Save messages on this device. Nothing is pinned on Discord."
+    },
+    {
+      "id": "hide-muted",
+      "name": "Hide muted people",
+      "description": "Drop messages from people you hide locally. This does not block them on Discord."
+    },
+    {
+      "id": "relative-time",
+      "name": "Relative time",
+      "description": "Show 3m ago instead of the clock. The tooltip stays the local date and time."
+    },
+    {
+      "id": "silent-typing",
+      "name": "Silent typing",
+      "description": "Keep the typing indicator to yourself. Lark does not send one while this is on."
+    }
+  ]
 }

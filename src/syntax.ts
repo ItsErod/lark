@@ -56,3 +56,10 @@ export function highlightCode(lang: string | null, source: string): Token[] {
 export function highlightPlain(source: string): string {
   return highlightCode(null, source).map((token) => token.text).join("");
 }
+
+export function inlineLang(source: string): string | null {
+  if (/\b(fn|mut|struct|impl|enum)\b/.test(source)) return "rust";
+  if (/\b(interface|type|const|function|return)\b/.test(source)) return "ts";
+  if (/\b(display|margin|padding|color)\b/.test(source) || source.includes(":")) return "css";
+  return null;
+}

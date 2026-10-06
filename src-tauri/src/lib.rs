@@ -3,7 +3,8 @@ mod login;
 mod paths;
 mod refresh;
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -146,6 +147,7 @@ pub fn run() {
             list_themes,
             set_window_material,
             list_plugins,
+            read_plugin,
             join_voice,
             leave_voice,
             set_voice_self,
@@ -578,8 +580,8 @@ fn native_effects() -> tauri::utils::config::WindowEffectsConfig {
 }
 
 #[tauri::command]
-fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginFile>, String> {
-    let mut plugins = Vec::new();
+fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginInfo>, String> {
+    let mut on_disk = Vec::new();
     let entries = fs::read_dir(&state.paths.plugins_dir).map_err(|err| err.to_string())?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -592,20 +594,93 @@ fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginFile>, String> {
         if lark_core::config::validate_theme_name(id).is_err() {
             continue;
         }
-        let source = fs::read_to_string(&path).unwrap_or_default();
-        plugins.push(PluginFile {
+        let (name, description) = plugin_header(&path, id);
+        on_disk.push(PluginInfo {
             id: id.to_string(),
-            source,
+            name,
+            description,
         });
     }
-    plugins.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(plugins)
+    on_disk.sort_by(|a, b| a.id.cmp(&b.id));
+    let order = manifest_order(&state.paths.plugins_dir.join("manifest.json"));
+    if order.is_empty() {
+        return Ok(on_disk);
+    }
+    let mut ranked = Vec::new();
+    for id in &order {
+        if let Some(index) = on_disk.iter().position(|plugin| plugin.id == *id) {
+            ranked.push(on_disk.remove(index));
+        }
+    }
+    ranked.append(&mut on_disk);
+    Ok(ranked)
+}
+
+#[tauri::command]
+fn read_plugin(state: State<'_, Shared>, id: String) -> Result<String, String> {
+    lark_core::config::validate_theme_name(&id).map_err(|err| err.to_string())?;
+    let path = state.paths.plugins_dir.join(format!("{id}.js"));
+    fs::read_to_string(&path).map_err(|_| format!("Plugin \"{id}\" was not found."))
 }
 
 #[derive(serde::Serialize)]
-struct PluginFile {
+struct PluginInfo {
     id: String,
-    source: String,
+    name: String,
+    description: String,
+}
+
+fn plugin_header(path: &std::path::Path, id: &str) -> (String, String) {
+    let mut name = id.to_string();
+    let mut description = String::new();
+    let Ok(mut file) = File::open(path) else {
+        return (name, description);
+    };
+    let mut buf = [0_u8; 1024];
+    let Ok(n) = file.read(&mut buf) else {
+        return (name, description);
+    };
+    let head = String::from_utf8_lossy(&buf[..n]);
+    for line in head.lines().take(12) {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("// @lark name:") {
+            let value = rest.trim();
+            if !value.is_empty() {
+                name = value.to_string();
+            }
+        } else if let Some(rest) = line.strip_prefix("// @lark description:") {
+            let value = rest.trim();
+            if !value.is_empty() {
+                description = value.to_string();
+            }
+        }
+    }
+    (name, description)
+}
+
+fn manifest_order(path: &std::path::Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(list) = value.get("plugins").and_then(|item| item.as_array()) else {
+        return Vec::new();
+    };
+    let mut ids = Vec::new();
+    for item in list {
+        let id = item
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| item.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        if let Some(id) = id {
+            if lark_core::config::validate_theme_name(&id).is_ok() {
+                ids.push(id);
+            }
+        }
+    }
+    ids
 }
 
 fn install_tray(app: &AppHandle) {

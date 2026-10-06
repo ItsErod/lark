@@ -39,6 +39,7 @@ level = "mentions"
 muted = true
 
 [plugins]
+# The pack in PLUGINS.md ships off. Turn a plugin on in Settings; Lark loads it then.
 enabled = ["highlight-mentions", "code-badge"]
 
 [voice]

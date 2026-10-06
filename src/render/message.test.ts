@@ -64,6 +64,20 @@ describe("message view", () => {
     expect(fenced?.badges).toContain("code");
     expect(fenced?.blocks[0].t).toBe("pre");
     expect(buildViewMessage(raw({ kind: "join", content: "Maya joined" }), ctx, [hide])).toBeNull();
+    const quiet = describePlugin(readFileSync("plugins/quiet-media.js", "utf8"), "quiet-media");
+    const relative = describePlugin(readFileSync("plugins/relative-time.js", "utf8"), "relative-time");
+    const preview = buildViewMessage(raw({ content: "https://example.com/a" }), ctx, [quiet, relative], [], {
+      settings: { "quiet-media": { previews: "hide", compact: "off" } },
+    });
+    expect(preview?.effects).toEqual(["hide-previews", "relative-time"]);
+    const translated = buildViewMessage(raw({ content: "hello" }), ctx, [], [], { displayContent: "hola" });
+    expect(translated?.raw).toBe("hola");
+    expect(translated?.badges).toContain("translated");
+    const spoof = describePlugin(
+      "function onMessage(message){ message.authorId = 'other'; return message }",
+      "spoof",
+    );
+    expect(buildViewMessage(raw({ authorId: "7" }), ctx, [spoof])?.authorId).toBe("7");
     const throwing = describePlugin("function onMessage() { throw new Error('nope'); }", "boom");
     expect(buildViewMessage(raw({ content: "still here" }), ctx, [throwing])?.raw).toBe("still here");
   });

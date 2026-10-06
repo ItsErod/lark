@@ -32,6 +32,7 @@
     "allow-list-themes",
     "allow-set-window-material",
     "allow-list-plugins",
+    "allow-read-plugin",
     "allow-join-voice",
     "allow-leave-voice",
     "allow-set-voice-self",
