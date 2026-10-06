@@ -1,5 +1,5 @@
 import { keywordHits } from "../keywords";
-import { applyPlugins, pluginMeta, type PluginSource } from "../plugins";
+import { applyPlugins, describePlugin, type PluginApplyContext, type PluginSource } from "../plugins";
 import type { RawEmbed, RawMessage } from "../types";
 import { attachmentKind, parseContent, safeMediaUrl, type Block, type RenderContext } from "./content";
 
@@ -56,6 +56,7 @@ export interface ViewMessage {
   collapsed: boolean;
   stickers: { name: string; url: string | null }[];
   thread: { id: string; name: string; count: number } | null;
+  effects: string[];
 }
 
 export function buildViewMessage(
@@ -63,6 +64,7 @@ export function buildViewMessage(
   ctx: RenderContext,
   plugins: PluginSource[],
   keywords: string[] = [],
+  extra: PluginApplyContext & { displayContent?: string } = {},
 ): ViewMessage | null {
   const mentionsMe = Boolean(raw.mentionEveryone || raw.mentionIds?.includes(ctx.meId));
   const transformed = applyPlugins(
@@ -70,17 +72,22 @@ export function buildViewMessage(
       id: raw.id,
       content: raw.content,
       authorName: raw.authorName,
+      authorId: raw.authorId,
+      timestamp: raw.timestamp,
       mentionsMe,
       kind: raw.kind ?? "default",
       highlights: [],
       badges: [],
+      effects: [],
       edited: Boolean(raw.edited),
       channelId: raw.channelId,
     },
     plugins,
+    extra,
   );
   if (!transformed) return null;
-  const parsed = parseContent(transformed.content, ctx);
+  const shown = extra.displayContent ?? transformed.content;
+  const parsed = parseContent(shown, ctx);
   return {
     id: raw.id,
     channelId: raw.channelId,
@@ -90,7 +97,7 @@ export function buildViewMessage(
     timestamp: raw.timestamp,
     edited: Boolean(raw.edited),
     blocks: parsed.blocks,
-    raw: transformed.content,
+    raw: shown,
     reply: raw.reply ?? null,
     attachments: (raw.attachments ?? []).map(toAttachment),
     embeds: (raw.embeds ?? []).map((embed) => toEmbed(embed, ctx)),
@@ -103,13 +110,14 @@ export function buildViewMessage(
     })),
     mentionsMe: transformed.mentionsMe || parsed.mentionsMe,
     highlights: keywordHits(transformed.content, keywords).length ? [...transformed.highlights, "keyword"] : transformed.highlights,
-    badges: transformed.badges,
+    badges: extra.displayContent && !transformed.badges.includes("translated") ? [...transformed.badges, "translated"] : transformed.badges,
     kind: transformed.kind,
     pending: false,
     failed: false,
     collapsed: Boolean(transformed.collapsed),
     stickers: (raw.stickers ?? []).map((sticker) => ({ name: sticker.name, url: safeMediaUrl(sticker.url) })),
     thread: raw.thread ?? null,
+    effects: transformed.effects,
   };
 }
 
@@ -150,7 +158,4 @@ function safeLink(url: string): boolean {
   return url.startsWith("https://") || url.startsWith("http://");
 }
 
-export function describePlugin(source: string, id: string): PluginSource {
-  const meta = pluginMeta(source, id);
-  return { id, source, name: meta.name, description: meta.description };
-}
+export { describePlugin };

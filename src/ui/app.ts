@@ -3,10 +3,18 @@ import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
 import { rememberEmoji, frecency, EMOJI, type EmojiUse } from "../emoji";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
+import { noteActivity, stepAway, type AwayClock } from "../pack/away";
+import { isBookmarked, toggleBookmark } from "../pack/bookmarks";
+import { hiddenIds, toggleHidden } from "../pack/hidden";
+import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
+import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
+import { formatRelative } from "../pack/relative";
+import { backoff, cancelSend, queueSend, takeDue } from "../pack/schedule";
+import { defaultPack, PACK_IDS, sanitizePack, settingsFor, type PackState } from "../pack/state";
 import { commandCatalog, matchCommands } from "../palette";
 import { browserPlatform, fontStack, type PlatformInfo } from "../platform";
-import type { PluginSource } from "../plugins";
-import { describePlugin, buildViewMessage } from "../render/message";
+import { describePlugin, enabledSources, parseCatalog, validPluginId, type PluginCatalogItem, type PluginHooks, type PluginSource } from "../plugins";
+import { buildViewMessage, type ViewMessage } from "../render/message";
 import { FrameClock } from "../frame";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
@@ -83,7 +91,18 @@ class LarkApp {
   private narrow = false;
   private drawer = false;
   private lightbox: string | null = null;
-  private plugins: PluginSource[] = [];
+  private catalog: PluginCatalogItem[] = [];
+  private loaded = new Map<string, PluginSource>();
+  private pack: PackState = defaultPack();
+  private translated: Record<string, string> = {};
+  private away: AwayClock = { lastActivity: Date.now(), away: false, lastWrite: 0, savedStatus: "online" };
+  private playingShown = "";
+  private playingWrite = 0;
+  private keywordLast: Record<string, number> = {};
+  private sendingScheduled = false;
+  private scheduling = false;
+  private bookmarksOpen = false;
+  private clock = Date.now();
   private scroll: ScrollMode = "none";
   private msgSig = "";
   private openedAt = 0;
@@ -147,6 +166,12 @@ class LarkApp {
         this.config = defaultConfig();
       }
     }
+    try {
+      this.pack = sanitizePack(JSON.parse(localStorage.getItem("lark.pack.v1") ?? "{}"));
+    } catch {
+      this.pack = defaultPack();
+    }
+    this.away.lastActivity = Date.now();
     this.seedUnreads();
     this.drafts = readJson("lark.drafts.v1") as Record<string, string>;
     try {
@@ -303,7 +328,7 @@ class LarkApp {
       const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
       if (perf) perf.lastInput = performance.now();
       this.saveDraft();
-      if (this.demo || !this.channelId) return;
+      if (this.demo || !this.channelId || this.hookOn("silentTyping")) return;
       const now = Date.now();
       if (now - this.typingSent > 8000) {
         this.typingSent = now;
@@ -327,8 +352,16 @@ class LarkApp {
       composerWrap.classList.remove("is-drop");
       void this.takeFiles(event.dataTransfer?.files ?? null);
     });
-    window.addEventListener("keydown", (event) => this.onKey(event));
+    window.addEventListener("keydown", (event) => {
+      this.away = noteActivity(this.away, Date.now());
+      this.onKey(event);
+    });
     window.addEventListener("keyup", (event) => this.onKeyUp(event));
+    window.addEventListener("pointerdown", () => {
+      this.away = noteActivity(this.away, Date.now());
+    }, { passive: true });
+    window.setInterval(() => this.tickPlugins(), 5000);
+    window.setInterval(() => this.tickClock(), 30_000);
     this.messagesEl.addEventListener("scroll", () => {
       if (this.messagesEl.scrollTop < 80) void this.loadOlder();
       this.frames.request(() => this.paintMessages());
@@ -360,6 +393,7 @@ class LarkApp {
       this.paintComposer();
     }
     this.paintLightbox();
+    this.paintBookmarks();
   }
 
   private applyAppearance() {
@@ -767,7 +801,20 @@ class LarkApp {
     bell.setAttribute("aria-label", "Notification level");
     bell.append(icon(paths.bell));
     bell.addEventListener("click", () => this.cycleNotify());
-    actions.append(search, find, pin, split, theme, members, bell);
+    const headerButtons = [search, find, pin];
+    if (this.hookOn("bookmarks")) {
+      const saved = el("button", "text-button");
+      saved.type = "button";
+      saved.textContent = "Saved";
+      saved.setAttribute("aria-label", "Bookmarks");
+      saved.addEventListener("click", () => {
+        this.bookmarksOpen = !this.bookmarksOpen;
+        this.paintBookmarks();
+      });
+      headerButtons.push(saved);
+    }
+    headerButtons.push(split, theme, members, bell);
+    actions.append(...headerButtons);
     this.chatHead.append(title, actions);
   }
 
@@ -787,7 +834,8 @@ class LarkApp {
     const list = id ? this.pages[id] ?? [] : [];
     const row = rowEstimate(this.config.appearance.density);
     const win = sliceWindow(list.length, this.messagesEl.scrollTop, this.messagesEl.clientHeight || 640, row);
-    const sig = `${id}|${win.start}|${win.end}|${this.loading}|${this.error}|${this.pickerFor}|${this.config.appearance.density}|${list.map((message) => `${message.id}:${message.content}:${message.edited}:${message.reactions?.map((r) => r.count + (r.me ? "y" : "n")).join(".")}`).join("~")}`;
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}`;
+    const sig = `${id}|${win.start}|${win.end}|${this.loading}|${this.error}|${this.pickerFor}|${this.config.appearance.density}|${pluginStamp}|${list.map((message) => `${message.id}:${message.content}:${message.edited}:${message.reactions?.map((r) => r.count + (r.me ? "y" : "n")).join(".")}`).join("~")}`;
     if (sig === this.msgSig) return;
     this.msgSig = sig;
     const stick = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight < 90;
@@ -816,7 +864,9 @@ class LarkApp {
       this.messagesEl.append(el("div", "empty", `#${name} is quiet. The composer is below when you have something to say.`));
     } else {
       const ctx = this.renderContext();
-      const plugins = this.plugins.filter((plugin) => this.config.plugins.enabled.includes(plugin.id));
+      const plugins = this.enabledPlugins();
+      const hidden = hiddenIds(this.pack.hiddenAuthors);
+      const settings = this.pluginSettings(id ?? "");
       const slice = list.slice(win.start, win.end);
       const before = list[win.start - 1];
       let lastDay = before ? new Date(before.timestamp).toDateString() : "";
@@ -830,7 +880,11 @@ class LarkApp {
         scroller.append(spacer);
       }
       slice.forEach((message) => {
-        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords);
+        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
+          settings,
+          hiddenAuthors: hidden,
+          displayContent: this.translated[message.id],
+        });
         if (!view) return;
         const day = new Date(message.timestamp).toDateString();
         const grouped = view.authorId === lastAuthor && new Date(message.timestamp).getTime() - lastTime < 5 * 60_000 && !view.reply && day === lastDay;
@@ -865,6 +919,7 @@ class LarkApp {
             this.lightbox = url;
             this.paintLightbox();
           },
+          ...this.messageChrome(message, view),
         });
         if (this.pickerFor === message.id) {
           const picker = el("div", "picker");
@@ -1000,6 +1055,9 @@ class LarkApp {
       });
       this.composerBanner.append(cancel);
     }
+    if (!this.pendingDelete && !this.editing && this.hookOn("schedule")) {
+      this.paintScheduleBanner();
+    }
     clear(this.composerMeta);
     const tools = el("div", "composer-tools");
     const file = el("input");
@@ -1016,6 +1074,16 @@ class LarkApp {
       file.value = "";
     });
     tools.append(attach, file);
+    if (this.hookOn("schedule")) {
+      const later = el("button", "text-button", "Later");
+      later.type = "button";
+      later.setAttribute("aria-label", "Send later");
+      later.addEventListener("click", () => {
+        this.scheduling = !this.scheduling;
+        this.paintComposer();
+      });
+      tools.append(later);
+    }
     for (const item of this.files) {
       const chip = el("button", "text-button", item.name);
       chip.type = "button";
@@ -1431,17 +1499,18 @@ class LarkApp {
       grid.append(this.platformCard("macOS", "Banners and Notification Center", "⌘"));
       grid.append(this.platformCard("Windows", "Toasts in Action Center", "Ctrl"));
     } else if (this.section === "plugins") {
-      wrap.append(el("h2", "", "Plugins"), el("p", "lede", "Local scripts can highlight, badge, or hide a message. They do not receive the token."));
-      for (const plugin of this.plugins) {
+      wrap.append(el("h2", "", "Plugins"), el("p", "lede", "Every plugin is off until you turn it on, and Lark loads its script only then. Plugins do not receive the token."));
+      const pack = new Set<string>(PACK_IDS);
+      let headed = false;
+      for (const plugin of this.catalog) {
+        if (!headed && pack.has(plugin.id)) {
+          headed = true;
+          wrap.append(el("h3", "", "Pack"));
+          wrap.append(el("p", "lede", "Reading tools stay on this device. Send later and the status plugins use the same single Discord requests as the composer and the profile chip, paced so they cannot burst."));
+        }
         const enabled = this.config.plugins.enabled.includes(plugin.id);
-        wrap.append(this.toggle(`${plugin.name} — ${plugin.description}`, enabled, (value) => {
-          this.config.plugins.enabled = value
-            ? [...this.config.plugins.enabled, plugin.id]
-            : this.config.plugins.enabled.filter((id) => id !== plugin.id);
-          this.persist();
-          this.msgSig = "";
-          this.paintMessages();
-        }));
+        wrap.append(this.toggle(`${plugin.name} — ${plugin.description}`, enabled, (value) => this.setPluginEnabled(plugin.id, value)));
+        if (enabled) this.appendPluginPanel(wrap, plugin.id);
       }
     } else if (this.section === "desktop") {
       wrap.append(el("h2", "", "Desktop"), el("p", "lede", "The menu bar or system tray shows the unread count. Closing the window can leave Lark there."));
@@ -1523,7 +1592,13 @@ class LarkApp {
     const button = el("button", on ? "text-button is-on" : "text-button", on ? "On" : "Off");
     button.type = "button";
     button.addEventListener("click", () => {
-      change(!on);
+      const result = change(!on) as void | Promise<void>;
+      if (result && typeof (result as Promise<void>).then === "function") {
+        void result.then(() => {
+          if (this.settings) this.renderSettings();
+        });
+        return;
+      }
       if (this.settings) this.renderSettings();
     });
     row.append(button);
@@ -1656,17 +1731,41 @@ class LarkApp {
   private async loadPlugins() {
     try {
       if (isTauri() && !import.meta.env.DEV) {
-        const files = await invoke<{ id: string; source: string }[]>("list_plugins");
-        this.plugins = files.map((file) => describePlugin(file.source, file.id));
-        return;
+        const files = await invoke<{ id: string; name: string; description: string }[]>("list_plugins");
+        this.catalog = files
+          .filter((file) => validPluginId(file.id))
+          .map((file) => ({ id: file.id, name: file.name || file.id, description: file.description || "" }));
+      } else {
+        const manifest = await fetch("/plugins/manifest.json", { cache: "no-store" }).then((res) => res.json());
+        this.catalog = parseCatalog(manifest);
       }
-      const manifest = await fetch("/plugins/manifest.json", { cache: "no-store" }).then((res) => res.json() as Promise<{ plugins: string[] }>);
-      const loaded = await Promise.all(
-        manifest.plugins.map(async (id) => describePlugin(await fetch(`/plugins/${id}.js`, { cache: "no-store" }).then((res) => res.text()), id)),
-      );
-      this.plugins = loaded;
     } catch {
-      this.plugins = [];
+      this.catalog = [];
+    }
+    await Promise.all(this.config.plugins.enabled.map((id) => this.ensurePlugin(id)));
+  }
+
+  private async ensurePlugin(id: string): Promise<boolean> {
+    if (!validPluginId(id)) return false;
+    if (this.loaded.has(id)) return true;
+    try {
+      let source = "";
+      if (isTauri() && !import.meta.env.DEV) source = await invoke<string>("read_plugin", { id });
+      else {
+        const res = await fetch(`/plugins/${id}.js`, { cache: "no-store" });
+        if (!res.ok) return false;
+        source = await res.text();
+      }
+      const plugin = describePlugin(source, id);
+      this.loaded.set(id, plugin);
+      const item = this.catalog.find((entry) => entry.id === id);
+      if (item) {
+        item.name = plugin.name;
+        item.description = plugin.description;
+      } else this.catalog.push({ id, name: plugin.name, description: plugin.description });
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -1761,18 +1860,16 @@ class LarkApp {
         this.unread[message.channelId] = (this.unread[message.channelId] ?? 0) + 1;
         if (mentionsMe) this.mentions[message.channelId] = (this.mentions[message.channelId] ?? 0) + 1;
       }
-      if (
-        shouldDesktopNotify({
-          level,
-          mentionsMe,
-          fromMe: message.authorId === this.meId(),
-          windowFocused: this.focused,
-          channelId: message.channelId,
-          activeChannelId: this.channelId,
-        })
-      ) {
-        void this.notify(message.authorName, message.content || "Sent an attachment");
-      }
+      const alreadyNotified = shouldDesktopNotify({
+        level,
+        mentionsMe,
+        fromMe: message.authorId === this.meId(),
+        windowFocused: this.focused,
+        channelId: message.channelId,
+        activeChannelId: this.channelId,
+      });
+      if (alreadyNotified) void this.notify(message.authorName, message.content || "Sent an attachment");
+      this.considerKeyword(message, level, mentionsMe, alreadyNotified);
       this.msgSig = "";
       this.scroll = message.channelId === this.channelId ? "bottom" : this.scroll;
       this.paint();
@@ -2162,9 +2259,15 @@ class LarkApp {
     if (!list.length) body.append(el("div", "empty", "Nothing loaded in this pane yet."));
     else {
       const ctx = this.renderContext();
-      const plugins = this.plugins.filter((plugin) => this.config.plugins.enabled.includes(plugin.id));
+      const plugins = this.enabledPlugins();
+      const hidden = hiddenIds(this.pack.hiddenAuthors);
+      const settings = this.pluginSettings(this.splitId);
       for (const message of list.slice(-30)) {
-        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords);
+        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
+          settings,
+          hiddenAuthors: hidden,
+          displayContent: this.translated[message.id],
+        });
         if (!view) continue;
         body.append(renderMessage(view, {
           density: this.config.appearance.density,
@@ -2181,6 +2284,7 @@ class LarkApp {
             this.lightbox = url;
             this.paintLightbox();
           },
+          ...this.messageChrome(message, view),
         }));
       }
     }
@@ -2359,13 +2463,505 @@ class LarkApp {
     pop.append(close);
   }
 
-  private setStatus(status: NonNullable<Person["status"]>, custom: string) {
+  private enabledPlugins(): PluginSource[] {
+    return enabledSources(this.config.plugins.enabled, this.loaded);
+  }
+
+  private hookOn(flag: keyof PluginHooks): boolean {
+    return this.enabledPlugins().some((plugin) => plugin.hooks[flag] === true);
+  }
+
+  private quickReactionEmoji(): string[] {
+    for (const plugin of this.enabledPlugins()) {
+      if (plugin.hooks.quickReactions.length) return plugin.hooks.quickReactions;
+    }
+    return [];
+  }
+
+  private pluginSettings(channelId: string): Record<string, Record<string, string>> {
+    const settings: Record<string, Record<string, string>> = {};
+    for (const plugin of this.enabledPlugins()) {
+      const record = settingsFor(this.pack, plugin.id, channelId);
+      if (Object.keys(record).length) settings[plugin.id] = record;
+    }
+    return settings;
+  }
+
+  private messageChrome(message: RawMessage, view: ViewMessage) {
+    return {
+      now: this.clock,
+      quickReactions: this.quickReactionEmoji(),
+      bookmarked: isBookmarked(this.pack.bookmarks, message.channelId, message.id),
+      translated: Boolean(this.translated[message.id]),
+      onBookmark: view.effects.includes("bookmark") ? () => this.onBookmark(message) : undefined,
+      onTranslate: view.effects.includes("translate") ? () => void this.onTranslate(message) : undefined,
+      onHideAuthor: this.hookOn("hideUsers") ? () => this.onHideAuthor(message) : undefined,
+    };
+  }
+
+  private savePack() {
+    localStorage.setItem("lark.pack.v1", JSON.stringify(this.pack));
+  }
+
+  private async setPluginEnabled(id: string, enabled: boolean) {
+    if (enabled) {
+      const ok = await this.ensurePlugin(id);
+      if (!ok) {
+        this.toast("Plugin", `${id} could not be loaded.`);
+        return;
+      }
+      if (!this.config.plugins.enabled.includes(id)) this.config.plugins.enabled = [...this.config.plugins.enabled, id];
+    } else {
+      this.config.plugins.enabled = this.config.plugins.enabled.filter((item) => item !== id);
+    }
+    this.persist();
+    this.msgSig = "";
+    this.paint();
+  }
+
+  private appendPluginPanel(wrap: HTMLElement, id: string) {
+    if (id === "message-translate") {
+      const card = el("div", "plugin-card");
+      card.append(el("div", "hint", "Phrase book language"));
+      card.append(this.choice(["en", "es", "fr", "de", "ja"], this.pack.translateLang, (value) => {
+        this.pack.translateLang = value as PackState["translateLang"];
+        this.translated = {};
+        this.savePack();
+        this.msgSig = "";
+        if (this.settings) this.renderSettings();
+      }));
+      const source = el("input");
+      source.placeholder = "Line to remember";
+      source.setAttribute("aria-label", "Glossary line");
+      const translation = el("input");
+      translation.placeholder = "Translation";
+      translation.setAttribute("aria-label", "Glossary translation");
+      const add = el("button", "text-button", "Add line");
+      add.type = "button";
+      add.addEventListener("click", () => {
+        const text = source.value.trim();
+        const line = translation.value.trim();
+        if (!text || !line) return;
+        this.pack.glossary = [...this.pack.glossary, { text, lang: this.pack.translateLang, translation: line }].slice(-100);
+        source.value = "";
+        translation.value = "";
+        this.savePack();
+        this.renderSettings();
+      });
+      card.append(source, translation, add);
+      if (this.pack.glossary.length) card.append(el("p", "hint", `${this.pack.glossary.length} saved line${this.pack.glossary.length === 1 ? "" : "s"} on this device.`));
+      wrap.append(card);
+    } else if (id === "quiet-media") {
+      const card = el("div", "plugin-card");
+      card.append(el("div", "hint", "Link previews"));
+      card.append(this.choice(["hide", "show"], this.pack.mediaPreviews, (value) => {
+        this.pack.mediaPreviews = value as PackState["mediaPreviews"];
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+        if (this.settings) this.renderSettings();
+      }));
+      card.append(el("div", "hint", "Images"));
+      card.append(this.choice(["on", "off"], this.pack.mediaCompact, (value) => {
+        this.pack.mediaCompact = value as PackState["mediaCompact"];
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+        if (this.settings) this.renderSettings();
+      }));
+      card.append(el("p", "hint", "On keeps images small. Hide drops the preview card and leaves the link."));
+      wrap.append(card);
+    } else if (id === "keyword-ping") {
+      const card = el("div", "plugin-card");
+      const global = el("input");
+      global.value = this.pack.keywordGlobal.join(", ");
+      global.setAttribute("aria-label", "Keyword list");
+      global.addEventListener("change", () => {
+        this.pack.keywordGlobal = cleanWords(global.value);
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      });
+      card.append(el("div", "hint", "Words, for every channel"), global);
+      const channel = this.currentChannel();
+      if (channel && this.channelId) {
+        const current = this.pack.keywordChannels[this.channelId] ?? { words: [] };
+        const local = el("input");
+        local.value = current.words.join(", ");
+        local.setAttribute("aria-label", "Channel keywords");
+        local.addEventListener("change", () => {
+          const words = cleanWords(local.value);
+          const level = this.pack.keywordChannels[this.channelId!]?.level;
+          if (!words.length && !level) delete this.pack.keywordChannels[this.channelId!];
+          else this.pack.keywordChannels[this.channelId!] = level ? { words, level } : { words };
+          this.savePack();
+          this.msgSig = "";
+          this.paintMessages();
+        });
+        card.append(el("div", "hint", `Words only in ${channel.name}`), local);
+        card.append(el("div", "hint", "Notification rule for this channel"));
+        const level = effectiveLevel(this.config, this.guildId, this.channelId);
+        card.append(this.choice(["all", "mentions", "mute"], level, (value) => {
+          const next = value as NotifyLevel;
+          this.config.notifications.channels[this.channelId!] = next === "mute" ? { muted: true } : { level: next, muted: false };
+          const words = this.pack.keywordChannels[this.channelId!]?.words ?? [];
+          this.pack.keywordChannels[this.channelId!] = { words, level: next };
+          this.persist();
+          this.savePack();
+          this.paint();
+        }));
+        card.append(el("p", "hint", "Mute wins. A keyword pings a mentions-only channel at most once a minute, and only when you are not already looking at it."));
+      }
+      wrap.append(card);
+    } else if (id === "auto-away") {
+      const card = el("div", "plugin-card");
+      card.append(el("div", "hint", "Go idle after"));
+      card.append(this.choice(["5", "15", "30"], String(this.pack.awayMinutes), (value) => {
+        this.pack.awayMinutes = Number(value) as PackState["awayMinutes"];
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      }));
+      card.append(el("p", "hint", "One presence update when you go idle, and one when you come back. Do not disturb and invisible are left alone."));
+      wrap.append(card);
+    } else if (id === "now-playing") {
+      const card = el("div", "plugin-card");
+      const title = el("input");
+      title.value = this.pack.playingTitle;
+      title.placeholder = "Track";
+      title.setAttribute("aria-label", "Track title");
+      const artist = el("input");
+      artist.value = this.pack.playingArtist;
+      artist.placeholder = "Artist";
+      artist.setAttribute("aria-label", "Artist");
+      const apply = el("button", "text-button", "Show on my status");
+      apply.type = "button";
+      apply.addEventListener("click", () => {
+        this.pack.playingTitle = title.value.trim().slice(0, 80);
+        this.pack.playingArtist = artist.value.trim().slice(0, 80);
+        this.savePack();
+        this.writePlaying(playingLine(this.pack.playingTitle, this.pack.playingArtist), true);
+      });
+      card.append(title, artist, apply);
+      card.append(this.toggle("Replace a custom status", this.pack.playingReplace, (value) => {
+        this.pack.playingReplace = value;
+        this.savePack();
+      }));
+      card.append(el("p", "hint", "Lark does not sign in to Spotify. If the system media session has a track, that line is used, at most every 30 seconds, and only when it changes."));
+      wrap.append(card);
+    } else if (id === "bookmarks") {
+      const card = el("div", "plugin-card");
+      const open = el("button", "text-button", "Show bookmarks");
+      open.type = "button";
+      open.addEventListener("click", () => {
+        this.bookmarksOpen = true;
+        this.closeSettings();
+        this.paintBookmarks();
+      });
+      card.append(open, el("p", "hint", "Saved on this device only. Discord pins are unchanged."));
+      wrap.append(card);
+    } else if (id === "hide-muted") {
+      const card = el("div", "plugin-card");
+      if (!this.pack.hiddenAuthors.length) card.append(el("p", "hint", "Use Hide on a message. The person is hidden here, not blocked on Discord."));
+      for (const author of this.pack.hiddenAuthors) {
+        const row = el("div", "shortcut-row");
+        row.append(el("span", "", author.name));
+        const button = el("button", "text-button", "Show");
+        button.type = "button";
+        button.addEventListener("click", () => {
+          this.pack.hiddenAuthors = toggleHidden(this.pack.hiddenAuthors, author);
+          this.savePack();
+          this.msgSig = "";
+          this.paint();
+        });
+        row.append(button);
+        card.append(row);
+      }
+      wrap.append(card);
+    } else if (id === "send-later") {
+      const card = el("div", "plugin-card");
+      const waiting = this.pack.schedule.length;
+      card.append(el("p", "hint", waiting ? `${waiting} waiting. Lark sends the oldest due message, then waits before the next.` : "Use Later in the composer. The soonest time is 15 seconds from now."));
+      wrap.append(card);
+    }
+  }
+
+  private paintScheduleBanner() {
+    const channelId = this.channelId;
+    if (!channelId) return;
+    if (this.scheduling) {
+      clear(this.composerBanner);
+      this.composerBanner.hidden = false;
+      const when = el("input");
+      when.type = "datetime-local";
+      when.setAttribute("aria-label", "Send at");
+      when.value = localInputValue(Date.now() + 15 * 60_000);
+      const confirm = el("button", "primary", "Queue");
+      confirm.type = "button";
+      confirm.addEventListener("click", () => {
+        const sendAt = Date.parse(when.value);
+        const result = queueSend(this.pack.schedule, { channelId, content: this.composer.value, sendAt }, Date.now());
+        if (!result.ok) {
+          this.toast("Send later", result.error);
+          return;
+        }
+        this.pack.schedule = result.list;
+        this.composer.value = "";
+        if (this.channelId) delete this.drafts[this.channelId];
+        localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
+        this.scheduling = false;
+        this.savePack();
+        this.paintComposer();
+        this.toast("Send later", "Queued. It sends once, on its own.");
+      });
+      const cancel = el("button", "ghost", "Cancel");
+      cancel.type = "button";
+      cancel.addEventListener("click", () => {
+        this.scheduling = false;
+        this.paintComposer();
+      });
+      this.composerBanner.append(el("span", "", "Send at"), when, confirm, cancel);
+      return;
+    }
+    if (!this.composerBanner.hidden) return;
+    const waiting = this.pack.schedule.filter((item) => item.channelId === channelId);
+    const next = waiting[0];
+    if (!next) return;
+    this.composerBanner.hidden = false;
+    const when = formatRelative(new Date(next.sendAt).toISOString(), Date.now());
+    this.composerBanner.append(el("span", "", `Sends ${when} · ${next.content.slice(0, 80)}`));
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.setAttribute("aria-label", "Cancel scheduled message");
+    cancel.addEventListener("click", () => {
+      this.pack.schedule = cancelSend(this.pack.schedule, next.id);
+      this.savePack();
+      this.paintComposer();
+    });
+    this.composerBanner.append(cancel);
+  }
+
+  private paintBookmarks() {
+    let overlay = document.getElementById("lark-bookmarks");
+    if (!this.bookmarksOpen || !this.hookOn("bookmarks")) {
+      overlay?.remove();
+      return;
+    }
+    if (!overlay) {
+      overlay = el("div", "overlay");
+      overlay.id = "lark-bookmarks";
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+          this.bookmarksOpen = false;
+          this.paintBookmarks();
+        }
+      });
+      this.root.append(overlay);
+    }
+    clear(overlay);
+    const card = el("div", "switcher-card");
+    const head = el("div", "switcher-head");
+    head.append(el("strong", "", "Bookmarks"));
+    const close = el("button", "ghost", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => {
+      this.bookmarksOpen = false;
+      this.paintBookmarks();
+    });
+    head.append(close);
+    const list = el("div", "bookmark-list");
+    if (!this.pack.bookmarks.length) list.append(el("p", "hint", "Save a message and it stays on this device."));
+    for (const bookmark of this.pack.bookmarks) {
+      const row = el("button", "bookmark-row");
+      row.type = "button";
+      row.append(el("strong", "", bookmark.authorName), el("span", "", bookmark.excerpt || "Empty message"));
+      row.addEventListener("click", () => {
+        this.bookmarksOpen = false;
+        this.paintBookmarks();
+        void this.openChannel(bookmark.channelId);
+      });
+      list.append(row);
+    }
+    card.append(head, list);
+    overlay.append(card);
+  }
+
+  private onBookmark(message: RawMessage) {
+    this.pack.bookmarks = toggleBookmark(this.pack.bookmarks, {
+      messageId: message.id,
+      channelId: message.channelId,
+      authorName: message.authorName,
+      excerpt: message.content,
+      savedAt: Date.now(),
+    });
+    this.savePack();
+    this.msgSig = "";
+    this.paintMessages();
+  }
+
+  private async onTranslate(message: RawMessage) {
+    if (this.translated[message.id]) {
+      delete this.translated[message.id];
+      this.msgSig = "";
+      this.paintMessages();
+      return;
+    }
+    const { translateText } = await import("../pack/translate");
+    const result = translateText(message.content, this.pack.translateLang, this.pack.glossary);
+    if (!result.matched) {
+      this.toast("Translate", "No local translation for that line. Add one in the plugin’s settings.");
+      return;
+    }
+    this.translated[message.id] = result.text;
+    this.msgSig = "";
+    this.paintMessages();
+  }
+
+  private onHideAuthor(message: RawMessage) {
+    this.pack.hiddenAuthors = toggleHidden(this.pack.hiddenAuthors, { id: message.authorId, name: message.authorName });
+    this.savePack();
+    this.msgSig = "";
+    this.paintMessages();
+    const hidden = this.pack.hiddenAuthors.some((author) => author.id === message.authorId);
+    this.toast(hidden ? "Hidden" : "Visible", hidden ? `${message.authorName} is hidden on this device.` : `${message.authorName} is visible again.`);
+  }
+
+  private considerKeyword(message: RawMessage, level: NotifyLevel, mentionsMe: boolean, alreadyNotified: boolean) {
+    if (!this.hookOn("keywords")) return;
+    const words = wordsFor(this.pack.keywordGlobal, this.pack.keywordChannels, message.channelId);
+    const hit = firstHit(message.content, words);
+    if (!shouldKeywordNotify({
+      level,
+      mentionsMe,
+      fromMe: message.authorId === this.meId(),
+      windowFocused: this.focused,
+      sameChannel: message.channelId === this.channelId,
+      hit: Boolean(hit),
+      alreadyNotified,
+    })) return;
+    const gate = allowKeywordNotify(`${message.channelId}:${hit}`, Date.now(), this.keywordLast);
+    this.keywordLast = gate.last;
+    if (!gate.ok || !hit) return;
+    void this.notify(message.authorName, message.content || hit);
+  }
+
+  private tickClock() {
+    if (!this.hookOn("relativeTime") || this.view !== "app") return;
+    this.clock = Date.now();
+    this.msgSig = "";
+    this.paintMessages();
+  }
+
+  private tickPlugins() {
+    if (this.view !== "app") return;
+    this.tickAway();
+    this.tickPlaying();
+    void this.tickSchedule();
+  }
+
+  private tickAway() {
+    if (!this.hookOn("autoAway")) return;
+    const step = stepAway(this.away, Date.now(), this.pack.awayMinutes * 60_000);
+    this.away = step.state;
+    if (!step.write || step.write === this.me.status) return;
+    this.setStatus(step.write, this.me.custom ?? "", "plugin");
+  }
+
+  private tickPlaying() {
+    if (!this.hookOn("nowPlaying")) return;
+    const session = navigator.mediaSession?.metadata;
+    if (!session?.title) return;
+    this.writePlaying(playingLine(session.title, session.artist ?? ""), false);
+  }
+
+  private writePlaying(line: string, fromButton: boolean) {
+    if (!line) {
+      if (fromButton) this.toast("Now playing", "Add a track title first.");
+      return;
+    }
+    if (!canReplaceCustom(this.me.custom ?? "", this.pack.playingReplace)) {
+      if (fromButton) this.toast("Now playing", "Your custom status stays. Turn on replace if this line should take over.");
+      return;
+    }
+    const now = Date.now();
+    if (!shouldWritePlaying(this.playingShown, line, this.playingWrite, now)) {
+      if (fromButton) this.toast("Now playing", "That line is already showing, or it changed a moment ago.");
+      return;
+    }
+    this.playingShown = line;
+    this.playingWrite = now;
+    this.setStatus(this.me.status ?? "online", line, "plugin");
+  }
+
+  private async tickSchedule() {
+    if (this.sendingScheduled || !this.hookOn("schedule")) return;
+    const picked = takeDue(this.pack.schedule, Date.now());
+    if (!picked.due) return;
+    this.sendingScheduled = true;
+    this.pack.schedule = picked.rest;
+    try {
+      const sent = await this.postPlain(picked.due.channelId, picked.due.content);
+      if (!sent) {
+        const retry = backoff(picked.due, Date.now());
+        if (retry) this.pack.schedule = [...this.pack.schedule, retry].sort((a, b) => a.sendAt - b.sendAt);
+        else this.toast("Send later", "That message was not sent.");
+      }
+    } finally {
+      this.sendingScheduled = false;
+      this.savePack();
+      this.paintComposer();
+    }
+  }
+
+  private async postPlain(channelId: string, content: string): Promise<boolean> {
+    const message: RawMessage = {
+      id: `local-${Date.now()}`,
+      channelId,
+      authorId: this.meId(),
+      authorName: this.demo ? "Ethan Park" : this.me.name,
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    history[channelId] = [...(history[channelId] ?? []), message];
+    this.pages[channelId] = [...(this.pages[channelId] ?? []), message];
+    if (!this.demo) {
+      try {
+        const sent = normalizeMessage(await invoke<RawMessage>("send_message", {
+          channelId,
+          content,
+          replyTo: null,
+          files: [],
+        }));
+        message.id = sent.id;
+      } catch {
+        history[channelId] = (history[channelId] ?? []).filter((item) => item !== message);
+        this.pages[channelId] = (this.pages[channelId] ?? []).filter((item) => item !== message);
+        return false;
+      }
+    }
+    if (channelId === this.channelId) {
+      this.msgSig = "";
+      this.scroll = "bottom";
+      this.paintMessages();
+    }
+    return true;
+  }
+
+  private setStatus(status: NonNullable<Person["status"]>, custom: string, source: "user" | "plugin" = "user") {
+    const changed = this.me.status !== status || (this.me.custom ?? "") !== custom;
     this.me = { ...this.me, status, custom };
+    if (source === "user" && (status === "online" || status === "idle" || status === "dnd" || status === "invisible")) {
+      this.away = { ...this.away, savedStatus: status, away: status === "idle" };
+    }
     if (this.demo) {
       people[0].status = status;
       people[0].custom = custom;
-    } else {
+    } else if (changed) {
       void invoke("set_presence", { status: status === "invisible" ? "invisible" : status, custom }).catch(() => undefined);
+    }
+    if (source === "plugin") {
+      this.paintChannels();
+      this.paintMembers();
+      return;
     }
     this.popout = this.me;
     this.paintChannels();
@@ -2405,6 +3001,12 @@ function statusLabel(status: Person["status"]): string {
   if (status === "online") return "Online";
   if (status === "invisible") return "Invisible";
   return "Offline";
+}
+
+function localInputValue(time: number): string {
+  const date = new Date(time);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function readJson(key: string): Record<string, never> & { pages?: Record<string, RawMessage[]> } {

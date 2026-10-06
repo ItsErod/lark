@@ -117,7 +117,7 @@ Themes are CSS files that set variables (`--bg-0`, `--text`, `--accent`, and the
 
 The UI font is bundled Inter so both operating systems match. Settings can switch to the system UI font (Segoe UI on Windows), a serif stack, or a mono stack (SF Mono, Cascadia Mono, Consolas).
 
-Plugins are local JavaScript files with `function onMessage(message, api)`. They can highlight, add a badge, change content, or return `null` to hide a message. They do not get the token, the network, or the filesystem. Shipped plugins:
+Plugins are local JavaScript files with `function onMessage(message, api)`. They can highlight, add a badge, change content, or return `null` to hide a message. They do not get the token, the network, or the filesystem. A plugin's script is loaded only after you enable it. Shipped samples:
 
 - `highlight-mentions` — on by default
 - `code-badge` — on by default
@@ -125,6 +125,8 @@ Plugins are local JavaScript files with `function onMessage(message, api)`. They
 - `edit-log` — badge after an edit, off by default
 - `collapse-long` — fold messages over 280 characters, off by default
 - `translate` — a local glossary for lines that start with `tr:`, off by default, no network
+
+The rest of the pack (translator, send later, quiet media, bookmarks, and the others) is off until you enable it in Settings. Each one is described in [PLUGINS.md](PLUGINS.md).
 
 Enable them under `[plugins]` or in Settings. Treat every plugin as trusted code; `new Function` runs it in the window.
 

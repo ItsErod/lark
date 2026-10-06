@@ -99,6 +99,11 @@ description = "List installed plugins."
 commands.allow = ["list_plugins"]
 
 [[permission]]
+identifier = "allow-read-plugin"
+description = "Read one installed plugin."
+commands.allow = ["read_plugin"]
+
+[[permission]]
 identifier = "allow-join-voice"
 description = "Join a voice channel."
 commands.allow = ["join_voice"]

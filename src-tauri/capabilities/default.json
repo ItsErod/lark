@@ -27,6 +27,7 @@
     "allow-read-theme",
     "allow-list-themes",
     "allow-list-plugins",
+    "allow-read-plugin",
     "allow-join-voice",
     "allow-leave-voice",
     "allow-set-voice-self",

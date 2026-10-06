@@ -33,7 +33,7 @@ pub fn resolve(app: &AppHandle) -> Result<ResolvedPaths, String> {
     fs::create_dir_all(&themes_dir).map_err(|err| err.to_string())?;
     fs::create_dir_all(&plugins_dir).map_err(|err| err.to_string())?;
     seed_if_empty(&themes_dir, &bundled(app, "themes"));
-    seed_if_empty(&plugins_dir, &bundled(app, "plugins"));
+    seed_missing_files(&plugins_dir, &bundled(app, "plugins"));
     let config_file = dir.join("config.toml");
     if !config_file.exists() {
         fs::write(&config_file, lark_core::config::example_config_text())
@@ -72,6 +72,24 @@ fn bundled(app: &AppHandle, folder: &str) -> PathBuf {
         }
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(folder)
+}
+
+fn seed_missing_files(dest: &Path, source: &Path) {
+    if !source.exists() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(source) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_type = entry.file_type().ok();
+        if file_type.map(|kind| kind.is_file()).unwrap_or(false) {
+            let target = dest.join(entry.file_name());
+            if !target.exists() {
+                let _ = fs::copy(entry.path(), target);
+            }
+        }
+    }
 }
 
 fn seed_if_empty(dest: &Path, source: &Path) {
