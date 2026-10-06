@@ -535,15 +535,24 @@ impl DiscordRest {
         files: &[OutFile],
     ) -> Result<reqwest::Response, RestError> {
         let url = api_url(path)?;
-        for attempt in 0..6 {
+        let mut network_attempts = 0u32;
+        let mut waits = 0u32;
+        loop {
+            if network_attempts >= 6 || waits >= 8 {
+                return Err(RestError::RateLimited);
+            }
             let decision = {
                 let mut limiter = self.limiter.lock().await;
                 limiter.reserve(route, now_ms())
             };
-            if let crate::ratelimit::Decision::Wait { delay_ms, .. } = decision {
-                tokio::time::sleep(Duration::from_millis(delay_ms.min(60_000))).await;
+            if let crate::ratelimit::Decision::Wait { delay_ms, reason } = decision {
+                waits += 1;
+                let delay = delay_ms.min(60_000);
+                eprintln!("lark-rest: waiting {delay}ms on {route} ({reason:?})");
+                tokio::time::sleep(Duration::from_millis(delay)).await;
                 continue;
             }
+            network_attempts += 1;
             let mut request = self.http.request(method.clone(), &url);
             request = request.header(AUTHORIZATION, &self.token);
             if files.is_empty() {
@@ -577,20 +586,19 @@ impl DiscordRest {
                     retry_after: 1.0,
                     global: false,
                 });
-                self.limiter.lock().await.observe_429(
-                    route,
-                    retry_after_to_ms(parsed.retry_after),
-                    parsed.global,
-                    now_ms(),
+                let retry_ms = retry_after_to_ms(parsed.retry_after);
+                eprintln!(
+                    "lark-rest: 429 on {route} retry_after_ms={retry_ms} global={}",
+                    parsed.global
                 );
-                if attempt == 5 {
-                    return Err(RestError::RateLimited);
-                }
+                self.limiter
+                    .lock()
+                    .await
+                    .observe_429(route, retry_ms, parsed.global, now_ms());
                 continue;
             }
             return Ok(response);
         }
-        Err(RestError::RateLimited)
     }
 
     async fn json_body(response: reqwest::Response, token: &str) -> Result<Value, RestError> {

@@ -35,7 +35,6 @@ import {
   THEME_ID,
   validateThemeCss,
 } from "../themes";
-import { rowEstimate, sliceWindow } from "../virtual";
 import {
   applyMemberOps,
   emptyMemberList,
@@ -52,7 +51,17 @@ import {
   type RoleInfo,
 } from "../members";
 import { memberNote, mergeGuilds, mergePeople, personFromMember, type RawMember } from "../roster";
-import { nextScrollTop, PANEL_SCROLL_SELECTOR, pixelDelta } from "../scroll";
+import {
+  anchoredScrollTop,
+  anchorAfterGrowth,
+  capMessages,
+  isNearBottom,
+  messageListPlan,
+  nextScrollTop,
+  PANEL_SCROLL_SELECTOR,
+  pixelDelta,
+  shouldLoadOlder,
+} from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import { renderMessage } from "./messages";
@@ -139,6 +148,12 @@ class LarkApp {
   private bookmarksOpen = false;
   private clock = Date.now();
   private scroll: ScrollMode = "none";
+  private scrollLock = 0;
+  private pinnedToBottom = true;
+  private messagePaints: number[] = [];
+  private statusFlaps: number[] = [];
+  private typingTimer = 0;
+  private appliedTheme = "";
   private msgSig = "";
   private openedAt = 0;
   private tokenNote = "";
@@ -450,9 +465,17 @@ class LarkApp {
     window.setInterval(() => this.tickPlugins(), 5000);
     window.setInterval(() => this.tickClock(), 30_000);
     this.messagesEl.addEventListener("scroll", () => {
-      if (this.messagesEl.scrollTop < 80) void this.loadOlder();
-      this.frames.request(() => this.paintMessages());
-    });
+      if (this.scrollLock > 0) return;
+      const top = this.messagesEl.scrollTop;
+      this.pinnedToBottom = isNearBottom(top, this.messagesEl.scrollHeight, this.messagesEl.clientHeight);
+      if (shouldLoadOlder({
+        scrollTop: top,
+        locked: false,
+        loading: this.loading,
+        hasMore: Boolean(this.channelId && this.more[this.channelId]),
+        sinceOpenMs: performance.now() - this.openedAt,
+      })) void this.loadOlder();
+    }, { passive: true });
     this.root.addEventListener("wheel", (event) => this.onWheel(event), { passive: false, capture: true });
   }
 
@@ -545,7 +568,10 @@ class LarkApp {
       this.shell.style.gridTemplateColumns = `${rail} ${channelW} minmax(0,1fr) ${members}`;
       this.shell.style.gridTemplateAreas = `"rail channels chat members"`;
     }
-    void this.applyTheme();
+    if (this.appliedTheme !== appearance.theme) {
+      this.appliedTheme = appearance.theme;
+      void this.applyTheme();
+    }
   }
 
   private async applyTheme() {
@@ -1177,10 +1203,13 @@ class LarkApp {
       } finally {
         this.loading = false;
       }
+    } else if (this.more[id] === undefined) {
+      this.more[id] = (this.pages[id]?.length ?? 0) >= 20;
     }
     this.unread[id] = 0;
     this.mentions[id] = 0;
     this.scroll = "bottom";
+    this.pinnedToBottom = true;
     const draft = this.drafts[id];
     if (draft !== undefined && !this.editing) this.composer.value = draft;
     this.recent = [id, ...this.recent.filter((item) => item !== id)].slice(0, 6);
@@ -1222,10 +1251,12 @@ class LarkApp {
       this.scroll = "preserve";
       this.msgSig = "";
     } catch (err) {
-      this.error = err instanceof Error ? err.message : "Couldn't load earlier messages.";
+      const message = err instanceof Error ? err.message : "Couldn't load earlier messages.";
+      if ((this.pages[id]?.length ?? 0) > 0) this.toast("History", message);
+      else this.error = message;
     } finally {
       this.loading = false;
-      this.paint();
+      this.paintMessages();
     }
   }
 
@@ -1331,141 +1362,326 @@ class LarkApp {
     this.paint();
   }
 
+  private lockScroll(run: () => void) {
+    this.scrollLock += 1;
+    try {
+      run();
+    } finally {
+      this.scrollLock -= 1;
+    }
+  }
+
+  private noteMessagePaint(reason: string) {
+    if (reason !== "replace") return;
+    const now = performance.now();
+    this.messagePaints = this.messagePaints.filter((stamp) => now - stamp < 500);
+    this.messagePaints.push(now);
+    if (this.messagePaints.length >= 4) {
+      console.warn(`[lark] message list rebuilt ${this.messagePaints.length} times in 500ms. A channel view should append, not rebuild in a loop.`);
+    }
+  }
+
+  private captureScroll() {
+    const top = this.messagesEl.scrollTop;
+    const height = this.messagesEl.scrollHeight;
+    const client = this.messagesEl.clientHeight;
+    return { top, height, client, near: this.pinnedToBottom || isNearBottom(top, height, client) };
+  }
+
+  private placeScroll(metrics: { top: number; height: number; client: number; near: boolean }, intent: ScrollMode) {
+    const next = anchoredScrollTop({
+      intent,
+      prevTop: metrics.top,
+      prevHeight: metrics.height,
+      nextHeight: this.messagesEl.scrollHeight,
+      clientHeight: metrics.client || this.messagesEl.clientHeight,
+      nearBottom: metrics.near,
+    });
+    this.messagesEl.scrollTop = next;
+    this.pinnedToBottom = intent === "bottom" || (intent !== "preserve" && metrics.near);
+  }
+
+  private windowMessages(id: string, list: RawMessage[]): RawMessage[] {
+    const capped = capMessages(list, this.pinnedToBottom);
+    if (!capped.trimmed) return list;
+    this.pages[id] = capped.items;
+    if (!this.pinnedToBottom && this.scroll === "none") this.scroll = "preserve";
+    console.info(`[lark] trimmed channel ${id} to ${capped.items.length} messages`);
+    return capped.items;
+  }
+
+  private layoutObserver: ResizeObserver | null = null;
+
+  /** Images and embeds change height after decode. Re-pin or hold the line without another render. */
+  private watchMessageLayout() {
+    this.layoutObserver?.disconnect();
+    const scroller = this.messagesEl;
+    const column = scroller.querySelector(":scope > .message-column");
+    if (!(column instanceof HTMLElement)) return;
+    const heights = new Map<Element, number>();
+    const nodes = [column, ...column.querySelectorAll("img")].filter((node): node is HTMLElement => node instanceof HTMLElement);
+    for (const node of nodes) heights.set(node, node.offsetHeight);
+    this.layoutObserver = new ResizeObserver((entries) => {
+      if (this.scrollLock > 0) {
+        for (const entry of entries) {
+          if (entry.target instanceof HTMLElement) heights.set(entry.target, entry.target.offsetHeight);
+        }
+        return;
+      }
+      for (const entry of entries) {
+        const node = entry.target;
+        if (!(node instanceof HTMLElement)) continue;
+        const next = node.offsetHeight;
+        const prev = heights.get(node) ?? next;
+        heights.set(node, next);
+        const delta = next - prev;
+        if (Math.abs(delta) < 1) continue;
+        if (node === column || this.pinnedToBottom) {
+          if (this.pinnedToBottom) {
+            this.lockScroll(() => {
+              scroller.scrollTop = scroller.scrollHeight;
+            });
+          }
+          continue;
+        }
+        const above = node.getBoundingClientRect().top < scroller.getBoundingClientRect().top;
+        if (!above) continue;
+        const top = anchorAfterGrowth({
+          scrollTop: scroller.scrollTop,
+          scrollHeight: scroller.scrollHeight,
+          clientHeight: scroller.clientHeight,
+          delta,
+          pinned: false,
+          aboveViewport: true,
+        });
+        this.lockScroll(() => {
+          scroller.scrollTop = top;
+        });
+      }
+    });
+    for (const node of nodes) this.layoutObserver.observe(node);
+    for (const node of nodes) {
+      if (!(node instanceof HTMLImageElement) || node.dataset.anchorBound === "1") continue;
+      node.dataset.anchorBound = "1";
+      node.dataset.anchorHeight = String(node.offsetHeight);
+      const apply = () => this.stickToReadingLine(node);
+      node.addEventListener("load", () => {
+        apply();
+        requestAnimationFrame(apply);
+      });
+      if (node.complete) requestAnimationFrame(apply);
+    }
+    this.followPinned();
+  }
+
+  private followPinned() {
+    this.stickIfPinned();
+    requestAnimationFrame(() => {
+      this.stickIfPinned();
+      requestAnimationFrame(() => this.stickIfPinned());
+    });
+  }
+
+  private stickIfPinned() {
+    if (!this.pinnedToBottom || this.scrollLock > 0) return;
+    const scroller = this.messagesEl;
+    const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    if (gap <= 1) return;
+    this.lockScroll(() => {
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+  }
+
+  private stickToReadingLine(node: HTMLImageElement) {
+    const scroller = this.messagesEl;
+    if (this.pinnedToBottom) {
+      this.stickIfPinned();
+      return;
+    }
+    const above = node.getBoundingClientRect().top < scroller.getBoundingClientRect().top;
+    if (!above) return;
+    const delta = node.offsetHeight - Number(node.dataset.anchorHeight ?? node.offsetHeight);
+    node.dataset.anchorHeight = String(node.offsetHeight);
+    if (Math.abs(delta) < 1) return;
+    const top = anchorAfterGrowth({
+      scrollTop: scroller.scrollTop,
+      scrollHeight: scroller.scrollHeight,
+      clientHeight: scroller.clientHeight,
+      delta,
+      pinned: false,
+      aboveViewport: true,
+    });
+    this.lockScroll(() => {
+      scroller.scrollTop = top;
+    });
+  }
+
+  private messageBody(list: RawMessage[]): string {
+    return list
+      .map((message) => `${message.id}:${message.content}:${message.edited}:${message.reactions?.map((reaction) => reaction.count + (reaction.me ? "y" : "n")).join(".")}`)
+      .join("~");
+  }
+
+  private appendMessages(parent: HTMLElement, list: RawMessage[], from: number, channelId: string) {
+    const ctx = this.renderContext();
+    const plugins = this.enabledPlugins();
+    const hidden = hiddenIds(this.pack.hiddenAuthors);
+    const settings = this.pluginSettings(channelId);
+    let lastDay = "";
+    let lastAuthor = "";
+    let lastTime = 0;
+    if (from > 0) {
+      const previous = list[from - 1];
+      lastDay = new Date(previous.timestamp).toDateString();
+      lastAuthor = previous.authorId;
+      lastTime = new Date(previous.timestamp).getTime();
+    }
+    for (let index = from; index < list.length; index += 1) {
+      const message = list[index];
+      const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
+        settings,
+        hiddenAuthors: hidden,
+        displayContent: this.translated[message.id],
+      });
+      if (!view) continue;
+      const day = new Date(message.timestamp).toDateString();
+      const grouped = Boolean(lastAuthor) && view.authorId === lastAuthor && new Date(message.timestamp).getTime() - lastTime < 5 * 60_000 && !view.reply && day === lastDay;
+      const node = renderMessage(view, {
+        density: this.config.appearance.density,
+        grouped,
+        showDay: day !== lastDay,
+        divider: this.divider[channelId] === message.id,
+        remoteEmoji: !this.demo,
+        mine: view.authorId === this.meId(),
+        onReply: () => {
+          this.reply = message;
+          this.editing = null;
+          this.composer.focus();
+          this.paintComposer();
+        },
+        onEdit: () => this.beginEdit(message),
+        onDelete: () => {
+          this.pendingDelete = message;
+          this.paintComposer();
+        },
+        onReact: (emoji) => {
+          if (emoji === "picker") {
+            this.pickerFor = this.pickerFor === message.id ? null : message.id;
+            this.msgSig = "";
+            this.paintMessages();
+            return;
+          }
+          this.toggleReaction(message, emoji);
+        },
+        onImage: (url) => {
+          this.lightbox = url;
+          this.paintLightbox();
+        },
+        ...this.messageChrome(message, view),
+      });
+      if (this.pickerFor === message.id) {
+        const picker = el("div", "picker");
+        const ranked = frecency(this.emojiUses, Date.now()).map((item) => item.emoji);
+        const emojis = [...ranked, ...EMOJI.filter((emoji) => !ranked.includes(emoji))].slice(0, 12);
+        for (const emoji of emojis) {
+          const button = el("button", "icon-button", emoji);
+          button.type = "button";
+          button.addEventListener("click", () => this.toggleReaction(message, emoji));
+          picker.append(button);
+        }
+        node.append(picker);
+      }
+      parent.append(node);
+      lastDay = day;
+      lastAuthor = view.authorId;
+      lastTime = new Date(message.timestamp).getTime();
+    }
+  }
+
+  private paintTyping() {
+    const id = this.channelId;
+    const now = Date.now();
+    const names = id === CRIT && this.demo
+      ? ["Jonah Adler is typing"]
+      : this.typingNames.filter((item) => item.channelId === id && item.until > now).map((item) => item.name);
+    const text = names.length ? names.join(", ") : "";
+    if (this.typingEl.textContent !== text) this.typingEl.textContent = text;
+    const nextClass = names.length ? "typing dots" : "typing";
+    if (this.typingEl.className !== nextClass) this.typingEl.className = nextClass;
+  }
+
   private paintMessages() {
     if (this.friendsOpen && !this.guildId) {
       this.paintFriends();
       return;
     }
+    this.paintTyping();
     const id = this.channelId;
-    const list = id ? this.pages[id] ?? [] : [];
-    const row = rowEstimate(this.config.appearance.density);
-    const win = sliceWindow(list.length, this.messagesEl.scrollTop, this.messagesEl.clientHeight || 640, row);
+    let list = id ? this.pages[id] ?? [] : [];
+    if (id && list.length) list = this.windowMessages(id, list);
     const pluginStamp = `${this.pack.bookmarks.length}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}`;
-    const sig = `${id}|${win.start}|${win.end}|${this.loading}|${this.error}|${this.pickerFor}|${this.config.appearance.density}|${pluginStamp}|${list.map((message) => `${message.id}:${message.content}:${message.edited}:${message.reactions?.map((r) => r.count + (r.me ? "y" : "n")).join(".")}`).join("~")}`;
-    if (sig === this.msgSig) return;
-    this.msgSig = sig;
-    const stick = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight < 90;
-    const prevHeight = this.messagesEl.scrollHeight;
-    const prevTop = this.messagesEl.scrollTop;
-    clear(this.messagesEl);
-    if (this.loading && !list.length) {
-      const skeleton = el("div", "skeleton-wrap");
-      for (let i = 0; i < 6; i += 1) skeleton.append(el("div", "skeleton"));
-      this.messagesEl.append(skeleton);
-    } else if (this.error) {
-      const block = el("div", "error-state");
-      block.append(el("h2", "", "Couldn't load messages"), el("p", "", this.error));
-      const retry = el("button", "primary", "Retry");
-      retry.type = "button";
-      retry.addEventListener("click", () => {
-        if (id) {
-          delete this.pages[id];
-          void this.openChannel(id);
-        }
-      });
-      block.append(retry);
-      this.messagesEl.append(block);
-    } else if (!list.length) {
-      const name = this.currentChannel()?.name ?? "this channel";
-      this.messagesEl.append(el("div", "empty", `#${name} is quiet. The composer is below when you have something to say.`));
-    } else {
-      const ctx = this.renderContext();
-      const plugins = this.enabledPlugins();
-      const hidden = hiddenIds(this.pack.hiddenAuthors);
-      const settings = this.pluginSettings(id ?? "");
-      const slice = list.slice(win.start, win.end);
-      const before = list[win.start - 1];
-      let lastDay = before ? new Date(before.timestamp).toDateString() : "";
-      let lastAuthor = before?.authorId ?? "";
-      let lastTime = before ? new Date(before.timestamp).getTime() : 0;
-      const scroller = el("div", "virtual");
-      scroller.style.minHeight = `${win.total}px`;
-      if (win.start) {
-        const spacer = el("div", "virtual-spacer");
-        spacer.style.height = `${win.start * row}px`;
-        scroller.append(spacer);
-      }
-      slice.forEach((message) => {
-        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
-          settings,
-          hiddenAuthors: hidden,
-          displayContent: this.translated[message.id],
+    const shownError = this.error && !list.length ? this.error : "";
+    const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.config.appearance.density}|${pluginStamp}`;
+    const body = this.messageBody(list);
+    const sig = `${structural}|${body}`;
+    if (sig === this.msgSig && this.messagesEl.childElementCount > 0) {
+      if (this.scroll === "bottom") {
+        this.lockScroll(() => {
+          this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
         });
-        if (!view) return;
-        const day = new Date(message.timestamp).toDateString();
-        const grouped = view.authorId === lastAuthor && new Date(message.timestamp).getTime() - lastTime < 5 * 60_000 && !view.reply && day === lastDay;
-        const node = renderMessage(view, {
-          density: this.config.appearance.density,
-          grouped,
-          showDay: day !== lastDay,
-          divider: this.divider[id ?? ""] === message.id,
-          remoteEmoji: !this.demo,
-          mine: view.authorId === this.meId(),
-          onReply: () => {
-            this.reply = message;
-            this.editing = null;
-            this.composer.focus();
-            this.paintComposer();
-          },
-          onEdit: () => this.beginEdit(message),
-          onDelete: () => {
-            this.pendingDelete = message;
-            this.paintComposer();
-          },
-          onReact: (emoji) => {
-            if (emoji === "picker") {
-              this.pickerFor = this.pickerFor === message.id ? null : message.id;
-              this.msgSig = "";
-              this.paintMessages();
-              return;
-            }
-            this.toggleReaction(message, emoji);
-          },
-          onImage: (url) => {
-            this.lightbox = url;
-            this.paintLightbox();
-          },
-          ...this.messageChrome(message, view),
-        });
-        if (this.pickerFor === message.id) {
-          const picker = el("div", "picker");
-          const ranked = frecency(this.emojiUses, Date.now()).map((item) => item.emoji);
-          const emojis = [...ranked, ...EMOJI.filter((emoji) => !ranked.includes(emoji))].slice(0, 12);
-          for (const emoji of emojis) {
-            const button = el("button", "icon-button", emoji);
-            button.type = "button";
-            button.addEventListener("click", () => this.toggleReaction(message, emoji));
-            picker.append(button);
-          }
-          node.append(picker);
-        }
-        scroller.append(node);
-        lastDay = day;
-        lastAuthor = view.authorId;
-        lastTime = new Date(message.timestamp).getTime();
-      });
-      const tail = list.length - win.end;
-      if (tail > 0) {
-        const spacer = el("div", "virtual-spacer");
-        spacer.style.height = `${tail * row}px`;
-        scroller.append(spacer);
+        this.pinnedToBottom = true;
       }
-      this.messagesEl.append(scroller);
+      this.scroll = "none";
+      return;
     }
-    const mode = this.scroll;
+    const intent = this.scroll;
     this.scroll = "none";
-    this.frames.request(() => {
-      if (mode === "bottom" || stick) this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
-      else if (mode === "preserve") this.messagesEl.scrollTop = prevTop + (this.messagesEl.scrollHeight - prevHeight);
-      if (mode !== "none") {
-        this.msgSig = "";
-        this.paintMessages();
+    const metrics = this.captureScroll();
+    const column = this.messagesEl.querySelector(":scope > .message-column");
+    const previousBody = list.length > 1 ? this.messageBody(list.slice(0, -1)) : "";
+    const plan = messageListPlan(this.msgSig, structural, previousBody, column instanceof HTMLElement);
+    if (plan === "append" && column instanceof HTMLElement && id && list.length) {
+      this.noteMessagePaint("append");
+      this.lockScroll(() => {
+        this.appendMessages(column, list, list.length - 1, id);
+        this.placeScroll(metrics, intent);
+      });
+      this.watchMessageLayout();
+      this.msgSig = sig;
+      return;
+    }
+    this.noteMessagePaint("replace");
+    this.lockScroll(() => {
+      clear(this.messagesEl);
+      if (this.loading && !list.length) {
+        const skeleton = el("div", "skeleton-wrap");
+        for (let i = 0; i < 6; i += 1) skeleton.append(el("div", "skeleton"));
+        this.messagesEl.append(skeleton);
+      } else if (shownError) {
+        const block = el("div", "error-state");
+        block.append(el("h2", "", "Couldn't load messages"), el("p", "", shownError));
+        const retry = el("button", "primary", "Retry");
+        retry.type = "button";
+        retry.addEventListener("click", () => {
+          if (id) {
+            delete this.pages[id];
+            void this.openChannel(id);
+          }
+        });
+        block.append(retry);
+        this.messagesEl.append(block);
+      } else if (!list.length) {
+        const name = this.currentChannel()?.name ?? "this channel";
+        this.messagesEl.append(el("div", "empty", `#${name} is quiet. The composer is below when you have something to say.`));
+      } else if (id) {
+        const next = el("div", "message-column");
+        this.appendMessages(next, list, 0, id);
+        this.messagesEl.append(next);
       }
+      this.placeScroll(metrics, intent);
     });
-    const now = Date.now();
-    const names = id === CRIT && this.demo ? ["Jonah Adler is typing"] : this.typingNames.filter((item) => item.channelId === id && item.until > now).map((item) => item.name);
-    this.typingEl.textContent = names.length ? names.join(", ") : "";
-    if (names.length) this.typingEl.className = "typing dots";
+    this.watchMessageLayout();
+    this.msgSig = sig;
   }
 
   private renderContext() {
@@ -1727,6 +1943,7 @@ class LarkApp {
       }
       if (!this.demo) await invoke("edit_message", { channelId: id, messageId: this.editing.id, content });
       this.editing = null;
+      this.msgSig = "";
     } else {
       const message: RawMessage = {
         id: `local-${Date.now()}`,
@@ -1747,8 +1964,8 @@ class LarkApp {
       };
       history[id] = [...(history[id] ?? []), message];
       this.pages[id] = [...(this.pages[id] ?? []), message];
-      this.msgSig = "";
       this.scroll = "bottom";
+      this.pinnedToBottom = true;
       this.paintMessages();
       if (!this.demo) {
         const sent = normalizeMessage(await invoke<RawMessage>("send_message", {
@@ -1767,9 +1984,10 @@ class LarkApp {
     if (id) delete this.drafts[id];
     localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
     this.files = [];
+    this.pinnedToBottom = true;
     this.scroll = "bottom";
-    this.msgSig = "";
-    this.paint();
+    this.paintComposer();
+    if (!this.msgSig) this.paintMessages();
   }
 
   private beginEdit(message: RawMessage) {
@@ -1793,7 +2011,8 @@ class LarkApp {
     this.pendingDelete = null;
     if (!this.demo) void invoke("delete_message", { channelId: id, messageId: message.id });
     this.msgSig = "";
-    this.paint();
+    this.paintMessages();
+    this.paintComposer();
   }
 
   private toggleReaction(message: RawMessage, emoji: string) {
@@ -2661,6 +2880,25 @@ class LarkApp {
     if (guild.id === this.guildId) this.paintChannels();
   }
 
+  private paintConnection() {
+    const next = this.me.custom || this.connection;
+    const label = this.channelPane.querySelector(".profile-chip .who span");
+    if (label instanceof HTMLElement) {
+      if (label.textContent !== next) label.textContent = next;
+      return;
+    }
+    this.paintChannels();
+  }
+
+  private noteGatewayStatus(state: string | undefined) {
+    const now = performance.now();
+    this.statusFlaps = this.statusFlaps.filter((stamp) => now - stamp < 10_000);
+    this.statusFlaps.push(now);
+    if (this.statusFlaps.length >= 4) {
+      console.warn(`[lark] gateway status changed ${this.statusFlaps.length} times in 10s (${state ?? "unknown"}). Reconnects should resume and leave the open channel alone.`);
+    }
+  }
+
   private onDiscord(payload: unknown) {
     if (!payload || typeof payload !== "object") return;
     const event = payload as {
@@ -2685,7 +2923,9 @@ class LarkApp {
       added?: boolean;
     };
     if (event.kind === "status") {
-      this.connection = event.state === "connected" ? "Connected" : event.state ?? "Offline";
+      const next = event.state === "connected" ? "Connected" : event.state ?? "Offline";
+      if (next !== this.connection) this.noteGatewayStatus(event.state);
+      this.connection = next;
       if (event.state === "failed") {
         this.view = "gate";
         this.demo = false;
@@ -2700,7 +2940,7 @@ class LarkApp {
         this.signInBusy = event.detail;
         this.paintGate();
       }
-      this.paintChannels();
+      if (this.view === "app") this.paintConnection();
     } else if (event.kind === "ready" && event.user) {
       this.demo = false;
       this.view = "app";
@@ -2728,11 +2968,18 @@ class LarkApp {
         this.guildId = this.liveGuilds[0]?.id ?? null;
       }
       if (this.guildId) this.liveMembers = this.membersByGuild[this.guildId] ?? [];
+      const keepChannel = Boolean(this.channelId && (this.pages[this.channelId]?.length ?? 0) > 0);
       this.paint();
-      for (const guild of this.liveGuilds) void this.ensureChannels(guild.id);
-      if (this.guildId) void this.ensureMembers(this.guildId);
-      const first = this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
-      if (first) void this.openChannel(first.id);
+      for (const guild of this.liveGuilds) {
+        if (!this.liveChannels[guild.id]) void this.ensureChannels(guild.id);
+      }
+      if (this.guildId && !(this.membersByGuild[this.guildId]?.length)) void this.ensureMembers(this.guildId);
+      if (!keepChannel) {
+        const first = this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
+        if (first) void this.openChannel(first.id);
+      } else {
+        console.info(`[lark] gateway ready kept channel ${this.channelId}`);
+      }
     } else if (event.kind === "guild" && event.guild?.id) {
       this.rememberGuild(event.guild);
     } else if (event.kind === "members" && event.guildId && event.members) {
@@ -2769,7 +3016,10 @@ class LarkApp {
         const first = this.visibleChannels().find((channel) => channel.kind === "text");
         if (first) void this.openChannel(first.id);
         else this.paint();
-      } else if (event.guildId === this.guildId) this.paint();
+      } else if (event.guildId === this.guildId) {
+        this.paintChannels();
+        this.paintHeader();
+      }
     } else if (event.kind === "messageCreate" && event.message) {
       const message = normalizeMessage(event.message);
       this.userNames[message.authorId] = message.authorName;
@@ -2792,24 +3042,26 @@ class LarkApp {
       });
       if (alreadyNotified) void this.notify(message.authorName, message.content || "Sent an attachment");
       this.considerKeyword(message, level, mentionsMe, alreadyNotified);
-      this.msgSig = "";
-      this.scroll = message.channelId === this.channelId ? "bottom" : this.scroll;
-      this.paint();
+      if (message.channelId === this.channelId) {
+        this.scroll = this.pinnedToBottom ? "bottom" : "none";
+        this.paintMessages();
+      } else if ((this.unread[message.channelId] ?? 0) > 0 || (this.mentions[message.channelId] ?? 0) > 0) {
+        this.paintRail();
+        this.paintChannels();
+      }
     } else if (event.kind === "messageUpdate" && event.channelId && event.messageId) {
       const list = this.pages[event.channelId];
       const message = list?.find((item) => item.id === event.messageId);
       if (message && event.content !== undefined) {
         message.content = event.content;
         message.edited = true;
-        this.msgSig = "";
-        this.paint();
+        if (event.channelId === this.channelId) this.paintMessages();
       }
     } else if (event.kind === "messageDelete" && event.channelId && event.messageId) {
       const list = this.pages[event.channelId];
       if (list) {
         this.pages[event.channelId] = list.filter((item) => item.id !== event.messageId);
-        this.msgSig = "";
-        this.paint();
+        if (event.channelId === this.channelId) this.paintMessages();
       }
     } else if (event.kind === "reaction" && event.channelId && event.messageId && event.emoji) {
       const message = this.pages[event.channelId]?.find((item) => item.id === event.messageId);
@@ -2827,8 +3079,7 @@ class LarkApp {
           if (mine) existing.me = false;
         }
         message.reactions = reactions.filter((item) => item.count > 0);
-        this.msgSig = "";
-        this.paint();
+        if (event.channelId === this.channelId) this.paintMessages();
       }
     } else if (event.kind === "presence" && event.userId) {
       const status = asStatus(String((event as { status?: string }).status ?? "offline"));
@@ -2864,8 +3115,9 @@ class LarkApp {
       const name = event.username || this.userNames[event.userId ?? ""] || "Someone";
       this.typingNames = this.typingNames.filter((item) => item.channelId !== event.channelId || item.name !== name);
       this.typingNames.push({ channelId: event.channelId, name, until: Date.now() + 8000 });
-      this.paintMessages();
-      window.setTimeout(() => this.paintMessages(), 8100);
+      window.clearTimeout(this.typingTimer);
+      this.paintTyping();
+      this.typingTimer = window.setTimeout(() => this.paintTyping(), 8100);
     }
   }
 
@@ -3881,6 +4133,7 @@ class LarkApp {
     if (channelId === this.channelId) {
       this.msgSig = "";
       this.scroll = "bottom";
+      this.pinnedToBottom = true;
       this.paintMessages();
     }
     return true;

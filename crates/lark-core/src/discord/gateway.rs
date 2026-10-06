@@ -200,10 +200,23 @@ pub enum MemberListOp {
 #[derive(Debug)]
 enum SessionEnd {
     Shutdown,
-    Reconnect(String),
+    Reconnect {
+        detail: String,
+        /// Drop the session id and identify fresh. Resume would be rejected.
+        invalidate: bool,
+        close_code: Option<u16>,
+    },
     /// Stop and show `detail` on the sign-in screen. Do not reconnect.
     Stop(String),
     DisallowedIntent,
+}
+
+fn reconnect(detail: impl Into<String>) -> SessionEnd {
+    SessionEnd::Reconnect {
+        detail: detail.into(),
+        invalidate: false,
+        close_code: None,
+    }
 }
 
 struct Session {
@@ -335,6 +348,7 @@ pub async fn run_gateway<F>(
             &mut shutdown,
             &mut outbound,
             &mut emit,
+            &mut backoff_secs,
         )
         .await
         {
@@ -375,28 +389,73 @@ pub async fn run_gateway<F>(
                 });
                 break;
             }
-            Ok(SessionEnd::Reconnect(detail)) | Err(detail) => {
-                let detail = if detail.is_empty() {
-                    format!("The gateway connection dropped. Waiting {backoff_secs}s before reconnecting.")
-                } else {
-                    format!("{detail} Waiting {backoff_secs}s before reconnecting.")
-                };
-                emit(ClientEvent::Status {
-                    state: "reconnecting".into(),
-                    detail,
-                });
-                tokio::select! {
-                    changed = shutdown.changed() => {
-                        if changed.is_err() || *shutdown.borrow() {
-                            break;
-                        }
-                    }
-                    _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+            Ok(SessionEnd::Reconnect {
+                detail,
+                invalidate,
+                close_code,
+            }) => {
+                if invalidate {
+                    session = None;
                 }
-                backoff_secs = (backoff_secs * 2).min(60);
+                if !wait_to_reconnect(
+                    &mut shutdown,
+                    &mut emit,
+                    &mut backoff_secs,
+                    &detail,
+                    close_code,
+                )
+                .await
+                {
+                    break;
+                }
+            }
+            Err(detail) => {
+                if !wait_to_reconnect(&mut shutdown, &mut emit, &mut backoff_secs, &detail, None)
+                    .await
+                {
+                    break;
+                }
             }
         }
     }
+}
+
+async fn wait_to_reconnect<F>(
+    shutdown: &mut watch::Receiver<bool>,
+    emit: &mut F,
+    backoff_secs: &mut u64,
+    detail: &str,
+    close_code: Option<u16>,
+) -> bool
+where
+    F: FnMut(ClientEvent),
+{
+    let wait = reconnect_wait_secs(*backoff_secs, close_code);
+    let shown = if detail.is_empty() {
+        format!("The gateway connection dropped. Waiting {wait}s before reconnecting.")
+    } else {
+        format!("{detail} Waiting {wait}s before reconnecting.")
+    };
+    gateway_log(&format!(
+        "reconnect in {wait}s code={} {detail}",
+        close_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "-".into())
+    ));
+    emit(ClientEvent::Status {
+        state: "reconnecting".into(),
+        detail: shown,
+    });
+    tokio::select! {
+        changed = shutdown.changed() => {
+            if changed.is_err() || *shutdown.borrow() {
+                return false;
+            }
+        }
+        _ = tokio::time::sleep(Duration::from_secs(wait)) => {}
+    }
+    *backoff_secs = (*backoff_secs * 2).min(60);
+    true
 }
 
 async fn connect_once<F>(
@@ -406,6 +465,7 @@ async fn connect_once<F>(
     shutdown: &mut watch::Receiver<bool>,
     outbound: &mut mpsc::UnboundedReceiver<GatewayCommand>,
     emit: &mut F,
+    backoff_secs: &mut u64,
 ) -> Result<SessionEnd, String>
 where
     F: FnMut(ClientEvent),
@@ -417,8 +477,7 @@ where
     let (mut write, mut read) = socket.split();
     let mut heartbeat_every: Option<Duration> = None;
     let mut next_heartbeat: Option<Instant> = None;
-    let mut last_ack = Instant::now();
-    let mut identified = false;
+    let mut ack_pending = false;
 
     loop {
         let heartbeat_wait = async {
@@ -440,28 +499,28 @@ where
                 if let Some(command) = command {
                     let payload = gateway_command_payload(&command);
                     if write.send(Message::Text(payload)).await.is_err() {
-                        return Ok(SessionEnd::Reconnect("The gateway write failed.".into()));
+                        return Ok(reconnect("The gateway write failed."));
                     }
                 }
             }
             _ = heartbeat_wait => {
-                if let Some(every) = heartbeat_every {
-                    if last_ack.elapsed() > every * 2 && identified {
-                        return Ok(SessionEnd::Reconnect("Discord missed a heartbeat.".into()));
-                    }
+                if ack_pending {
+                    gateway_log("no heartbeat ack before the next interval; reconnecting");
+                    return Ok(reconnect("Discord missed a heartbeat."));
                 }
                 let seq = session.as_ref().and_then(|s| s.seq);
                 let payload = heartbeat_payload(seq);
                 if write.send(Message::Text(payload)).await.is_err() {
-                    return Ok(SessionEnd::Reconnect("The heartbeat write failed.".into()));
+                    return Ok(reconnect("The heartbeat write failed."));
                 }
+                ack_pending = true;
                 if let Some(every) = heartbeat_every {
                     next_heartbeat = Some(Instant::now() + every);
                 }
             }
             frame = read.next() => {
                 let Some(frame) = frame else {
-                    return Ok(SessionEnd::Reconnect("The gateway closed.".into()));
+                    return Ok(reconnect("The gateway closed."));
                 };
                 let frame = frame.map_err(|err| redact(&err.to_string(), &[token]))?;
                 match frame {
@@ -474,6 +533,12 @@ where
                             .as_ref()
                             .map(|c| redact(&c.reason.to_string(), &[token]))
                             .unwrap_or_default();
+                        if invalidate_session(code) {
+                            gateway_log(&format!("close {code} drops the session"));
+                            *session = None;
+                        } else {
+                            gateway_log(&format!("close {code}"));
+                        }
                         return Ok(close_code_end(code, &reason));
                     }
                     Message::Text(text) => {
@@ -490,41 +555,54 @@ where
                         }
                         match incoming.op {
                             10 => {
-                                let interval = incoming
+                                let raw = incoming
                                     .data
                                     .get("heartbeat_interval")
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(41250);
+                                let interval = heartbeat_millis(raw);
+                                if interval != raw {
+                                    gateway_log(&format!("clamped heartbeat {raw}ms to {interval}ms"));
+                                }
                                 let every = Duration::from_millis(interval);
                                 heartbeat_every = Some(every);
                                 next_heartbeat = Some(Instant::now() + every / 2);
-                                last_ack = Instant::now();
-                                let payload = if let Some(session) = session.as_ref() {
-                                    resume_payload(token, &session.id, session.seq)
+                                ack_pending = false;
+                                if session.as_ref().is_some_and(|current| !should_resume(&current.id, current.seq)) {
+                                    gateway_log("session has no sequence; identifying instead of resuming");
+                                    *session = None;
+                                }
+                                let payload = if let Some(current) = session.as_ref() {
+                                    gateway_log(&format!("resuming at seq {}", current.seq.unwrap_or(0)));
+                                    resume_payload(token, &current.id, current.seq)
                                 } else {
+                                    gateway_log("identifying");
                                     identify_payload(token, intents)
                                 };
                                 if write.send(Message::Text(payload)).await.is_err() {
-                                    return Ok(SessionEnd::Reconnect("Identify could not be sent.".into()));
+                                    return Ok(reconnect("Identify could not be sent."));
                                 }
-                                identified = true;
                             }
                             11 => {
-                                last_ack = Instant::now();
+                                ack_pending = false;
                             }
                             1 => {
                                 let seq = session.as_ref().and_then(|s| s.seq);
                                 let _ = write.send(Message::Text(heartbeat_payload(seq))).await;
                             }
-                            7 => return Ok(SessionEnd::Reconnect("Discord asked for a reconnect.".into())),
+                            7 => {
+                                gateway_log("discord requested reconnect");
+                                return Ok(reconnect("Discord asked for a reconnect."));
+                            }
                             9 => {
                                 let can_resume = incoming.data.as_bool().unwrap_or(false);
                                 if !can_resume {
+                                    gateway_log("session invalidated; identifying");
                                     *session = None;
+                                } else {
+                                    gateway_log("session can resume");
                                 }
-                                return Ok(SessionEnd::Reconnect(
-                                    "Discord invalidated the session. Reconnecting.".into(),
-                                ));
+                                return Ok(reconnect("Discord invalidated the session. Reconnecting."));
                             }
                             0 => {
                                 if let Some(seq) = incoming.seq {
@@ -535,6 +613,9 @@ where
                                 }
                                 let dispatch_name = incoming.name.clone().unwrap_or_default();
                                 if handle_dispatch(&dispatch_name, &incoming.data, incoming.seq, session, emit) {
+                                    *backoff_secs = 1;
+                                    let seq = session.as_ref().and_then(|current| current.seq).unwrap_or(0);
+                                    gateway_log(&format!("{dispatch_name} seq={seq}"));
                                     emit(ClientEvent::Status {
                                         state: "connected".into(),
                                         detail: String::new(),
@@ -556,8 +637,40 @@ fn close_code_end(code: u16, reason: &str) -> SessionEnd {
         4004 => SessionEnd::Stop(gateway_close_message(code, reason)),
         4010 | 4011 | 4012 | 4013 => SessionEnd::Stop(gateway_close_message(code, reason)),
         4014 => SessionEnd::DisallowedIntent,
-        _ => SessionEnd::Reconnect(gateway_close_message(code, reason)),
+        _ => SessionEnd::Reconnect {
+            detail: gateway_close_message(code, reason),
+            invalidate: invalidate_session(code),
+            close_code: Some(code),
+        },
     }
+}
+
+/// Close codes that cannot be resumed. Identifying again avoids a reject loop.
+pub fn invalidate_session(code: u16) -> bool {
+    matches!(code, 4003 | 4005 | 4007 | 4009)
+}
+
+/// Discord's hello interval is milliseconds. A missing or tiny value would
+/// heartbeat in a tight loop and get the gateway rate limited.
+pub fn heartbeat_millis(raw: u64) -> u64 {
+    raw.clamp(5_000, 120_000)
+}
+
+pub fn should_resume(session_id: &str, seq: Option<u64>) -> bool {
+    !session_id.is_empty() && seq.is_some()
+}
+
+pub fn reconnect_wait_secs(backoff_secs: u64, close_code: Option<u16>) -> u64 {
+    let wait = backoff_secs.max(1);
+    if close_code == Some(4008) {
+        wait.max(10)
+    } else {
+        wait
+    }
+}
+
+fn gateway_log(message: &str) {
+    eprintln!("lark-gateway: {message}");
 }
 
 pub fn gateway_close_message(code: u16, reason: &str) -> String {
@@ -1227,7 +1340,9 @@ mod tests {
             event,
             ClientEvent::Members { guild_id, members } if guild_id == "100000000000000010" && members.len() == 1 && members[0].name == "Ethan"
         )));
-        assert!(events.iter().any(|event| matches!(event, ClientEvent::Channels { .. })));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, ClientEvent::Channels { .. })));
     }
 
     #[test]
@@ -1381,10 +1496,31 @@ mod tests {
             close_code_end(4014, ""),
             SessionEnd::DisallowedIntent
         ));
-        assert!(matches!(
-            close_code_end(4000, "unknown"),
-            SessionEnd::Reconnect(_)
-        ));
+        match close_code_end(4000, "unknown") {
+            SessionEnd::Reconnect {
+                invalidate,
+                close_code,
+                ..
+            } => {
+                assert!(!invalidate);
+                assert_eq!(close_code, Some(4000));
+            }
+            other => panic!("expected reconnect, got {other:?}"),
+        }
+        match close_code_end(4007, "invalid seq") {
+            SessionEnd::Reconnect { invalidate, .. } => assert!(invalidate),
+            other => panic!("expected invalidate, got {other:?}"),
+        }
+        assert!(invalidate_session(4009));
+        assert!(!invalidate_session(4000));
+        assert!(!should_resume("session", None));
+        assert!(should_resume("session", Some(8)));
+        assert_eq!(heartbeat_millis(0), 5_000);
+        assert_eq!(heartbeat_millis(41_250), 41_250);
+        assert_eq!(heartbeat_millis(u64::MAX), 120_000);
+        assert_eq!(reconnect_wait_secs(1, None), 1);
+        assert_eq!(reconnect_wait_secs(1, Some(4008)), 10);
+        assert_eq!(reconnect_wait_secs(30, Some(4008)), 30);
         assert!(matches!(close_code_end(4013, ""), SessionEnd::Stop(_)));
         let request = gateway_handshake_request().unwrap();
         assert!(request
