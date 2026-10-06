@@ -24,6 +24,7 @@ export function defaultConfig(): AppConfig {
       toggle_mute: "mod+shift+alt+m",
       toggle_deafen: "mod+shift+d",
       push_to_talk: "backquote",
+      toggle_voice_overlay: "mod+shift+o",
     },
     notifications: {
       default: "all",
@@ -43,6 +44,9 @@ export function defaultConfig(): AppConfig {
       input_device: "",
       output_device: "",
       video_device: "",
+      overlay: false,
+      overlay_opacity: 70,
+      overlay_click_through: true,
     },
     desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240 },
     accents: {},
@@ -100,6 +104,11 @@ export function sanitizeConfig(input: unknown): AppConfig {
     if (typeof raw.voice.input_device === "string") base.voice.input_device = raw.voice.input_device.slice(0, 128);
     if (typeof raw.voice.output_device === "string") base.voice.output_device = raw.voice.output_device.slice(0, 128);
     if (typeof raw.voice.video_device === "string") base.voice.video_device = raw.voice.video_device.slice(0, 128);
+    if (typeof raw.voice.overlay === "boolean") base.voice.overlay = raw.voice.overlay;
+    if (typeof raw.voice.overlay_opacity === "number" && Number.isFinite(raw.voice.overlay_opacity)) {
+      base.voice.overlay_opacity = Math.min(100, Math.max(35, Math.round(raw.voice.overlay_opacity)));
+    }
+    if (typeof raw.voice.overlay_click_through === "boolean") base.voice.overlay_click_through = raw.voice.overlay_click_through;
   }
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;

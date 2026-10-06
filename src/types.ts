@@ -22,6 +22,7 @@ export interface Shortcuts {
   toggle_mute: string;
   toggle_deafen: string;
   push_to_talk: string;
+  toggle_voice_overlay: string;
 }
 
 export interface AppConfig {
@@ -49,6 +50,9 @@ export interface AppConfig {
     input_device: string;
     output_device: string;
     video_device: string;
+    overlay: boolean;
+    overlay_opacity: number;
+    overlay_click_through: boolean;
   };
   desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number };
   accents: Record<string, string>;

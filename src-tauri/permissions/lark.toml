@@ -257,3 +257,13 @@ commands.allow = ["start_screen_share"]
 identifier = "allow-stop-screen-share"
 description = "Stop screen share."
 commands.allow = ["stop_screen_share"]
+
+[[permission]]
+identifier = "allow-sync-voice-overlay"
+description = "Show or hide the always-on-top voice HUD."
+commands.allow = ["sync_voice_overlay"]
+
+[[permission]]
+identifier = "allow-current-voice-hud"
+description = "Read the latest voice HUD frame."
+commands.allow = ["current_voice_hud"]

@@ -61,6 +61,16 @@ export default defineConfig({
   server: { host: "127.0.0.1", port: 47321, strictPort: true },
   preview: { host: "127.0.0.1", port: 47321, strictPort: true },
   plugins: [serveDir("themes", [".css"]), serveDir("plugins", [".js", ".json"]), copyStatic()],
-  build: { target: "es2022", sourcemap: false, cssCodeSplit: false },
+  build: {
+    target: "es2022",
+    sourcemap: false,
+    cssCodeSplit: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(root, "index.html"),
+        overlay: path.resolve(root, "overlay.html"),
+      },
+    },
+  },
   test: { environment: "node", include: ["src/**/*.test.ts"] },
 });

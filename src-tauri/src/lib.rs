@@ -1,6 +1,7 @@
 mod browser_login;
 mod keychain;
 mod login;
+mod overlay;
 mod paths;
 mod refresh;
 
@@ -68,6 +69,19 @@ struct FileIn {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        return;
+                    }
+                    if !overlay::hotkey_is(shortcut) {
+                        return;
+                    }
+                    let _ = app.emit("voice-overlay-hotkey", ());
+                })
+                .build(),
+        )
         .setup(|app| {
             keychain::mark_main_thread();
             let resolved = paths::resolve(app.handle())?;
@@ -77,6 +91,7 @@ pub fn run() {
                 Config::default()
             });
             let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
+            let overlay_shortcut = config.shortcuts.toggle_voice_overlay.clone();
             let (speaking, _) = watch::channel(false);
             let (voice_audio, _) = watch::channel(lark_core::discord::voice_media::VoiceAudio::default());
             let shared = Shared {
@@ -109,6 +124,7 @@ pub fn run() {
                 browser_stop: Mutex::new(None),
             };
             app.manage(shared);
+            overlay::sync_hotkey(app.handle(), &overlay_shortcut);
             if let Some(window) = app.get_webview_window("main") {
                 refresh::prefer_native_refresh(&window);
                 let hide = hide_on_close.clone();
@@ -187,7 +203,9 @@ pub fn run() {
             set_minimize_to_tray,
             set_autostart,
             start_screen_share,
-            stop_screen_share
+            stop_screen_share,
+            overlay::sync_voice_overlay,
+            overlay::current_voice_hud
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -232,21 +250,25 @@ fn read_config_file(path: &std::path::Path) -> Result<Config, String> {
 }
 
 #[tauri::command]
-async fn get_config(state: State<'_, Shared>) -> Result<Config, String> {
+async fn get_config(app: AppHandle, state: State<'_, Shared>) -> Result<Config, String> {
     if let Ok(config) = read_config_file(&state.paths.config_file) {
         *state.config.lock().await = config.clone();
+        overlay::sync_hotkey(&app, &config.shortcuts.toggle_voice_overlay);
         return Ok(config);
     }
-    Ok(state.config.lock().await.clone())
+    let config = state.config.lock().await.clone();
+    overlay::sync_hotkey(&app, &config.shortcuts.toggle_voice_overlay);
+    Ok(config)
 }
 
 #[tauri::command]
-async fn save_config(state: State<'_, Shared>, config: Config) -> Result<Config, String> {
+async fn save_config(app: AppHandle, state: State<'_, Shared>, config: Config) -> Result<Config, String> {
     let normalized = parse_config(&toml::to_string(&config).map_err(|err| err.to_string())?)
         .map_err(|err| err.to_string())?;
     let pretty = toml::to_string_pretty(&normalized).map_err(|err| err.to_string())?;
     fs::write(&state.paths.config_file, pretty).map_err(|err| err.to_string())?;
     *state.config.lock().await = normalized.clone();
+    overlay::sync_hotkey(&app, &normalized.shortcuts.toggle_voice_overlay);
     Ok(normalized)
 }
 

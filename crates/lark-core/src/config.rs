@@ -45,6 +45,7 @@ impl Config {
     pub fn normalize(mut self) -> Self {
         self.appearance.font_size = self.appearance.font_size.clamp(12, 20);
         self.voice.sensitivity = self.voice.sensitivity.min(100);
+        self.voice.overlay_opacity = self.voice.overlay_opacity.clamp(35, 100);
         self.notifications.keywords = self
             .notifications
             .keywords
@@ -133,6 +134,7 @@ pub struct Shortcuts {
     pub toggle_mute: String,
     pub toggle_deafen: String,
     pub push_to_talk: String,
+    pub toggle_voice_overlay: String,
 }
 
 impl Default for Shortcuts {
@@ -150,12 +152,13 @@ impl Default for Shortcuts {
             toggle_mute: "mod+shift+alt+m".into(),
             toggle_deafen: "mod+shift+d".into(),
             push_to_talk: "backquote".into(),
+            toggle_voice_overlay: "mod+shift+o".into(),
         }
     }
 }
 
 impl Shortcuts {
-    pub fn entries(&self) -> [(&str, &str); 12] {
+    pub fn entries(&self) -> [(&str, &str); 13] {
         [
             ("quick_switcher", self.quick_switcher.as_str()),
             ("open_settings", self.open_settings.as_str()),
@@ -169,6 +172,7 @@ impl Shortcuts {
             ("toggle_mute", self.toggle_mute.as_str()),
             ("toggle_deafen", self.toggle_deafen.as_str()),
             ("push_to_talk", self.push_to_talk.as_str()),
+            ("toggle_voice_overlay", self.toggle_voice_overlay.as_str()),
         ]
     }
 }
@@ -229,6 +233,12 @@ pub struct Voice {
     pub input_device: String,
     pub output_device: String,
     pub video_device: String,
+    /// Always-on-top speaking HUD. Off until the user turns it on.
+    pub overlay: bool,
+    /// 35–100. The HUD window multiplies this into its opacity.
+    pub overlay_opacity: u8,
+    /// When true, clicks pass through the HUD to the game.
+    pub overlay_click_through: bool,
 }
 
 impl Default for Voice {
@@ -240,6 +250,9 @@ impl Default for Voice {
             input_device: String::new(),
             output_device: String::new(),
             video_device: String::new(),
+            overlay: false,
+            overlay_opacity: 70,
+            overlay_click_through: true,
         }
     }
 }
@@ -741,6 +754,30 @@ fn is_key(key: &str) -> bool {
     )
 }
 
+/// Lark shortcut (`mod+shift+o`) as a global hotkey accelerator.
+/// `mod` is Command on macOS and Ctrl on Windows (`CommandOrControl`).
+pub fn global_accelerator(raw: &str) -> Result<String, String> {
+    let accel = parse_shortcut(raw)?;
+    let mut parts = Vec::new();
+    if accel.mod_key {
+        parts.push("CommandOrControl".to_string());
+    }
+    if accel.ctrl {
+        parts.push("Control".to_string());
+    }
+    if accel.alt {
+        parts.push("Alt".to_string());
+    }
+    if accel.shift {
+        parts.push("Shift".to_string());
+    }
+    if accel.meta {
+        parts.push("Meta".to_string());
+    }
+    parts.push(accel.key.to_uppercase());
+    Ok(parts.join("+"))
+}
+
 /// `mod` is the platform command key: Command on macOS, Ctrl on Windows.
 pub fn mod_means(os: &str) -> &'static str {
     match os {
@@ -881,6 +918,33 @@ mod tests {
     fn mod_key_is_command_on_mac_and_ctrl_on_windows() {
         assert_eq!(mod_means("macos"), "Command");
         assert_eq!(mod_means("windows"), "Ctrl");
+    }
+
+    #[test]
+    fn voice_hud_stays_off_until_turned_on() {
+        let cfg = parse_config("").unwrap();
+        assert!(!cfg.voice.overlay);
+        assert!(cfg.voice.overlay_click_through);
+        assert_eq!(cfg.voice.overlay_opacity, 70);
+        assert_eq!(cfg.shortcuts.toggle_voice_overlay, "mod+shift+o");
+        let older = parse_config("[voice]\nmode = \"ptt\"\n").unwrap();
+        assert_eq!(older.voice.mode, VoiceMode::Ptt);
+        assert!(!older.voice.overlay);
+        assert!(older.voice.overlay_click_through);
+        assert_eq!(older.voice.overlay_opacity, 70);
+        assert_eq!(older.shortcuts.toggle_voice_overlay, "mod+shift+o");
+        let faint = parse_config("voice.overlay_opacity = 1\n").unwrap();
+        assert_eq!(faint.voice.overlay_opacity, 35);
+        let loud = parse_config("voice.overlay_opacity = 140\n").unwrap();
+        assert_eq!(loud.voice.overlay_opacity, 100);
+    }
+
+    #[test]
+    fn overlay_hotkey_uses_the_platform_mod_key() {
+        assert_eq!(global_accelerator("mod+shift+o").unwrap(), "CommandOrControl+Shift+O");
+        assert_eq!(global_accelerator("backquote").unwrap(), "BACKQUOTE");
+        assert_eq!(global_accelerator("alt+shift+down").unwrap(), "Alt+Shift+ARROWDOWN");
+        assert!(global_accelerator("mod+").is_err());
     }
 
     #[test]

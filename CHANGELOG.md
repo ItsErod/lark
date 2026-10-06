@@ -4,6 +4,10 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## Unreleased
+
+Adds an in-game voice HUD. A small always-on-top window shows who is speaking and who is muted, using the same voice roster as the channel list. It stays off until you turn it on with Ctrl+Shift+O (⌘⇧O on macOS) or Settings → Voice & Video.
+
 ## [2.3.0](https://github.com/ItsErod/lark/releases/tag/v2.3.0) — 2026-10-06
 
 Discord dark is the default theme, and the open text channel stays stable while messages load. Chat includes replies, reactions, markdown, and embeds, and the member list comes from gateway opcode 14. The app shell adds folders, badges, settings, notifications, and Ctrl+K, and a voice channel shows who is in it and carries call audio.

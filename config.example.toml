@@ -26,6 +26,7 @@ edit_last = "arrowup"
 toggle_mute = "mod+shift+alt+m"
 toggle_deafen = "mod+shift+d"
 push_to_talk = "backquote"
+toggle_voice_overlay = "mod+shift+o"
 
 [notifications]
 default = "all"                # all | mentions | mute
@@ -48,6 +49,9 @@ sensitivity = 45               # 0–100
 noise_suppression = true
 input_device = ""
 output_device = ""
+overlay = false                 # always-on-top speaking HUD; hotkey is toggle_voice_overlay
+overlay_opacity = 70            # 35–100
+overlay_click_through = true    # clicks pass through to the game
 
 [desktop]
 minimize_to_tray = true
