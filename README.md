@@ -43,7 +43,16 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 - A theme gallery in Settings. The shipped themes are in [THEMES.md](THEMES.md)
 - Plugins that stay off until you turn them on. The pack is in [PLUGINS.md](PLUGINS.md)
 - Voice controls: mute, deafen, push to talk, and voice activity
+- A voice HUD that can sit on top of a game. It stays off until you turn it on
 - Paints follow the display, up to 240 fps
+
+## Voice HUD
+
+The HUD is a small always-on-top window that shows who is talking and who is muted. It reads the same voice roster as the channel list. It does not start a second call.
+
+Turn it on with **Ctrl+Shift+O** on Windows or **⌘⇧O** on macOS. The same keys hide it, including while a game is focused. Settings → Voice & Video has the switch, the opacity, and click-through. Click-through is on by default so the game keeps the mouse. Turn click-through off to drag the HUD. The shortcut is `toggle voice overlay` under Settings → Keybinds.
+
+The window is for macOS and Windows. Exclusive fullscreen can cover it. Borderless and windowed games show it. In the browser preview it stays in the corner of Lark instead of a separate window.
 
 ## Limitations
 

@@ -83,7 +83,9 @@ import {
 } from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
 import { applyVoiceState, participantsIn, replaceGuildVoice, setSpeaking, setVolume, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
+import { renderVoiceHud } from "./hud";
 import { renderMessage } from "./messages";
 import { renderProfileCard, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
@@ -243,6 +245,10 @@ class LarkApp {
   private stage!: HTMLElement;
   private splitPane!: HTMLElement;
   private voiceDock!: HTMLElement;
+  private hudEl!: HTMLElement;
+  private hudSig = "";
+  private hudTicket = 0;
+  private hudToggleAt = 0;
   private countEl: HTMLElement | null = null;
   private splitId: string | null = null;
   private voice: VoiceSession | null = null;
@@ -407,6 +413,8 @@ class LarkApp {
         if (!this.settings) void this.reloadConfig();
       });
       await listen("discord", (event) => this.onDiscord(event.payload));
+      await listen("voice-overlay-hotkey", () => this.toggleVoiceOverlay());
+      await listen("voice-overlay-dismissed", () => this.setVoiceOverlay(false, true));
       await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("login-status", (event) => {
         this.onLoginStatus(event.payload);
       });
@@ -494,10 +502,12 @@ class LarkApp {
       this.lightbox = null;
       this.paintLightbox();
     });
+    this.hudEl = el("div", "voice-hud-host");
+    this.hudEl.hidden = true;
     this.toastWrap = el("div", "toast-wrap");
     this.inviteEl = el("div", "overlay");
     this.inviteEl.hidden = true;
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.inviteEl, this.toastWrap);
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.inviteEl, this.hudEl, this.toastWrap);
     this.stage.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -671,6 +681,7 @@ class LarkApp {
     this.paintLightbox();
     this.paintBookmarks();
     this.paintInvite();
+    this.publishVoiceHud();
   }
 
   private applyAppearance() {
@@ -2636,6 +2647,30 @@ class LarkApp {
         this.persist();
         this.pushVoiceAudio();
       }));
+      wrap.append(el("h3", "", "In-game voice HUD"));
+      const hudKey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
+      wrap.append(el("p", "lede", "A small always-on-top window on macOS and Windows. It uses the same voice roster as the channel list. It stays off until you turn it on."));
+      wrap.append(this.toggle("Show voice HUD", this.config.voice.overlay, (value) => {
+        this.setVoiceOverlay(value, false);
+      }));
+      const opacity = el("input");
+      opacity.type = "range";
+      opacity.min = "35";
+      opacity.max = "100";
+      opacity.value = String(this.config.voice.overlay_opacity);
+      opacity.setAttribute("aria-label", "Voice HUD opacity");
+      opacity.addEventListener("input", () => {
+        this.config.voice.overlay_opacity = Number(opacity.value);
+        this.persist();
+        this.publishVoiceHud();
+      });
+      wrap.append(el("div", "hint", "Opacity"), opacity);
+      wrap.append(this.toggle("Click through", this.config.voice.overlay_click_through, (value) => {
+        this.config.voice.overlay_click_through = value;
+        this.persist();
+        this.publishVoiceHud();
+      }));
+      wrap.append(el("p", "hint", `${hudKey} shows and hides the HUD, including while a game is focused. Click-through lets the game take the mouse. Turn it off to drag the HUD.`));
       wrap.append(el("h3", "", "Devices"));
       wrap.append(el("p", "lede", "Lark stores the device you pick. Voice uses these ids when it opens the microphone."));
       wrap.append(this.devicePicker("Input", this.config.voice.input_device, this.captureDevices(), (value) => {
@@ -2981,6 +3016,9 @@ class LarkApp {
     } else if (matchShortcut(event, shortcuts.toggle_deafen, os)) {
       event.preventDefault();
       this.toggleDeafen();
+    } else if (matchShortcut(event, shortcuts.toggle_voice_overlay, os)) {
+      event.preventDefault();
+      this.toggleVoiceOverlay();
     } else if (this.voice && this.config.voice.mode === "ptt" && matchShortcut(event, shortcuts.push_to_talk, os)) {
       event.preventDefault();
       this.pttHeld = true;
@@ -3932,6 +3970,7 @@ class LarkApp {
     if (member) member.speaking = speaking;
     const selector = `[data-voice-user="${CSS.escape(userId)}"]`;
     for (const node of this.root.querySelectorAll(selector)) node.classList.toggle("is-speaking", speaking);
+    this.publishVoiceHud();
   }
 
   private hydrateVoice(state: VoiceStateInput, fallbackGuild: string): VoiceStateInput {
@@ -4019,6 +4058,7 @@ class LarkApp {
     } else if (id === "mute") this.toggleMute();
     else if (id === "deafen") this.toggleDeafen();
     else if (id === "leave-voice") this.leaveVoice();
+    else if (id === "voice-hud") this.toggleVoiceOverlay();
     else if (id === "members") {
       this.config.appearance.show_member_list = !this.config.appearance.show_member_list;
       this.persist();
@@ -4038,12 +4078,90 @@ class LarkApp {
     }
   }
 
+  private voiceHudView(): VoiceHudView {
+    const frame = voiceHudFrame(
+      this.voiceRoster,
+      this.voice
+        ? {
+            guildId: this.voice.guildId ?? "",
+            channelId: this.voice.channelId,
+            name: this.voice.name,
+            status: this.voice.status,
+            muted: this.voice.muted,
+            deafened: this.voice.deafened,
+            selfId: this.meId(),
+          }
+        : null,
+    );
+    return {
+      ...frame,
+      enabled: this.config.voice.overlay && this.view === "app",
+      opacity: this.config.voice.overlay_opacity,
+      clickThrough: this.config.voice.overlay_click_through,
+    };
+  }
+
+  private toggleVoiceOverlay() {
+    const now = Date.now();
+    if (now - this.hudToggleAt < 300) return;
+    this.hudToggleAt = now;
+    this.setVoiceOverlay(!this.config.voice.overlay, true);
+  }
+
+  private setVoiceOverlay(enabled: boolean, announce: boolean) {
+    if (this.config.voice.overlay === enabled) {
+      this.publishVoiceHud();
+      return;
+    }
+    this.config.voice.overlay = enabled;
+    this.persist();
+    if (this.voice) this.paintVoice();
+    else this.publishVoiceHud();
+    if (this.settings && this.section === "voice") this.renderSettings();
+    if (!announce) return;
+    const hotkey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
+    this.toast("Voice HUD", enabled ? `On. ${hotkey} hides it.` : "Hidden.");
+  }
+
+  private publishVoiceHud() {
+    if (!this.hudEl) return;
+    const view = this.voiceHudView();
+    const sig = JSON.stringify(view);
+    if (sig === this.hudSig) return;
+    this.hudSig = sig;
+    if (!isTauri()) {
+      this.paintHudHost(view, false);
+      return;
+    }
+    const ticket = ++this.hudTicket;
+    void invoke<boolean>("sync_voice_overlay", {
+      visible: view.enabled,
+      clickThrough: view.clickThrough,
+      frame: view,
+    }).then((native) => {
+      if (ticket !== this.hudTicket) return;
+      this.paintHudHost(view, native);
+    }).catch(() => {
+      if (ticket !== this.hudTicket) return;
+      this.paintHudHost(view, false);
+    });
+  }
+
+  private paintHudHost(view: VoiceHudView, native: boolean) {
+    const show = view.enabled && !native;
+    this.hudEl.hidden = !show;
+    if (show) renderVoiceHud(this.hudEl, view);
+  }
+
   private paintVoice() {
     const dock = this.voiceDock;
     if (!dock) return;
     dock.hidden = !this.voice;
     clear(dock);
-    if (!this.voice) return;
+    if (!this.voice) {
+      this.publishVoiceHud();
+      return;
+    }
     const head = el("div", "voice-head");
     head.append(el("strong", "", this.voice.name), el("span", "faint", this.voice.status));
     const leave = el("button", "ghost", "Leave");
@@ -4054,6 +4172,7 @@ class LarkApp {
     const controls = el("div", "voice-controls");
     controls.append(this.voiceButton(this.voice.muted ? "Unmute" : "Mute", () => this.toggleMute()));
     controls.append(this.voiceButton(this.voice.deafened ? "Undeafen" : "Deafen", () => this.toggleDeafen()));
+    controls.append(this.voiceButton(this.config.voice.overlay ? "Hide HUD" : "Voice HUD", () => this.toggleVoiceOverlay()));
     controls.append(this.voiceButton(this.config.voice.mode === "ptt" ? "Push to talk" : "Voice activity", () => {
       this.config.voice.mode = this.config.voice.mode === "ptt" ? "vad" : "ptt";
       this.persist();
@@ -4138,6 +4257,7 @@ class LarkApp {
       share.append(motion, stats);
     }
     dock.append(share, el("p", "hint", this.config.voice.noise_suppression ? "Noise gate on. Echo cancellation is not running." : "Noise gate off."));
+    this.publishVoiceHud();
   }
 
   private voiceButton(label: string, onClick: () => void): HTMLButtonElement {

@@ -58,6 +58,7 @@
     "allow-set-minimize-to-tray",
     "allow-set-autostart",
     "allow-start-screen-share",
-    "allow-stop-screen-share"
+    "allow-stop-screen-share",
+    "allow-sync-voice-overlay"
   ]
 }

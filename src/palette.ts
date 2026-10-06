@@ -15,6 +15,7 @@ export function commandCatalog(): CommandItem[] {
     { id: "mute", label: "Toggle mute", hint: "Microphone", keywords: "mute mic voice" },
     { id: "deafen", label: "Toggle deafen", hint: "Speakers", keywords: "deafen headset voice" },
     { id: "leave-voice", label: "Leave voice", hint: "Disconnect the call", keywords: "voice hangup leave" },
+    { id: "voice-hud", label: "Toggle voice HUD", hint: "Who is talking, on top of a game", keywords: "voice hud overlay speaking mute game" },
     { id: "members", label: "Toggle member list", hint: "People in this server", keywords: "members users" },
     { id: "irc", label: "Toggle IRC layout", hint: "One line per message", keywords: "irc compact density" },
     { id: "pins", label: "Pinned messages", hint: "This channel", keywords: "pins saved" },

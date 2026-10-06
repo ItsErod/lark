@@ -11,7 +11,7 @@ pub mod redact;
 pub mod screen;
 pub mod token;
 
-pub use config::{parse_config, Config, ConfigError};
+pub use config::{global_accelerator, parse_config, Config, ConfigError};
 pub use platform::{
     config_dir_hint, credential_failure_message, credential_mismatch_after_save_message,
     credential_not_saved_message, credential_store_label, credential_unreadable_after_save_message,
