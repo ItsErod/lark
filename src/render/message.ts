@@ -7,7 +7,7 @@ export interface ViewAttachment {
   id: string;
   name: string;
   url: string | null;
-  kind: "image" | "file";
+  kind: "image" | "video" | "audio" | "file";
   bytes: number;
   width?: number;
   height?: number;
@@ -19,10 +19,12 @@ export interface ViewEmbed {
   title: string | null;
   url: string | null;
   description: Block[];
-  fields: { name: string; value: string; inline: boolean }[];
+  fields: { name: string; value: Block[]; inline: boolean }[];
   footer: string | null;
   image: string | null;
   thumbnail: string | null;
+  video: string | null;
+  provider: string | null;
 }
 
 export interface ViewReaction {
@@ -39,6 +41,7 @@ export interface ViewMessage {
   authorId: string;
   authorName: string;
   authorBot: boolean;
+  authorAvatar: string | null;
   timestamp: string;
   edited: boolean;
   blocks: Block[];
@@ -94,6 +97,7 @@ export function buildViewMessage(
     authorId: raw.authorId,
     authorName: transformed.authorName,
     authorBot: Boolean(raw.authorBot),
+    authorAvatar: raw.authorAvatar ? safeMediaUrl(raw.authorAvatar) : null,
     timestamp: raw.timestamp,
     edited: Boolean(raw.edited),
     blocks: parsed.blocks,
@@ -115,7 +119,7 @@ export function buildViewMessage(
     pending: false,
     failed: false,
     collapsed: Boolean(transformed.collapsed),
-    stickers: (raw.stickers ?? []).map((sticker) => ({ name: sticker.name, url: safeMediaUrl(sticker.url) })),
+    stickers: (raw.stickers ?? []).map((sticker) => ({ name: sticker.name, url: sticker.url ? safeMediaUrl(sticker.url) : null })),
     thread: raw.thread ?? null,
     effects: transformed.effects,
   };
@@ -128,7 +132,7 @@ function toAttachment(att: NonNullable<RawMessage["attachments"]>[number]): View
     id: att.id,
     name: att.name,
     url,
-    kind: url && kind === "image" ? "image" : "file",
+    kind: url ? kind : "file",
     bytes: att.size ?? 0,
     width: att.width,
     height: att.height,
@@ -145,12 +149,14 @@ function toEmbed(embed: RawEmbed, ctx: RenderContext): ViewEmbed {
     description,
     fields: (embed.fields ?? []).map((field) => ({
       name: field.name,
-      value: field.value,
+      value: parseContent(field.value, ctx).blocks,
       inline: Boolean(field.inline),
     })),
     footer: embed.footer ?? null,
     image: embed.image ? safeMediaUrl(embed.image) : null,
     thumbnail: embed.thumbnail ? safeMediaUrl(embed.thumbnail) : null,
+    video: embed.video ? safeMediaUrl(embed.video) : null,
+    provider: embed.provider ?? null,
   };
 }
 

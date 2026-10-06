@@ -11,7 +11,12 @@ const ctx: RenderContext = {
 function textOf(input: string): string {
   const { blocks } = parseContent(input, ctx);
   return blocks
-    .map((block) => (block.t === "pre" ? block.v : block.t === "quote" ? "quote" : inlines(block.c)))
+    .map((block) => {
+      if (block.t === "pre") return block.v;
+      if (block.t === "quote") return "quote";
+      if (block.t === "ul" || block.t === "ol") return block.items.map((item) => inlines(item)).join(",");
+      return inlines(block.c);
+    })
     .join("|");
 }
 
@@ -59,6 +64,26 @@ describe("message rendering", () => {
     expect(textOf("**hello")).toBe("**hello");
   });
 
+  it("parses headers, lists, subtext, masked links, and multiline quotes", () => {
+    const header = parseContent("# Title\n## Next", ctx);
+    expect(header.blocks[0]).toMatchObject({ t: "h", level: 1 });
+    expect(header.blocks[1]).toMatchObject({ t: "h", level: 2 });
+    expect(textOf("#not a header")).toBe("#not a header");
+    const list = parseContent("- one\n- **two**\n\n1. three", ctx);
+    expect(list.blocks[0]).toMatchObject({ t: "ul" });
+    expect(list.blocks[1]).toMatchObject({ t: "ol" });
+    if (list.blocks[0].t === "ul") expect(list.blocks[0].items[1][0]).toMatchObject({ t: "strong" });
+    expect(parseContent("-# aside", ctx).blocks[0]).toMatchObject({ t: "sub" });
+    const masked = parseContent("see [docs](https://example.com/a).", ctx);
+    if (masked.blocks[0].t === "p") {
+      expect(masked.blocks[0].c[1]).toEqual({ t: "link", href: "https://example.com/a", label: "docs" });
+    }
+    expect(textOf("[click](javascript:alert(1))")).toContain("[click]");
+    const block = parseContent(">>> one\ntwo", ctx);
+    expect(block.blocks[0].t).toBe("quote");
+    expect(textOf("*italic*")).toContain("italic");
+  });
+
   it("resolves mentions, emoji, and links", () => {
     const me = parseContent("hey <@42>", ctx);
     expect(me.mentionsMe).toBe(true);
@@ -90,6 +115,10 @@ describe("message rendering", () => {
     expect(safeMediaUrl("javascript:alert(1)")).toBeNull();
     expect(safeMediaUrl("https://evil.example/a.png")).toBeNull();
     expect(safeMediaUrl("https://cdn.discordapp.com/attachments/1/2/a.png")).toContain("cdn.discordapp.com");
+    expect(safeMediaUrl("https://media.tenor.com/clip.mp4")).toContain("media.tenor.com");
+    expect(safeMediaUrl("https://images-ext-1.discordapp.net/external/x.gif")).toContain("images-ext-1.discordapp.net");
+    expect(attachmentKind({ name: "clip.mp4", contentType: "video/mp4" })).toBe("video");
+    expect(attachmentKind({ name: "voice.ogg", contentType: "audio/ogg" })).toBe("audio");
     expect(emojiCdnUrl("100000000000000099", false)).toContain("/emojis/100000000000000099.webp");
     expect(emojiCdnUrl("../x", false)).toBeNull();
   });

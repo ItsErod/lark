@@ -42,5 +42,8 @@ describe("notifications", () => {
     expect(
       shouldDesktopNotify({ ...base, windowFocused: true, activeChannelId: "c1" }),
     ).toBe(false);
+    expect(shouldDesktopNotify({ ...base, level: "mentions", mentionsMe: false, direct: true })).toBe(true);
+    expect(bumpsUnread("mentions", false, true)).toBe(true);
+    expect(bumpsUnread("mute", true, true)).toBe(false);
   });
 });

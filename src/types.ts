@@ -74,6 +74,13 @@ export interface RawEmbed {
   footer?: string | null;
   image?: string | null;
   thumbnail?: string | null;
+  video?: string | null;
+  provider?: string | null;
+}
+
+export interface RawMention {
+  id: string;
+  name: string;
 }
 
 export interface RawReaction {
@@ -90,6 +97,7 @@ export interface RawMessage {
   authorId: string;
   authorName: string;
   authorBot?: boolean;
+  authorAvatar?: string | null;
   content: string;
   timestamp: string;
   edited?: boolean;
@@ -97,12 +105,14 @@ export interface RawMessage {
   embeds?: RawEmbed[];
   reactions?: RawReaction[];
   mentionIds?: string[];
+  mentionUsers?: RawMention[];
+  mentionRoleIds?: string[];
   mentionRoles?: string[];
   mentionEveryone?: boolean;
   guildId?: string | null;
   reply?: { id: string; authorName: string; preview: string } | null;
   kind?: "default" | "reply" | "join" | "system";
-  stickers?: { name: string; url: string }[];
+  stickers?: { id?: string; name: string; url?: string | null }[];
   thread?: { id: string; name: string; count: number } | null;
 }
 

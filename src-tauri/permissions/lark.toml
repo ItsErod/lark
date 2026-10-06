@@ -194,6 +194,26 @@ description = "List pinned messages."
 commands.allow = ["fetch_pins"]
 
 [[permission]]
+identifier = "allow-pin-message"
+description = "Pin a message."
+commands.allow = ["pin_message"]
+
+[[permission]]
+identifier = "allow-unpin-message"
+description = "Unpin a message."
+commands.allow = ["unpin_message"]
+
+[[permission]]
+identifier = "allow-fetch-emojis"
+description = "List a server's custom emoji."
+commands.allow = ["fetch_emojis"]
+
+[[permission]]
+identifier = "allow-fetch-threads"
+description = "List active threads in a channel."
+commands.allow = ["fetch_threads"]
+
+[[permission]]
 identifier = "allow-search-messages"
 description = "Search one server."
 commands.allow = ["search_messages"]
