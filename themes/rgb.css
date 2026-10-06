@@ -1,0 +1,26 @@
+/* Lark theme: RGB. A dark chassis with cyan, magenta, and lime. The accent does not animate. */
+:root {
+  color-scheme: dark;
+  --bg-0: #0b0d10;
+  --bg-1: #10141a;
+  --bg-2: #0e1217;
+  --bg-3: #171d27;
+  --bg-4: #222a38;
+  --line: rgba(0, 212, 255, 0.22);
+  --text: #e8eef7;
+  --muted: #a9b6c9;
+  --faint: #7d8ba0;
+  --accent: #00d4ff;
+  --accent-ink: #041016;
+  --accent-soft: rgba(0, 212, 255, 0.14);
+  --ok: #39f28a;
+  --idle: #ffe14a;
+  --busy: #ff4d6d;
+  --danger: #ff4d6d;
+  --mention-bg: rgba(255, 79, 216, 0.16);
+  --mention-fg: #ff7ad9;
+  --shadow: 0 0 0 1px rgba(0, 212, 255, 0.28);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

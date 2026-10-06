@@ -1,0 +1,26 @@
+/* Lark theme: Tokyo Night. Blue-black with a periwinkle accent. */
+:root {
+  color-scheme: dark;
+  --bg-0: #16161e;
+  --bg-1: #1a1b26;
+  --bg-2: #1a1b26;
+  --bg-3: #24283b;
+  --bg-4: #292e42;
+  --line: rgba(192, 202, 245, 0.1);
+  --text: #c0caf5;
+  --muted: #a9b1d6;
+  --faint: #8088ad;
+  --accent: #7aa2f7;
+  --accent-ink: #16161e;
+  --accent-soft: rgba(122, 162, 247, 0.18);
+  --ok: #9ece6a;
+  --idle: #e0af68;
+  --busy: #f7768e;
+  --danger: #f7768e;
+  --mention-bg: rgba(187, 154, 247, 0.18);
+  --mention-fg: #bb9af7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

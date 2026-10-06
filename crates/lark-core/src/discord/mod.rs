@@ -1,4 +1,6 @@
 pub mod gateway;
+pub mod page;
+pub mod remote_auth;
 pub mod rest;
 pub mod types;
 pub mod voice;

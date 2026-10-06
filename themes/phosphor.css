@@ -1,0 +1,26 @@
+/* Lark theme: Phosphor. A green-on-black terminal. The UI font is the mono stack while the font setting stays on Inter. */
+:root {
+  color-scheme: dark;
+  --bg-0: #031403;
+  --bg-1: #041804;
+  --bg-2: #031403;
+  --bg-3: #0a220c;
+  --bg-4: #0f3014;
+  --line: rgba(141, 255, 106, 0.22);
+  --text: #b6ff9a;
+  --muted: #74d468;
+  --faint: #4ea848;
+  --accent: #d6ff70;
+  --accent-ink: #041204;
+  --accent-soft: rgba(214, 255, 112, 0.14);
+  --ok: #8dff6a;
+  --idle: #e6ff6a;
+  --busy: #ff6a4a;
+  --danger: #ff6a4a;
+  --mention-bg: rgba(214, 255, 112, 0.14);
+  --mention-fg: #e8ffb0;
+  --shadow: 0 0 0 1px rgba(141, 255, 106, 0.24);
+  --font: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

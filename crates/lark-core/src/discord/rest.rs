@@ -8,7 +8,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::ratelimit::{route_key, retry_after_to_ms, should_send_typing, RateHeaders, RateLimiter};
+use crate::ratelimit::{
+    retry_after_to_ms, route_key, should_send_typing, RateHeaders, RateLimiter,
+};
 use crate::redact::redact;
 
 use super::types::{
@@ -23,10 +25,85 @@ const API: &str = "https://discord.com/api/v10";
 pub enum RestError {
     #[error("{0}")]
     Message(String),
-    #[error("rate limited")]
+    #[error("Discord rate limited the request (HTTP 429). Wait a moment and try again.")]
     RateLimited,
     #[error("not connected")]
     Offline,
+}
+
+impl RestError {
+    pub fn is_unauthorized(&self) -> bool {
+        match self {
+            RestError::Message(message) => message.contains("HTTP 401"),
+            _ => false,
+        }
+    }
+}
+
+/// A Discord HTTP status, with the API `message` field if it had one.
+/// The message must already be redacted.
+pub fn explain_api_status(status: u16, discord_message: &str) -> String {
+    let extra = if discord_message.trim().is_empty() {
+        String::new()
+    } else {
+        format!(" Discord said: {}.", discord_message.trim())
+    };
+    match status {
+        401 => format!(
+            "Discord rejected the token (HTTP 401).{extra} It may be expired, revoked, or still wrapped in quotes. Lark sent it only to discord.com."
+        ),
+        403 => format!(
+            "Discord refused the request (HTTP 403).{extra} The token was only sent to discord.com. A 403 here is Discord or Cloudflare blocking the call, not a failed Keychain write."
+        ),
+        429 => "Discord rate limited the sign-in check (HTTP 429). Wait a moment and try again.".into(),
+        _ => format!("Discord returned HTTP {status}.{extra}"),
+    }
+}
+
+/// A failure before Discord returned a status. `detail` must already be redacted.
+pub fn explain_transport(detail: &str) -> String {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("dns")
+        || lower.contains("failed to lookup")
+        || lower.contains("name or service not known")
+        || lower.contains("nodename nor servname")
+    {
+        return format!(
+            "Could not resolve discord.com. Check the network connection. {}",
+            safe_detail(detail)
+        );
+    }
+    if lower.contains("certificate") || lower.contains("tls") || lower.contains("ssl") {
+        return format!(
+            "The TLS connection to discord.com failed. {}",
+            safe_detail(detail)
+        );
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return "The connection to discord.com timed out. Check the network and try again.".into();
+    }
+    if lower.contains("connection refused")
+        || lower.contains("network is unreachable")
+        || lower.contains("os error")
+    {
+        return format!(
+            "Could not reach discord.com. A firewall may be blocking Lark. {}",
+            safe_detail(detail)
+        );
+    }
+    format!(
+        "The request to Discord failed before a response arrived. {}",
+        safe_detail(detail)
+    )
+}
+
+fn safe_detail(detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.is_empty() || detail.len() > 180 {
+        String::new()
+    } else {
+        detail.to_string()
+    }
 }
 
 pub struct OutFile {
@@ -53,7 +130,8 @@ impl DiscordRest {
         let http = reqwest::Client::builder()
             .user_agent("Lark/0.1.0 (personal client)")
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() >= 2 || !is_discord_api_host(attempt.url().host_str().unwrap_or(""))
+                if attempt.previous().len() >= 2
+                    || !is_discord_api_host(attempt.url().host_str().unwrap_or(""))
                 {
                     attempt.stop()
                 } else {
@@ -90,14 +168,19 @@ impl DiscordRest {
             .await?;
         let channels: Vec<DiscordChannel> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read channels".into()))?;
-        Ok(channels.iter().map(super::types::channel_to_client).collect())
+        Ok(channels
+            .iter()
+            .map(super::types::channel_to_client)
+            .collect())
     }
 
     pub async fn roles(&self, guild_id: &str) -> Result<Vec<ClientRole>, RestError> {
         self.ensure_snowflake(guild_id)?;
         let path = format!("/guilds/{guild_id}/roles");
         let route = route_key("GET", "/guilds/{guild.id}/roles", guild_id);
-        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
         let roles: Vec<DiscordRole> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read roles".into()))?;
         Ok(roles.iter().map(role_to_client).collect())
@@ -107,7 +190,9 @@ impl DiscordRest {
         self.ensure_snowflake(guild_id)?;
         let path = format!("/guilds/{guild_id}/members?limit=100");
         let route = route_key("GET", "/guilds/{guild.id}/members", guild_id);
-        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
         let members: Vec<DiscordMember> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read members".into()))?;
         Ok(members.iter().filter_map(member_to_client).collect())
@@ -140,9 +225,19 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let path = format!("/channels/{channel_id}/messages/{message_id}/ack");
-        let route = route_key("POST", "/channels/{channel.id}/messages/{message.id}/ack", channel_id);
-        self.send_json(Method::POST, &route, channel_id, &path, Some(json!({"token": null})))
-            .await?;
+        let route = route_key(
+            "POST",
+            "/channels/{channel.id}/messages/{message.id}/ack",
+            channel_id,
+        );
+        self.send_json(
+            Method::POST,
+            &route,
+            channel_id,
+            &path,
+            Some(json!({"token": null})),
+        )
+        .await?;
         Ok(())
     }
 
@@ -150,7 +245,9 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}/pins");
         let route = route_key("GET", "/channels/{channel.id}/pins", channel_id);
-        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, channel_id, &path, None)
+            .await?;
         let messages: Vec<DiscordMessage> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read pins".into()))?;
         Ok(messages.iter().map(message_to_client).collect())
@@ -160,17 +257,26 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}/threads/active");
         let route = route_key("GET", "/channels/{channel.id}/threads/active", channel_id);
-        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, channel_id, &path, None)
+            .await?;
         let threads = value
             .get("threads")
             .cloned()
             .unwrap_or(Value::Array(Vec::new()));
         let threads: Vec<DiscordChannel> = serde_json::from_value(threads)
             .map_err(|_| RestError::Message("Could not read threads".into()))?;
-        Ok(threads.iter().map(super::types::channel_to_client).collect())
+        Ok(threads
+            .iter()
+            .map(super::types::channel_to_client)
+            .collect())
     }
 
-    pub async fn search_guild(&self, guild_id: &str, query: &str) -> Result<Vec<ClientMessage>, RestError> {
+    pub async fn search_guild(
+        &self,
+        guild_id: &str,
+        query: &str,
+    ) -> Result<Vec<ClientMessage>, RestError> {
         self.ensure_snowflake(guild_id)?;
         let query = query.trim();
         if query.is_empty() || query.len() > 80 {
@@ -181,7 +287,9 @@ impl DiscordRest {
             urlencoding::encode(query)
         );
         let route = route_key("GET", "/guilds/{guild.id}/messages/search", guild_id);
-        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
         let mut out = Vec::new();
         if let Some(groups) = value.get("messages").and_then(|v| v.as_array()) {
             for group in groups {
@@ -258,7 +366,11 @@ impl DiscordRest {
         Ok(message_to_client(&message))
     }
 
-    pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<(), RestError> {
+    pub async fn delete_message(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let route = route_key(
@@ -286,9 +398,7 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let encoded = reaction_emoji_path(emoji, emoji_id);
-        let path = format!(
-            "/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/@me"
-        );
+        let path = format!("/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/@me");
         let route = route_key(
             if add { "PUT" } else { "DELETE" },
             "/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/@me",
@@ -326,7 +436,9 @@ impl DiscordRest {
         if snowflake_ok(value) {
             Ok(())
         } else {
-            Err(RestError::Message("That id is not a Discord snowflake".into()))
+            Err(RestError::Message(
+                "That id is not a Discord snowflake".into(),
+            ))
         }
     }
 
@@ -378,9 +490,7 @@ impl DiscordRest {
                 Err(err) => {
                     let text = redact(&err.to_string(), &[&self.token]);
                     log_line(&format!("request failed: {text}"));
-                    return Err(RestError::Message(
-                        "The request to Discord failed. Check the connection and try again.".into(),
-                    ));
+                    return Err(RestError::Message(explain_transport(&text)));
                 }
             };
             if let Some(parsed) = rate_headers(response.headers()) {
@@ -417,17 +527,18 @@ impl DiscordRest {
         if !status.is_success() {
             let message = serde_json::from_str::<DiscordError>(&text)
                 .map(|body| body.message)
-                .unwrap_or_else(|_| format!("HTTP {}", status.as_u16()));
+                .unwrap_or_default();
             let message = redact(&message, &[token]);
-            return Err(RestError::Message(format!(
-                "Discord returned {}: {message}",
-                status.as_u16()
+            return Err(RestError::Message(explain_api_status(
+                status.as_u16(),
+                &message,
             )));
         }
         if text.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_str(&text).map_err(|_| RestError::Message("Discord returned an unexpected payload".into()))
+        serde_json::from_str(&text)
+            .map_err(|_| RestError::Message("Discord returned an unexpected payload".into()))
     }
 }
 
@@ -446,7 +557,9 @@ struct DiscordError {
 
 pub fn api_url(path: &str) -> Result<String, RestError> {
     if !path.starts_with('/') || path.contains("://") || path.contains("..") {
-        return Err(RestError::Message("Refusing to build that request URL".into()));
+        return Err(RestError::Message(
+            "Refusing to build that request URL".into(),
+        ));
     }
     Ok(format!("{API}{path}"))
 }
@@ -542,10 +655,7 @@ mod tests {
     #[test]
     fn reaction_paths_are_encoded() {
         assert_eq!(reaction_emoji_path("🔥", None), "%F0%9F%94%A5");
-        assert_eq!(
-            reaction_emoji_path("lark", Some("99")),
-            "lark:99"
-        );
+        assert_eq!(reaction_emoji_path("lark", Some("99")), "lark:99");
     }
 
     #[test]
@@ -561,6 +671,24 @@ mod tests {
         assert_eq!(parsed.reset_after_ms, 1_250);
         assert_eq!(parsed.bucket.as_deref(), Some("abc"));
         assert!(!parsed.global);
+    }
+
+    #[test]
+    fn api_errors_name_the_status_and_hide_the_token() {
+        let token = "mfa.super-secret-token-value";
+        let cleaned = crate::redact::redact(&format!("401: Unauthorized {token}"), &[token]);
+        let unauthorized = explain_api_status(401, &cleaned);
+        assert!(unauthorized.contains("HTTP 401"));
+        assert!(!unauthorized.contains(token));
+        let forbidden = explain_api_status(403, "error code: 1010");
+        assert!(forbidden.contains("HTTP 403"));
+        assert!(forbidden.contains("Cloudflare") || forbidden.contains("403"));
+        let down = explain_transport("dns error: failed to lookup address information");
+        assert!(down.contains("resolve discord.com"));
+        let tls = explain_transport("tls handshake error: certificate verify failed");
+        assert!(tls.contains("TLS"));
+        assert!(RestError::Message(unauthorized).is_unauthorized());
+        assert!(!RestError::RateLimited.is_unauthorized());
     }
 
     #[test]

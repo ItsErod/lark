@@ -14,6 +14,53 @@ pub fn uses_native_credential_store(os: &str) -> bool {
     credential_store_label(os).is_ok()
 }
 
+/// Turn a Keychain or Credential Manager failure into something a person can act on.
+/// `detail` is the OS error text. It must not contain the token.
+pub fn credential_failure_message(store: &str, detail: &str) -> String {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("-34018")
+        || lower.contains("missing entitlement")
+        || lower.contains("required entitlement")
+    {
+        return format!(
+            "{store} refused the token because this build has no Keychain access-group entitlement (-34018). Lark uses the login keychain, which does not need that entitlement. Try saving again."
+        );
+    }
+    if lower.contains("-25308")
+        || lower.contains("interaction is not allowed")
+        || lower.contains("errsecinteractionnotallowed")
+    {
+        return format!(
+            "{store} could not show its permission prompt (error -25308). Unsigned macOS builds hit this when the token is read off the main thread. Lark now reads and writes the token on the main thread. Try again, and choose Allow if macOS asks."
+        );
+    }
+    if lower.contains("-67050")
+        || lower.contains("errseccsunsigned")
+        || lower.contains("code object is not signed")
+        || lower.contains("not signed")
+    {
+        return format!(
+            "{store} does not trust this unsigned build (error -67050). Control-click Lark, choose Open, then try again and choose Always Allow if macOS asks."
+        );
+    }
+    if lower.contains("user cancel")
+        || lower.contains("user cancelled")
+        || lower.contains("user canceled")
+        || lower.contains("-128")
+    {
+        return format!("{store} prompt was cancelled, so the token was not saved.");
+    }
+    if lower.contains("locked") {
+        return format!("{store} is locked. Unlock it and try again.");
+    }
+    let detail = detail.trim();
+    if detail.is_empty() || detail.len() > 180 {
+        format!("Couldn't use {store}.")
+    } else {
+        format!("Couldn't use {store}: {detail}")
+    }
+}
+
 /// Hint for the per-user config directory. The running app resolves the real path.
 pub fn config_dir_hint(os: &str) -> &'static str {
     match os {
@@ -57,6 +104,39 @@ mod tests {
         assert!(win.contains("%APPDATA%"));
         assert!(win.contains('\\'));
         assert!(!config_dir_hint("linux").contains("APPDATA"));
+    }
+
+    #[test]
+    fn credential_errors_name_the_unsigned_macos_failures() {
+        let keychain = credential_failure_message(
+            "macOS Keychain",
+            "A required entitlement isn't present. (-34018)",
+        );
+        assert!(keychain.contains("-34018"));
+        assert!(keychain.contains("login keychain"));
+        let prompt = credential_failure_message(
+            "macOS Keychain",
+            "User interaction is not allowed. (-25308)",
+        );
+        assert!(prompt.contains("-25308"));
+        assert!(prompt.contains("main thread"));
+        let unsigned = credential_failure_message(
+            "macOS Keychain",
+            "The code object is not signed at all (-67050)",
+        );
+        assert!(unsigned.contains("-67050"));
+        assert!(unsigned.contains("Control-click"));
+        let cancelled =
+            credential_failure_message("macOS Keychain", "User canceled the operation. (-128)");
+        assert!(cancelled.contains("cancelled"));
+        assert!(!cancelled.contains("-128"));
+        let secret = "mfa.super-secret-token-value";
+        let generic = credential_failure_message(
+            "Windows Credential Manager",
+            &format!("{secret} {}", "x".repeat(200)),
+        );
+        assert!(!generic.contains(secret));
+        assert!(generic.contains("Windows Credential Manager"));
     }
 
     #[test]

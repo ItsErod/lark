@@ -1,0 +1,37 @@
+/* Lark theme: Frosted. Opaque fallback everywhere. On macOS and Windows, Lark asks for native vibrancy and then uses the translucent set. No CSS blur. */
+:root {
+  color-scheme: dark;
+  --bg-0: #1c212b;
+  --bg-1: #242a36;
+  --bg-2: #2a3140;
+  --bg-3: #343c4d;
+  --bg-4: #3e485c;
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #f4f7fb;
+  --muted: #c5d0de;
+  --faint: #96a3b5;
+  --accent: #8eb7ff;
+  --accent-ink: #0d1520;
+  --accent-soft: rgba(142, 183, 255, 0.16);
+  --ok: #7ddeaf;
+  --idle: #f0c36a;
+  --busy: #f09a9a;
+  --danger: #f09a9a;
+  --mention-bg: rgba(142, 183, 255, 0.16);
+  --mention-fg: #d5e4ff;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  --window-material: vibrancy;
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+html.is-vibrancy {
+  --bg-0: rgba(16, 20, 28, 0.72);
+  --bg-1: rgba(20, 26, 36, 0.66);
+  --bg-2: rgba(24, 30, 42, 0.62);
+  --bg-3: rgba(32, 40, 54, 0.7);
+  --bg-4: rgba(48, 58, 76, 0.74);
+  --line: rgba(255, 255, 255, 0.16);
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+}

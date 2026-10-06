@@ -20,9 +20,26 @@ import { captureBackend, encoderName, formatBitrate, planShare } from "../share"
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
+import {
+  applyRootOverrides,
+  filterThemes,
+  galleryEntries,
+  loadImportedThemes,
+  parseThemeCss,
+  previewVars,
+  serializeImportedThemes,
+  themeFromJson,
+  themeIdFromFilename,
+  themeTitle,
+  themeToJson,
+  THEME_ID,
+  validateThemeCss,
+} from "../themes";
 import { rowEstimate, sliceWindow } from "../virtual";
+import { commandError, previewQr, QR_CAPTION } from "../signin";
 import { clear, colorFor, el, icon, initials, paths } from "./dom";
 import { renderMessage } from "./messages";
+import { patchSignIn, renderSignIn } from "./signin";
 
 interface VoiceMember {
   id: string;
@@ -107,6 +124,10 @@ class LarkApp {
   private msgSig = "";
   private openedAt = 0;
   private tokenNote = "";
+  private signInBusy = "";
+  private qrSvg = "";
+  private qrStatus = QR_CAPTION;
+  private qrWatching = false;
   private connection = "Demo";
   private focused = true;
   private typingSent = 0;
@@ -148,6 +169,11 @@ class LarkApp {
   private searchOpen = false;
   private pinsOpen = false;
   private themeOpen = false;
+  private themeFilter = "";
+  private extraThemeIds: string[] = [];
+  private themeCache = new Map<string, string>();
+  private imported = new Map<string, string>();
+  private materialWanted: string | null = null;
   private popout: Person | null = null;
   private statusOpen = false;
   private upload = 0;
@@ -172,6 +198,9 @@ class LarkApp {
       this.pack = defaultPack();
     }
     this.away.lastActivity = Date.now();
+    this.imported = loadImportedThemes(localStorage.getItem("lark.imported-themes.v1"));
+    for (const [id, css] of this.imported) this.themeCache.set(id, css);
+    this.extraThemeIds = [...this.imported.keys()];
     this.seedUnreads();
     this.drafts = readJson("lark.drafts.v1") as Record<string, string>;
     try {
@@ -190,10 +219,17 @@ class LarkApp {
     await this.loadPlugins();
     await this.applyTheme();
     window.setInterval(() => void this.applyTheme(), 1000);
-    if (isTauri()) await this.bootDesktop();
     this.frames.setCap(this.config.desktop.frame_cap);
-    if (new URLSearchParams(location.search).has("demo")) this.enterDemo();
-    else this.paint();
+    const params = new URLSearchParams(location.search);
+    if (!isTauri() && params.has("notice")) {
+      this.tokenNote = "Discord rejected the token (HTTP 401). Lark sent it only to discord.com. It may be expired, revoked, or still wrapped in quotes.";
+    }
+    if (params.has("demo")) this.enterDemo();
+    else {
+      this.qrSvg = previewQr();
+      this.paint();
+    }
+    if (isTauri()) await this.bootDesktop();
     const perf: PerfMarks = {
       ready: performance.now(),
       lastSwitch: 0,
@@ -243,11 +279,21 @@ class LarkApp {
       };
       this.config = sanitizeConfig(await invoke("get_config"));
       const { listen } = await import("@tauri-apps/api/event");
-      await listen("theme-changed", () => void this.applyTheme());
+      await listen("theme-changed", () => {
+        this.themeCache.clear();
+        for (const [id, css] of this.imported) this.themeCache.set(id, css);
+        void this.applyTheme();
+      });
       await listen<{ kind: string }>("config-changed", () => {
         if (!this.settings) void this.reloadConfig();
       });
       await listen("discord", (event) => this.onDiscord(event.payload));
+      await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("login-status", (event) => {
+        this.onLoginStatus(event.payload);
+      });
+      await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("qr-login", (event) => {
+        this.onQrLogin(event.payload);
+      });
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       this.focused = await win.isFocused();
@@ -256,10 +302,20 @@ class LarkApp {
       });
       if (await invoke<boolean>("has_token")) {
         this.connection = "Connecting";
+        this.signInBusy = "Checking the saved token with Discord…";
+        this.paint();
         await invoke("connect");
+        this.signInBusy = "Connecting to Discord…";
+        if (this.view === "gate") this.paintGate();
       }
+      if (this.view === "gate" && !this.signInBusy) this.ensureQr();
     } catch (err) {
-      this.tokenNote = err instanceof Error ? err.message : "Desktop bridge unavailable.";
+      this.view = "gate";
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Desktop bridge unavailable.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
     }
   }
 
@@ -401,11 +457,13 @@ class LarkApp {
     this.root.dataset.density = appearance.density;
     this.root.dataset.narrow = this.narrow ? "on" : "off";
     const guild = this.guilds().find((item) => item.id === this.guildId);
-    const accent = (guild && this.config.accents[guild.id]) || guild?.accent;
+    const accent = guild && this.config.accents[guild.id];
     if (accent) this.root.style.setProperty("--accent", accent);
+    else this.root.style.removeProperty("--accent");
     this.root.dataset.drawer = this.drawer ? "on" : "off";
     this.root.style.setProperty("--ui-size", `${appearance.font_size}px`);
-    this.root.style.fontFamily = fontStack(appearance.font_family);
+    if (appearance.font_family === "inter") this.root.style.removeProperty("font-family");
+    else this.root.style.fontFamily = fontStack(appearance.font_family);
     const rail = appearance.show_server_rail ? "72px" : "0px";
     const channelW = appearance.channel_list === "hidden" ? "0px" : "252px";
     const members = appearance.show_member_list && this.guildId && !this.narrow ? "236px" : "0px";
@@ -431,78 +489,348 @@ class LarkApp {
 
   private async applyTheme() {
     const name = this.config.appearance.theme;
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) return;
+    if (!THEME_ID.test(name)) return;
     try {
-      const css = isTauri() && !import.meta.env.DEV
-        ? await invoke<string>("read_theme", { name })
-        : await fetch(`/themes/${name}.css`, { cache: "no-store" }).then((res) => {
-            if (!res.ok) throw new Error("missing theme");
-            return res.text();
-          });
+      const css = await this.fetchThemeCss(name);
       let style = document.getElementById("lark-theme");
       if (!style) {
         style = document.createElement("style");
         style.id = "lark-theme";
         document.head.append(style);
       }
-      if (style.textContent !== css) style.textContent = css;
+      if (style.textContent !== css) {
+        style.textContent = css;
+        this.themeCache.set(name, css);
+        if (this.settings && this.section === "appearance") this.paintThemeGallery();
+      } else {
+        this.themeCache.set(name, css);
+      }
+      document.documentElement.dataset.theme = name;
+      this.syncMaterial(parseThemeCss(css).material);
     } catch {
       /* Keep the last good theme. */
     }
   }
 
-  private paintGate() {
-    clear(this.gate);
-    const card = el("div", "gate-card");
-    const mark = el("div", "mark", "L");
-    const title = el("h1", "", "Lark");
-    const lede = el("p", "lede", "A small Discord client for one account, on macOS and Windows. Fast enough to leave open.");
-    const warning = el("div", "warning");
-    warning.append(
-      el("strong", "", "This can ban the account"),
-      el("p", "", "Discord's terms don't allow third-party clients that sign in with a user token. Using Lark on your own account can get that account suspended. The token stays in the macOS Keychain or Windows Credential Manager and is sent only to Discord."),
-    );
-    const label = el("label", "field");
-    label.append(el("span", "", "Token"));
-    const input = el("input", "token-input");
-    input.type = "password";
-    input.autocomplete = "off";
-    input.spellcheck = false;
-    input.placeholder = "Paste your token";
-    input.setAttribute("aria-label", "Discord token");
-    label.append(input);
-    const actions = el("div", "gate-actions");
-    const save = el("button", "primary", "Save and connect");
-    save.type = "button";
-    save.addEventListener("click", () => void this.saveToken(input));
-    const demo = el("button", "ghost", "Preview with sample data");
-    demo.type = "button";
-    demo.addEventListener("click", () => this.enterDemo());
-    actions.append(save, demo);
-    const note = el("p", "gate-note", this.tokenNote || `On this computer the token would be stored in ${this.platform.credentialStore}. Nothing is logged.`);
-    card.append(mark, title, lede, warning, label, actions, note);
-    this.gate.append(card);
+  private async fetchThemeCss(name: string): Promise<string> {
+    if (!THEME_ID.test(name)) throw new Error("invalid theme");
+    if (!isTauri()) {
+      const imported = this.imported.get(name);
+      if (imported) return imported;
+    }
+    if (isTauri()) return invoke<string>("read_theme", { name });
+    const res = await fetch(`/themes/${name}.css`, { cache: "no-store" });
+    if (!res.ok) throw new Error("missing theme");
+    return res.text();
   }
 
-  private async saveToken(input: HTMLInputElement) {
-    const token = input.value.trim();
-    input.value = "";
+  private syncMaterial(material: "none" | "vibrancy") {
+    if (this.materialWanted === material) return;
+    this.materialWanted = material;
+    if (!isTauri()) {
+      document.documentElement.classList.remove("is-vibrancy");
+      return;
+    }
+    void invoke<boolean>("set_window_material", { material })
+      .then((on) => {
+        if (this.materialWanted !== material) return;
+        document.documentElement.classList.toggle("is-vibrancy", Boolean(on));
+      })
+      .catch(() => {
+        if (this.materialWanted === material) this.materialWanted = null;
+        document.documentElement.classList.remove("is-vibrancy");
+      });
+  }
+
+  private async refreshThemeIndex() {
+    const ids = [...this.imported.keys()];
+    if (isTauri()) {
+      try {
+        ids.push(...(await invoke<string[]>("list_themes")));
+      } catch {
+        /* The shipped list still renders. */
+      }
+    }
+    const pending = galleryEntries(ids).filter((theme) => !this.themeCache.has(theme.id));
+    await Promise.all(
+      pending.map(async (theme) => {
+        try {
+          this.themeCache.set(theme.id, await this.fetchThemeCss(theme.id));
+        } catch {
+          /* A listed file can be missing during a refresh. */
+        }
+      }),
+    );
+    const changed = ids.length !== this.extraThemeIds.length || ids.some((id, index) => id !== this.extraThemeIds[index]);
+    this.extraThemeIds = ids;
+    if (this.settings && this.section === "appearance" && (changed || pending.length > 0)) this.paintThemeGallery();
+  }
+
+  private selectTheme(id: string) {
+    if (!THEME_ID.test(id)) return;
+    for (const name of ["--bg-0", "--bg-2", "--text"]) this.root.style.removeProperty(name);
+    this.config.appearance.theme = id;
+    this.persist();
+    this.paint();
+    if (this.settings && this.section === "appearance") this.paintThemeGallery();
+  }
+
+  private paintThemeGallery(root: ParentNode = this.settingsEl) {
+    const grid = root.querySelector(".theme-gallery");
+    if (!(grid instanceof HTMLElement)) return;
+    clear(grid);
+    const visible = filterThemes(galleryEntries(this.extraThemeIds), this.themeFilter);
+    for (const theme of visible) grid.append(this.themeCard(theme));
+    const empty = root.querySelector(".theme-empty");
+    if (!visible.length) {
+      if (!empty) grid.insertAdjacentElement("afterend", el("p", "theme-empty hint", "No theme matches that."));
+    } else {
+      empty?.remove();
+    }
+  }
+
+  private themeCard(theme: { id: string; title: string; blurb: string }): HTMLButtonElement {
+    const on = this.config.appearance.theme === theme.id;
+    const card = el("button", `theme-card${on ? " is-on" : ""}`);
+    card.type = "button";
+    card.setAttribute("aria-label", `Apply ${theme.title}`);
+    card.setAttribute("aria-pressed", on ? "true" : "false");
+    const live = el("div", "theme-live");
+    live.setAttribute("aria-hidden", "true");
+    const css = this.themeCache.get(theme.id);
+    if (css) {
+      const parsed = parseThemeCss(css);
+      live.style.colorScheme = parsed.colorScheme;
+      for (const [key, value] of Object.entries(previewVars(css))) live.style.setProperty(key, value);
+    } else {
+      live.classList.add("is-pending");
+    }
+    const rail = el("div", "theme-live-rail");
+    rail.append(el("i", "is-on"), el("i"), el("i"));
+    const channels = el("div", "theme-live-channels");
+    channels.append(el("span"), el("span", "is-on"), el("span"));
+    const chat = el("div", "theme-live-chat");
+    const pips = el("span", "theme-live-pips");
+    for (const pip of ["ok", "idle", "busy"] as const) {
+      const dot = el("i");
+      dot.style.background = `var(--${pip})`;
+      pips.append(dot);
+    }
+    chat.append(el("strong", "", "Lark"), el("b"), el("b", "short"), pips);
+    live.append(rail, channels, chat);
+    const meta = el("div", "theme-meta");
+    meta.append(el("strong", "", theme.title), el("span", "", theme.blurb));
+    if (on) meta.append(el("span", "theme-on", "On"));
+    card.append(live, meta);
+    card.addEventListener("click", () => this.selectTheme(theme.id));
+    return card;
+  }
+
+  private async importTheme(file: File) {
+    let text = "";
+    try {
+      text = await file.text();
+    } catch {
+      this.toast("Theme", "Couldn't read that file.");
+      return;
+    }
+    if (text.length > 16 * 1024) {
+      this.toast("Theme", "Theme file is too large.");
+      return;
+    }
+    let id = "";
+    let css = "";
+    try {
+      const trimmed = text.trim();
+      const filenameId = themeIdFromFilename(file.name) ?? undefined;
+      if (file.name.toLowerCase().endsWith(".json") || trimmed.startsWith("{")) {
+        const parsed = themeFromJson(text, filenameId);
+        id = parsed.id;
+        css = parsed.css;
+      } else {
+        if (!filenameId) throw new Error("Name the file with letters, numbers, and hyphens.");
+        const problem = validateThemeCss(text);
+        if (problem) throw new Error(problem);
+        id = filenameId;
+        css = text.endsWith("\n") ? text : `${text}\n`;
+      }
+    } catch (err) {
+      this.toast("Theme", err instanceof Error ? err.message : "That file is not a Lark theme.");
+      return;
+    }
+    if (isTauri()) {
+      try {
+        await invoke("write_theme", { name: id, css });
+      } catch (err) {
+        this.toast("Theme", err instanceof Error ? err.message : "Couldn't save that theme.");
+        return;
+      }
+    } else {
+      this.imported.set(id, css);
+      localStorage.setItem("lark.imported-themes.v1", serializeImportedThemes(this.imported));
+    }
+    this.themeCache.set(id, css);
+    if (!this.extraThemeIds.includes(id)) this.extraThemeIds.push(id);
+    this.selectTheme(id);
+    this.toast("Theme", `Applied ${themeTitle(id)}.`);
+  }
+
+  private async exportTheme(kind: "css" | "json") {
+    const id = this.config.appearance.theme;
+    let css = (!isTauri() ? this.imported.get(id) : undefined) ?? this.themeCache.get(id);
+    if (!css) {
+      try {
+        css = await this.fetchThemeCss(id);
+        this.themeCache.set(id, css);
+      } catch {
+        this.toast("Theme", "This theme isn't loaded yet.");
+        return;
+      }
+    }
+    const overrides: Record<string, string> = {};
+    for (const name of ["--bg-0", "--bg-2", "--text"]) {
+      const value = this.root.style.getPropertyValue(name).trim();
+      if (value) overrides[name] = value;
+    }
+    if (this.guildId && this.config.accents[this.guildId]) overrides["--accent"] = this.config.accents[this.guildId];
+    const next = applyRootOverrides(css, overrides);
+    const body = kind === "json" ? themeToJson(id, next) : next;
+    downloadFile(`${id}.${kind}`, body, kind === "json" ? "application/json" : "text/css");
+  }
+
+  private paintGate() {
+    if (!this.qrSvg) this.qrSvg = previewQr();
+    const existing = this.gate.querySelector(".gate-card");
+    if (!existing) {
+      renderSignIn(this.gate, this.signInState(), {
+        onDiscord: () => void this.openDiscordLogin(),
+        onPreview: () => this.enterDemo(),
+        onSave: (token) => void this.saveToken(token),
+      });
+    } else {
+      patchSignIn(this.gate, this.signInState());
+    }
+  }
+
+  private signInState() {
+    return {
+      error: this.tokenNote,
+      qrSvg: this.qrSvg,
+      qrStatus: this.qrStatus,
+      store: this.platform.credentialStore,
+      busy: this.signInBusy,
+    };
+  }
+
+  private ensureQr() {
+    if (!isTauri() || this.qrWatching || this.view !== "gate") return;
+    this.qrWatching = true;
+    void invoke("start_qr_login").catch((err) => {
+      this.qrWatching = false;
+      this.qrStatus = commandError(err, "QR login could not start.");
+      if (this.view === "gate") patchSignIn(this.gate, this.signInState());
+    });
+  }
+
+  private async openDiscordLogin() {
+    if (!isTauri()) {
+      this.tokenNote = "Sign in with Discord opens inside the Lark app on macOS or Windows. This preview only shows the screen.";
+      this.paintGate();
+      return;
+    }
+    this.signInBusy = "Opening Discord's login page…";
+    this.tokenNote = "";
+    this.paintGate();
+    try {
+      await invoke("open_discord_login");
+    } catch (err) {
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't open Discord's login page.");
+      this.paintGate();
+    }
+  }
+
+  private onLoginStatus(payload: { phase?: string; detail?: string }) {
+    if (payload.phase === "saved") {
+      this.signInBusy = "Checking the token with Discord…";
+      this.tokenNote = "";
+      this.paintGate();
+      void this.finishConnect();
+      return;
+    }
+    if (payload.phase === "failed") {
+      this.signInBusy = "";
+      this.view = "gate";
+      this.tokenNote = payload.detail || "Discord sign-in failed.";
+      this.paint();
+      return;
+    }
+    if (payload.detail) {
+      this.signInBusy = payload.detail;
+      this.paintGate();
+    }
+  }
+
+  private onQrLogin(payload: { phase?: string; detail?: string; svg?: string; username?: string }) {
+    if (payload.phase === "qr" && payload.svg) {
+      this.qrSvg = payload.svg;
+      this.qrStatus = QR_CAPTION;
+    } else if (payload.phase === "scanned") {
+      this.qrStatus = payload.username ? `Confirm on your phone as ${payload.username}` : "Confirm on your phone";
+    } else if (payload.phase === "done") {
+      this.qrStatus = "Checking the token with Discord…";
+      this.signInBusy = "Checking the token with Discord…";
+      this.tokenNote = "";
+      void this.finishConnect();
+    } else if (payload.phase === "stopped") {
+      this.qrWatching = false;
+      this.signInBusy = "";
+      this.qrStatus = payload.detail || "QR login stopped.";
+      this.tokenNote = this.qrStatus;
+    } else if (payload.phase === "failed") {
+      this.qrStatus = payload.detail || "The QR code failed. A new one is coming.";
+    }
+    if (this.view === "gate") this.paintGate();
+  }
+
+  private async finishConnect() {
+    try {
+      await invoke("connect");
+      this.signInBusy = "Connecting to Discord…";
+      if (this.view === "gate") this.paintGate();
+    } catch (err) {
+      this.view = "gate";
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't sign in with the saved token.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
+    }
+  }
+
+  private async saveToken(token: string) {
     if (!isTauri()) {
       this.tokenNote = "This preview can't accept a token. Run the Lark app on macOS or Windows to save one in the system credential store.";
       this.paintGate();
       return;
     }
+    this.signInBusy = "Checking the token with Discord…";
+    this.tokenNote = "";
+    this.qrWatching = false;
+    this.paintGate();
     try {
+      await invoke("stop_qr_login");
       await invoke("set_token", { token });
-      this.tokenNote = `Saved in ${this.platform.credentialStore}.`;
-      this.demo = false;
-      this.view = "app";
-      this.connection = "Connecting";
       await invoke("connect");
-      this.paint();
+      this.signInBusy = "Connecting to Discord…";
+      if (this.view === "gate") this.paintGate();
     } catch (err) {
-      this.tokenNote = err instanceof Error ? err.message : "Couldn't save the token.";
-      this.paintGate();
+      this.view = "gate";
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't save the token.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
     }
   }
 
@@ -1331,6 +1659,7 @@ class LarkApp {
     this.settings = true;
     this.settingsEl.hidden = false;
     this.renderSettings();
+    if (this.section === "appearance") void this.refreshThemeIndex();
   }
 
   private closeSettings() {
@@ -1360,6 +1689,7 @@ class LarkApp {
       button.addEventListener("click", () => {
         this.section = id;
         this.renderSettings();
+        if (id === "appearance") void this.refreshThemeIndex();
       });
       nav.append(button);
     }
@@ -1375,27 +1705,43 @@ class LarkApp {
   private settingsSection(): HTMLElement {
     const wrap = el("div");
     if (this.section === "appearance") {
-      wrap.append(el("h2", "", "Appearance"), el("p", "lede", "Themes are CSS files. Saving one reloads it while Lark is open."));
-      const grid = el("div", "theme-grid");
-      for (const theme of [
-        ["modern-dark", "Modern dark", "#17140f", "#e2a15a"],
-        ["daylight", "Daylight", "#f7f1e7", "#b86a2a"],
-        ["ink-contrast", "Ink contrast", "#000000", "#ffd15a"],
-      ] as const) {
-        const card = el("button", `theme-card${this.config.appearance.theme === theme[0] ? " is-on" : ""}`);
-        card.type = "button";
-        const swatch = el("div", "swatch");
-        swatch.style.background = `linear-gradient(135deg, ${theme[2]}, ${theme[3]})`;
-        card.append(swatch, el("strong", "", theme[1]));
-        card.addEventListener("click", () => {
-          this.config.appearance.theme = theme[0];
-          this.persist();
-          this.paint();
-          this.renderSettings();
-        });
-        grid.append(card);
-      }
-      wrap.append(grid, el("div", "hint", "Font"));
+      wrap.append(el("h2", "", "Appearance"), el("p", "lede", "Each card is that theme's own colours. One click applies it."));
+      const filter = el("input", "theme-filter");
+      filter.type = "search";
+      filter.placeholder = "Filter themes";
+      filter.value = this.themeFilter;
+      filter.setAttribute("aria-label", "Filter themes");
+      filter.addEventListener("input", () => {
+        this.themeFilter = filter.value;
+        this.paintThemeGallery();
+      });
+      wrap.append(filter);
+      const grid = el("div", "theme-gallery");
+      wrap.append(grid);
+      this.paintThemeGallery(wrap);
+      const actions = el("div", "theme-actions");
+      const exportCss = el("button", "text-button", "Export CSS");
+      exportCss.type = "button";
+      exportCss.addEventListener("click", () => void this.exportTheme("css"));
+      const exportJson = el("button", "text-button", "Export JSON");
+      exportJson.type = "button";
+      exportJson.addEventListener("click", () => void this.exportTheme("json"));
+      const importBtn = el("button", "text-button", "Import");
+      importBtn.type = "button";
+      const file = el("input", "theme-file");
+      file.type = "file";
+      file.accept = ".css,.json,text/css,application/json";
+      file.setAttribute("aria-label", "Import theme file");
+      file.tabIndex = -1;
+      file.addEventListener("change", () => {
+        const picked = file.files?.[0];
+        file.value = "";
+        if (picked) void this.importTheme(picked);
+      });
+      importBtn.addEventListener("click", () => file.click());
+      actions.append(exportCss, exportJson, importBtn, file);
+      wrap.append(actions, el("p", "hint", "CSS and JSON carry the same colours. Frosted uses the system material on macOS and Windows, and stays opaque elsewhere. Themes do not blur or animate the message list."));
+      wrap.append(el("div", "hint", "Font"));
       wrap.append(this.choice(["inter", "system", "serif", "mono"], this.config.appearance.font_family, (value) => {
         this.config.appearance.font_family = value as AppConfig["appearance"]["font_family"];
         this.persist();
@@ -1606,12 +1952,25 @@ class LarkApp {
   }
 
   private async forgetToken() {
-    await invoke("clear_token");
+    try {
+      await invoke("clear_token");
+    } catch (err) {
+      const message = commandError(err, "Couldn't remove the saved token.");
+      this.tokenNote = message;
+      this.toast("Sign out", message);
+      return;
+    }
     this.view = "gate";
     this.demo = false;
+    this.qrWatching = false;
+    this.qrSvg = previewQr();
+    this.qrStatus = QR_CAPTION;
+    this.tokenNote = "";
+    this.signInBusy = "";
     this.connection = "Signed out";
     this.closeSettings();
     this.paint();
+    this.ensureQr();
   }
 
   private paintLightbox() {
@@ -1826,11 +2185,28 @@ class LarkApp {
     };
     if (event.kind === "status") {
       this.connection = event.state === "connected" ? "Connected" : event.state ?? "Offline";
-      if (event.state === "failed") this.toast("Discord", event.detail || "The connection stopped.");
+      if (event.state === "failed") {
+        this.view = "gate";
+        this.demo = false;
+        this.signInBusy = "";
+        this.tokenNote = event.detail || "Discord closed the connection.";
+        this.qrWatching = false;
+        this.paint();
+        this.ensureQr();
+        return;
+      }
+      if (this.view === "gate" && event.detail) {
+        this.signInBusy = event.detail;
+        this.paintGate();
+      }
       this.paintChannels();
     } else if (event.kind === "ready" && event.user) {
       this.demo = false;
       this.view = "app";
+      this.tokenNote = "";
+      this.signInBusy = "";
+      this.qrWatching = false;
+      if (isTauri()) void invoke("stop_qr_login").catch(() => undefined);
       this.me = { id: event.user.id, name: event.user.name, bot: event.user.bot, status: "online" };
       this.userNames[this.me.id] = this.me.name;
       this.liveGuilds = event.guilds ?? [];
@@ -2104,6 +2480,9 @@ class LarkApp {
     else if (id === "theme") {
       this.themeOpen = true;
       this.paintTheme();
+    } else if (id === "themes") {
+      this.section = "appearance";
+      this.openSettings();
     } else if (id === "mute") this.toggleMute();
     else if (id === "deafen") this.toggleDeafen();
     else if (id === "leave-voice") this.leaveVoice();
@@ -2382,7 +2761,7 @@ class LarkApp {
     }
     clear(overlay);
     const card = el("div", "theme-editor");
-    card.append(el("h2", "", "Theme editor"));
+    card.append(el("h2", "", "Theme editor"), el("p", "hint", "Export from Appearance to save these colours as CSS or JSON."));
     const preview = el("div", "theme-preview");
     preview.append(el("strong", "", "Northwind"), el("p", "", "The mark sits on ink. Unread stays apricot."));
     const fields: [string, string][] = [
@@ -2980,6 +3359,16 @@ class LarkApp {
     }
     return this.guildId;
   }
+}
+
+function downloadFile(filename: string, body: string, type: string) {
+  const blob = new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function isTauri(): boolean {

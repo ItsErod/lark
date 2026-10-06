@@ -18,11 +18,19 @@
         "height": 800,
         "minWidth": 800,
         "minHeight": 560,
-        "resizable": true
+        "resizable": true,
+        "transparent": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:47321 ws://127.0.0.1:47321; script-src 'self' 'unsafe-eval'"
+      "csp": {
+        "default-src": "'self'",
+        "img-src": "'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:47321 ws://127.0.0.1:47321",
+        "script-src": "'self' 'unsafe-eval'"
+      }
     }
   },
   "bundle": {
@@ -32,7 +40,7 @@
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/henry.w@example.net",
+      "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ],

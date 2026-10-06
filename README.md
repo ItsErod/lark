@@ -8,7 +8,7 @@ Voice and screen share are in this version. Video calls are not. Screen share se
 
 ## Preview without a token
 
-The web UI can run with sample data. It will not accept or store a token.
+The web UI can run with sample data. It shows the sign-in screen, including a mock QR code, and it will not accept or store a token.
 
 ```bash
 npm install
@@ -78,14 +78,23 @@ npm run tauri dev
 
 The first launch copies the bundled themes, plugins, and an example `config.toml` into that folder.
 
-### How to copy your token
+### Sign in
 
-1. In a browser where you are already logged into Discord, open Developer Tools.
-2. Open the **Network** panel and select a request whose URL contains `discord.com/api`.
-3. In the request headers, copy the **Authorization** value. That string is the token.
-4. Paste it into Lark’s token field and choose **Save and connect**.
+The first screen has **Sign in with Discord** and a QR code.
 
-Lark does not include a snippet that reads the token out of the page. Do not paste the token into a terminal, a plugin, or the config file. On Linux, and in the browser preview, Save and connect refuses to store it.
+**Sign in with Discord** opens a separate window on `https://discord.com/login`. The password, two-factor prompt, and captcha are Discord’s own page. Lark does not see the password. When Discord navigates to the logged-in app, Lark reads the session token from that window with a native script callback, stores it in the macOS Keychain or Windows Credential Manager, then closes the window and clears its cookies and storage. That window is not allowed to call Lark commands, and navigation stays on Discord plus the captcha hosts Discord uses.
+
+**Scan with the Discord mobile app** is Discord’s remote-auth QR login, the same kind of code the official desktop app shows. Lark opens `wss://remote-auth-gateway.discord.gg`, draws `https://discord.com/ra/…`, and decrypts the session Discord returns. The token is stored in the same credential store. If Discord asks for a captcha on that exchange, use **Sign in with Discord** instead.
+
+**Advanced** still accepts a pasted user token. Quotes, line breaks, a leading `Authorization:` label, and a JSON string from `localStorage` are removed before the token is saved. A bot token or an OAuth bearer token is refused with an explanation.
+
+Discord’s OAuth2 “Authorize app” flow is not used. OAuth2 can grant a bot token or scopes such as `identify` and `guilds` to a registered application. It cannot grant the user session a full client needs in order to read and send messages as that account. Those actions use the session token from a normal login. The token is sent only to Discord’s API and gateway. It is not logged, not written into the config file, not put on a UI event, and not given to plugins.
+
+On Linux, and in the browser preview, Save and connect refuses to store a token.
+
+If sign-in fails, the sign-in screen says what failed: an HTTP status from Discord, a gateway close code, a Keychain or Credential Manager error, or a network failure reaching `discord.com`. A saved token is checked with `GET /users/@me` before the gateway starts, so a rejected token does not open an empty window.
+
+The v2.1.1 paste path failed for three reasons that this sign-in uses the same code to fix. A token copied from Discord’s page often includes quotes, a newline, or an `Authorization:` label; those were stored or rejected as “not a token,” and Discord then answered 401. Keychain reads and writes ran off the main thread, so an unsigned macOS build could not show the permission prompt (error -25308) and the save or the later read failed. The screen also left the sign-in gate before Discord accepted the session, and command errors from the desktop bridge are plain strings, so the specific message was replaced with “Couldn't save the token.” Lark now cleans the token, talks to the Keychain on the main thread, checks `GET /users/@me` before opening the gateway, and keeps the sign-in screen up with the failure text. The content security policy is a per-directive object and already allows `ipc:` and `http://ipc.localhost`. It does not allow `discord.com` from the main window: Discord traffic stays in the Rust client, and the login window is a separate page.
 
 ### Notifications
 
@@ -113,7 +122,7 @@ The member list shows online, idle, do-not-disturb, and offline when Discord sen
 | Deafen | `mod+shift+d` |
 | Push to talk | `` ` `` |
 
-Themes are CSS files that set variables (`--bg-0`, `--text`, `--accent`, and the rest in `themes/modern-dark.css`). Shipped themes: **modern-dark** (the default), **daylight**, **ink-contrast**. Drop another `name.css` in the themes folder; `name` must match `[a-z0-9][a-z0-9-]{0,63}`. The file is picked up while the app is open.
+Themes are CSS files that set variables (`--bg-0`, `--text`, `--accent`, and the rest in `themes/modern-dark.css`). The gallery in Settings previews each one and applies it in one click. Import and export use CSS or JSON. Shipped themes are listed in [THEMES.md](THEMES.md): a Linear-style dark and light, OLED black, Nord, Tokyo Night, Catppuccin Mocha and Latte, Dracula, Gruvbox, synthwave, a static RGB accent, frosted glass (native vibrancy on macOS and Windows), a phosphor terminal, a 7:1 high-contrast theme, plus the original **modern-dark** (the default), **daylight**, and **ink-contrast**. A theme id matches `[a-z0-9][a-z0-9-]{0,63}`. New files are copied into the config folder when they are missing. A file you already edited there is left alone. The file is picked up while the app is open.
 
 The UI font is bundled Inter so both operating systems match. Settings can switch to the system UI font (Segoe UI on Windows), a serif stack, or a mono stack (SF Mono, Cascadia Mono, Consolas).
 
@@ -147,7 +156,7 @@ npm test
 cargo test -p lark-core
 ```
 
-Frontend tests cover message rendering, shortcuts, notification rules, and platform labels. The Rust crate covers config parsing, the rate limiter, and Discord payload mapping.
+Frontend tests cover message rendering, shortcuts, notification rules, platform labels, and the theme pack. The Rust crate covers config parsing, theme CSS checks, the rate limiter, and Discord payload mapping.
 
 ## Continuous integration
 

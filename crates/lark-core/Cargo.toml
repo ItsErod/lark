@@ -9,9 +9,14 @@ publish = false
 aes-gcm = "0.10"
 chacha20poly1305 = "0.10"
 futures-util = "0.3"
+base64 = "0.22"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "multipart"] }
+rsa = { version = "0.9", features = ["sha2"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }

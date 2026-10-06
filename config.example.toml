@@ -1,9 +1,10 @@
 # Lark config. The desktop app reloads this file when it changes.
 # Saving from Settings rewrites the file and drops comments.
-# Theme files in the themes folder are never rewritten.
+# Importing a theme writes that one file. Other theme files are left alone.
+# The gallery and the file format are described in THEMES.md.
 
 [appearance]
-theme = "modern-dark"          # modern-dark | daylight | ink-contrast | another file in themes/
+theme = "modern-dark"          # see THEMES.md
 density = "cozy"               # cozy | compact | irc
 font_family = "inter"          # inter | system | serif | mono
 font_size = 15                 # clamped to 12–20
