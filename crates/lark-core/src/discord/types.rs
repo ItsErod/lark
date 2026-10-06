@@ -33,6 +33,21 @@ pub struct DiscordGuild {
     pub unavailable: bool,
     #[serde(default)]
     pub channels: Vec<DiscordChannel>,
+    #[serde(default)]
+    pub members: Vec<DiscordMember>,
+    #[serde(default)]
+    pub presences: Vec<DiscordPresence>,
+}
+
+/// A gateway presence. User objects here are often just an id.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordPresence {
+    #[serde(default)]
+    pub user: Option<DiscordUser>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub activities: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -313,6 +328,10 @@ pub struct ClientMember {
     pub bot: bool,
     pub role_ids: Vec<String>,
     pub status: String,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub custom: String,
 }
 
 pub fn snowflake_ok(value: &str) -> bool {
@@ -551,14 +570,111 @@ pub fn role_to_client(role: &DiscordRole) -> ClientRole {
 
 pub fn member_to_client(member: &DiscordMember) -> Option<ClientMember> {
     let user = member.user.as_ref()?;
+    let name = user.display_name();
     Some(ClientMember {
         id: user.id.clone(),
-        name: user.display_name(),
-        nick: member.nick.clone(),
+        name: if name.is_empty() {
+            "Unknown".into()
+        } else {
+            name
+        },
+        nick: member.nick.clone().filter(|nick| !nick.is_empty()),
         bot: user.bot,
         role_ids: member.roles.clone(),
         status: "offline".into(),
+        avatar_url: avatar_url(&user.id, &user.avatar),
+        custom: String::new(),
     })
+}
+
+pub fn normalize_presence_status(status: &str) -> String {
+    match status {
+        "online" | "idle" | "dnd" => status.to_string(),
+        _ => "offline".into(),
+    }
+}
+
+fn activity_line(activities: &[serde_json::Value]) -> String {
+    let custom = activities.iter().find_map(|activity| {
+        if activity.get("type").and_then(|value| value.as_i64()) == Some(4) {
+            activity
+                .get("state")
+                .and_then(|value| value.as_str())
+                .filter(|text| !text.is_empty())
+                .map(|text| text.to_string())
+        } else {
+            None
+        }
+    });
+    if let Some(custom) = custom {
+        return custom;
+    }
+    activities
+        .iter()
+        .find_map(|activity| {
+            if activity.get("type").and_then(|value| value.as_i64()) == Some(4) {
+                return None;
+            }
+            activity
+                .get("name")
+                .and_then(|value| value.as_str())
+                .filter(|text| !text.is_empty())
+                .map(|text| text.to_string())
+        })
+        .unwrap_or_default()
+}
+
+fn apply_presences(members: &[DiscordMember], presences: &[DiscordPresence]) -> Vec<ClientMember> {
+    let mut by_id = std::collections::HashMap::new();
+    for presence in presences {
+        let Some(user) = presence.user.as_ref() else {
+            continue;
+        };
+        if user.id.is_empty() {
+            continue;
+        }
+        by_id.insert(
+            user.id.clone(),
+            (
+                normalize_presence_status(&presence.status),
+                activity_line(&presence.activities),
+            ),
+        );
+    }
+    let mut out = Vec::new();
+    for member in members {
+        let Some(mut client) = member_to_client(member) else {
+            continue;
+        };
+        if let Some((status, custom)) = by_id.get(&client.id) {
+            client.status = status.clone();
+            if !custom.is_empty() {
+                client.custom = custom.clone();
+            }
+        }
+        out.push(client);
+    }
+    out
+}
+
+/// Members shipped on GUILD_CREATE, with presence folded in when Discord sent it.
+pub fn roster_from_guild(guild: &DiscordGuild) -> Vec<ClientMember> {
+    apply_presences(&guild.members, &guild.presences)
+}
+
+/// One GUILD_MEMBERS_CHUNK. Later chunks are merged by the shell.
+pub fn roster_from_chunk(data: &serde_json::Value) -> Vec<ClientMember> {
+    let members = data
+        .get("members")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<Vec<DiscordMember>>(value).ok())
+        .unwrap_or_default();
+    let presences = data
+        .get("presences")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<Vec<DiscordPresence>>(value).ok())
+        .unwrap_or_default();
+    apply_presences(&members, &presences)
 }
 
 pub fn validate_outgoing(content: &str, file_count: usize, file_bytes: u64) -> Result<(), &'static str> {
@@ -658,5 +774,64 @@ mod tests {
     fn initials_handle_one_and_two_words() {
         assert_eq!(initials("Northwind"), "N");
         assert_eq!(initials("night market"), "NM");
+    }
+
+    #[test]
+    fn guild_roster_uses_nick_avatar_and_presence() {
+        let raw = r#"{
+            "id": "100000000000000010",
+            "name": "Battlefield",
+            "icon": "a1b2c3",
+            "members": [{
+                "nick": "Erod",
+                "roles": ["100000000000000099"],
+                "user": {
+                    "id": "100000000000000001",
+                    "username": "erod",
+                    "global_name": "Ethan",
+                    "avatar": "deadbeef",
+                    "bot": false
+                }
+            }],
+            "presences": [{
+                "user": {"id": "100000000000000001"},
+                "status": "online",
+                "activities": [{"name": "Custom Status", "type": 4, "state": "In queue"}]
+            }]
+        }"#;
+        let guild: DiscordGuild = serde_json::from_str(raw).unwrap();
+        let client = guild_to_client(&guild);
+        assert_eq!(
+            client.icon_url.as_deref(),
+            Some("https://cdn.discordapp.com/icons/100000000000000010/a1b2c3.png?size=64")
+        );
+        let roster = roster_from_guild(&guild);
+        assert_eq!(roster.len(), 1);
+        assert_eq!(roster[0].nick.as_deref(), Some("Erod"));
+        assert_eq!(roster[0].name, "Ethan");
+        assert_eq!(roster[0].status, "online");
+        assert_eq!(roster[0].custom, "In queue");
+        assert!(roster[0]
+            .avatar_url
+            .as_deref()
+            .unwrap()
+            .starts_with("https://cdn.discordapp.com/avatars/100000000000000001/deadbeef.png"));
+
+        let chunk = serde_json::json!({
+            "guild_id": "100000000000000010",
+            "members": [{
+                "user": {"id": "100000000000000002", "username": "maya", "global_name": "Maya Chen"}
+            }],
+            "presences": [{
+                "user": {"id": "100000000000000002"},
+                "status": "idle",
+                "activities": [{"type": 0, "name": "Battlefield"}]
+            }]
+        });
+        let extra = roster_from_chunk(&chunk);
+        assert_eq!(extra[0].name, "Maya Chen");
+        assert_eq!(extra[0].status, "idle");
+        assert_eq!(extra[0].custom, "Battlefield");
+        assert_eq!(normalize_presence_status("invisible"), "offline");
     }
 }

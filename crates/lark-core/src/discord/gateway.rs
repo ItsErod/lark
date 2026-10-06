@@ -10,13 +10,14 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use crate::redact::redact;
 
 use super::types::{
-    channel_to_client, guild_to_client, message_to_client, user_to_client, ClientChannel,
-    ClientGuild, ClientMessage, ClientUser, DiscordChannel, DiscordGuild, DiscordMessage,
-    DiscordUser,
+    channel_to_client, guild_to_client, message_to_client, roster_from_chunk, roster_from_guild,
+    user_to_client, ClientChannel, ClientGuild, ClientMember, ClientMessage, ClientUser,
+    DiscordChannel, DiscordGuild, DiscordMessage, DiscordUser,
 };
 
 /// Guilds, presence, messages, reactions, typing, and direct messages.
-/// The full member-list intent stays off; members load from the REST list.
+/// The privileged guild-members intent stays off. The sidebar uses members
+/// shipped on GUILD_CREATE, Request Guild Members (op 8), and the REST list.
 pub const CLIENT_INTENTS: u64 = (1 << 0)
     | (1 << 8)
     | (1 << 9)
@@ -114,6 +115,13 @@ pub enum ClientEvent {
         channel_id: String,
         threads: Vec<ClientChannel>,
     },
+    Guild {
+        guild: ClientGuild,
+    },
+    Members {
+        guild_id: String,
+        members: Vec<ClientMember>,
+    },
 }
 
 #[derive(Debug)]
@@ -142,6 +150,10 @@ pub enum GatewayCommand {
         status: String,
         custom: String,
     },
+    /// Ask Discord for the member sidebar of one open server. Op 8.
+    RequestMembers {
+        guild_id: String,
+    },
 }
 
 pub fn gateway_command_payload(command: &GatewayCommand) -> String {
@@ -154,6 +166,16 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
         } => {
             super::voice::main_voice_state(guild_id.as_deref(), channel_id.as_deref(), *mute, *deaf)
         }
+        GatewayCommand::RequestMembers { guild_id } => json!({
+            "op": 8,
+            "d": {
+                "guild_id": guild_id,
+                "query": "",
+                "limit": 0,
+                "presences": true
+            }
+        })
+        .to_string(),
         GatewayCommand::Presence { status, custom } => {
             let activities = if custom.is_empty() {
                 Vec::<serde_json::Value>::new()
@@ -588,12 +610,31 @@ fn handle_dispatch(
         }
         "GUILD_CREATE" => {
             if let Ok(guild) = serde_json::from_value::<DiscordGuild>(data.clone()) {
+                let roster = roster_from_guild(&guild);
+                let guild_id = guild.id.clone();
+                emit(ClientEvent::Guild {
+                    guild: guild_to_client(&guild),
+                });
                 if !guild.channels.is_empty() {
                     emit(ClientEvent::Channels {
-                        guild_id: guild.id.clone(),
+                        guild_id: guild_id.clone(),
                         channels: guild.channels.iter().map(channel_to_client).collect(),
                     });
                 }
+                if !roster.is_empty() {
+                    emit(ClientEvent::Members {
+                        guild_id,
+                        members: roster,
+                    });
+                }
+            }
+            false
+        }
+        "GUILD_MEMBERS_CHUNK" => {
+            let guild_id = json_str(data, "guild_id");
+            let members = roster_from_chunk(data);
+            if !guild_id.is_empty() && !members.is_empty() {
+                emit(ClientEvent::Members { guild_id, members });
             }
             false
         }
@@ -800,6 +841,44 @@ mod tests {
         let url = gateway_url();
         assert!(url.starts_with("wss://gateway.discord.gg/"));
         assert!(!url.to_lowercase().contains("token"));
+    }
+
+    #[test]
+    fn request_members_is_one_server_and_guild_create_keeps_the_icon() {
+        let payload = gateway_command_payload(&GatewayCommand::RequestMembers {
+            guild_id: "100000000000000010".into(),
+        });
+        let value: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(value["op"], 8);
+        assert_eq!(value["d"]["guild_id"], "100000000000000010");
+        assert_eq!(value["d"]["limit"], 0);
+        assert_eq!(value["d"]["presences"], true);
+        assert_eq!(value["d"]["query"], "");
+
+        let data = json!({
+            "id": "100000000000000010",
+            "name": "Battlefield",
+            "icon": "a1b2c3",
+            "channels": [{"id": "100000000000000021", "type": 0, "name": "general", "position": 0}],
+            "members": [{
+                "nick": null,
+                "user": {"id": "100000000000000001", "username": "ethan", "global_name": "Ethan"}
+            }]
+        });
+        let mut events = Vec::new();
+        let mut session = None;
+        handle_dispatch("GUILD_CREATE", &data, Some(3), &mut session, &mut |event| {
+            events.push(event);
+        });
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::Guild { guild } if guild.icon_url.as_deref() == Some("https://cdn.discordapp.com/icons/100000000000000010/a1b2c3.png?size=64") && guild.name == "Battlefield"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::Members { guild_id, members } if guild_id == "100000000000000010" && members.len() == 1 && members[0].name == "Ethan"
+        )));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::Channels { .. })));
     }
 
     #[test]

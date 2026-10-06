@@ -36,8 +36,10 @@ import {
   validateThemeCss,
 } from "../themes";
 import { rowEstimate, sliceWindow } from "../virtual";
+import { memberNote, mergeGuilds, mergePeople, personFromMember, type RawMember } from "../roster";
+import { nextScrollTop, PANEL_SCROLL_SELECTOR, pixelDelta } from "../scroll";
 import { commandError, previewQr, QR_CAPTION } from "../signin";
-import { clear, colorFor, el, icon, initials, paths } from "./dom";
+import { clear, colorFor, el, icon, initials, portrait, paths } from "./dom";
 import { renderMessage } from "./messages";
 import { patchSignIn, renderSignIn } from "./signin";
 
@@ -136,6 +138,8 @@ class LarkApp {
   private liveChannels: Record<string, Channel[]> = {};
   private liveDms: Channel[] = [];
   private liveMembers: Person[] = [];
+  private membersByGuild: Record<string, Person[]> = {};
+  private memberPhase: Record<string, "loading" | "done"> = {};
   private liveRoles: Record<string, string> = {};
   private userNames: Record<string, string> = {};
   private typingNames: { channelId: string; name: string; until: number }[] = [];
@@ -422,6 +426,35 @@ class LarkApp {
       if (this.messagesEl.scrollTop < 80) void this.loadOlder();
       this.frames.request(() => this.paintMessages());
     });
+    this.root.addEventListener("wheel", (event) => this.onWheel(event), { passive: false, capture: true });
+  }
+
+  /** Keep the wheel inside the panel under the pointer. The window does not scroll. */
+  private onWheel(event: WheelEvent) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      event.preventDefault();
+      return;
+    }
+    const field = target.closest("textarea");
+    if (field instanceof HTMLTextAreaElement && field.scrollHeight > field.clientHeight + 1) return;
+    const scroller = target.closest(PANEL_SCROLL_SELECTOR);
+    if (!(scroller instanceof HTMLElement)) {
+      event.preventDefault();
+      return;
+    }
+    const delta = pixelDelta(event.deltaY, event.deltaMode, scroller.clientHeight);
+    if (!delta) {
+      event.preventDefault();
+      return;
+    }
+    const next = nextScrollTop(scroller.scrollTop, scroller.scrollHeight, scroller.clientHeight, delta);
+    if (next === scroller.scrollTop && scroller.scrollHeight <= scroller.clientHeight + 1) {
+      event.preventDefault();
+      return;
+    }
+    scroller.scrollTop = next;
+    event.preventDefault();
   }
 
   private enterDemo() {
@@ -861,12 +894,32 @@ class LarkApp {
     const dmUnread = this.dms().reduce((sum, dm) => sum + (this.unread[dm.id] ?? 0), 0);
     if (dmUnread) home.append(el("span", "badge", String(dmUnread)));
     home.addEventListener("click", () => this.selectGuild(null));
-    this.rail.append(home, el("div", "rail-spacer"));
+    const servers = el("div", "rail-scroll");
+    servers.setAttribute("aria-label", "Server list");
     for (const guild of this.guilds()) {
-      const button = el("button", `server-button${guild.id === this.guildId ? " is-selected" : ""}`, guild.initials);
+      const selected = guild.id === this.guildId;
+      const button = el("button", `server-button${selected ? " is-selected" : ""}`);
       button.type = "button";
       button.title = guild.name;
-      button.style.background = guild.id === this.guildId ? "" : colorFor(guild.id);
+      button.setAttribute("aria-label", guild.name);
+      const iconUrl = guild.iconUrl?.trim();
+      if (iconUrl) {
+        button.classList.add("has-icon");
+        const img = document.createElement("img");
+        img.src = iconUrl;
+        img.alt = "";
+        img.draggable = false;
+        img.addEventListener("error", () => {
+          img.remove();
+          button.classList.remove("has-icon");
+          button.prepend(document.createTextNode(guild.initials));
+          if (!selected) button.style.background = colorFor(guild.id);
+        });
+        button.append(img);
+      } else {
+        button.textContent = guild.initials;
+        if (!selected) button.style.background = colorFor(guild.id);
+      }
       const badge = this.guildBadge(guild.id);
       if (badge.mentions) button.append(el("span", "badge", String(badge.mentions)));
       else if (badge.count) {
@@ -874,7 +927,7 @@ class LarkApp {
         button.append(el("span", "pip"));
       }
       button.addEventListener("click", () => this.selectGuild(guild.id));
-      this.rail.insertBefore(button, this.rail.lastElementChild);
+      servers.append(button);
     }
     const settings = el("button", "rail-button");
     settings.type = "button";
@@ -882,7 +935,7 @@ class LarkApp {
     settings.setAttribute("aria-label", "Settings");
     settings.append(icon(paths.settings));
     settings.addEventListener("click", () => this.openSettings());
-    this.rail.append(settings);
+    this.rail.append(home, servers, settings);
   }
 
   private guildBadge(guildId: string): { count: number; mentions: number } {
@@ -904,7 +957,10 @@ class LarkApp {
   private selectGuild(id: string | null) {
     this.guildId = id;
     this.drawer = false;
-    if (!this.demo && id) void this.ensureGuild(id);
+    if (!this.demo && id) {
+      this.liveMembers = this.membersByGuild[id] ?? [];
+      void this.ensureGuild(id);
+    }
     const first = this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
     this.paint();
     if (first) void this.openChannel(first.id);
@@ -938,9 +994,7 @@ class LarkApp {
     profile.type = "button";
     profile.setAttribute("aria-label", "Set a status");
     const wrap = el("div", "avatar-wrap");
-    const face = el("div", "avatar sm", initials(me.name));
-    face.style.background = colorFor(me.id);
-    wrap.append(face, el("i", `status ${me.status ?? "online"}`));
+    wrap.append(portrait(me.name, me.id, me.avatarUrl, true), el("i", `status ${me.status ?? "online"}`));
     const who = el("div", "who");
     who.append(el("strong", "", me.name), el("span", "", me.custom || this.connection));
     profile.append(wrap, who);
@@ -963,7 +1017,7 @@ class LarkApp {
       face.style.background = colorFor(channel.id);
       button.append(face);
     }
-    button.append(el("span", "", channel.kind === "voice" ? channel.name : dm ? channel.name : channel.name));
+    button.append(el("span", "row-label", channel.name));
     if (muted) button.append(el("span", "faint", "muted"));
     else if (unread) button.append(el("span", "badge", String(unread)));
     button.addEventListener("click", () => {
@@ -1317,17 +1371,22 @@ class LarkApp {
           ["Offline", "offline"],
         ]
       : [["Members", "any"]];
-    if (!roster.length) scroll.append(el("p", "empty", "Members show up after a server is open."));
+    const note = memberNote(Boolean(this.guildId), roster.length, this.guildId ? this.memberPhase[this.guildId] : undefined);
+    if (note) scroll.append(el("p", "empty", note));
+    const cap = 400;
+    let shown = 0;
     for (const [label, status] of groups) {
       const group = roster.filter((person) => status === "any" || (person.status ?? "offline") === status);
       if (!group.length) continue;
+      const room = Math.max(0, cap - shown);
+      const visible = group.slice(0, room);
+      if (!visible.length) continue;
       scroll.append(el("div", "member-group", `${label} — ${group.length}`));
-      for (const person of group) {
+      shown += visible.length;
+      for (const person of visible) {
         const row = el("div", "member-row");
         const wrap = el("div", "avatar-wrap");
-        const face = el("div", "avatar sm", initials(person.name));
-        face.style.background = colorFor(person.id);
-        wrap.append(face, el("i", `status ${person.status ?? "offline"}`));
+        wrap.append(portrait(person.name, person.id, person.avatarUrl, true), el("i", `status ${person.status ?? "offline"}`));
         const copy = el("div", "member-copy");
         const line = person.custom || (person.id === this.meId() ? "You" : status === "any" ? (person.bot ? "Bot" : "") : statusLabel(person.status));
         copy.append(el("strong", "", person.name), el("span", "", line));
@@ -1340,6 +1399,7 @@ class LarkApp {
         scroll.append(row);
       }
     }
+    if (roster.length > shown) scroll.append(el("p", "empty", `Showing ${shown} of ${roster.length} members.`));
     clear(this.membersEl);
     this.membersEl.append(head, scroll);
   }
@@ -2135,32 +2195,61 @@ class LarkApp {
   }
 
   private async ensureGuild(guildId: string) {
-    if (!this.liveChannels[guildId]) {
-      try {
-        const channels = await invoke<Channel[]>("fetch_guild_channels", { guildId });
-        this.liveChannels[guildId] = channels.map(normalizeChannel);
-      } catch {
-        /* GUILD_CREATE may still fill the list. */
-      }
+    await this.ensureChannels(guildId);
+    await this.ensureMembers(guildId);
+  }
+
+  private async ensureChannels(guildId: string) {
+    if (this.liveChannels[guildId]) return;
+    try {
+      const channels = await invoke<Channel[]>("fetch_guild_channels", { guildId });
+      this.liveChannels[guildId] = channels.map(normalizeChannel);
+      if (this.guildId === guildId) this.paint();
+    } catch {
+      /* GUILD_CREATE may still fill the list. */
     }
+  }
+
+  private async ensureMembers(guildId: string) {
+    if (this.memberPhase[guildId] !== "done") this.memberPhase[guildId] = "loading";
+    void invoke("request_members", { guildId }).catch(() => undefined);
     try {
       const roles = await invoke<{ id: string; name: string }[]>("fetch_roles", { guildId });
       for (const role of roles) this.liveRoles[role.id] = role.name;
-      const members = await invoke<{ id: string; name: string; nick?: string | null; bot: boolean; status: string }[]>("fetch_members", { guildId });
-      const roster = members.map((member) => ({
-        id: member.id,
-        name: member.nick || member.name,
-        bot: member.bot,
-        status: asStatus(member.status),
-      }));
-      for (const person of roster) this.userNames[person.id] = person.name;
-      if (this.guildId === guildId) {
-        this.liveMembers = roster;
-        this.paint();
-      }
     } catch {
-      /* Member list stays empty if Discord refuses the request. */
+      /* Role colors are optional. */
     }
+    try {
+      const members = await invoke<RawMember[]>("fetch_members", { guildId });
+      const roster = members.map(personFromMember).filter((person): person is Person => Boolean(person));
+      if (roster.length) this.storeMembers(guildId, roster);
+    } catch {
+      /* User tokens are often refused on the REST member route. Gateway chunks still fill the sidebar. */
+    }
+    window.setTimeout(() => {
+      if (this.memberPhase[guildId] === "loading" && !(this.membersByGuild[guildId]?.length)) {
+        this.memberPhase[guildId] = "done";
+        if (this.guildId === guildId) this.paintMembers();
+      }
+    }, 8000);
+    if (this.guildId === guildId) this.paintMembers();
+  }
+
+  private storeMembers(guildId: string, incoming: Person[]) {
+    if (!incoming.length) return;
+    this.membersByGuild[guildId] = mergePeople(this.membersByGuild[guildId] ?? [], incoming);
+    this.memberPhase[guildId] = "done";
+    for (const person of this.membersByGuild[guildId]) this.userNames[person.id] = person.name;
+    if (this.guildId === guildId) {
+      this.liveMembers = this.membersByGuild[guildId];
+      this.paintMembers();
+    }
+  }
+
+  private rememberGuild(guild: Guild) {
+    this.liveGuilds = mergeGuilds([guild], this.liveGuilds);
+    this.paintRail();
+    if (guild.id === this.guildId) this.paintChannels();
   }
 
   private onDiscord(payload: unknown) {
@@ -2169,8 +2258,10 @@ class LarkApp {
       kind?: string;
       state?: string;
       detail?: string;
-      user?: { id: string; name: string; bot: boolean };
+      user?: { id: string; name: string; bot: boolean; avatarUrl?: string | null };
       guilds?: Guild[];
+      guild?: Guild;
+      members?: RawMember[];
       dms?: Channel[];
       guildId?: string;
       channels?: Channel[];
@@ -2208,16 +2299,31 @@ class LarkApp {
       this.signInBusy = "";
       this.qrWatching = false;
       if (isTauri()) void invoke("stop_qr_login").catch(() => undefined);
-      this.me = { id: event.user.id, name: event.user.name, bot: event.user.bot, status: "online" };
+      this.me = {
+        id: event.user.id,
+        name: event.user.name,
+        bot: event.user.bot,
+        status: "online",
+        avatarUrl: event.user.avatarUrl,
+      };
       this.userNames[this.me.id] = this.me.name;
-      this.liveGuilds = event.guilds ?? [];
+      this.liveGuilds = mergeGuilds(event.guilds ?? [], this.liveGuilds);
       this.liveDms = (event.dms ?? []).map(normalizeChannel);
       this.connection = "Connected";
-      this.guildId = this.liveGuilds[0]?.id ?? null;
+      if (!this.guildId || !this.liveGuilds.some((guild) => guild.id === this.guildId)) {
+        this.guildId = this.liveGuilds[0]?.id ?? null;
+      }
+      if (this.guildId) this.liveMembers = this.membersByGuild[this.guildId] ?? [];
       this.paint();
-      for (const guild of this.liveGuilds) void this.ensureGuild(guild.id);
+      for (const guild of this.liveGuilds) void this.ensureChannels(guild.id);
+      if (this.guildId) void this.ensureMembers(this.guildId);
       const first = this.visibleChannels().find((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
       if (first) void this.openChannel(first.id);
+    } else if (event.kind === "guild" && event.guild?.id) {
+      this.rememberGuild(event.guild);
+    } else if (event.kind === "members" && event.guildId && event.members) {
+      const roster = event.members.map(personFromMember).filter((person): person is Person => Boolean(person));
+      this.storeMembers(event.guildId, roster);
     } else if (event.kind === "channels" && event.guildId && event.channels) {
       this.liveChannels[event.guildId] = event.channels.map(normalizeChannel);
       if (event.guildId === this.guildId && !this.channelId) {
@@ -2286,12 +2392,18 @@ class LarkApp {
         this.paint();
       }
     } else if (event.kind === "presence" && event.userId) {
-      const person = this.liveMembers.find((item) => item.id === event.userId);
-      if (person) {
-        person.status = asStatus(String((event as { status?: string }).status ?? "offline"));
-        person.custom = String((event as { custom?: string }).custom ?? "");
-        this.paintMembers();
+      const status = asStatus(String((event as { status?: string }).status ?? "offline"));
+      const custom = String((event as { custom?: string }).custom ?? "");
+      const guildId = String((event as { guildId?: string }).guildId ?? "");
+      const buckets = guildId && this.membersByGuild[guildId] ? [this.membersByGuild[guildId]] : Object.values(this.membersByGuild);
+      for (const bucket of buckets) {
+        const person = bucket.find((item) => item.id === event.userId);
+        if (!person) continue;
+        person.status = status;
+        person.custom = custom;
       }
+      if (this.guildId && this.membersByGuild[this.guildId]) this.liveMembers = this.membersByGuild[this.guildId];
+      this.paintMembers();
     } else if (event.kind === "readState" && event.channelId) {
       const mention = Number((event as { mentionCount?: number }).mentionCount ?? 0);
       if (event.channelId !== this.channelId) this.mentions[event.channelId] = mention;

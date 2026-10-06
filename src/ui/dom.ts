@@ -54,6 +54,31 @@ export function colorFor(id: string): string {
   return palette[hash % palette.length];
 }
 
+export function portrait(name: string, id: string, avatarUrl?: string | null, small = false): HTMLElement {
+  const node = el("div", small ? "avatar sm" : "avatar");
+  const url = avatarUrl?.trim();
+  const letters = () => {
+    node.classList.remove("has-image");
+    node.textContent = initials(name);
+    node.style.background = colorFor(id);
+  };
+  if (!url) {
+    letters();
+    return node;
+  }
+  node.classList.add("has-image");
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "";
+  img.draggable = false;
+  img.addEventListener("error", () => {
+    img.remove();
+    letters();
+  });
+  node.append(img);
+  return node;
+}
+
 export function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   if (!parts.length) return "?";

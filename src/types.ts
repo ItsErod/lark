@@ -110,6 +110,7 @@ export interface Person {
   status?: "online" | "idle" | "dnd" | "offline" | "invisible";
   custom?: string;
   color?: string;
+  avatarUrl?: string | null;
 }
 
 export interface Channel {

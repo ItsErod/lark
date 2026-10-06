@@ -8,9 +8,9 @@ Lark is a personal Discord client for one account on macOS and Windows. It is no
 
 Installers are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
-- [macOS universal .dmg](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.2_universal.dmg) — Apple Silicon and Intel
-- [Windows setup .exe](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.2_x64-setup.exe)
-- [Windows .msi](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.2_x64_en-US.msi)
+- [macOS universal .dmg](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.3_universal.dmg) — Apple Silicon and Intel
+- [Windows setup .exe](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.3_x64-setup.exe)
+- [Windows .msi](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.3_x64_en-US.msi)
 
 macOS 11 or newer, or 64-bit Windows 10 or newer. Windows on ARM is not built.
 

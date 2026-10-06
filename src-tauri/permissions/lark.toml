@@ -69,6 +69,11 @@ description = "List members in a server."
 commands.allow = ["fetch_members"]
 
 [[permission]]
+identifier = "allow-request-members"
+description = "Ask Discord for the member list of the open server."
+commands.allow = ["request_members"]
+
+[[permission]]
 identifier = "allow-fetch-messages"
 description = "Load message history."
 commands.allow = ["fetch_messages"]
