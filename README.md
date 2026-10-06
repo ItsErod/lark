@@ -4,7 +4,7 @@ Lark is a small personal Discord client for **one account**, on macOS and Window
 
 **Using Lark can get the Discord account banned.** Discord’s terms do not allow third-party clients that sign in with a user token. This project does not hide that. The token stays in the macOS Keychain or Windows Credential Manager and is sent only to Discord’s API and gateway. It is not logged, not written into the config file, and not given to plugins.
 
-Voice, video, and screen share are not in this version.
+Voice and screen share are in this version. Video calls are not. Screen share sends nothing while the picture is still.
 
 ## Preview without a token
 
@@ -91,7 +91,7 @@ Lark does not include a snippet that reads the token out of the page. Do not pas
 
 macOS asks once for permission, then shows banners and Notification Center alerts. Windows shows Action Center toasts; Focus Assist and quiet hours can hide them. Mute and mention settings are applied before either OS is asked to notify. Your own messages, and messages in the channel you are looking at while the window is focused, stay quiet.
 
-Member presence is not requested, so the live member list does not show online, idle, or do-not-disturb.
+The member list shows online, idle, do-not-disturb, and offline when Discord sends presence. You can set your own status, including a custom line, from the profile chip.
 
 ## Config, themes, shortcuts, plugins
 
@@ -109,6 +109,9 @@ Member presence is not requested, so the live member list does not show online, 
 | Next unread | `alt+shift+down` |
 | Previous / next channel | `alt+up` / `alt+down` |
 | Edit your last message | `arrowup` |
+| Mute | `mod+shift+alt+m` |
+| Deafen | `mod+shift+d` |
+| Push to talk | `` ` `` |
 
 Themes are CSS files that set variables (`--bg-0`, `--text`, `--accent`, and the rest in `themes/modern-dark.css`). Shipped themes: **modern-dark** (the default), **daylight**, **ink-contrast**. Drop another `name.css` in the themes folder; `name` must match `[a-z0-9][a-z0-9-]{0,63}`. The file is picked up while the app is open.
 
@@ -119,6 +122,9 @@ Plugins are local JavaScript files with `function onMessage(message, api)`. They
 - `highlight-mentions` — on by default
 - `code-badge` — on by default
 - `hide-joins` — shipped, off by default
+- `edit-log` — badge after an edit, off by default
+- `collapse-long` — fold messages over 280 characters, off by default
+- `translate` — a local glossary for lines that start with `tr:`, off by default, no network
 
 Enable them under `[plugins]` or in Settings. Treat every plugin as trusted code; `new Function` runs it in the window.
 
@@ -128,7 +134,7 @@ Per-server and per-channel notification overrides live under `[notifications.gui
 
 Lark speaks Discord HTTP API v10 and the JSON gateway as a user account. The identify payload says `browser` and `device` are Lark. It does not pretend to be the official client, and it does not send client fingerprints, super-properties, or captcha workarounds.
 
-Gateway intents are guilds, guild messages, reactions, typing, direct messages, and message content. Presence and the full member list intent are off. If Discord closes the socket with `4014`, Lark reconnects once without the message-content intent. Close `4004` stops the connection. Heartbeats, resume, and a reconnect delay from 1s to 60s are handled in the shell. Message sends are paced, typing is sent at most once every 8 seconds, and REST calls follow Discord’s rate-limit headers. There is no message-ack call, no mass action, and no automation.
+Gateway intents are guilds, presence, guild messages, reactions, typing, direct messages, and message content. The full member-list intent stays off; members still load from REST. If Discord closes the socket with `4014`, Lark reconnects once without the message-content intent. Close `4004` stops the connection. Heartbeats, resume, and a reconnect delay from 1s to 60s are handled in the shell. Message sends are paced, typing is sent at most once every 8 seconds, and REST calls follow Discord’s rate-limit headers. Looking at a channel marks that one channel read. There is no bulk ack sweep, no mass action, and no automation.
 
 Outgoing limits: 2,000 characters, 4 files, 8 MB total.
 
@@ -148,7 +154,7 @@ Frontend tests cover message rendering, shortcuts, notification rules, and platf
 - macOS universal `.app` and `.dmg`
 - Windows x64 NSIS `.exe` and WiX `.msi`
 
-The workflow uses `tauri-apps/tauri-action` and uploads the artifacts to the workflow run. They are unsigned.
+The workflow uses `tauri-apps/tauri-action`. A push of a `v*` tag (v1, v2, …) builds the same installers and attaches the `.dmg`, `.exe`, and `.msi` to a GitHub Release named after the tag. Branch builds do not create a release. The installers are unsigned.
 
 ## Measured size
 
@@ -158,12 +164,52 @@ These numbers are from a local build on Linux x86_64 (WebKitGTK), not estimates,
 - Release shell (`cargo build --release -p lark`): **21 MB** unstripped, **14 MB** after `strip`.
 - Resident memory under Xvfb: the process was up immediately and settled at about **175 MB** RSS (178,600 KB, steady across later samples) roughly **2 seconds** after launch. That includes the WebKit process, not just the Rust binary.
 
+## Speed and memory
+
+The goal is that the app feels immediate. Message lists are windowed, so a long channel keeps a few dozen rows in the DOM. Switching back to a recent channel paints the cached page first. Sends and reactions update the screen before Discord answers. The composer updates its character count without rebuilding the window.
+
+`node scripts/perf.mjs` (with `npm run dev` already running) records startup, channel-switch, composer latency, scroll frame time, and process RSS against the demo. It needs Chrome and `puppeteer-core`. The Linux column is that script on this machine, 6 Oct 2026, demo data in Chrome. macOS (WKWebView) and Windows (WebView2) are estimates from that run.
+
+| | Linux, measured | macOS, estimate | Windows, estimate |
+| --- | --- | --- | --- |
+| Cold start until the demo shell is ready | 91 ms (`window.__lark.ready`) | often in the same range; WKWebView can be a little quicker | similar to macOS |
+| Channel switch, first visit | 35 ms (`#general`, includes the short demo page load) | under 50 ms | under 50 ms |
+| Channel switch, cached | 5–8 ms (`#design-crit` after it had been open) | under 20 ms | under 20 ms |
+| Composer input to the counter | under 1 ms (slowest of five keystrokes, 0.3 ms) | under 16 ms | under 16 ms |
+| Message list scroll | 60 fps over half a second; slowest frame 17 ms; 23 message rows in the DOM | the same windowed list | the same windowed list |
+| JavaScript heap, demo open | about 3 MB used | the webview adds its own heap on top | the webview adds its own heap on top |
+| Resident memory, desktop shell | about 175 MB RSS, Linux WebKitGTK, measured on the v1 shell (see above) | WKWebView often lands around 150–250 MB | WebView2 often lands around 150–250 MB |
+| Idle CPU, channel open, no voice | about 2% of one core for the Chrome process tree | the UI is waiting | the UI is waiting |
+
+The Chrome process tree for that sample was about 950 MB RSS. That figure is Chrome (browser, renderer, and GPU processes). The page heap inside it was about 3 MB. 200 MB remains a soft target for the packaged shell. Recent channels are cached (up to 8), images stay lazy, and a long history keeps a window of rows in the DOM so scrolling stays at 60 fps.
+
+## Voice
+
+Joining a voice channel or a DM call sends gateway opcode 4, then the voice gateway v8 handshake: identify, UDP IP discovery, protocol select, and the AEAD mode Discord requires (`aead_aes256_gcm_rtpsize`, or `aead_xchacha20_poly1305_rtpsize` when AES is absent). Deprecated XSalsa modes are refused. Mute, deafen, push-to-talk, and voice activity are in the UI, with a sensitivity slider and per-person volume. A dropped voice socket reconnects with the same 1–20s cap as the main gateway.
+
+The noise control is a small high-pass gate on PCM, on by default. It is not RNNoise. Echo cancellation is off: a WebRTC audio processor is a lot of CPU for a call that is already this small. Microphone encode and speaker playback are not linked. libopus plus a capture device would add native audio threads, so the UDP socket sends an encrypted Opus silence keepalive every 5 seconds to hold the mapping open, and it sets the speaking flag from push-to-talk or voice activity. Device names are saved for when capture is connected.
+
+## Screen share
+
+Discord does not accept raw dirty rectangles. A share is a full-frame H.264 or VP8 video stream (and newer clients wrap media in DAVE). Lark still refuses to send when the screen is still:
+
+- Thumbnails are luma, 160×90, and tiles are 16×16. An unchanged thumbnail produces **zero packets**, 0 fps, and 0 bitrate.
+- A small edit (under 5% of tiles) plans 5 fps and 200 kbps. Under 25% plans 15 fps and 1.2 Mb/s. Broader motion plans 30 fps and 2.5 Mb/s. One encoded frame per planned tick, not one packet per rectangle. The encoder’s own skip blocks cover the unchanged part of that frame.
+- Capture order is ScreenCaptureKit on macOS, and Windows Graphics Capture then DXGI on Windows. Encoder order is VideoToolbox on macOS, and NVENC, Quick Sync, AMF, then Media Foundation on Windows.
+- Those native capture and hardware-encode sessions are selected by that table and covered by tests. They are not linked into the binary. Wiring ScreenCaptureKit, WGC, and a hardware encoder through Discord’s video/DAVE session is the next step; doing it halfway would still have to emit a codec stream, which is what the scheduler already gates.
+
+Idle bandwidth is 0, measured by the scheduler tests (`packets_for` is 0). Active bandwidth is the plan above, not a capture from a real desktop. Idle CPU for the diff is one pass over a 14 KB thumbnail and then a sleep; a full-screen hardware encode is what would cost CPU, and it does not run while the plan says send nothing. Treat active CPU as an estimate: a hardware encoder at 15 fps is typically well under one core, and at 0 fps it is idle.
+
+## What shipped in v2, and what did not
+
+Shipped: presence and your own status, one-channel read receipts, search over loaded messages (live search hits Discord one query at a time), threads and a forum channel, pins, timestamps, stickers, GIF embeds, code highlighting, an emoji picker that remembers what you use, drag-and-drop and paste uploads, per-channel drafts, split view, a command palette, keyword highlights, IRC density, a per-server accent, a theme editor, three more plugins, a short message cache, a tray icon with an unread count, minimise to tray, and open at login on macOS and Windows.
+
+Not shipped: video calls, stage channels, slash commands, echo cancellation, neural noise suppression, live microphone encode and playback, and the native screen-capture session described above. Windows on ARM is not built. Linux still has no credential store, so the token is not saved.
+
 ## Limitations
 
-- No voice, video, screen share, stage channels, forums, threads, stickers, or slash commands.
-- Unread badges are local to this process. Lark does not mark channels read on Discord’s servers.
-- Markdown is a subset: bold, italic, underline, strike, code, quotes, spoilers, mentions, custom emoji, and links.
-- The member list is the first 100 members and has no live presence.
+- Markdown is a subset: bold, italic, underline, strike, code, quotes, spoilers, mentions, custom emoji, timestamps, and links.
+- The member list is the first 100 members, plus presence updates for people already loaded.
 - Plugins are trusted local scripts.
 - Windows on ARM is not built.
 - Linux has no supported credential store, so the token is not saved.

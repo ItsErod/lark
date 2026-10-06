@@ -1,18 +1,45 @@
 import { outgoingError } from "../compose";
 import { defaultConfig, sanitizeConfig } from "../config";
-import { ARCHIVE, CRIT, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people } from "../demo/data";
+import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
+import { rememberEmoji, frecency, EMOJI, type EmojiUse } from "../emoji";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
+import { commandCatalog, matchCommands } from "../palette";
 import { browserPlatform, fontStack, type PlatformInfo } from "../platform";
 import type { PluginSource } from "../plugins";
 import { describePlugin, buildViewMessage } from "../render/message";
+import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
+import { rowEstimate, sliceWindow } from "../virtual";
 import { clear, colorFor, el, icon, initials, paths } from "./dom";
 import { renderMessage } from "./messages";
 
+interface VoiceMember {
+  id: string;
+  name: string;
+  speaking: boolean;
+  volume: number;
+}
+
+interface VoiceSession {
+  channelId: string;
+  guildId: string | null;
+  name: string;
+  status: "connecting" | "connected" | "reconnecting";
+  muted: boolean;
+  deafened: boolean;
+  members: VoiceMember[];
+}
+
+interface PerfMarks {
+  ready: number;
+  lastSwitch: number;
+  lastInput: number;
+}
+
 type ScrollMode = "none" | "bottom" | "preserve";
-type Section = "appearance" | "layout" | "shortcuts" | "notifications" | "plugins" | "account";
+type Section = "appearance" | "layout" | "voice" | "shortcuts" | "notifications" | "plugins" | "desktop" | "account";
 
 interface LocalFile {
   name: string;
@@ -84,6 +111,26 @@ class LarkApp {
   private settingsEl!: HTMLElement;
   private lightboxEl!: HTMLElement;
   private toastWrap!: HTMLElement;
+  private stage!: HTMLElement;
+  private splitPane!: HTMLElement;
+  private voiceDock!: HTMLElement;
+  private countEl: HTMLElement | null = null;
+  private splitId: string | null = null;
+  private voice: VoiceSession | null = null;
+  private shareOn = false;
+  private shareMotion = false;
+  private pttHeld = false;
+  private recent: string[] = [];
+  private drafts: Record<string, string> = {};
+  private emojiUses: EmojiUse[] = [];
+  private searchOpen = false;
+  private pinsOpen = false;
+  private themeOpen = false;
+  private popout: Person | null = null;
+  private statusOpen = false;
+  private upload = 0;
+  private draftTimer = 0;
+  private virtRaf = 0;
 
   constructor(private root: HTMLElement) {}
 
@@ -98,6 +145,19 @@ class LarkApp {
       }
     }
     this.seedUnreads();
+    this.drafts = readJson("lark.drafts.v1") as Record<string, string>;
+    try {
+      const parsed = JSON.parse(localStorage.getItem("lark.emoji.v1") ?? "[]");
+      if (Array.isArray(parsed)) this.emojiUses = parsed;
+    } catch {
+      this.emojiUses = [];
+    }
+    const cached = readJson("lark.cache.v1") as { pages?: Record<string, RawMessage[]> };
+    if (cached.pages) {
+      for (const [id, messages] of Object.entries(cached.pages)) {
+        if (Array.isArray(messages)) this.pages[id] = messages.slice(-80);
+      }
+    }
     this.build();
     await this.loadPlugins();
     await this.applyTheme();
@@ -105,6 +165,9 @@ class LarkApp {
     if (isTauri()) await this.bootDesktop();
     if (new URLSearchParams(location.search).has("demo")) this.enterDemo();
     else this.paint();
+    const perf = (window as unknown as { __lark?: PerfMarks }).__lark ?? { ready: 0, lastSwitch: 0, lastInput: 0 };
+    perf.ready = performance.now();
+    (window as unknown as { __lark: PerfMarks }).__lark = perf;
     new ResizeObserver(() => {
       const narrow = this.root.clientWidth < 880;
       if (narrow !== this.narrow) {
@@ -193,9 +256,15 @@ class LarkApp {
       void this.send();
     });
     composerWrap.append(composer);
-    chat.append(this.chatHead, this.messagesEl, this.typingEl, composerWrap);
+    this.voiceDock = el("section", "voice-dock");
+    this.voiceDock.hidden = true;
+    chat.append(this.chatHead, this.messagesEl, this.typingEl, this.voiceDock, composerWrap);
+    this.splitPane = el("section", "split");
+    this.splitPane.hidden = true;
+    this.stage = el("div", "stage");
+    this.stage.append(chat, this.splitPane);
     this.membersEl = el("aside", "members");
-    this.shell.append(this.rail, this.channelPane, chat, this.membersEl);
+    this.shell.append(this.rail, this.channelPane, this.stage, this.membersEl);
     this.switcherEl = el("div", "overlay");
     this.switcherEl.hidden = true;
     this.settingsEl = el("div", "overlay");
@@ -217,7 +286,10 @@ class LarkApp {
     this.composer.addEventListener("input", () => {
       this.composer.style.height = "auto";
       this.composer.style.height = `${Math.min(this.composer.scrollHeight, 160)}px`;
-      this.paintComposer();
+      if (this.countEl) this.countEl.textContent = `${[...this.composer.value].length} / 2000`;
+      const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
+      if (perf) perf.lastInput = performance.now();
+      this.saveDraft();
       if (this.demo || !this.channelId) return;
       const now = Date.now();
       if (now - this.typingSent > 8000) {
@@ -225,9 +297,32 @@ class LarkApp {
         void invoke("typing", { channelId: this.channelId });
       }
     });
+    this.composer.addEventListener("paste", (event) => {
+      const files = event.clipboardData?.files;
+      if (files && files.length) {
+        event.preventDefault();
+        void this.takeFiles(files);
+      }
+    });
+    composerWrap.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      composerWrap.classList.add("is-drop");
+    });
+    composerWrap.addEventListener("dragleave", () => composerWrap.classList.remove("is-drop"));
+    composerWrap.addEventListener("drop", (event) => {
+      event.preventDefault();
+      composerWrap.classList.remove("is-drop");
+      void this.takeFiles(event.dataTransfer?.files ?? null);
+    });
     window.addEventListener("keydown", (event) => this.onKey(event));
+    window.addEventListener("keyup", (event) => this.onKeyUp(event));
     this.messagesEl.addEventListener("scroll", () => {
-      if (this.messagesEl.scrollTop < 40) void this.loadOlder();
+      if (this.messagesEl.scrollTop < 80) void this.loadOlder();
+      if (this.virtRaf) return;
+      this.virtRaf = window.requestAnimationFrame(() => {
+        this.virtRaf = 0;
+        this.paintMessages();
+      });
     });
   }
 
@@ -250,6 +345,8 @@ class LarkApp {
       this.paintChannels();
       this.paintHeader();
       this.paintMessages();
+      this.paintSplit();
+      this.paintVoice();
       this.paintMembers();
       this.paintComposer();
     }
@@ -260,6 +357,9 @@ class LarkApp {
     const appearance = this.config.appearance;
     this.root.dataset.density = appearance.density;
     this.root.dataset.narrow = this.narrow ? "on" : "off";
+    const guild = this.guilds().find((item) => item.id === this.guildId);
+    const accent = (guild && this.config.accents[guild.id]) || guild?.accent;
+    if (accent) this.root.style.setProperty("--accent", accent);
     this.root.dataset.drawer = this.drawer ? "on" : "off";
     this.root.style.setProperty("--ui-size", `${appearance.font_size}px`);
     this.root.style.fontFamily = fontStack(appearance.font_family);
@@ -269,6 +369,10 @@ class LarkApp {
     this.rail.hidden = !appearance.show_server_rail;
     this.channelPane.hidden = appearance.channel_list === "hidden" && !this.drawer;
     this.membersEl.hidden = !appearance.show_member_list || !this.guildId || this.narrow;
+    if (this.stage) {
+      this.stage.classList.toggle("is-split", Boolean(this.splitId) && !this.narrow);
+      this.splitPane.hidden = !this.splitId || this.narrow;
+    }
     if (this.narrow) {
       this.shell.style.gridTemplateColumns = `${rail} minmax(0, 1fr)`;
       this.shell.style.gridTemplateAreas = `"rail chat"`;
@@ -458,14 +562,21 @@ class LarkApp {
       }
     }
     const me = this.demo ? people[0] : this.me;
-    const profile = el("div", "profile-chip");
+    const profile = el("button", "profile-chip");
+    profile.type = "button";
+    profile.setAttribute("aria-label", "Set a status");
     const wrap = el("div", "avatar-wrap");
     const face = el("div", "avatar sm", initials(me.name));
     face.style.background = colorFor(me.id);
-    wrap.append(face, el("i", "status online"));
+    wrap.append(face, el("i", `status ${me.status ?? "online"}`));
     const who = el("div", "who");
-    who.append(el("strong", "", me.name), el("span", "", this.connection));
+    who.append(el("strong", "", me.name), el("span", "", me.custom || this.connection));
     profile.append(wrap, who);
+    profile.addEventListener("click", () => {
+      this.statusOpen = !this.statusOpen;
+      this.popout = this.statusOpen ? me : null;
+      this.paintPopout();
+    });
     this.channelPane.append(head, scroll, profile);
   }
 
@@ -486,7 +597,7 @@ class LarkApp {
     button.addEventListener("click", () => {
       this.drawer = false;
       if (channel.kind === "voice") {
-        this.toast("Voice isn't in this version", "Text, images, and DMs are here. Voice can wait.");
+        this.joinVoice(channel);
         return;
       }
       void this.openChannel(channel.id);
@@ -500,6 +611,9 @@ class LarkApp {
   }
 
   private async openChannel(id: string) {
+    const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
+    if (perf) perf.lastSwitch = -1;
+    const started = performance.now();
     this.channelId = id;
     this.error = null;
     this.reply = null;
@@ -510,7 +624,7 @@ class LarkApp {
       this.loading = true;
       this.paint();
       try {
-        await delay(this.demo ? 160 : 0);
+        await delay(this.pages[id] ? 0 : this.demo ? 16 : 0);
         if (id === ARCHIVE) throw new Error("Couldn't load messages in #archive.");
         const page = this.demo
           ? pageMessages(history[id] ?? [], undefined, 20)
@@ -528,9 +642,19 @@ class LarkApp {
     this.unread[id] = 0;
     this.mentions[id] = 0;
     this.scroll = "bottom";
+    const draft = this.drafts[id];
+    if (draft !== undefined && !this.editing) this.composer.value = draft;
+    this.recent = [id, ...this.recent.filter((item) => item !== id)].slice(0, 6);
+    if (!this.demo && (this.pages[id]?.length ?? 0) > 0) {
+      const last = this.pages[id][this.pages[id].length - 1];
+      void invoke("ack_message", { channelId: id, messageId: last.id }).catch(() => undefined);
+    }
     this.openedAt = performance.now();
     this.msgSig = "";
     this.paint();
+    this.prefetchAround(id);
+    this.syncBadge();
+    if (perf) perf.lastSwitch = performance.now() - started;
   }
 
   private async livePage(id: string, before?: string): Promise<{ messages: RawMessage[]; hasMore: boolean }> {
@@ -587,10 +711,39 @@ class LarkApp {
     const actions = el("div", "head-actions");
     const search = el("button", "icon-button");
     search.type = "button";
-    search.title = `Quick switcher (${formatShortcut(this.config.shortcuts.quick_switcher, this.platform.os)})`;
-    search.setAttribute("aria-label", "Quick switcher");
+    search.title = `Command palette (${formatShortcut(this.config.shortcuts.quick_switcher, this.platform.os)})`;
+    search.setAttribute("aria-label", "Command palette");
     search.append(icon(paths.search));
     search.addEventListener("click", () => this.openSwitcher());
+    const find = el("button", "icon-button");
+    find.type = "button";
+    find.setAttribute("aria-label", "Search messages");
+    find.append(icon(paths.search));
+    find.addEventListener("click", () => {
+      this.searchOpen = true;
+      this.paintSearch();
+    });
+    const pin = el("button", "icon-button");
+    pin.type = "button";
+    pin.setAttribute("aria-label", "Pinned messages");
+    pin.textContent = "Pin";
+    pin.addEventListener("click", () => {
+      this.pinsOpen = !this.pinsOpen;
+      this.paintPins();
+    });
+    const split = el("button", `icon-button${this.splitId ? " is-on" : ""}`);
+    split.type = "button";
+    split.setAttribute("aria-label", "Split view");
+    split.append(icon(paths.panels));
+    split.addEventListener("click", () => this.toggleSplit());
+    const theme = el("button", "icon-button");
+    theme.type = "button";
+    theme.setAttribute("aria-label", "Theme editor");
+    theme.textContent = "Aa";
+    theme.addEventListener("click", () => {
+      this.themeOpen = true;
+      this.paintTheme();
+    });
     const members = el("button", `icon-button${this.config.appearance.show_member_list ? " is-on" : ""}`);
     members.type = "button";
     members.setAttribute("aria-label", "Members");
@@ -605,7 +758,7 @@ class LarkApp {
     bell.setAttribute("aria-label", "Notification level");
     bell.append(icon(paths.bell));
     bell.addEventListener("click", () => this.cycleNotify());
-    actions.append(search, members, bell);
+    actions.append(search, find, pin, split, theme, members, bell);
     this.chatHead.append(title, actions);
   }
 
@@ -623,7 +776,9 @@ class LarkApp {
   private paintMessages() {
     const id = this.channelId;
     const list = id ? this.pages[id] ?? [] : [];
-    const sig = `${id}|${this.loading}|${this.error}|${this.pickerFor}|${list.map((message) => `${message.id}:${message.content}:${message.edited}:${message.reactions?.map((r) => r.count + (r.me ? "y" : "n")).join(".")}`).join("~")}`;
+    const row = rowEstimate(this.config.appearance.density);
+    const win = sliceWindow(list.length, this.messagesEl.scrollTop, this.messagesEl.clientHeight || 640, row);
+    const sig = `${id}|${win.start}|${win.end}|${this.loading}|${this.error}|${this.pickerFor}|${this.config.appearance.density}|${list.map((message) => `${message.id}:${message.content}:${message.edited}:${message.reactions?.map((r) => r.count + (r.me ? "y" : "n")).join(".")}`).join("~")}`;
     if (sig === this.msgSig) return;
     this.msgSig = sig;
     const stick = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight < 90;
@@ -653,11 +808,20 @@ class LarkApp {
     } else {
       const ctx = this.renderContext();
       const plugins = this.plugins.filter((plugin) => this.config.plugins.enabled.includes(plugin.id));
-      let lastDay = "";
-      let lastAuthor = "";
-      let lastTime = 0;
-      list.forEach((message) => {
-        const view = buildViewMessage(message, ctx, plugins);
+      const slice = list.slice(win.start, win.end);
+      const before = list[win.start - 1];
+      let lastDay = before ? new Date(before.timestamp).toDateString() : "";
+      let lastAuthor = before?.authorId ?? "";
+      let lastTime = before ? new Date(before.timestamp).getTime() : 0;
+      const scroller = el("div", "virtual");
+      scroller.style.minHeight = `${win.total}px`;
+      if (win.start) {
+        const spacer = el("div", "virtual-spacer");
+        spacer.style.height = `${win.start * row}px`;
+        scroller.append(spacer);
+      }
+      slice.forEach((message) => {
+        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords);
         if (!view) return;
         const day = new Date(message.timestamp).toDateString();
         const grouped = view.authorId === lastAuthor && new Date(message.timestamp).getTime() - lastTime < 5 * 60_000 && !view.reply && day === lastDay;
@@ -695,7 +859,9 @@ class LarkApp {
         });
         if (this.pickerFor === message.id) {
           const picker = el("div", "picker");
-          for (const emoji of ["👍", "🔥", "✅", "👀"]) {
+          const ranked = frecency(this.emojiUses, Date.now()).map((item) => item.emoji);
+          const emojis = [...ranked, ...EMOJI.filter((emoji) => !ranked.includes(emoji))].slice(0, 12);
+          for (const emoji of emojis) {
             const button = el("button", "icon-button", emoji);
             button.type = "button";
             button.addEventListener("click", () => this.toggleReaction(message, emoji));
@@ -703,17 +869,28 @@ class LarkApp {
           }
           node.append(picker);
         }
-        this.messagesEl.append(node);
+        scroller.append(node);
         lastDay = day;
         lastAuthor = view.authorId;
         lastTime = new Date(message.timestamp).getTime();
       });
+      const tail = list.length - win.end;
+      if (tail > 0) {
+        const spacer = el("div", "virtual-spacer");
+        spacer.style.height = `${tail * row}px`;
+        scroller.append(spacer);
+      }
+      this.messagesEl.append(scroller);
     }
     const mode = this.scroll;
     this.scroll = "none";
     requestAnimationFrame(() => {
       if (mode === "bottom" || stick) this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
       else if (mode === "preserve") this.messagesEl.scrollTop = prevTop + (this.messagesEl.scrollHeight - prevHeight);
+      if (mode !== "none") {
+        this.msgSig = "";
+        this.paintMessages();
+      }
     });
     const now = Date.now();
     const names = id === CRIT && this.demo ? ["Jonah Adler is typing"] : this.typingNames.filter((item) => item.channelId === id && item.until > now).map((item) => item.name);
@@ -759,8 +936,14 @@ class LarkApp {
         face.style.background = colorFor(person.id);
         wrap.append(face, el("i", `status ${person.status ?? "offline"}`));
         const copy = el("div", "member-copy");
-        copy.append(el("strong", "", person.name), el("span", "", person.id === this.meId() ? "You" : status === "any" ? (person.bot ? "Bot" : "") : statusLabel(person.status)));
+        const line = person.custom || (person.id === this.meId() ? "You" : status === "any" ? (person.bot ? "Bot" : "") : statusLabel(person.status));
+        copy.append(el("strong", "", person.name), el("span", "", line));
         row.append(wrap, copy);
+        row.addEventListener("click", () => {
+          this.popout = person;
+          this.statusOpen = false;
+          this.paintPopout();
+        });
         scroll.append(row);
       }
     }
@@ -833,18 +1016,33 @@ class LarkApp {
       });
       tools.append(chip);
     }
-    const count = el("span", "count", `${[...this.composer.value].length} / 2000`);
+    this.countEl = el("span", "count", `${[...this.composer.value].length} / 2000`);
     const hint = el("span", "hint", "Enter to send");
-    this.composerMeta.append(tools, hint, count);
+    if (this.upload > 0 && this.upload < 100) {
+      const bar = el("div", "upload");
+      bar.style.width = `${this.upload}%`;
+      this.composerMeta.append(bar);
+    }
+    this.composerMeta.append(tools, hint, this.countEl);
   }
 
   private async takeFiles(list: FileList | null) {
     if (!list) return;
-    for (const file of Array.from(list).slice(0, 4)) {
+    const picked = Array.from(list).slice(0, 4);
+    this.upload = 10;
+    this.paintComposer();
+    for (const file of picked) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       this.files.push({ name: file.name, mime: file.type, bytes, url: URL.createObjectURL(file) });
+      this.upload = Math.min(90, this.upload + 30);
+      this.paintComposer();
     }
+    this.upload = 100;
     this.paintComposer();
+    window.setTimeout(() => {
+      this.upload = 0;
+      this.paintComposer();
+    }, 400);
   }
 
   private async send() {
@@ -884,6 +1082,11 @@ class LarkApp {
           size: file.bytes.byteLength,
         })),
       };
+      history[id] = [...(history[id] ?? []), message];
+      this.pages[id] = [...(this.pages[id] ?? []), message];
+      this.msgSig = "";
+      this.scroll = "bottom";
+      this.paintMessages();
       if (!this.demo) {
         const sent = normalizeMessage(await invoke<RawMessage>("send_message", {
           channelId: id,
@@ -893,12 +1096,13 @@ class LarkApp {
         }));
         message.id = sent.id;
         message.attachments = sent.attachments;
+        this.msgSig = "";
       }
-      history[id] = [...(history[id] ?? []), message];
-      this.pages[id] = [...(this.pages[id] ?? []), message];
       this.reply = null;
     }
     this.composer.value = "";
+    if (id) delete this.drafts[id];
+    localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
     this.files = [];
     this.scroll = "bottom";
     this.msgSig = "";
@@ -933,6 +1137,8 @@ class LarkApp {
     const reactions = message.reactions ?? [];
     const existing = reactions.find((reaction) => reaction.emoji === emoji);
     let add = true;
+    this.emojiUses = rememberEmoji(this.emojiUses, emoji, Date.now());
+    localStorage.setItem("lark.emoji.v1", JSON.stringify(this.emojiUses));
     if (existing?.me) {
       existing.count -= 1;
       existing.me = false;
@@ -960,8 +1166,8 @@ class LarkApp {
     clear(this.switcherEl);
     const card = el("div", "switcher-card");
     const input = el("input");
-    input.placeholder = "Jump to a channel or DM";
-    input.setAttribute("aria-label", "Quick switcher");
+    input.placeholder = "Jump, or type a command";
+    input.setAttribute("aria-label", "Command palette");
     const results = el("div", "switcher-results");
     const foot = el("div", "switcher-foot", `${formatShortcut(this.config.shortcuts.quick_switcher, this.platform.os)} to open · Enter to jump · Esc to close`);
     const render = () => {
@@ -990,10 +1196,13 @@ class LarkApp {
     input.focus();
   }
 
-  private switcherHitsCache: { id: string; guildId: string | null; label: string; hint: string }[] = [];
+  private switcherHitsCache: { id: string; guildId: string | null; label: string; hint: string; command?: string }[] = [];
 
   private switcherHits(query: string) {
-    const hits: { id: string; guildId: string | null; label: string; hint: string; score: number }[] = [];
+    const hits: { id: string; guildId: string | null; label: string; hint: string; score: number; command?: string }[] = [];
+    for (const command of matchCommands(query, commandCatalog())) {
+      hits.push({ id: `cmd:${command.id}`, guildId: null, label: command.label, hint: command.hint, score: query.trim() ? 80 : 40, command: command.id });
+    }
     const index = this.demo ? demoChannels : this.liveChannels;
     for (const [guildId, list] of Object.entries(index)) {
       const guild = this.guilds().find((item) => item.id === guildId);
@@ -1009,7 +1218,7 @@ class LarkApp {
       if (score === null) continue;
       hits.push({ id: dm.id, guildId: null, label: dm.name, hint: dm.kind === "group" ? "Group DM" : "Direct message", score });
     }
-    return hits.sort((a, b) => b.score - a.score).slice(0, 12);
+    return hits.sort((a, b) => b.score - a.score).slice(0, 16);
   }
 
   private moveSwitcher(delta: number) {
@@ -1024,7 +1233,12 @@ class LarkApp {
     if (hit) this.commitHit(hit);
   }
 
-  private commitHit(hit: { id: string; guildId: string | null }) {
+  private commitHit(hit: { id: string; guildId: string | null; command?: string }) {
+    if (hit.command) {
+      this.closeSwitcher();
+      this.runCommand(hit.command);
+      return;
+    }
     this.closeSwitcher();
     this.guildId = hit.guildId;
     void this.openChannel(hit.id);
@@ -1056,9 +1270,11 @@ class LarkApp {
     const sections: [Section, string][] = [
       ["appearance", "Appearance"],
       ["layout", "Layout"],
+      ["voice", "Voice"],
       ["shortcuts", "Shortcuts"],
       ["notifications", "Notifications"],
       ["plugins", "Plugins"],
+      ["desktop", "Desktop"],
       ["account", "Account"],
     ];
     for (const [id, label] of sections) {
@@ -1122,7 +1338,7 @@ class LarkApp {
     } else if (this.section === "layout") {
       wrap.append(el("h2", "", "Layout"), el("p", "lede", "Density, panels, and which side the channel list sits on."));
       wrap.append(el("div", "hint", "Density"));
-      wrap.append(this.choice(["cozy", "compact"], this.config.appearance.density, (value) => {
+      wrap.append(this.choice(["cozy", "compact", "irc"], this.config.appearance.density, (value) => {
         this.config.appearance.density = value as AppConfig["appearance"]["density"];
         this.persist();
         this.msgSig = "";
@@ -1143,6 +1359,26 @@ class LarkApp {
         this.config.appearance.show_server_rail = value;
         this.persist();
         this.paint();
+      }));
+    } else if (this.section === "voice") {
+      wrap.append(el("h2", "", "Voice"), el("p", "lede", "Push to talk, voice activity, and a cheap noise gate. Echo cancellation stays off; it needs a heavy audio processor."));
+      wrap.append(this.choice(["vad", "ptt"], this.config.voice.mode, (value) => {
+        this.config.voice.mode = value === "ptt" ? "ptt" : "vad";
+        this.persist();
+      }));
+      const sense = el("input");
+      sense.type = "range";
+      sense.min = "0";
+      sense.max = "100";
+      sense.value = String(this.config.voice.sensitivity);
+      sense.addEventListener("input", () => {
+        this.config.voice.sensitivity = Number(sense.value);
+        this.persist();
+      });
+      wrap.append(el("div", "hint", "Voice activity sensitivity"), sense);
+      wrap.append(this.toggle("Noise suppression", this.config.voice.noise_suppression, (value) => {
+        this.config.voice.noise_suppression = value;
+        this.persist();
       }));
     } else if (this.section === "shortcuts") {
       wrap.append(el("h2", "", "Shortcuts"), el("p", "lede", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys."));
@@ -1171,6 +1407,15 @@ class LarkApp {
       test.type = "button";
       test.addEventListener("click", () => void this.notify("Lark", "Notifications are on. Mute still wins."));
       wrap.append(test);
+      const words = el("input");
+      words.value = this.config.notifications.keywords.join(", ");
+      words.setAttribute("aria-label", "Highlight keywords");
+      words.addEventListener("change", () => {
+        this.config.notifications.keywords = words.value.split(",").map((word) => word.trim()).filter(Boolean).slice(0, 20);
+        this.persist();
+        this.msgSig = "";
+      });
+      wrap.append(el("div", "hint", "Highlight keywords"), words);
       wrap.append(el("div", "platform-grid", ""));
       const grid = wrap.lastElementChild as HTMLElement;
       clear(grid);
@@ -1189,6 +1434,18 @@ class LarkApp {
           this.paintMessages();
         }));
       }
+    } else if (this.section === "desktop") {
+      wrap.append(el("h2", "", "Desktop"), el("p", "lede", "The menu bar or system tray shows the unread count. Closing the window can leave Lark there."));
+      wrap.append(this.toggle("Minimise to tray", this.config.desktop.minimize_to_tray, (value) => {
+        this.config.desktop.minimize_to_tray = value;
+        this.persist();
+        if (isTauri()) void invoke("set_minimize_to_tray", { enabled: value });
+      }));
+      wrap.append(this.toggle("Open at login", this.config.desktop.autostart, (value) => {
+        this.config.desktop.autostart = value;
+        this.persist();
+        if (isTauri()) void invoke("set_autostart", { enabled: value });
+      }));
     } else {
       wrap.append(el("h2", "", "Account"), el("p", "lede", "The token never goes in the config file, logs, or a plugin."));
       const grid = el("div", "platform-grid");
@@ -1331,6 +1588,17 @@ class LarkApp {
     } else if (matchShortcut(event, shortcuts.next_channel, os)) this.cycle(1);
     else if (matchShortcut(event, shortcuts.previous_channel, os)) this.cycle(-1);
     else if (matchShortcut(event, shortcuts.next_unread, os)) this.nextUnread();
+    else if (matchShortcut(event, shortcuts.toggle_mute, os)) {
+      event.preventDefault();
+      this.toggleMute();
+    } else if (matchShortcut(event, shortcuts.toggle_deafen, os)) {
+      event.preventDefault();
+      this.toggleDeafen();
+    } else if (this.voice && this.config.voice.mode === "ptt" && matchShortcut(event, shortcuts.push_to_talk, os)) {
+      event.preventDefault();
+      this.pttHeld = true;
+      this.refreshSpeaking();
+    }
     else if (target === this.composer && matchShortcut(event, shortcuts.edit_last, os) && !this.composer.value) {
       event.preventDefault();
       this.editLast();
@@ -1507,6 +1775,36 @@ class LarkApp {
         this.msgSig = "";
         this.paint();
       }
+    } else if (event.kind === "presence" && event.userId) {
+      const person = this.liveMembers.find((item) => item.id === event.userId);
+      if (person) {
+        person.status = asStatus(String((event as { status?: string }).status ?? "offline"));
+        person.custom = String((event as { custom?: string }).custom ?? "");
+        this.paintMembers();
+      }
+    } else if (event.kind === "readState" && event.channelId) {
+      const mention = Number((event as { mentionCount?: number }).mentionCount ?? 0);
+      if (event.channelId !== this.channelId) this.mentions[event.channelId] = mention;
+      this.syncBadge();
+      this.paintChannels();
+    } else if (event.kind === "voiceState") {
+      const userId = event.userId ?? "";
+      const channelId = String((event as { channelId?: string }).channelId ?? "");
+      if (this.voice && userId && userId !== this.meId()) {
+        const existing = this.voice.members.find((member) => member.id === userId);
+        if (channelId && channelId === this.voice.channelId && !existing) {
+          this.voice.members.push({ id: userId, name: this.userNames[userId] ?? "Someone", speaking: false, volume: 100 });
+        }
+        if (existing && !channelId) this.voice.members = this.voice.members.filter((member) => member.id !== userId);
+        this.paintVoice();
+      }
+    } else if (event.kind === "voiceLink" ) {
+      const state = String((event as { state?: string }).state ?? "");
+      if (this.voice && (state === "connected" || state === "connecting" || state === "reconnecting")) {
+        this.voice.status = state;
+        this.paintVoice();
+      }
+      if (state === "left") this.voice = null;
     } else if (event.kind === "typing" && event.channelId && event.userId !== this.meId()) {
       const name = event.username || this.userNames[event.userId ?? ""] || "Someone";
       this.typingNames = this.typingNames.filter((item) => item.channelId !== event.channelId || item.name !== name);
@@ -1514,6 +1812,534 @@ class LarkApp {
       this.paintMessages();
       window.setTimeout(() => this.paintMessages(), 8100);
     }
+  }
+
+  private onKeyUp(event: KeyboardEvent) {
+    if (!this.voice || this.config.voice.mode !== "ptt") return;
+    if (matchShortcut(event, this.config.shortcuts.push_to_talk, this.platform.os)) {
+      this.pttHeld = false;
+      this.refreshSpeaking();
+    }
+  }
+
+  private saveDraft() {
+    const id = this.channelId;
+    if (!id) return;
+    window.clearTimeout(this.draftTimer);
+    this.draftTimer = window.setTimeout(() => {
+      this.drafts[id] = this.composer.value;
+      localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
+    }, 120);
+  }
+
+  private rememberCache() {
+    const pages: Record<string, RawMessage[]> = {};
+    for (const id of this.recent) {
+      const list = this.pages[id];
+      if (list) pages[id] = list.slice(-40).map((message) => ({ ...message, attachments: (message.attachments ?? []).map((file) => ({ ...file, url: file.url.startsWith("blob:") ? "" : file.url })) }));
+    }
+    localStorage.setItem("lark.cache.v1", JSON.stringify({ pages }));
+  }
+
+  private prefetchAround(id: string) {
+    const list = this.visibleChannels().filter((channel) => channel.kind === "text" || channel.kind === "thread" || channel.kind === "forum");
+    const index = list.findIndex((channel) => channel.id === id);
+    const neighbors = [list[index - 1], list[index + 1]].filter(Boolean);
+    const load = () => {
+      for (const channel of neighbors) {
+        if (this.pages[channel.id] || Object.keys(this.pages).length > 8) continue;
+        if (this.demo) {
+          if (channel.id === ARCHIVE) continue;
+          const page = pageMessages(history[channel.id] ?? [], undefined, 20);
+          this.pages[channel.id] = page.messages;
+          this.more[channel.id] = page.hasMore;
+        }
+      }
+      const keys = Object.keys(this.pages);
+      if (keys.length > 8) {
+        for (const key of keys) {
+          if (key !== this.channelId && key !== this.splitId && !this.recent.includes(key)) delete this.pages[key];
+        }
+      }
+      this.rememberCache();
+    };
+    const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 40));
+    idle(load);
+  }
+
+  private joinVoice(channel: Channel) {
+    const self: VoiceMember = { id: this.meId(), name: this.demo ? "Ethan Park" : this.me.name, speaking: false, volume: 100 };
+    const others: VoiceMember[] = this.demo
+      ? booth.map((person) => ({ ...person, volume: this.volumes(person.id) }))
+      : [];
+    this.voice = {
+      channelId: channel.id,
+      guildId: this.guildId,
+      name: channel.name,
+      status: "connecting",
+      muted: false,
+      deafened: false,
+      members: [self, ...others],
+    };
+    this.paintVoice();
+    window.setTimeout(() => {
+      if (!this.voice || this.voice.channelId !== channel.id) return;
+      this.voice.status = "connected";
+      this.refreshSpeaking();
+      this.paintVoice();
+    }, 180);
+    if (!this.demo) {
+      void invoke("join_voice", { guildId: this.guildId, channelId: channel.id, mute: false, deaf: false }).catch((err) => {
+        this.toast("Voice", err instanceof Error ? err.message : "Couldn't join.");
+      });
+    }
+  }
+
+  private volumes(id: string): number {
+    return this.voice?.members.find((member) => member.id === id)?.volume ?? 100;
+  }
+
+  private leaveVoice() {
+    this.voice = null;
+    this.shareOn = false;
+    this.pttHeld = false;
+    if (!this.demo) void invoke("leave_voice").catch(() => undefined);
+    this.paintVoice();
+  }
+
+  private toggleMute() {
+    if (!this.voice) return;
+    this.voice.muted = !this.voice.muted;
+    if (this.voice.muted) this.voice.deafened = false;
+    this.refreshSpeaking();
+    this.pushVoiceState();
+    this.paintVoice();
+  }
+
+  private toggleDeafen() {
+    if (!this.voice) return;
+    this.voice.deafened = !this.voice.deafened;
+    if (this.voice.deafened) this.voice.muted = true;
+    this.refreshSpeaking();
+    this.pushVoiceState();
+    this.paintVoice();
+  }
+
+  private pushVoiceState() {
+    if (!this.voice || this.demo) return;
+    void invoke("set_voice_self", { mute: this.voice.muted, deaf: this.voice.deafened }).catch(() => undefined);
+  }
+
+  private refreshSpeaking() {
+    if (!this.voice) return;
+    const self = this.voice.members[0];
+    if (!self) return;
+    const vad = this.config.voice.mode === "vad" && this.config.voice.sensitivity > 5;
+    self.speaking = !this.voice.muted && (this.config.voice.mode === "ptt" ? this.pttHeld : vad);
+  }
+
+  private toggleSplit() {
+    if (this.splitId) {
+      this.splitId = null;
+    } else {
+      const next = this.visibleChannels().find((channel) => channel.kind !== "voice" && channel.kind !== "category" && channel.id !== this.channelId);
+      this.splitId = next?.id ?? null;
+      if (this.splitId && !this.pages[this.splitId]) void this.preload(this.splitId);
+    }
+    this.paint();
+  }
+
+  private async preload(id: string) {
+    if (this.pages[id] || id === ARCHIVE) return;
+    if (this.demo) {
+      const page = pageMessages(history[id] ?? [], undefined, 20);
+      this.pages[id] = page.messages;
+      this.paintSplit();
+      return;
+    }
+    const page = await this.livePage(id);
+    this.pages[id] = page.messages;
+    this.paintSplit();
+  }
+
+  private runCommand(id: string) {
+    if (id === "settings") this.openSettings();
+    else if (id === "search") {
+      this.searchOpen = true;
+      this.paintSearch();
+    } else if (id === "split") this.toggleSplit();
+    else if (id === "theme") {
+      this.themeOpen = true;
+      this.paintTheme();
+    } else if (id === "mute") this.toggleMute();
+    else if (id === "deafen") this.toggleDeafen();
+    else if (id === "leave-voice") this.leaveVoice();
+    else if (id === "members") {
+      this.config.appearance.show_member_list = !this.config.appearance.show_member_list;
+      this.persist();
+      this.paint();
+    } else if (id === "irc") {
+      this.config.appearance.density = this.config.appearance.density === "irc" ? "cozy" : "irc";
+      this.persist();
+      this.msgSig = "";
+      this.paint();
+    } else if (id === "pins") {
+      this.pinsOpen = true;
+      this.paintPins();
+    } else if (id === "status") {
+      this.statusOpen = true;
+      this.popout = this.demo ? people[0] : this.me;
+      this.paintPopout();
+    }
+  }
+
+  private paintVoice() {
+    const dock = this.voiceDock;
+    if (!dock) return;
+    dock.hidden = !this.voice;
+    clear(dock);
+    if (!this.voice) return;
+    const head = el("div", "voice-head");
+    head.append(el("strong", "", this.voice.name), el("span", "faint", this.voice.status));
+    const leave = el("button", "ghost", "Leave");
+    leave.type = "button";
+    leave.addEventListener("click", () => this.leaveVoice());
+    head.append(leave);
+    dock.append(head);
+    const controls = el("div", "voice-controls");
+    controls.append(this.voiceButton(this.voice.muted ? "Unmute" : "Mute", () => this.toggleMute()));
+    controls.append(this.voiceButton(this.voice.deafened ? "Undeafen" : "Deafen", () => this.toggleDeafen()));
+    controls.append(this.voiceButton(this.config.voice.mode === "ptt" ? "Push to talk" : "Voice activity", () => {
+      this.config.voice.mode = this.config.voice.mode === "ptt" ? "vad" : "ptt";
+      this.persist();
+      this.refreshSpeaking();
+      this.paintVoice();
+    }));
+    dock.append(controls);
+    const sense = el("label", "voice-sense");
+    sense.append(el("span", "", "Sensitivity"));
+    const range = el("input");
+    range.type = "range";
+    range.min = "0";
+    range.max = "100";
+    range.value = String(this.config.voice.sensitivity);
+    range.addEventListener("input", () => {
+      this.config.voice.sensitivity = Number(range.value);
+      this.persist();
+      this.refreshSpeaking();
+    });
+    sense.append(range);
+    dock.append(sense);
+    const devices = el("div", "voice-devices");
+    devices.append(this.deviceSelect("Microphone", ["Default microphone", "Studio USB", "Built-in"], this.config.voice.input_device, (value) => {
+      this.config.voice.input_device = value;
+      this.persist();
+    }));
+    devices.append(this.deviceSelect("Speakers", ["Default speakers", "Headphones"], this.config.voice.output_device, (value) => {
+      this.config.voice.output_device = value;
+      this.persist();
+    }));
+    dock.append(devices);
+    const peopleEl = el("div", "voice-people");
+    for (const member of this.voice.members) {
+      const row = el("div", `voice-person${member.speaking ? " is-speaking" : ""}`);
+      row.append(el("span", "speaking-dot", member.speaking ? "Speaking" : "Quiet"), el("strong", "", member.name));
+      if (member.id !== this.meId()) {
+        const vol = el("input");
+        vol.type = "range";
+        vol.min = "0";
+        vol.max = "200";
+        vol.value = String(member.volume);
+        vol.setAttribute("aria-label", `Volume for ${member.name}`);
+        vol.addEventListener("input", () => {
+          member.volume = Number(vol.value);
+        });
+        row.append(vol);
+      }
+      peopleEl.append(row);
+    }
+    dock.append(peopleEl);
+    const share = el("div", "share-row");
+    const toggle = el("button", this.shareOn ? "text-button is-on" : "text-button", this.shareOn ? "Stop sharing" : "Share screen");
+    toggle.type = "button";
+    toggle.setAttribute("aria-label", "Share screen");
+    toggle.addEventListener("click", () => {
+      this.shareOn = !this.shareOn;
+      this.shareMotion = false;
+      if (!this.demo) void invoke(this.shareOn ? "start_screen_share" : "stop_screen_share").catch(() => undefined);
+      this.paintVoice();
+    });
+    share.append(toggle);
+    if (this.shareOn) {
+      const motion = el("button", "ghost", this.shareMotion ? "Screen is changing" : "Screen is still");
+      motion.type = "button";
+      motion.addEventListener("click", () => {
+        this.shareMotion = !this.shareMotion;
+        this.paintVoice();
+      });
+      const plan = planShare(this.shareMotion ? 0.22 : 0, this.shareMotion ? 4 : 0);
+      const stats = el("p", "share-stats", plan.send
+        ? `${plan.fps} fps · ${formatBitrate(plan.bitrate)} · ${Math.round(plan.dirtyRatio * 100)}% changed · ${encoderName(this.platform.os)}`
+        : `Idle · 0 packets · ${captureBackend(this.platform.os)}`);
+      share.append(motion, stats);
+    }
+    dock.append(share, el("p", "hint", this.config.voice.noise_suppression ? "Noise gate on. Echo cancellation is not running." : "Noise gate off."));
+  }
+
+  private voiceButton(label: string, onClick: () => void): HTMLButtonElement {
+    const button = el("button", "text-button", label);
+    button.type = "button";
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  private deviceSelect(label: string, options: string[], current: string, onChange: (value: string) => void): HTMLElement {
+    const wrap = el("label", "device");
+    wrap.append(el("span", "", label));
+    const select = el("select");
+    for (const option of options) {
+      const node = el("option", "", option);
+      node.value = option;
+      if (option === current) node.selected = true;
+      select.append(node);
+    }
+    select.addEventListener("change", () => onChange(select.value));
+    wrap.append(select);
+    return wrap;
+  }
+
+  private paintSplit() {
+    clear(this.splitPane);
+    if (!this.splitId || this.narrow) return;
+    const channel = this.channelById(this.splitId);
+    const head = el("header", "chat-head");
+    head.append(el("h2", "", channel ? `# ${channel.name}` : "Split"));
+    const close = el("button", "ghost", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => {
+      this.splitId = null;
+      this.paint();
+    });
+    head.append(close);
+    const body = el("div", "messages");
+    const list = this.pages[this.splitId] ?? [];
+    if (!list.length) body.append(el("div", "empty", "Nothing loaded in this pane yet."));
+    else {
+      const ctx = this.renderContext();
+      const plugins = this.plugins.filter((plugin) => this.config.plugins.enabled.includes(plugin.id));
+      for (const message of list.slice(-30)) {
+        const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords);
+        if (!view) continue;
+        body.append(renderMessage(view, {
+          density: this.config.appearance.density,
+          grouped: false,
+          showDay: false,
+          divider: false,
+          remoteEmoji: !this.demo,
+          mine: false,
+          onReply: () => undefined,
+          onEdit: () => undefined,
+          onDelete: () => undefined,
+          onReact: () => undefined,
+          onImage: (url) => {
+            this.lightbox = url;
+            this.paintLightbox();
+          },
+        }));
+      }
+    }
+    this.splitPane.append(head, body);
+  }
+
+  private channelById(id: string): Channel | undefined {
+    return [...this.visibleChannels(), ...this.dms()].find((channel) => channel.id === id);
+  }
+
+  private paintSearch() {
+    let overlay = document.getElementById("lark-search");
+    if (!this.searchOpen) {
+      overlay?.remove();
+      return;
+    }
+    if (!overlay) {
+      overlay = el("div", "overlay");
+      overlay.id = "lark-search";
+      this.root.append(overlay);
+    }
+    clear(overlay);
+    const card = el("div", "switcher-card");
+    const input = el("input");
+    input.placeholder = "Search this server";
+    input.setAttribute("aria-label", "Search messages");
+    const results = el("div", "switcher-results");
+    const render = () => {
+      clear(results);
+      const query = input.value.trim().toLowerCase();
+      const pools = this.demo ? Object.values(history).flat() : Object.values(this.pages).flat();
+      const hits = pools.filter((message) => query && message.content.toLowerCase().includes(query)).slice(0, 20);
+      if (!query) results.append(el("div", "empty", "Type to search loaded messages. A live server uses Discord search, one query at a time."));
+      else if (!hits.length) results.append(el("div", "empty", "No matches in what's loaded."));
+      for (const hit of hits) {
+        const button = el("button", "switcher-hit");
+        button.type = "button";
+        button.append(el("strong", "", hit.authorName), el("span", "faint", hit.content.slice(0, 120)));
+        button.addEventListener("click", () => {
+          this.searchOpen = false;
+          this.paintSearch();
+          void this.openChannel(hit.channelId);
+        });
+        results.append(button);
+      }
+    };
+    input.addEventListener("input", render);
+    card.append(input, results);
+    overlay.append(card);
+    overlay.onclick = (event) => {
+      if (event.target === overlay) {
+        this.searchOpen = false;
+        this.paintSearch();
+      }
+    };
+    render();
+    input.focus();
+  }
+
+  private paintPins() {
+    let panel = document.getElementById("lark-pins");
+    if (!this.pinsOpen || !this.channelId) {
+      panel?.remove();
+      return;
+    }
+    if (!panel) {
+      panel = el("aside", "pins");
+      panel.id = "lark-pins";
+      this.stage.append(panel);
+    }
+    clear(panel);
+    panel.append(el("h2", "", "Pins"));
+    const ids = this.demo ? demoPins[this.channelId] ?? [] : [];
+    const list = (this.pages[this.channelId] ?? history[this.channelId] ?? []).filter((message) => ids.includes(message.id));
+    if (!list.length) panel.append(el("p", "empty", "Nothing pinned in this channel."));
+    for (const message of list) panel.append(el("p", "", `${message.authorName}: ${message.content.slice(0, 140)}`));
+    if (!this.demo && this.channelId) {
+      void invoke<RawMessage[]>("fetch_pins", { channelId: this.channelId }).then((messages) => {
+        if (!panel) return;
+        for (const message of messages) panel.append(el("p", "", message.content.slice(0, 140)));
+      }).catch(() => undefined);
+    }
+  }
+
+  private paintTheme() {
+    let overlay = document.getElementById("lark-theme-editor");
+    if (!this.themeOpen) {
+      overlay?.remove();
+      return;
+    }
+    if (!overlay) {
+      overlay = el("div", "overlay");
+      overlay.id = "lark-theme-editor";
+      this.root.append(overlay);
+    }
+    clear(overlay);
+    const card = el("div", "theme-editor");
+    card.append(el("h2", "", "Theme editor"));
+    const preview = el("div", "theme-preview");
+    preview.append(el("strong", "", "Northwind"), el("p", "", "The mark sits on ink. Unread stays apricot."));
+    const fields: [string, string][] = [
+      ["--bg-0", "#12110f"],
+      ["--bg-2", "#221f1b"],
+      ["--text", "#f3efe7"],
+      ["--accent", "#e2a15a"],
+    ];
+    for (const [name, fallback] of fields) {
+      const row = el("label", "theme-field");
+      row.append(el("span", "", name));
+      const input = el("input");
+      input.type = "color";
+      input.value = rgbToHex(getComputedStyle(this.root).getPropertyValue(name)) || fallback;
+      input.addEventListener("input", () => {
+        this.root.style.setProperty(name, input.value);
+        preview.style.setProperty(name, input.value);
+        if (name === "--accent" && this.guildId) {
+          this.config.accents[this.guildId] = input.value;
+          this.persist();
+        }
+      });
+      row.append(input);
+      card.append(row);
+    }
+    card.append(preview);
+    const close = el("button", "primary", "Done");
+    close.type = "button";
+    close.addEventListener("click", () => {
+      this.themeOpen = false;
+      this.paintTheme();
+    });
+    card.append(close);
+    overlay.append(card);
+    overlay.onclick = (event) => {
+      if (event.target === overlay) {
+        this.themeOpen = false;
+        this.paintTheme();
+      }
+    };
+  }
+
+  private paintPopout() {
+    let pop = document.getElementById("lark-popout");
+    if (!this.popout) {
+      pop?.remove();
+      return;
+    }
+    if (!pop) {
+      pop = el("div", "popout");
+      pop.id = "lark-popout";
+      this.root.append(pop);
+    }
+    clear(pop);
+    const person = this.popout;
+    pop.append(el("strong", "", person.name), el("div", "", statusLabel(person.status)), person.custom ? el("div", "hint", person.custom) : el("div"));
+    if (this.statusOpen && person.id === this.meId()) {
+      for (const status of ["online", "idle", "dnd", "invisible"] as const) {
+        const button = el("button", "text-button", status);
+        button.type = "button";
+        button.addEventListener("click", () => this.setStatus(status, person.custom ?? ""));
+        pop.append(button);
+      }
+      const custom = el("input");
+      custom.value = person.custom ?? "";
+      custom.placeholder = "Custom status";
+      custom.setAttribute("aria-label", "Custom status");
+      custom.addEventListener("change", () => this.setStatus(person.status ?? "online", custom.value));
+      pop.append(custom);
+    }
+    const close = el("button", "ghost", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => {
+      this.popout = null;
+      this.statusOpen = false;
+      this.paintPopout();
+    });
+    pop.append(close);
+  }
+
+  private setStatus(status: NonNullable<Person["status"]>, custom: string) {
+    this.me = { ...this.me, status, custom };
+    if (this.demo) {
+      people[0].status = status;
+      people[0].custom = custom;
+    } else {
+      void invoke("set_presence", { status: status === "invisible" ? "invisible" : status, custom }).catch(() => undefined);
+    }
+    this.popout = this.me;
+    this.paintChannels();
+    this.paintPopout();
+    this.paintMembers();
+  }
+
+  private syncBadge() {
+    const count = Object.values(this.mentions).reduce((sum, value) => sum + value, 0) + Object.values(this.unread).reduce((sum, value) => sum + value, 0);
+    if (isTauri()) void invoke("set_unread", { count }).catch(() => undefined);
   }
 
   private guildForChannel(channelId: string): string | null {
@@ -1541,7 +2367,24 @@ function statusLabel(status: Person["status"]): string {
   if (status === "dnd") return "Do not disturb";
   if (status === "idle") return "Idle";
   if (status === "online") return "Online";
+  if (status === "invisible") return "Invisible";
   return "Offline";
+}
+
+function readJson(key: string): Record<string, never> & { pages?: Record<string, RawMessage[]> } {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function rgbToHex(value: string): string {
+  const match = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(value);
+  if (!match) return "";
+  const hex = (part: string) => Number(part).toString(16).padStart(2, "0");
+  return `#${hex(match[1])}${hex(match[2])}${hex(match[3])}`;
 }
 
 function normalizeMessage(message: RawMessage): RawMessage {
@@ -1556,7 +2399,7 @@ function normalizeMessage(message: RawMessage): RawMessage {
   };
 }
 
-const CHANNEL_KINDS = new Set<Channel["kind"]>(["text", "voice", "category", "forum", "dm", "group", "announcement"]);
+const CHANNEL_KINDS = new Set<Channel["kind"]>(["text", "voice", "category", "forum", "dm", "group", "announcement", "thread"]);
 
 function normalizeChannel(channel: Channel): Channel {
   return {

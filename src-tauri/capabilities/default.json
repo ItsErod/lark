@@ -26,6 +26,18 @@
     "allow-typing",
     "allow-read-theme",
     "allow-list-themes",
-    "allow-list-plugins"
+    "allow-list-plugins",
+    "allow-join-voice",
+    "allow-leave-voice",
+    "allow-set-voice-self",
+    "allow-set-presence",
+    "allow-ack-message",
+    "allow-fetch-pins",
+    "allow-search-messages",
+    "allow-set-unread",
+    "allow-set-minimize-to-tray",
+    "allow-set-autostart",
+    "allow-start-screen-share",
+    "allow-stop-screen-share"
   ]
 }

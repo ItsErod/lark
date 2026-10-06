@@ -1,11 +1,12 @@
 import type { ViewMessage } from "../render/message";
 import { emojiCdnUrl, formatBytes, type Block, type Inline } from "../render/content";
+import { highlightCode } from "../syntax";
 import { colorFor, el, formatClock, formatDay, icon, initials, paths } from "./dom";
 
 export function renderMessage(
   view: ViewMessage,
   options: {
-    density: "cozy" | "compact";
+    density: "cozy" | "compact" | "irc";
     grouped: boolean;
     showDay: boolean;
     divider: boolean;
@@ -27,7 +28,9 @@ export function renderMessage(
   }
   const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}`);
   article.dataset.id = view.id;
-  if (options.density === "compact") {
+  if (options.density === "irc") {
+    article.classList.add("is-irc");
+  } else if (options.density === "compact") {
     article.append(el("time", "gutter", formatClock(view.timestamp)));
   } else if (!options.grouped) {
     article.append(avatar(view.authorName, view.authorId));
@@ -51,7 +54,17 @@ export function renderMessage(
     reply.append(el("span", "reply-name", view.reply.authorName), el("span", "reply-preview", view.reply.preview));
     body.append(reply);
   }
-  if (options.density === "compact") {
+  if (options.density === "irc") {
+    const line = el("div", "irc-line");
+    line.append(el("time", "gutter", formatClock(view.timestamp)));
+    const name = el("span", "author", view.authorName);
+    name.style.color = colorFor(view.authorId);
+    line.append(name);
+    const text = el("div", "compact-text");
+    renderBlocks(text, view.blocks, options.remoteEmoji, view.collapsed);
+    line.append(text);
+    body.append(line);
+  } else if (options.density === "compact") {
     const line = el("div", "compact-line");
     if (!options.grouped) {
       const name = el("span", "author", view.authorName);
@@ -59,13 +72,13 @@ export function renderMessage(
       line.append(name);
     }
     const text = el("div", "compact-text");
-    renderBlocks(text, view.blocks, options.remoteEmoji);
+    renderBlocks(text, view.blocks, options.remoteEmoji, view.collapsed);
     line.append(text);
     if (view.edited) line.append(el("span", "edited", "edited"));
     body.append(line);
   } else {
     const text = el("div", "message-text");
-    renderBlocks(text, view.blocks, options.remoteEmoji);
+    renderBlocks(text, view.blocks, options.remoteEmoji, view.collapsed);
     body.append(text);
   }
   if (view.badges.length) {
@@ -75,6 +88,19 @@ export function renderMessage(
   }
   for (const attachment of view.attachments) body.append(renderAttachment(attachment, options.onImage));
   for (const embed of view.embeds) body.append(renderEmbed(embed, options.remoteEmoji));
+  for (const sticker of view.stickers) {
+    const chip = el("div", "sticker");
+    if (sticker.url) {
+      const img = el("img");
+      img.alt = sticker.name;
+      img.src = sticker.url;
+      img.loading = "lazy";
+      chip.append(img);
+    }
+    chip.append(el("span", "", sticker.name));
+    body.append(chip);
+  }
+  if (view.thread) body.append(el("div", "thread-chip", `Thread · ${view.thread.name} · ${view.thread.count}`));
   if (view.reactions.length) {
     const row = el("div", "reactions");
     for (const reaction of view.reactions) {
@@ -183,21 +209,31 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
   return card;
 }
 
-function renderBlocks(parent: HTMLElement, blocks: Block[], remoteEmoji: boolean) {
+function renderBlocks(parent: HTMLElement, blocks: Block[], remoteEmoji: boolean, collapsed = false) {
+  const host = collapsed ? el("details", "collapse") : parent;
+  if (collapsed) {
+    host.append(el("summary", "", "Long message"));
+    parent.append(host);
+  }
   for (const block of blocks) {
     if (block.t === "pre") {
       const pre = el("pre", "codeblock");
       if (block.lang) pre.append(el("span", "code-lang", block.lang));
-      pre.append(el("code", "", block.v));
-      parent.append(pre);
+      const code = el("code");
+      for (const token of highlightCode(block.lang, block.v)) {
+        const span = el("span", `tok tok-${token.kind}`, token.text);
+        code.append(span);
+      }
+      pre.append(code);
+      host.append(pre);
     } else if (block.t === "quote") {
       const quote = el("blockquote", "quote");
-      renderBlocks(quote, block.c, remoteEmoji);
-      parent.append(quote);
+      renderBlocks(quote, block.c, remoteEmoji, false);
+      host.append(quote);
     } else {
       const paragraph = el("p", "paragraph");
       renderInlines(paragraph, block.c, remoteEmoji);
-      parent.append(paragraph);
+      host.append(paragraph);
     }
   }
 }
@@ -213,6 +249,12 @@ function renderInlines(parent: HTMLElement, nodes: Inline[], remoteEmoji: boolea
     if (node.t === "text") parent.append(document.createTextNode(node.v));
     else if (node.t === "br") parent.append(document.createElement("br"));
     else if (node.t === "code") parent.append(el("code", "inline-code", node.v));
+    else if (node.t === "time") {
+      const stamp = el("time", "discord-time", node.label);
+      stamp.dateTime = new Date(node.unix * 1000).toISOString();
+      stamp.title = node.label;
+      parent.append(stamp);
+    }
     else if (node.t === "strong" || node.t === "em" || node.t === "u" || node.t === "s") {
       parent.append(wrapInline(node.t, node.c, remoteEmoji));
     } else if (node.t === "spoiler") {

@@ -3,6 +3,7 @@ mod paths;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use lark_core::discord::{ClientEvent, DiscordRest};
@@ -11,14 +12,30 @@ use lark_core::Config;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 struct Shared {
     config: Mutex<Config>,
     paths: Resolved,
     rest: Mutex<Option<Arc<DiscordRest>>>,
+    gateway: Mutex<Option<mpsc::UnboundedSender<lark_core::discord::GatewayCommand>>>,
     shutdown: Mutex<Option<watch::Sender<bool>>>,
     _watcher: Mutex<Option<RecommendedWatcher>>,
+    voice: Arc<std::sync::Mutex<VoiceSlot>>,
+    voice_stop: Mutex<Option<watch::Sender<bool>>>,
+    speaking: watch::Sender<bool>,
+    screen_stop: Mutex<Option<watch::Sender<bool>>>,
+    screen_dirty: Arc<AtomicBool>,
+    hide_on_close: Arc<AtomicBool>,
+}
+
+struct VoiceSlot {
+    user_id: String,
+    endpoint: String,
+    token: String,
+    guild_id: String,
+    session_id: String,
+    channel_id: String,
 }
 
 struct Resolved {
@@ -46,6 +63,8 @@ pub fn run() {
                 log::warn!("config ignored: {err}");
                 Config::default()
             });
+            let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
+            let (speaking, _) = watch::channel(false);
             let shared = Shared {
                 config: Mutex::new(config),
                 paths: Resolved {
@@ -54,10 +73,37 @@ pub fn run() {
                     plugins_dir: resolved.plugins_dir,
                 },
                 rest: Mutex::new(None),
+                gateway: Mutex::new(None),
                 shutdown: Mutex::new(None),
                 _watcher: Mutex::new(None),
+                voice: Arc::new(std::sync::Mutex::new(VoiceSlot {
+                    user_id: String::new(),
+                    endpoint: String::new(),
+                    token: String::new(),
+                    guild_id: String::new(),
+                    session_id: String::new(),
+                    channel_id: String::new(),
+                })),
+                voice_stop: Mutex::new(None),
+                speaking,
+                screen_stop: Mutex::new(None),
+                screen_dirty: Arc::new(AtomicBool::new(false)),
+                hide_on_close: hide_on_close.clone(),
             };
             app.manage(shared);
+            if let Some(window) = app.get_webview_window("main") {
+                let hide = hide_on_close.clone();
+                let win = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        if hide.load(Ordering::Relaxed) {
+                            api.prevent_close();
+                            let _ = win.hide();
+                        }
+                    }
+                });
+            }
+            install_tray(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(err) = install_watcher(handle).await {
@@ -86,7 +132,19 @@ pub fn run() {
             typing,
             read_theme,
             list_themes,
-            list_plugins
+            list_plugins,
+            join_voice,
+            leave_voice,
+            set_voice_self,
+            set_presence,
+            ack_message,
+            fetch_pins,
+            search_messages,
+            set_unread,
+            set_minimize_to_tray,
+            set_autostart,
+            start_screen_share,
+            stop_screen_share
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -191,10 +249,48 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     *state.rest.lock().await = Some(rest);
     let (tx, rx) = watch::channel(false);
     *state.shutdown.lock().await = Some(tx);
+    let (gateway_tx, gateway_rx) = mpsc::unbounded_channel();
+    *state.gateway.lock().await = Some(gateway_tx);
     let app_handle = app.clone();
+    let voice_slot = state.voice.clone();
     tauri::async_runtime::spawn(async move {
-        lark_core::discord::run_gateway(token, rx, move |event: ClientEvent| {
-            let _ = app_handle.emit("discord", &event);
+        lark_core::discord::run_gateway(token, rx, gateway_rx, move |event: ClientEvent| {
+            let outbound = match &event {
+                ClientEvent::Ready { user, .. } => {
+                    if let Ok(mut slot) = voice_slot.lock() {
+                        slot.user_id = user.id.clone();
+                    }
+                    serde_json::to_value(&event).ok()
+                }
+                ClientEvent::VoiceServer { guild_id, endpoint, token } => {
+                    if let Ok(mut slot) = voice_slot.lock() {
+                        slot.guild_id = guild_id.clone();
+                        slot.endpoint = endpoint.clone();
+                        slot.token = token.clone();
+                    }
+                    Some(serde_json::json!({
+                        "kind": "voiceServer",
+                        "guildId": guild_id,
+                        "endpoint": endpoint,
+                        "token": ""
+                    }))
+                }
+                ClientEvent::VoiceState { user_id, session_id, guild_id, .. } => {
+                    if let Ok(mut slot) = voice_slot.lock() {
+                        if slot.user_id == *user_id && !session_id.is_empty() {
+                            slot.session_id = session_id.clone();
+                            if !guild_id.is_empty() {
+                                slot.guild_id = guild_id.clone();
+                            }
+                        }
+                    }
+                    serde_json::to_value(&event).ok()
+                }
+                _ => serde_json::to_value(&event).ok(),
+            };
+            if let Some(payload) = outbound {
+                let _ = app_handle.emit("discord", payload);
+            }
         })
         .await;
     });
@@ -211,6 +307,7 @@ async fn disconnect_inner(state: &Shared) {
     if let Some(tx) = state.shutdown.lock().await.take() {
         let _ = tx.send(true);
     }
+    *state.gateway.lock().await = None;
     *state.rest.lock().await = None;
 }
 
@@ -394,6 +491,285 @@ fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginFile>, String> {
 struct PluginFile {
     id: String,
     source: String,
+}
+
+fn install_tray(app: &AppHandle) {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+    let Ok(show) = MenuItem::with_id(app, "show", "Show Lark", true, None::<&str>) else {
+        return;
+    };
+    let Ok(quit) = MenuItem::with_id(app, "quit", "Quit Lark", true, None::<&str>) else {
+        return;
+    };
+    let Ok(menu) = Menu::with_items(app, &[&show, &quit]) else {
+        return;
+    };
+    let mut builder = TrayIconBuilder::with_id("lark").menu(&menu).tooltip("Lark").on_menu_event(|app, event| {
+        match event.id.as_ref() {
+            "quit" => app.exit(0),
+            _ => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+    });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    let _ = builder.build(app);
+}
+
+#[tauri::command]
+async fn join_voice(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    guild_id: Option<String>,
+    channel_id: String,
+    mute: bool,
+    deaf: bool,
+) -> Result<(), String> {
+    stop_voice(&state).await;
+    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    {
+        let mut slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        slot.session_id.clear();
+        slot.token.clear();
+        slot.endpoint.clear();
+        slot.channel_id = channel_id.clone();
+        if let Some(guild) = guild_id.clone() {
+            slot.guild_id = guild;
+        }
+    }
+    gateway
+        .send(lark_core::discord::GatewayCommand::VoiceState {
+            guild_id: guild_id.clone(),
+            channel_id: Some(channel_id.clone()),
+            mute,
+            deaf,
+        })
+        .map_err(|_| "Gateway is closed.".to_string())?;
+    let (tx, rx) = watch::channel(false);
+    *state.voice_stop.lock().await = Some(tx);
+    let speaking = state.speaking.subscribe();
+    let slot = state.voice.clone();
+    let server_id = guild_id.unwrap_or(channel_id);
+    tauri::async_runtime::spawn(async move {
+        let ready = wait_for_voice(&slot, &server_id).await;
+        let Ok(hello) = ready else {
+            let _ = app.emit("discord", serde_json::json!({"kind": "voiceLink", "state": "reconnecting", "detail": "Voice server did not answer"}));
+            return;
+        };
+        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, move |event| {
+            let payload = match event {
+                lark_core::discord::voice_link::VoiceLinkEvent::Status { state, detail } => {
+                    serde_json::json!({"kind": "voiceLink", "state": state, "detail": detail})
+                }
+                lark_core::discord::voice_link::VoiceLinkEvent::Speaking { user_id, speaking } => {
+                    serde_json::json!({"kind": "voiceSpeaking", "userId": user_id, "speaking": speaking})
+                }
+            };
+            let _ = app.emit("discord", payload);
+        })
+        .await;
+    });
+    Ok(())
+}
+
+async fn wait_for_voice(slot: &Arc<std::sync::Mutex<VoiceSlot>>, server_id: &str) -> Result<lark_core::discord::voice_link::VoiceHello, ()> {
+    for _ in 0..40 {
+        if let Ok(guard) = slot.lock() {
+            if !guard.endpoint.is_empty() && !guard.token.is_empty() && !guard.session_id.is_empty() && !guard.user_id.is_empty() {
+                return Ok(lark_core::discord::voice_link::VoiceHello {
+                    endpoint: guard.endpoint.clone(),
+                    server_id: if guard.guild_id.is_empty() { server_id.to_string() } else { guard.guild_id.clone() },
+                    user_id: guard.user_id.clone(),
+                    session_id: guard.session_id.clone(),
+                    token: guard.token.clone(),
+                });
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    Err(())
+}
+
+async fn stop_voice(state: &Shared) {
+    if let Some(tx) = state.voice_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+}
+
+#[tauri::command]
+async fn leave_voice(state: State<'_, Shared>) -> Result<(), String> {
+    stop_voice(&state).await;
+    if let Some(gateway) = state.gateway.lock().await.clone() {
+        let _ = gateway.send(lark_core::discord::GatewayCommand::VoiceState {
+            guild_id: None,
+            channel_id: None,
+            mute: false,
+            deaf: false,
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_voice_self(state: State<'_, Shared>, mute: bool, deaf: bool) -> Result<(), String> {
+    let _ = state.speaking.send(!mute);
+    let (guild_id, channel_id) = {
+        let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        (
+            if slot.guild_id.is_empty() { None } else { Some(slot.guild_id.clone()) },
+            if slot.channel_id.is_empty() { None } else { Some(slot.channel_id.clone()) },
+        )
+    };
+    if let Some(gateway) = state.gateway.lock().await.clone() {
+        let _ = gateway.send(lark_core::discord::GatewayCommand::VoiceState {
+            guild_id,
+            channel_id,
+            mute,
+            deaf,
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_presence(state: State<'_, Shared>, status: String, custom: String) -> Result<(), String> {
+    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    let allowed = ["online", "idle", "dnd", "invisible"];
+    if !allowed.contains(&status.as_str()) {
+        return Err("Unknown status.".into());
+    }
+    gateway
+        .send(lark_core::discord::GatewayCommand::Presence { status, custom })
+        .map_err(|_| "Gateway is closed.".to_string())
+}
+
+#[tauri::command]
+async fn ack_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
+    rest(&state).await?.ack_message(&channel_id, &message_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_pins(state: State<'_, Shared>, channel_id: String) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    rest(&state).await?.pins(&channel_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn search_messages(state: State<'_, Shared>, guild_id: String, query: String) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    rest(&state).await?.search_guild(&guild_id, &query).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn set_unread(app: AppHandle, count: u32) {
+    if let Some(tray) = app.tray_by_id("lark") {
+        let tip = if count == 0 { "Lark".to_string() } else { format!("Lark · {count} unread") };
+        let _ = tray.set_tooltip(Some(tip));
+    }
+}
+
+#[tauri::command]
+fn set_minimize_to_tray(state: State<'_, Shared>, enabled: bool) {
+    state.hide_on_close.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    set_login_item(enabled)
+}
+
+#[tauri::command]
+async fn start_screen_share(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    if let Some(tx) = state.screen_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    let (tx, mut rx) = watch::channel(false);
+    *state.screen_stop.lock().await = Some(tx);
+    let dirty = state.screen_dirty.clone();
+    let os = std::env::consts::OS;
+    tauri::async_runtime::spawn(async move {
+        let capture = lark_core::screen::capture_backends(os).first().copied().unwrap_or("unavailable");
+        let encoder = lark_core::screen::encoder_order(os).first().copied().unwrap_or("software");
+        let still = vec![0u8; 160 * 90];
+        let mut moved = still.clone();
+        moved[0] = 255;
+        loop {
+            if *rx.borrow() {
+                break;
+            }
+            let next = if dirty.load(Ordering::Relaxed) { &moved } else { &still };
+            let plan = lark_core::screen::plan_frame(&still, next, 160);
+            let _ = app.emit(
+                "discord",
+                serde_json::json!({
+                    "kind": "screenShare",
+                    "send": plan.send,
+                    "fps": plan.fps,
+                    "bitrate": plan.bitrate,
+                    "packets": lark_core::screen::packets_for(&plan),
+                    "capture": capture,
+                    "encoder": encoder
+                }),
+            );
+            tokio::select! {
+                changed = rx.changed() => {
+                    if changed.is_err() || *rx.borrow() { break; }
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(lark_core::screen::frame_interval_ms(plan.fps))) => {}
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_screen_share(state: State<'_, Shared>) -> Result<(), String> {
+    if let Some(tx) = state.screen_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    state.screen_dirty.store(false, Ordering::Relaxed);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn set_login_item(enabled: bool) -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|err| err.to_string())?;
+    let path = PathBuf::from(home).join("Library/LaunchAgents/dev.lark.desktop.plist");
+    if !enabled {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let exe = std::env::current_exe().map_err(|err| err.to_string())?;
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>dev.lark.desktop</string><key>ProgramArguments</key><array><string>{}</string></array><key>RunAtLoad</key><true/></dict></plist>\n",
+        exe.display()
+    );
+    fs::write(path, body).map_err(|err| err.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn set_login_item(enabled: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|err| err.to_string())?;
+    let mut command = std::process::Command::new("reg");
+    if enabled {
+        command.args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Lark", "/t", "REG_SZ", "/d", &exe.display().to_string(), "/f"]);
+    } else {
+        command.args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Lark", "/f"]);
+    }
+    let status = command.status().map_err(|err| err.to_string())?;
+    if status.success() { Ok(()) } else { Err("Could not update login items.".into()) }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn set_login_item(_enabled: bool) -> Result<(), String> {
+    Err("Open at login is available in the macOS and Windows apps.".into())
 }
 
 fn list_stems(dir: &std::path::Path, ext: &str) -> Vec<String> {

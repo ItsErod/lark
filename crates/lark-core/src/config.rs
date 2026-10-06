@@ -20,6 +20,9 @@ pub struct Config {
     pub shortcuts: Shortcuts,
     pub notifications: Notifications,
     pub plugins: Plugins,
+    pub voice: Voice,
+    pub desktop: Desktop,
+    pub accents: BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -29,6 +32,9 @@ impl Default for Config {
             shortcuts: Shortcuts::default(),
             notifications: Notifications::default(),
             plugins: Plugins::default(),
+            voice: Voice::default(),
+            desktop: Desktop::default(),
+            accents: BTreeMap::new(),
         }
     }
 }
@@ -36,6 +42,20 @@ impl Default for Config {
 impl Config {
     pub fn normalize(mut self) -> Self {
         self.appearance.font_size = self.appearance.font_size.clamp(12, 20);
+        self.voice.sensitivity = self.voice.sensitivity.min(100);
+        self.notifications.keywords = self
+            .notifications
+            .keywords
+            .into_iter()
+            .map(|word| word.trim().to_string())
+            .filter(|word| !word.is_empty() && word.len() <= 40)
+            .take(20)
+            .collect();
+        self.accents.retain(|id, color| {
+            (5..=22).contains(&id.len())
+                && id.chars().all(|c| c.is_ascii_digit())
+                && is_hex_color(color)
+        });
         self
     }
 }
@@ -71,6 +91,7 @@ impl Default for Appearance {
 pub enum Density {
     Cozy,
     Compact,
+    Irc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +123,9 @@ pub struct Shortcuts {
     pub previous_channel: String,
     pub next_channel: String,
     pub edit_last: String,
+    pub toggle_mute: String,
+    pub toggle_deafen: String,
+    pub push_to_talk: String,
 }
 
 impl Default for Shortcuts {
@@ -116,12 +140,15 @@ impl Default for Shortcuts {
             previous_channel: "alt+up".into(),
             next_channel: "alt+down".into(),
             edit_last: "arrowup".into(),
+            toggle_mute: "mod+shift+alt+m".into(),
+            toggle_deafen: "mod+shift+d".into(),
+            push_to_talk: "backquote".into(),
         }
     }
 }
 
 impl Shortcuts {
-    pub fn entries(&self) -> [(&str, &str); 9] {
+    pub fn entries(&self) -> [(&str, &str); 12] {
         [
             ("quick_switcher", self.quick_switcher.as_str()),
             ("open_settings", self.open_settings.as_str()),
@@ -132,6 +159,9 @@ impl Shortcuts {
             ("previous_channel", self.previous_channel.as_str()),
             ("next_channel", self.next_channel.as_str()),
             ("edit_last", self.edit_last.as_str()),
+            ("toggle_mute", self.toggle_mute.as_str()),
+            ("toggle_deafen", self.toggle_deafen.as_str()),
+            ("push_to_talk", self.push_to_talk.as_str()),
         ]
     }
 }
@@ -156,6 +186,7 @@ pub struct Notifications {
     pub default: NotifyLevel,
     pub guilds: BTreeMap<String, NotifyOverride>,
     pub channels: BTreeMap<String, NotifyOverride>,
+    pub keywords: Vec<String>,
 }
 
 impl Default for Notifications {
@@ -164,8 +195,67 @@ impl Default for Notifications {
             default: NotifyLevel::All,
             guilds: BTreeMap::new(),
             channels: BTreeMap::new(),
+            keywords: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VoiceMode {
+    Vad,
+    Ptt,
+}
+
+impl Default for VoiceMode {
+    fn default() -> Self {
+        Self::Vad
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Voice {
+    pub mode: VoiceMode,
+    pub sensitivity: u8,
+    pub noise_suppression: bool,
+    pub input_device: String,
+    pub output_device: String,
+}
+
+impl Default for Voice {
+    fn default() -> Self {
+        Self {
+            mode: VoiceMode::Vad,
+            sensitivity: 45,
+            noise_suppression: true,
+            input_device: String::new(),
+            output_device: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Desktop {
+    pub minimize_to_tray: bool,
+    pub autostart: bool,
+}
+
+impl Default for Desktop {
+    fn default() -> Self {
+        Self {
+            minimize_to_tray: true,
+            autostart: false,
+        }
+    }
+}
+
+fn is_hex_color(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 7
+        && bytes[0] == b'#'
+        && bytes[1..].iter().all(|c| c.is_ascii_hexdigit())
 }
 
 impl Notifications {

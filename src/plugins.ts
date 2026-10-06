@@ -7,6 +7,9 @@ export interface PluginMessage {
   highlights: string[];
   badges: string[];
   hidden?: boolean;
+  edited?: boolean;
+  collapsed?: boolean;
+  channelId?: string;
 }
 
 export interface PluginSource {
@@ -57,6 +60,9 @@ export function runPlugin(source: string, message: PluginMessage): PluginMessage
       badge(target, kind) {
         pushTag(target.badges, kind);
       },
+      collapse(target) {
+        target.collapsed = true;
+      },
     };
     return sanitizeResult(draft, fn(draft, api));
   } catch {
@@ -67,6 +73,7 @@ export function runPlugin(source: string, message: PluginMessage): PluginMessage
 interface PluginApi {
   highlight(message: PluginMessage, kind: string): void;
   badge(message: PluginMessage, kind: string): void;
+  collapse(message: PluginMessage): void;
 }
 
 function pushTag(list: string[], kind: string) {
@@ -89,6 +96,9 @@ function sanitizeResult(original: PluginMessage, result: unknown): PluginMessage
     kind: typeof record.kind === "string" ? record.kind : original.kind,
     highlights: stringList(record.highlights, original.highlights),
     badges: stringList(record.badges, original.badges),
+    edited: typeof record.edited === "boolean" ? record.edited : original.edited,
+    collapsed: Boolean(record.collapsed || original.collapsed),
+    channelId: original.channelId,
   };
 }
 

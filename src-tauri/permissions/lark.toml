@@ -97,3 +97,63 @@ commands.allow = ["list_themes"]
 identifier = "allow-list-plugins"
 description = "List installed plugins."
 commands.allow = ["list_plugins"]
+
+[[permission]]
+identifier = "allow-join-voice"
+description = "Join a voice channel."
+commands.allow = ["join_voice"]
+
+[[permission]]
+identifier = "allow-leave-voice"
+description = "Leave a voice channel."
+commands.allow = ["leave_voice"]
+
+[[permission]]
+identifier = "allow-set-voice-self"
+description = "Mute or deafen."
+commands.allow = ["set_voice_self"]
+
+[[permission]]
+identifier = "allow-set-presence"
+description = "Set your status."
+commands.allow = ["set_presence"]
+
+[[permission]]
+identifier = "allow-ack-message"
+description = "Mark one channel read."
+commands.allow = ["ack_message"]
+
+[[permission]]
+identifier = "allow-fetch-pins"
+description = "List pinned messages."
+commands.allow = ["fetch_pins"]
+
+[[permission]]
+identifier = "allow-search-messages"
+description = "Search one server."
+commands.allow = ["search_messages"]
+
+[[permission]]
+identifier = "allow-set-unread"
+description = "Update the tray unread count."
+commands.allow = ["set_unread"]
+
+[[permission]]
+identifier = "allow-set-minimize-to-tray"
+description = "Choose whether closing hides the window."
+commands.allow = ["set_minimize_to_tray"]
+
+[[permission]]
+identifier = "allow-set-autostart"
+description = "Open Lark at login."
+commands.allow = ["set_autostart"]
+
+[[permission]]
+identifier = "allow-start-screen-share"
+description = "Start the screen share scheduler."
+commands.allow = ["start_screen_share"]
+
+[[permission]]
+identifier = "allow-stop-screen-share"
+description = "Stop screen share."
+commands.allow = ["stop_screen_share"]

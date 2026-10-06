@@ -16,7 +16,8 @@ export type Inline =
   | { t: "br" }
   | { t: "mention"; kind: "user" | "role" | "channel" | "everyone"; id: string; label: string; me: boolean }
   | { t: "emoji"; name: string; id: string | null; animated: boolean }
-  | { t: "link"; href: string; label: string };
+  | { t: "link"; href: string; label: string }
+  | { t: "time"; unix: number; style: string; label: string };
 
 export type Block =
   | { t: "p"; c: Inline[] }
@@ -237,6 +238,15 @@ function tryToken(
     const href = trimUrl(match[0]);
     if (isHttp(href)) return { node: { t: "link", href, label: href }, next: i + href.length };
   }
+  match = /^<t:(\d{1,16})(?::([tTdDfFR]))?>/.exec(rest);
+  if (match) {
+    const unix = Number(match[1]);
+    const style = match[2] || "f";
+    return {
+      node: { t: "time", unix, style, label: formatDiscordStamp(unix, style) },
+      next: i + match[0].length,
+    };
+  }
   match = /^@(everyone|here)\b/.exec(rest);
   if (match) {
     flag.me = true;
@@ -254,6 +264,27 @@ function trimUrl(raw: string): string {
 
 function isHttp(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
+}
+
+export function formatDiscordStamp(unix: number, style: string): string {
+  const date = new Date(unix * 1000);
+  if (Number.isNaN(date.getTime())) return "unknown time";
+  if (style === "t") return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  if (style === "T") return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(date);
+  if (style === "d") return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  if (style === "D") return new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(date);
+  if (style === "F") return new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(date);
+  if (style === "R") {
+    const diff = Math.round((date.getTime() - Date.now()) / 1000);
+    const abs = Math.abs(diff);
+    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+    const sign = diff < 0 ? -1 : 1;
+    if (abs < 60) return rtf.format(sign * abs, "second");
+    if (abs < 3600) return rtf.format(sign * Math.round(abs / 60), "minute");
+    if (abs < 86400) return rtf.format(sign * Math.round(abs / 3600), "hour");
+    return rtf.format(sign * Math.round(abs / 86400), "day");
+  }
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 export function emojiCdnUrl(id: string, animated: boolean): string | null {

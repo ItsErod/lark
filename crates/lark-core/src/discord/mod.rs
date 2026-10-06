@@ -1,7 +1,12 @@
 pub mod gateway;
 pub mod rest;
 pub mod types;
+pub mod voice;
+pub mod voice_link;
 
-pub use gateway::{intents_without_message_content, run_gateway, ClientEvent, CLIENT_INTENTS};
+pub use gateway::{
+    gateway_command_payload, intents_without_message_content, run_gateway, ClientEvent,
+    GatewayCommand, CLIENT_INTENTS,
+};
 pub use rest::DiscordRest;
 pub use types::*;

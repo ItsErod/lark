@@ -21,6 +21,9 @@ export function defaultConfig(): AppConfig {
       previous_channel: "alt+up",
       next_channel: "alt+down",
       edit_last: "arrowup",
+      toggle_mute: "mod+shift+alt+m",
+      toggle_deafen: "mod+shift+d",
+      push_to_talk: "backquote",
     },
     notifications: {
       default: "all",
@@ -30,12 +33,22 @@ export function defaultConfig(): AppConfig {
       channels: {
         "100000000000000025": { muted: true },
       },
+      keywords: ["wordmark"],
     },
     plugins: { enabled: ["highlight-mentions", "code-badge"] },
+    voice: {
+      mode: "vad",
+      sensitivity: 45,
+      noise_suppression: true,
+      input_device: "",
+      output_device: "",
+    },
+    desktop: { minimize_to_tray: true, autostart: false },
+    accents: {},
   };
 }
 
-const DENSITIES = new Set<Density>(["cozy", "compact"]);
+const DENSITIES = new Set<Density>(["cozy", "compact", "irc"]);
 const FONTS = new Set<FontFamily>(["inter", "system", "serif", "mono"]);
 const SIDES = new Set<ChannelList>(["left", "right", "hidden"]);
 const LEVELS = new Set<NotifyLevel>(["all", "mentions", "mute"]);
@@ -69,6 +82,33 @@ export function sanitizeConfig(input: unknown): AppConfig {
   }
   if (Array.isArray(raw.plugins?.enabled)) {
     base.plugins.enabled = raw.plugins.enabled.filter((id): id is string => typeof id === "string");
+  }
+  if (Array.isArray(raw.notifications?.keywords)) {
+    base.notifications.keywords = raw.notifications.keywords
+      .filter((word): word is string => typeof word === "string")
+      .map((word) => word.trim())
+      .filter((word) => word.length > 1 && word.length <= 40)
+      .slice(0, 20);
+  }
+  if (raw.voice) {
+    if (raw.voice.mode === "vad" || raw.voice.mode === "ptt") base.voice.mode = raw.voice.mode;
+    if (typeof raw.voice.sensitivity === "number" && Number.isFinite(raw.voice.sensitivity)) {
+      base.voice.sensitivity = Math.min(100, Math.max(0, Math.round(raw.voice.sensitivity)));
+    }
+    if (typeof raw.voice.noise_suppression === "boolean") base.voice.noise_suppression = raw.voice.noise_suppression;
+    if (typeof raw.voice.input_device === "string") base.voice.input_device = raw.voice.input_device.slice(0, 80);
+    if (typeof raw.voice.output_device === "string") base.voice.output_device = raw.voice.output_device.slice(0, 80);
+  }
+  if (raw.desktop) {
+    if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
+    if (typeof raw.desktop.autostart === "boolean") base.desktop.autostart = raw.desktop.autostart;
+  }
+  if (raw.accents && typeof raw.accents === "object") {
+    const accents: Record<string, string> = {};
+    for (const [id, color] of Object.entries(raw.accents)) {
+      if (/^\d{5,22}$/.test(id) && typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color)) accents[id] = color;
+    }
+    base.accents = accents;
   }
   return base;
 }

@@ -3,9 +3,9 @@ import type { Channel, Guild, Person, RawMessage } from "../types";
 export const ME = "100000000000000001";
 
 export const people: Person[] = [
-  { id: ME, name: "Ethan Park", status: "online" },
-  { id: "100000000000000002", name: "Maya Chen", status: "online" },
-  { id: "100000000000000003", name: "Jonah Adler", status: "idle" },
+  { id: ME, name: "Ethan Park", status: "online", custom: "In the booth" },
+  { id: "100000000000000002", name: "Maya Chen", status: "online", custom: "At the desk" },
+  { id: "100000000000000003", name: "Jonah Adler", status: "idle", custom: "Walking the dog" },
   { id: "100000000000000004", name: "Priya Shah", status: "dnd" },
   { id: "100000000000000005", name: "Leo Martins", status: "offline" },
 ];
@@ -13,8 +13,8 @@ export const people: Person[] = [
 const byName = Object.fromEntries(people.map((person) => [person.name, person.id]));
 
 export const guilds: Guild[] = [
-  { id: "100000000000000010", name: "Northwind", initials: "N" },
-  { id: "100000000000000011", name: "Night Market", initials: "NM", mentions: 1 },
+  { id: "100000000000000010", name: "Northwind", initials: "N", accent: "#e2a15a" },
+  { id: "100000000000000011", name: "Night Market", initials: "NM", mentions: 1, accent: "#c46b4a" },
 ];
 
 export const channels: Record<string, Channel[]> = {
@@ -28,6 +28,8 @@ export const channels: Record<string, Channel[]> = {
     { id: "100000000000000028", name: "Voice", kind: "category", position: 6 },
     { id: "100000000000000026", name: "Studio booth", kind: "voice", parentId: "100000000000000028", position: 7 },
     { id: "100000000000000027", name: "archive", kind: "text", parentId: "100000000000000020", position: 8, topic: "This one fails to load, so the error state is reachable" },
+    { id: "100000000000000029", name: "frames", kind: "forum", parentId: "100000000000000020", position: 9, topic: "One post per frame" },
+    { id: "100000000000000036", name: "Wordmark v3", kind: "thread", parentId: "100000000000000029", position: 10, topic: "Forum post" },
   ],
   "100000000000000011": [
     { id: "100000000000000031", name: "vendors", kind: "text", position: 0 },
@@ -132,7 +134,29 @@ const critRich: RawMessage[] = [
       { emoji: "👍", count: 4, me: true },
       { emoji: "🔥", count: 2, me: false },
     ],
+    stickers: [{ name: "Apricot mark", url: "/media/frame.svg" }],
   }),
+  msg("100000000000000236", crit, "Maya Chen", `Crit starts <t:${Math.floor(Date.now() / 1000) + 3600}:R>. The GIF from the booth is below.`, 2, {
+    embeds: [
+      {
+        color: "#e2a15a",
+        title: "Booth loop",
+        description: "A short GIF of the mark on the rail.",
+        image: "/media/frame.svg",
+        footer: "GIF",
+      },
+    ],
+    thread: { id: "100000000000000036", name: "Wordmark v3", count: 3 },
+  }),
+];
+
+export const pins: Record<string, string[]> = {
+  [crit]: ["100000000000000230"],
+};
+
+export const booth = [
+  { id: "100000000000000003", name: "Jonah Adler", speaking: true },
+  { id: "100000000000000002", name: "Maya Chen", speaking: false },
 ];
 
 export const history: Record<string, RawMessage[]> = {
@@ -165,6 +189,11 @@ export const history: Record<string, RawMessage[]> = {
   "100000000000000043": [
     msg("100000000000000430", "100000000000000043", "Priya Shah", "Saturday still good for the ridge?", 200),
     msg("100000000000000431", "100000000000000043", "Jonah Adler", "I'm in if we leave before eight.", 180),
+  ],
+  "100000000000000036": [
+    msg("100000000000000360", "100000000000000036", "Maya Chen", "Forum post for the wordmark. Three replies, kept on the thread.", 50),
+    msg("100000000000000361", "100000000000000036", "Jonah Adler", "The compact gutter still wants the timestamp on the left.", 40),
+    msg("100000000000000362", "100000000000000036", "Ethan Park", "I'll pin the decision in design-crit.", 20),
   ],
 };
 

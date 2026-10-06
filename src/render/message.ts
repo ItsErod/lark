@@ -1,3 +1,4 @@
+import { keywordHits } from "../keywords";
 import { applyPlugins, pluginMeta, type PluginSource } from "../plugins";
 import type { RawEmbed, RawMessage } from "../types";
 import { attachmentKind, parseContent, safeMediaUrl, type Block, type RenderContext } from "./content";
@@ -52,12 +53,16 @@ export interface ViewMessage {
   kind: string;
   pending: boolean;
   failed: boolean;
+  collapsed: boolean;
+  stickers: { name: string; url: string | null }[];
+  thread: { id: string; name: string; count: number } | null;
 }
 
 export function buildViewMessage(
   raw: RawMessage,
   ctx: RenderContext,
   plugins: PluginSource[],
+  keywords: string[] = [],
 ): ViewMessage | null {
   const mentionsMe = Boolean(raw.mentionEveryone || raw.mentionIds?.includes(ctx.meId));
   const transformed = applyPlugins(
@@ -69,6 +74,8 @@ export function buildViewMessage(
       kind: raw.kind ?? "default",
       highlights: [],
       badges: [],
+      edited: Boolean(raw.edited),
+      channelId: raw.channelId,
     },
     plugins,
   );
@@ -95,11 +102,14 @@ export function buildViewMessage(
       me: reaction.me,
     })),
     mentionsMe: transformed.mentionsMe || parsed.mentionsMe,
-    highlights: transformed.highlights,
+    highlights: keywordHits(transformed.content, keywords).length ? [...transformed.highlights, "keyword"] : transformed.highlights,
     badges: transformed.badges,
     kind: transformed.kind,
     pending: false,
     failed: false,
+    collapsed: Boolean(transformed.collapsed),
+    stickers: (raw.stickers ?? []).map((sticker) => ({ name: sticker.name, url: safeMediaUrl(sticker.url) })),
+    thread: raw.thread ?? null,
   };
 }
 

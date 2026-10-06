@@ -337,6 +337,7 @@ pub fn channel_kind_name(kind: i32) -> &'static str {
         15 => "forum",
         1 => "dm",
         3 => "group",
+        10 | 11 | 12 => "thread",
         _ => "text",
     }
 }

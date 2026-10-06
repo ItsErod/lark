@@ -4,7 +4,7 @@
 
 [appearance]
 theme = "modern-dark"          # modern-dark | daylight | ink-contrast | another file in themes/
-density = "cozy"               # cozy | compact
+density = "cozy"               # cozy | compact | irc
 font_family = "inter"          # inter | system | serif | mono
 font_size = 15                 # clamped to 12–20
 channel_list = "left"          # left | right | hidden
@@ -22,9 +22,13 @@ next_unread = "alt+shift+down"
 previous_channel = "alt+up"
 next_channel = "alt+down"
 edit_last = "arrowup"
+toggle_mute = "mod+shift+alt+m"
+toggle_deafen = "mod+shift+d"
+push_to_talk = "backquote"
 
 [notifications]
 default = "all"                # all | mentions | mute
+keywords = ["wordmark"]
 
 # Example overrides. Replace the ids with a server or channel from your account.
 [notifications.guilds.100000000000000011]
@@ -35,3 +39,14 @@ muted = true
 
 [plugins]
 enabled = ["highlight-mentions", "code-badge"]
+
+[voice]
+mode = "vad"                   # vad | ptt
+sensitivity = 45               # 0–100
+noise_suppression = true
+input_device = ""
+output_device = ""
+
+[desktop]
+minimize_to_tray = true
+autostart = false

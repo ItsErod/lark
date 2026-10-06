@@ -37,6 +37,9 @@ export function canonicalKey(key: string): string {
     case " ":
     case "space":
       return "space";
+    case "`":
+    case "backquote":
+      return "backquote";
     default:
       return value;
   }
@@ -45,6 +48,7 @@ export function canonicalKey(key: string): string {
 export function eventKey(event: KeyEventLike): string {
   if (event.key === ",") return "comma";
   if (event.key === " ") return "space";
+  if (event.key === "`" || event.key === "Backquote") return "backquote";
   if (event.key.length === 1) return event.key.toLowerCase();
   return canonicalKey(event.key);
 }
@@ -89,6 +93,7 @@ export function formatShortcut(shortcut: string, os: OsName): string {
       if (value === "ctrl" || value === "control") return mac ? "⌃" : "Ctrl";
       if (value === "meta") return mac ? "⌘" : "Win";
       if (value === "comma") return ",";
+      if (value === "backquote") return "`";
       if (value === "arrowup") return "↑";
       if (value === "arrowdown" || value === "down") return "↓";
       if (value === "arrowleft") return "←";
