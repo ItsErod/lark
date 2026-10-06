@@ -1,0 +1,31 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Lark main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "notification:default",
+    "allow-get-config",
+    "allow-save-config",
+    "allow-app-paths",
+    "allow-has-token",
+    "allow-set-token",
+    "allow-clear-token",
+    "allow-connect",
+    "allow-disconnect",
+    "allow-fetch-guild-channels",
+    "allow-fetch-roles",
+    "allow-fetch-members",
+    "allow-fetch-messages",
+    "allow-send-message",
+    "allow-edit-message",
+    "allow-delete-message",
+    "allow-toggle-reaction",
+    "allow-typing",
+    "allow-read-theme",
+    "allow-list-themes",
+    "allow-list-plugins"
+  ]
+}

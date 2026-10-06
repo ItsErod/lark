@@ -1,0 +1,99 @@
+[[permission]]
+identifier = "allow-get-config"
+description = "Read the Lark config."
+commands.allow = ["get_config"]
+
+[[permission]]
+identifier = "allow-save-config"
+description = "Write the Lark config."
+commands.allow = ["save_config"]
+
+[[permission]]
+identifier = "allow-app-paths"
+description = "Read platform paths and credential-store labels."
+commands.allow = ["app_paths"]
+
+[[permission]]
+identifier = "allow-has-token"
+description = "Check whether a token is stored."
+commands.allow = ["has_token"]
+
+[[permission]]
+identifier = "allow-set-token"
+description = "Save the Discord token in the OS credential store."
+commands.allow = ["set_token"]
+
+[[permission]]
+identifier = "allow-clear-token"
+description = "Remove the stored Discord token."
+commands.allow = ["clear_token"]
+
+[[permission]]
+identifier = "allow-connect"
+description = "Open the Discord gateway."
+commands.allow = ["connect"]
+
+[[permission]]
+identifier = "allow-disconnect"
+description = "Close the Discord gateway."
+commands.allow = ["disconnect"]
+
+[[permission]]
+identifier = "allow-fetch-guild-channels"
+description = "List channels in a server."
+commands.allow = ["fetch_guild_channels"]
+
+[[permission]]
+identifier = "allow-fetch-roles"
+description = "List roles in a server."
+commands.allow = ["fetch_roles"]
+
+[[permission]]
+identifier = "allow-fetch-members"
+description = "List members in a server."
+commands.allow = ["fetch_members"]
+
+[[permission]]
+identifier = "allow-fetch-messages"
+description = "Load message history."
+commands.allow = ["fetch_messages"]
+
+[[permission]]
+identifier = "allow-send-message"
+description = "Send a message."
+commands.allow = ["send_message"]
+
+[[permission]]
+identifier = "allow-edit-message"
+description = "Edit a message."
+commands.allow = ["edit_message"]
+
+[[permission]]
+identifier = "allow-delete-message"
+description = "Delete a message."
+commands.allow = ["delete_message"]
+
+[[permission]]
+identifier = "allow-toggle-reaction"
+description = "Add or remove a reaction."
+commands.allow = ["toggle_reaction"]
+
+[[permission]]
+identifier = "allow-typing"
+description = "Send a typing indicator."
+commands.allow = ["typing"]
+
+[[permission]]
+identifier = "allow-read-theme"
+description = "Read a theme stylesheet."
+commands.allow = ["read_theme"]
+
+[[permission]]
+identifier = "allow-list-themes"
+description = "List installed themes."
+commands.allow = ["list_themes"]
+
+[[permission]]
+identifier = "allow-list-plugins"
+description = "List installed plugins."
+commands.allow = ["list_plugins"]

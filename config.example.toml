@@ -1,0 +1,37 @@
+# Lark config. The desktop app reloads this file when it changes.
+# Saving from Settings rewrites the file and drops comments.
+# Theme files in the themes folder are never rewritten.
+
+[appearance]
+theme = "modern-dark"          # modern-dark | daylight | ink-contrast | another file in themes/
+density = "cozy"               # cozy | compact
+font_family = "inter"          # inter | system | serif | mono
+font_size = 15                 # clamped to 12–20
+channel_list = "left"          # left | right | hidden
+show_member_list = true
+show_server_rail = true
+
+# "mod" is Command on macOS and Ctrl on Windows. Both can be remapped.
+[shortcuts]
+quick_switcher = "mod+k"
+open_settings = "mod+comma"
+toggle_members = "mod+shift+m"
+toggle_channels = "mod+b"
+focus_composer = "mod+l"
+next_unread = "alt+shift+down"
+previous_channel = "alt+up"
+next_channel = "alt+down"
+edit_last = "arrowup"
+
+[notifications]
+default = "all"                # all | mentions | mute
+
+# Example overrides. Replace the ids with a server or channel from your account.
+[notifications.guilds.100000000000000011]
+level = "mentions"
+
+[notifications.channels.100000000000000025]
+muted = true
+
+[plugins]
+enabled = ["highlight-mentions", "code-badge"]

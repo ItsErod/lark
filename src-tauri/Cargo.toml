@@ -1,0 +1,24 @@
+[package]
+name = "lark"
+version = "0.1.0"
+edition = "2021"
+description = "Lark, a small personal Discord client for macOS and Windows"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+lark-core = { path = "../crates/lark-core" }
+env_logger = "0.11"
+log = "0.4"
+notify = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tokio = { version = "1", features = ["sync", "time"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+keyring = "3"

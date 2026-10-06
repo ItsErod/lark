@@ -1,0 +1,26 @@
+/* Lark theme: high contrast ink. Useful on bright Windows laptops and OLED Macs. */
+:root {
+  color-scheme: dark;
+  --bg-0: #000000;
+  --bg-1: #0a0a0a;
+  --bg-2: #000000;
+  --bg-3: #141414;
+  --bg-4: #222222;
+  --line: rgba(255, 255, 255, 0.18);
+  --text: #ffffff;
+  --muted: #d0d0d0;
+  --faint: #a0a0a0;
+  --accent: #ffd15a;
+  --accent-ink: #1a1400;
+  --accent-soft: rgba(255, 209, 90, 0.2);
+  --ok: #7dffb2;
+  --idle: #ffd15a;
+  --busy: #ff8d86;
+  --danger: #ff8d86;
+  --mention-bg: rgba(255, 209, 90, 0.22);
+  --mention-fg: #ffe7a8;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

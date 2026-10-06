@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480">
+  <rect width="800" height="480" fill="#1b1814"/>
+  <circle cx="620" cy="120" r="90" fill="#e2a15a" opacity="0.9"/>
+  <path d="M0 320 C140 260 220 360 360 300 C500 240 560 340 800 280 L800 480 L0 480 Z" fill="#2a241c"/>
+  <path d="M0 380 C180 340 260 420 460 370 C620 330 700 400 800 360 L800 480 L0 480 Z" fill="#3a3126"/>
+  <text x="48" y="78" fill="#f3efe7" font-family="Georgia, serif" font-size="42">Northwind</text>
+  <text x="48" y="118" fill="#e2a15a" font-family="Georgia, serif" font-size="22">wordmark study</text>
+</svg>

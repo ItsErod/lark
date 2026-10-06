@@ -1,0 +1,26 @@
+/* Lark theme: modern dark. Colors and type only. Layout lives in the app. */
+:root {
+  color-scheme: dark;
+  --bg-0: #12110f;
+  --bg-1: #1a1815;
+  --bg-2: #221f1b;
+  --bg-3: #2c2823;
+  --bg-4: #3a342c;
+  --line: rgba(243, 239, 231, 0.08);
+  --text: #f3efe7;
+  --muted: #b1a79a;
+  --faint: #7d7468;
+  --accent: #e2a15a;
+  --accent-ink: #2a1c0c;
+  --accent-soft: rgba(226, 161, 90, 0.16);
+  --ok: #7dcaa0;
+  --idle: #e2b15a;
+  --busy: #e27a72;
+  --danger: #e27a72;
+  --mention-bg: rgba(226, 161, 90, 0.16);
+  --mention-fg: #f3d2a4;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

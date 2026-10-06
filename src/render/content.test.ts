@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+import { attachmentKind, emojiCdnUrl, parseContent, safeMediaUrl, type RenderContext } from "./content";
+
+const ctx: RenderContext = {
+  users: { "42": "Ethan", "7": "Maya" },
+  roles: { "3": "Design" },
+  channels: { "8": "design-crit" },
+  meId: "42",
+};
+
+function textOf(input: string): string {
+  const { blocks } = parseContent(input, ctx);
+  return blocks
+    .map((block) => (block.t === "pre" ? block.v : block.t === "quote" ? "quote" : inlines(block.c)))
+    .join("|");
+}
+
+function inlines(nodes: { t: string; v?: string; c?: { t: string; v?: string }[]; label?: string }[]): string {
+  return nodes
+    .map((node) => {
+      if (node.t === "text" || node.t === "code") return node.v ?? "";
+      if (node.t === "br") return "\n";
+      if (node.t === "mention" || node.t === "link") return node.label ?? "";
+      if (node.c) return inlines(node.c);
+      return "";
+    })
+    .join("");
+}
+
+describe("message rendering", () => {
+  it("keeps plain text and html as text", () => {
+    expect(textOf("hello")).toBe("hello");
+    const parsed = parseContent("<script>alert(1)</script>", ctx);
+    expect(parsed.blocks[0].t).toBe("p");
+    if (parsed.blocks[0].t === "p") {
+      expect(parsed.blocks[0].c).toEqual([{ t: "text", v: "<script>alert(1)</script>" }]);
+    }
+  });
+
+  it("parses emphasis, code, spoilers, quotes, and fences", () => {
+    const bold = parseContent("hello **world**", ctx);
+    expect(bold.blocks[0]).toMatchObject({ t: "p", c: [{ t: "text", v: "hello " }, { t: "strong", c: [{ t: "text", v: "world" }] }] });
+    expect(parseContent("a *b* c", ctx).blocks[0]).toMatchObject({
+      c: [{ t: "text", v: "a " }, { t: "em" }, { t: "text", v: " c" }],
+    });
+    expect(parseContent("a __b__ c", ctx).blocks[0]).toMatchObject({ c: [{ t: "text", v: "a " }, { t: "u" }, { t: "text", v: " c" }] });
+    expect(parseContent("a ~~b~~ c", ctx).blocks[0]).toMatchObject({ c: [{ t: "text", v: "a " }, { t: "s" }, { t: "text", v: " c" }] });
+    const code = parseContent("use `**not bold**` please", ctx);
+    if (code.blocks[0].t === "p") {
+      expect(code.blocks[0].c[1]).toEqual({ t: "code", v: "**not bold**" });
+    }
+    const fence = parseContent("```ts\nconst x = 1;\n```", ctx);
+    expect(fence.blocks[0]).toEqual({ t: "pre", lang: "ts", v: "const x = 1;" });
+    const quote = parseContent("> quoted\n> still", ctx);
+    expect(quote.blocks[0].t).toBe("quote");
+    const spoiler = parseContent("||secret||", ctx);
+    expect(spoiler.blocks[0]).toMatchObject({ c: [{ t: "spoiler" }] });
+    expect(textOf("snake_case_name")).toBe("snake_case_name");
+    expect(textOf("**hello")).toBe("**hello");
+  });
+
+  it("resolves mentions, emoji, and links", () => {
+    const me = parseContent("hey <@42>", ctx);
+    expect(me.mentionsMe).toBe(true);
+    if (me.blocks[0].t === "p") {
+      expect(me.blocks[0].c[1]).toMatchObject({ t: "mention", label: "@Ethan", me: true });
+    }
+    const unknown = parseContent("<@99>", ctx);
+    if (unknown.blocks[0].t === "p") expect(unknown.blocks[0].c[0]).toMatchObject({ label: "@someone" });
+    const channel = parseContent("see <#8>", ctx);
+    if (channel.blocks[0].t === "p") expect(channel.blocks[0].c[1]).toMatchObject({ label: "#design-crit" });
+    const role = parseContent("<@&3>", ctx);
+    if (role.blocks[0].t === "p") expect(role.blocks[0].c[0]).toMatchObject({ label: "@Design" });
+    const emoji = parseContent("<:lark:100000000000000099>", ctx);
+    if (emoji.blocks[0].t === "p") expect(emoji.blocks[0].c[0]).toMatchObject({ t: "emoji", name: "lark", animated: false });
+    const animated = parseContent("<a:wave:100000000000000066>", ctx);
+    if (animated.blocks[0].t === "p") expect(animated.blocks[0].c[0]).toMatchObject({ animated: true, name: "wave" });
+    const link = parseContent("see https://example.com/a.", ctx);
+    if (link.blocks[0].t === "p") {
+      expect(link.blocks[0].c[1]).toEqual({ t: "link", href: "https://example.com/a", label: "https://example.com/a" });
+    }
+    expect(parseContent("@everyone", ctx).mentionsMe).toBe(true);
+  });
+
+  it("classifies attachments and refuses unexpected media hosts", () => {
+    expect(attachmentKind({ name: "frame.png", contentType: "image/png" })).toBe("image");
+    expect(attachmentKind({ name: "notes.pdf", contentType: "application/pdf" })).toBe("file");
+    expect(safeMediaUrl("/media/frame.svg")).toBe("/media/frame.svg");
+    expect(safeMediaUrl("/media/../secret.svg")).toBeNull();
+    expect(safeMediaUrl("javascript:alert(1)")).toBeNull();
+    expect(safeMediaUrl("https://evil.example/a.png")).toBeNull();
+    expect(safeMediaUrl("https://cdn.discordapp.com/attachments/1/2/a.png")).toContain("cdn.discordapp.com");
+    expect(emojiCdnUrl("100000000000000099", false)).toContain("/emojis/100000000000000099.webp");
+    expect(emojiCdnUrl("../x", false)).toBeNull();
+  });
+});
