@@ -264,6 +264,9 @@ pub struct Desktop {
     pub autostart: bool,
     /// 0 matches the display. Any other value is a cap from 30 to 240.
     pub frame_cap: u16,
+    /// When true, Lark may read GPU, CPU temperature, and the current game
+    /// and publish them as the Discord custom status. Off until Settings says so.
+    pub hardware_status: bool,
 }
 
 impl Default for Desktop {
@@ -272,6 +275,7 @@ impl Default for Desktop {
             minimize_to_tray: true,
             autostart: false,
             frame_cap: 240,
+            hardware_status: false,
         }
     }
 }
@@ -824,6 +828,14 @@ mod tests {
         );
         assert_eq!(cfg.plugins.enabled, vec!["highlight-mentions", "code-badge"]);
         assert_eq!(cfg.desktop.frame_cap, 240);
+        assert!(!cfg.desktop.hardware_status);
+    }
+
+    #[test]
+    fn hardware_status_stays_off_until_the_config_turns_it_on() {
+        assert!(!parse_config("").unwrap().desktop.hardware_status);
+        assert!(!parse_config("[desktop]\nframe_cap = 60\n").unwrap().desktop.hardware_status);
+        assert!(parse_config("[desktop]\nhardware_status = true\n").unwrap().desktop.hardware_status);
     }
 
     #[test]

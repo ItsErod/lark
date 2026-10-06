@@ -36,6 +36,17 @@ import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
 import { FrameClock } from "../frame";
 import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
+import {
+  HARDWARE_STORAGE_KEY,
+  clampStatus,
+  hardwareSampleDue,
+  loadHardwareState,
+  noteHardwareEdit,
+  serializeHardwareState,
+  setHardwareEnabled,
+  stepHardware,
+  type HardwareState,
+} from "../hardware";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
@@ -171,6 +182,13 @@ class LarkApp {
   private away: AwayClock = { lastActivity: Date.now(), away: false, lastWrite: 0, savedStatus: "online" };
   private playingShown = "";
   private playingWrite = 0;
+  private hardware: HardwareState = { enabled: false, takeover: false, paused: false, owned: "", savedCustom: "" };
+  private hardwareSampleAt = 0;
+  private hardwareBusy = false;
+  private hardwareChecking = false;
+  private hardwareLine: string | null = null;
+  private hardwarePushFailed = false;
+  private hardwarePushAt = 0;
   private keywordLast: Record<string, number> = {};
   private sendingScheduled = false;
   private scheduling = false;
@@ -307,6 +325,7 @@ class LarkApp {
         this.config = defaultConfig();
       }
     }
+    this.hardware = loadHardwareState(this.config.desktop.hardware_status, localStorage.getItem(HARDWARE_STORAGE_KEY));
     try {
       this.pack = sanitizePack(JSON.parse(localStorage.getItem("lark.pack.v1") ?? "{}"));
     } catch {
@@ -2779,6 +2798,35 @@ class LarkApp {
       wrap.append(el("p", "hint", hz
         ? `This display is about ${hz} Hz. The hard cap is 240.`
         : "Measuring the display. The hard cap is 240."));
+      wrap.append(el("h3", "", "Status"));
+      wrap.append(this.toggle("Hardware in status", this.config.desktop.hardware_status, (value) => {
+        this.config.desktop.hardware_status = value;
+        this.hardware = setHardwareEnabled(this.hardware, value, this.me.custom ?? "");
+        this.hardwarePushFailed = false;
+        this.persist();
+        this.rememberHardware();
+        if (!value) {
+          this.hardwareSampleAt = 0;
+          this.hardwareChecking = false;
+          this.hardwareLine = null;
+          this.applyHardware(null);
+          return;
+        }
+        if (!isTauri() || this.demo) return;
+        void this.sampleHardware(true);
+      }));
+      wrap.append(el("p", "hint", "Off until you turn this on. Lark then reads this computer's GPU name, CPU temperature when a sensor answers, and the current game. That line becomes your Discord custom status, kept to 128 characters, and it refreshes about once a minute. macOS and Windows only. A missing reading is left out. Turning this off stops the reads."));
+      if (this.hardware.paused) {
+        wrap.append(el("p", "hint", "Your custom status is left as you set it. Clear it to show hardware again."));
+      } else if (this.hardwareChecking) {
+        wrap.append(el("p", "hint", "Reading this computer…"));
+      } else if (this.hardwareLine) {
+        wrap.append(el("p", "hint", `Status line: ${this.hardwareLine}`));
+      } else if (this.config.desktop.hardware_status && this.hardwareSampleAt > 0) {
+        wrap.append(el("p", "hint", "Nothing to show from this computer right now."));
+      } else if (!isTauri()) {
+        wrap.append(el("p", "hint", "The desktop app reads the machine. This preview does not."));
+      }
       wrap.append(el("h3", "", "Plugins"));
       const pack = new Set<string>(PACK_IDS);
       let headed = false;
@@ -5331,6 +5379,7 @@ class LarkApp {
     if (this.view !== "app") return;
     this.tickAway();
     this.tickPlaying();
+    this.tickHardware();
     void this.tickSchedule();
   }
 
@@ -5347,6 +5396,83 @@ class LarkApp {
     const session = navigator.mediaSession?.metadata;
     if (!session?.title) return;
     this.writePlaying(playingLine(session.title, session.artist ?? ""), false);
+  }
+
+  private tickHardware() {
+    if (!this.config.desktop.hardware_status) {
+      if (this.hardware.enabled || this.hardware.owned) this.applyHardware(null);
+      return;
+    }
+    this.retryHardwarePush();
+    if (!isTauri() || this.demo || this.hardwareBusy || this.hardware.paused) return;
+    if (!hardwareSampleDue(this.hardwareSampleAt, Date.now())) return;
+    void this.sampleHardware(false);
+  }
+
+  private retryHardwarePush() {
+    if (!this.hardwarePushFailed || !isTauri() || this.demo) return;
+    const custom = this.hardware.owned;
+    if (!custom || (this.me.custom ?? "") !== custom) {
+      this.hardwarePushFailed = false;
+      return;
+    }
+    const now = Date.now();
+    if (now - this.hardwarePushAt < 30_000) return;
+    this.hardwarePushAt = now;
+    const status = this.presenceStatus();
+    void invoke("set_presence", { status, custom }).then(() => {
+      this.hardwarePushFailed = false;
+    }, () => {
+      this.hardwarePushFailed = true;
+    });
+  }
+
+  private async sampleHardware(force: boolean) {
+    if (!this.config.desktop.hardware_status || !isTauri() || this.demo) return;
+    if (this.hardwareBusy) return;
+    if (!force && !hardwareSampleDue(this.hardwareSampleAt, Date.now())) return;
+    this.hardwareSampleAt = Date.now();
+    this.hardwareBusy = true;
+    this.hardwareChecking = true;
+    if (this.settings && this.section === "lark") this.renderSettings();
+    try {
+      if (force) await invoke("save_config", { config: this.config });
+      if (!this.config.desktop.hardware_status) return;
+      const snap = await invoke<{ line?: string | null }>("hardware_snapshot");
+      if (!this.config.desktop.hardware_status) return;
+      const line = typeof snap.line === "string" ? clampStatus(snap.line) : "";
+      this.hardwareLine = line;
+      this.applyHardware({ ok: true, line });
+    } catch {
+      if (this.config.desktop.hardware_status) this.applyHardware({ ok: false, line: null });
+    } finally {
+      this.hardwareBusy = false;
+      this.hardwareChecking = false;
+      if (this.settings && this.section === "lark") this.renderSettings();
+    }
+  }
+
+  private applyHardware(sample: { ok: boolean; line: string | null } | null) {
+    const step = stepHardware({ ...this.hardware, enabled: this.config.desktop.hardware_status }, this.me.custom ?? "", sample);
+    this.hardware = step.state;
+    this.rememberHardware();
+    if (step.custom === undefined) return;
+    const status = this.presenceStatus();
+    if ((this.me.custom ?? "") !== step.custom || this.me.status !== status) {
+      this.setStatus(status, step.custom, "plugin");
+    }
+  }
+
+  private presenceStatus(): "online" | "idle" | "dnd" | "invisible" {
+    const status = this.me.status;
+    if (status === "idle" || status === "dnd" || status === "invisible" || status === "online") return status;
+    return "online";
+  }
+
+  private rememberHardware() {
+    const saved = serializeHardwareState(this.hardware);
+    if (saved) localStorage.setItem(HARDWARE_STORAGE_KEY, saved);
+    else localStorage.removeItem(HARDWARE_STORAGE_KEY);
   }
 
   private writePlaying(line: string, fromButton: boolean) {
@@ -5424,6 +5550,11 @@ class LarkApp {
   }
 
   private setStatus(status: NonNullable<Person["status"]>, custom: string, source: "user" | "plugin" = "user") {
+    if (source === "user") {
+      this.hardware = noteHardwareEdit(this.hardware, custom);
+      if (!custom.trim() && this.config.desktop.hardware_status) this.hardwareSampleAt = 0;
+      this.rememberHardware();
+    }
     const changed = this.me.status !== status || (this.me.custom ?? "") !== custom;
     this.me = { ...this.me, status, custom };
     if (source === "user" && (status === "online" || status === "idle" || status === "dnd" || status === "invisible")) {
@@ -5433,7 +5564,18 @@ class LarkApp {
       people[0].status = status;
       people[0].custom = custom;
     } else if (changed) {
-      void invoke("set_presence", { status: status === "invisible" ? "invisible" : status, custom }).catch(() => undefined);
+      const pending = invoke("set_presence", { status: status === "invisible" ? "invisible" : status, custom });
+      if (source === "plugin" && this.hardware.enabled && custom === this.hardware.owned) {
+        this.hardwarePushFailed = true;
+        this.hardwarePushAt = Date.now();
+        void pending.then(() => {
+          this.hardwarePushFailed = false;
+        }, () => {
+          this.hardwarePushFailed = true;
+        });
+      } else {
+        void pending.catch(() => undefined);
+      }
     }
     if (source === "plugin") {
       this.paintChannels();

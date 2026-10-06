@@ -48,7 +48,7 @@ export function defaultConfig(): AppConfig {
       overlay_opacity: 70,
       overlay_click_through: true,
     },
-    desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240 },
+    desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240, hardware_status: false },
     accents: {},
   };
 }
@@ -116,6 +116,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
     if (typeof raw.desktop.frame_cap === "number" && Number.isFinite(raw.desktop.frame_cap)) {
       base.desktop.frame_cap = raw.desktop.frame_cap <= 0 ? 0 : Math.min(240, Math.max(30, Math.round(raw.desktop.frame_cap)));
     }
+    if (typeof raw.desktop.hardware_status === "boolean") base.desktop.hardware_status = raw.desktop.hardware_status;
   }
   if (raw.accents && typeof raw.accents === "object") {
     const accents: Record<string, string> = {};
