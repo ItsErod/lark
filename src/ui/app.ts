@@ -3,6 +3,22 @@ import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
 import { rememberEmoji, frecency, EMOJI, type EmojiUse } from "../emoji";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
+import {
+  canViewChannel,
+  channelFlags,
+  dockBadge,
+  folderBadge,
+  inviteCode,
+  layoutRail,
+  mentionsUser,
+  normalizeFolder,
+  type ChannelOverwrite,
+  type DiscordNotify,
+  type GuildAccess,
+  type GuildFolder,
+  type GuildPref,
+  type ReadMarker,
+} from "../shell";
 import { noteActivity, stepAway, type AwayClock } from "../pack/away";
 import { isBookmarked, toggleBookmark } from "../pack/bookmarks";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
@@ -94,7 +110,7 @@ interface PerfMarks {
 }
 
 type ScrollMode = "none" | "bottom" | "preserve";
-type Section = "appearance" | "layout" | "voice" | "shortcuts" | "notifications" | "plugins" | "desktop" | "account";
+type Section = "account" | "appearance" | "voice" | "notifications" | "shortcuts" | "lark";
 
 interface LocalFile {
   name: string;
@@ -220,6 +236,21 @@ class LarkApp {
   private materialWanted: string | null = null;
   private popout: Person | null = null;
   private statusOpen = false;
+  private folders: GuildFolder[] = [];
+  private folderOpen: Record<string, boolean> = {};
+  private collapsedCats = new Set<string>();
+  private catSeeded = false;
+  private markers: Record<string, ReadMarker> = {};
+  private localUnread: Record<string, number> = {};
+  private localMentions: Record<string, number> = {};
+  private access: Record<string, GuildAccess> = {};
+  private discordNotify: DiscordNotify = { guilds: {}, dms: {} };
+  private invite: { code: string; name: string; detail: string; icon: string } | null = null;
+  private inviteEl!: HTMLElement;
+  private audioInputs: { id: string; label: string }[] = [];
+  private audioOutputs: { id: string; label: string }[] = [];
+  private videoInputs: { id: string; label: string }[] = [];
+  private badgeSent = -1;
   private upload = 0;
   private draftTimer = 0;
   private frames = new FrameClock();
@@ -246,6 +277,16 @@ class LarkApp {
     for (const [id, css] of this.imported) this.themeCache.set(id, css);
     this.extraThemeIds = [...this.imported.keys()];
     this.seedUnreads();
+    this.folderOpen = readStringMap("lark.folders.v1");
+    try {
+      const cats = JSON.parse(localStorage.getItem("lark.categories.v1") ?? "null");
+      if (Array.isArray(cats)) {
+        this.collapsedCats = new Set(cats.filter((id): id is string => typeof id === "string"));
+        this.catSeeded = true;
+      }
+    } catch {
+      this.collapsedCats = new Set();
+    }
     this.drafts = readJson("lark.drafts.v1") as Record<string, string>;
     try {
       const parsed = JSON.parse(localStorage.getItem("lark.emoji.v1") ?? "[]");
@@ -286,7 +327,7 @@ class LarkApp {
     (window as unknown as { __lark: PerfMarks }).__lark = perf;
     void this.frames.measureDisplay().then((hz) => {
       perf.displayHz = hz;
-      if (this.settings && this.section === "desktop") this.renderSettings();
+      if (this.settings && this.section === "lark") this.renderSettings();
     });
     new ResizeObserver(() => {
       const narrow = this.root.clientWidth < 880;
@@ -301,13 +342,15 @@ class LarkApp {
   private seedUnreads() {
     for (const list of Object.values(demoChannels)) {
       for (const channel of list) {
-        this.unread[channel.id] = channel.unread ?? 0;
-        this.mentions[channel.id] = channel.mentions ?? 0;
+        this.localUnread[channel.id] = channel.unread ?? 0;
+        this.localMentions[channel.id] = channel.mentions ?? 0;
+        this.refreshChannelBadge(channel.id);
       }
     }
     for (const dm of demoDms) {
-      this.unread[dm.id] = dm.unread ?? 0;
-      this.mentions[dm.id] = dm.mentions ?? 0;
+      this.localUnread[dm.id] = dm.unread ?? 0;
+      this.localMentions[dm.id] = dm.mentions ?? 0;
+      this.refreshChannelBadge(dm.id);
     }
   }
 
@@ -416,7 +459,19 @@ class LarkApp {
       this.paintLightbox();
     });
     this.toastWrap = el("div", "toast-wrap");
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.toastWrap);
+    this.inviteEl = el("div", "overlay");
+    this.inviteEl.hidden = true;
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.inviteEl, this.toastWrap);
+    this.stage.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const link = target.closest("a");
+      if (!(link instanceof HTMLAnchorElement)) return;
+      const code = inviteCode(link.href);
+      if (!code) return;
+      event.preventDefault();
+      this.openInvite(code);
+    });
     this.composer.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
@@ -512,6 +567,13 @@ class LarkApp {
     this.view = "app";
     this.connection = "Sample data";
     this.guildId = NORTHWIND;
+    this.folders = [{ id: "studio", name: "Studios", color: "#e2a15a", guildIds: [NORTHWIND, "100000000000000011"] }];
+    this.access[NORTHWIND] = {
+      owner: false,
+      permissions: "1024",
+      roles: [{ id: NORTHWIND, permissions: "1024" }],
+      myRoles: [],
+    };
     this.paint();
     void this.openChannel(CRIT);
   }
@@ -530,9 +592,11 @@ class LarkApp {
       this.paintVoice();
       this.paintMembers();
       this.paintComposer();
+      this.syncBadge();
     }
     this.paintLightbox();
     this.paintBookmarks();
+    this.paintInvite();
   }
 
   private applyAppearance() {
@@ -969,7 +1033,21 @@ class LarkApp {
   }
 
   private channelsOf(guildId: string): Channel[] {
-    return (this.demo ? demoChannels : this.liveChannels)[guildId] ?? [];
+    const list = (this.demo ? demoChannels : this.liveChannels)[guildId] ?? [];
+    if (this.demo && guildId === NORTHWIND) {
+      return [
+        ...list,
+        {
+          id: "100000000000000099",
+          name: "staff",
+          kind: "text",
+          parentId: "100000000000000020",
+          position: 50,
+          overwrites: [{ id: NORTHWIND, kind: 0, allow: "0", deny: "1024" }],
+        },
+      ];
+    }
+    return list;
   }
 
   private meId(): string {
@@ -985,54 +1063,24 @@ class LarkApp {
     const homeFace = el("span", "server-face");
     homeFace.append(icon(paths.message));
     home.append(homeFace, el("span", "pip"));
-    const dmUnread = this.dms().reduce((sum, dm) => sum + (this.unread[dm.id] ?? 0) + (this.mentions[dm.id] ?? 0), 0);
-    if (dmUnread && this.guildId !== null) home.classList.add("has-unread");
-    if (dmUnread) home.append(el("span", "badge", String(dmUnread)));
+    const dmMentions = this.dms().reduce((sum, dm) => sum + (this.mentions[dm.id] ?? 0), 0);
+    const dmUnread = this.dms().some((dm) => (this.unread[dm.id] ?? 0) > 0 || (this.mentions[dm.id] ?? 0) > 0);
+    if (dmMentions || (dmUnread && this.guildId !== null)) home.classList.add("has-unread");
+    if (dmMentions) home.append(el("span", "badge", String(dmMentions)));
     home.addEventListener("click", () => this.selectGuild(null));
     const sep = el("div", "rail-sep");
     sep.setAttribute("aria-hidden", "true");
     const servers = el("div", "rail-scroll");
     servers.setAttribute("aria-label", "Server list");
-    for (const guild of this.guilds()) {
-      const selected = guild.id === this.guildId;
-      const button = el("button", `server-button${selected ? " is-selected" : ""}`);
-      button.type = "button";
-      button.title = guild.name;
-      button.setAttribute("aria-label", guild.name);
-      const face = el("span", "server-face");
-      const iconUrl = guild.iconUrl?.trim();
-      if (iconUrl) {
-        button.classList.add("has-icon");
-        const img = document.createElement("img");
-        img.src = iconUrl;
-        img.alt = "";
-        img.draggable = false;
-        img.addEventListener("error", () => {
-          img.remove();
-          button.classList.remove("has-icon");
-          face.textContent = guild.initials;
-          face.style.background = colorFor(guild.id);
-        });
-        face.append(img);
-      } else {
-        face.textContent = guild.initials;
-        face.style.background = colorFor(guild.id);
-      }
-      button.append(face, el("span", "pip"));
-      const badge = this.guildBadge(guild.id);
-      if (badge.mentions) {
-        button.classList.add("has-unread");
-        button.append(el("span", "badge", String(badge.mentions)));
-      } else if (badge.count) {
-        button.classList.add("has-unread");
-      }
-      button.addEventListener("click", () => this.selectGuild(guild.id));
-      servers.append(button);
+    const entries = layoutRail(this.guilds().map((guild) => guild.id), this.folders);
+    for (const entry of entries) {
+      if (entry.kind === "guild") this.appendServerButton(servers, entry.guildId);
+      else this.appendFolder(servers, entry);
     }
     const settings = el("button", "rail-button");
     settings.type = "button";
-    settings.title = "Settings";
-    settings.setAttribute("aria-label", "Settings");
+    settings.title = "User Settings";
+    settings.setAttribute("aria-label", "User Settings");
     const settingsFace = el("span", "server-face");
     settingsFace.append(icon(paths.settings));
     settings.append(settingsFace, el("span", "pip"));
@@ -1040,11 +1088,84 @@ class LarkApp {
     this.rail.append(home, sep, servers, settings);
   }
 
+  private appendFolder(parent: HTMLElement, entry: { id: string; name: string; color: string | null; guildIds: string[] }) {
+    const open = this.folderOpen[entry.id] !== false;
+    const wrap = el("div", `folder${open ? " is-open" : ""}`);
+    if (entry.color) wrap.style.setProperty("--folder", entry.color);
+    const badge = folderBadge(entry.guildIds, (guildId) => {
+      const item = this.guildBadge(guildId);
+      return { mentions: item.mentions, unread: item.count };
+    });
+    const button = el("button", `server-button folder-button${open ? " is-open" : ""}`);
+    button.type = "button";
+    button.title = entry.name;
+    button.setAttribute("aria-label", `${entry.name} folder`);
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    const face = el("span", "server-face");
+    face.textContent = open ? "–" : entry.name.slice(0, 2).toUpperCase();
+    if (entry.color) face.style.background = entry.color;
+    button.append(face, el("span", "pip"));
+    if (badge.mentions) {
+      button.classList.add("has-unread");
+      button.append(el("span", "badge", String(badge.mentions)));
+    } else if (badge.unread) button.classList.add("has-unread");
+    button.addEventListener("click", () => {
+      this.folderOpen[entry.id] = !open;
+      localStorage.setItem("lark.folders.v1", JSON.stringify(this.folderOpen));
+      this.paintRail();
+    });
+    wrap.append(button);
+    if (open) {
+      for (const guildId of entry.guildIds) this.appendServerButton(wrap, guildId);
+    }
+    parent.append(wrap);
+  }
+
+  private appendServerButton(parent: HTMLElement, guildId: string) {
+    const guild = this.guilds().find((item) => item.id === guildId);
+    if (!guild) return;
+    const selected = guild.id === this.guildId;
+    const muted = this.guildMuted(guild.id);
+    const button = el("button", `server-button${selected ? " is-selected" : ""}${muted ? " is-muted" : ""}`);
+    button.type = "button";
+    button.title = muted ? `${guild.name} (muted)` : guild.name;
+    button.setAttribute("aria-label", guild.name);
+    const face = el("span", "server-face");
+    const iconUrl = guild.iconUrl?.trim();
+    if (iconUrl) {
+      button.classList.add("has-icon");
+      const img = document.createElement("img");
+      img.src = iconUrl;
+      img.alt = "";
+      img.draggable = false;
+      img.addEventListener("error", () => {
+        img.remove();
+        button.classList.remove("has-icon");
+        face.textContent = guild.initials;
+        face.style.background = colorFor(guild.id);
+      });
+      face.append(img);
+    } else {
+      face.textContent = guild.initials;
+      face.style.background = colorFor(guild.id);
+    }
+    button.append(face, el("span", "pip"));
+    const badge = this.guildBadge(guild.id);
+    if (badge.mentions) {
+      button.classList.add("has-unread");
+      button.append(el("span", "badge", String(badge.mentions)));
+    } else if (badge.count) button.classList.add("has-unread");
+    button.addEventListener("click", () => this.selectGuild(guild.id));
+    parent.append(button);
+  }
+
   private guildBadge(guildId: string): { count: number; mentions: number } {
     let count = 0;
     let mentions = 0;
+    if (this.guildMuted(guildId)) return { count, mentions };
     for (const channel of this.channelsOf(guildId)) {
-      const level = effectiveLevel(this.config, guildId, channel.id);
+      if (channel.kind === "category" || !this.canSeeChannel(guildId, channel)) continue;
+      const level = this.levelFor(guildId, channel.id);
       if (level === "mute") continue;
       const mention = this.mentions[channel.id] ?? 0;
       if (level === "mentions") mentions += mention;
@@ -1054,6 +1175,24 @@ class LarkApp {
       }
     }
     return { count, mentions };
+  }
+
+  private guildMuted(guildId: string): boolean {
+    return Boolean(this.discordNotify.guilds[guildId]?.muted || this.config.notifications.guilds[guildId]?.muted);
+  }
+
+  private levelFor(guildId: string | null, channelId: string) {
+    return effectiveLevel(this.config, guildId, channelId, this.discordNotify);
+  }
+
+  private canSeeChannel(guildId: string, channel: Channel): boolean {
+    const access = this.access[guildId] ?? null;
+    const userId = this.meId();
+    if (!canViewChannel({ userId, guildId, access, overwrites: channel.overwrites as ChannelOverwrite[] | undefined })) return false;
+    if (!channel.parentId) return true;
+    const parent = this.channelsOf(guildId).find((item) => item.id === channel.parentId);
+    if (!parent) return true;
+    return canViewChannel({ userId, guildId, access, overwrites: parent.overwrites as ChannelOverwrite[] | undefined });
   }
 
   private selectGuild(id: string | null) {
@@ -1079,7 +1218,8 @@ class LarkApp {
 
   private visibleChannels(): Channel[] {
     if (!this.guildId) return this.dms();
-    return this.channelsOf(this.guildId);
+    const guildId = this.guildId;
+    return this.channelsOf(guildId).filter((channel) => this.canSeeChannel(guildId, channel));
   }
 
   private paintChannels() {
@@ -1103,17 +1243,25 @@ class LarkApp {
         this.paint();
       });
       scroll.append(friends, el("div", "category", "Direct messages"));
-      const dms = this.dms();
+      const dms = [...this.dms()].sort((a, b) => a.position - b.position);
       if (!dms.length) scroll.append(el("p", "empty", "No direct messages yet."));
       for (const dm of dms) scroll.append(this.channelButton(dm, true));
     } else {
-      const list = this.channelsOf(this.guildId);
+      const list = [...this.visibleChannels()].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
       const categories = list.filter((channel) => channel.kind === "category");
-      const loose = list.filter((channel) => channel.kind !== "category" && !channel.parentId);
-      if (loose.length) for (const channel of loose) scroll.append(this.channelButton(channel, false));
+      const categoryIds = new Set(categories.map((category) => category.id));
+      const loose = list.filter((channel) => channel.kind !== "category" && (!channel.parentId || !categoryIds.has(channel.parentId)));
+      for (const channel of loose) scroll.append(this.channelButton(channel, false));
       for (const category of categories) {
-        scroll.append(el("div", "category", category.name));
-        for (const channel of list.filter((item) => item.parentId === category.id)) scroll.append(this.channelButton(channel, false));
+        const children = list.filter((item) => item.parentId === category.id && item.kind !== "category");
+        const collapsed = this.collapsedCats.has(category.id);
+        const header = el("button", `category${collapsed ? " is-collapsed" : ""}`);
+        header.type = "button";
+        header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        header.append(el("span", "chev", collapsed ? "▸" : "▾"), el("span", "", category.name));
+        header.addEventListener("click", () => this.toggleCategory(category.id));
+        scroll.append(header);
+        if (!collapsed) for (const channel of children) scroll.append(this.channelButton(channel, false));
       }
     }
     const me = this.demo ? people[0] : this.me;
@@ -1139,13 +1287,13 @@ class LarkApp {
   }
 
   private channelButton(channel: Channel, dm: boolean): HTMLButtonElement {
-    const muted = effectiveLevel(this.config, this.guildId, channel.id) === "mute";
+    const muted = this.levelFor(dm ? null : this.guildId, channel.id) === "mute";
     const unreadCount = this.unread[channel.id] ?? 0;
     const mentions = this.mentions[channel.id] ?? 0;
     const unread = unreadCount > 0 || mentions > 0;
     const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.id === this.channelId ? " is-selected" : ""}${unread ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}`);
     button.type = "button";
-    if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : paths.hash));
+    if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : channel.kind === "announcement" ? paths.bell : paths.hash));
     else {
       const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
       const known = recipient ? this.directory[recipient.id] : undefined;
@@ -1206,8 +1354,11 @@ class LarkApp {
     } else if (this.more[id] === undefined) {
       this.more[id] = (this.pages[id]?.length ?? 0) >= 20;
     }
-    this.unread[id] = 0;
-    this.mentions[id] = 0;
+    this.localUnread[id] = 0;
+    this.localMentions[id] = 0;
+    const seen = this.pages[id]?.at(-1)?.id ?? this.channelById(id)?.lastMessageId ?? this.markers[id]?.lastMessageId ?? "";
+    this.markers[id] = { lastMessageId: seen, mentionCount: 0 };
+    this.refreshChannelBadge(id);
     this.scroll = "bottom";
     this.pinnedToBottom = true;
     const draft = this.drafts[id];
@@ -1354,7 +1505,7 @@ class LarkApp {
   private cycleNotify() {
     if (!this.channelId) return;
     const order: NotifyLevel[] = ["all", "mentions", "mute"];
-    const current = effectiveLevel(this.config, this.guildId, this.channelId);
+    const current = this.levelFor(this.guildId, this.channelId);
     const next = order[(order.indexOf(current) + 1) % order.length];
     this.config.notifications.channels[this.channelId] = next === "mute" ? { muted: true } : { level: next, muted: false };
     this.persist();
@@ -2089,7 +2240,7 @@ class LarkApp {
     for (const [guildId, list] of Object.entries(index)) {
       const guild = this.guilds().find((item) => item.id === guildId);
       for (const channel of list) {
-        if (channel.kind === "category") continue;
+        if (channel.kind === "category" || !this.canSeeChannel(guildId, channel)) continue;
         const score = fuzzyScore(query, `${guild?.name ?? ""} ${channel.name}`);
         if (score === null) continue;
         hits.push({ id: channel.id, guildId, label: channel.kind === "voice" ? channel.name : `# ${channel.name}`, hint: guild?.name ?? "", score });
@@ -2151,14 +2302,12 @@ class LarkApp {
     const card = el("div", "settings-card");
     const nav = el("nav", "settings-nav");
     const sections: [Section, string][] = [
+      ["account", "My Account"],
       ["appearance", "Appearance"],
-      ["layout", "Layout"],
-      ["voice", "Voice"],
-      ["shortcuts", "Shortcuts"],
+      ["voice", "Voice & Video"],
       ["notifications", "Notifications"],
-      ["plugins", "Plugins"],
-      ["desktop", "Desktop"],
-      ["account", "Account"],
+      ["shortcuts", "Keybinds"],
+      ["lark", "Lark"],
     ];
     for (const [id, label] of sections) {
       const button = el("button", this.section === id ? "is-on" : "", label);
@@ -2235,8 +2384,7 @@ class LarkApp {
         this.applyAppearance();
       });
       wrap.append(el("div", "hint", "Size"), size);
-    } else if (this.section === "layout") {
-      wrap.append(el("h2", "", "Layout"), el("p", "lede", "Density, panels, and which side the channel list sits on."));
+      wrap.append(el("h3", "", "Display"));
       wrap.append(el("div", "hint", "Density"));
       wrap.append(this.choice(["cozy", "compact", "irc"], this.config.appearance.density, (value) => {
         this.config.appearance.density = value as AppConfig["appearance"]["density"];
@@ -2261,7 +2409,7 @@ class LarkApp {
         this.paint();
       }));
     } else if (this.section === "voice") {
-      wrap.append(el("h2", "", "Voice"), el("p", "lede", "Push to talk, voice activity, and a cheap noise gate. Echo cancellation stays off; it needs a heavy audio processor."));
+      wrap.append(el("h2", "", "Voice & Video"), el("p", "lede", "Push to talk, voice activity, and a cheap noise gate. Echo cancellation stays off; it needs a heavy audio processor."));
       wrap.append(this.choice(["vad", "ptt"], this.config.voice.mode, (value) => {
         this.config.voice.mode = value === "ptt" ? "ptt" : "vad";
         this.persist();
@@ -2280,8 +2428,30 @@ class LarkApp {
         this.config.voice.noise_suppression = value;
         this.persist();
       }));
+      wrap.append(el("h3", "", "Devices"));
+      wrap.append(el("p", "lede", "Lark stores the device you pick. Voice uses these ids when it opens the microphone."));
+      wrap.append(this.devicePicker("Input", this.config.voice.input_device, this.audioInputs, (value) => {
+        this.config.voice.input_device = value;
+        this.persist();
+      }));
+      wrap.append(this.devicePicker("Output", this.config.voice.output_device, this.audioOutputs, (value) => {
+        this.config.voice.output_device = value;
+        this.persist();
+      }));
+      wrap.append(this.devicePicker("Camera", this.config.voice.video_device, this.videoInputs, (value) => {
+        this.config.voice.video_device = value;
+        this.persist();
+      }));
+      const listDevices = el("button", "text-button", "List microphones and cameras");
+      listDevices.type = "button";
+      listDevices.addEventListener("click", () => void this.listDevices());
+      wrap.append(listDevices);
     } else if (this.section === "shortcuts") {
-      wrap.append(el("h2", "", "Shortcuts"), el("p", "lede", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys."));
+      wrap.append(el("h2", "", "Keybinds"), el("p", "lede", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys."));
+      const fixed = el("div", "shortcut-row");
+      fixed.append(el("span", "", "mark read"), el("span", "kbd", "Esc"));
+      wrap.append(fixed);
+      wrap.append(el("p", "hint", "Esc closes whatever is open first. With nothing open, it marks the channel read, then the rest of the list."));
       const conflicts = shortcutConflicts(this.config.shortcuts);
       if (conflicts.length) wrap.append(el("div", "warning", conflicts.join(" ")));
       for (const [action, shortcut] of Object.entries(this.config.shortcuts) as [keyof Shortcuts, string][]) {
@@ -2321,22 +2491,8 @@ class LarkApp {
       clear(grid);
       grid.append(this.platformCard("macOS", "Banners and Notification Center", "⌘"));
       grid.append(this.platformCard("Windows", "Toasts in Action Center", "Ctrl"));
-    } else if (this.section === "plugins") {
-      wrap.append(el("h2", "", "Plugins"), el("p", "lede", "Every plugin is off until you turn it on, and Lark loads its script only then. Plugins do not receive the token."));
-      const pack = new Set<string>(PACK_IDS);
-      let headed = false;
-      for (const plugin of this.catalog) {
-        if (!headed && pack.has(plugin.id)) {
-          headed = true;
-          wrap.append(el("h3", "", "Pack"));
-          wrap.append(el("p", "lede", "Reading tools stay on this device. Send later and the status plugins use the same single Discord requests as the composer and the profile chip, paced so they cannot burst."));
-        }
-        const enabled = this.config.plugins.enabled.includes(plugin.id);
-        wrap.append(this.toggle(`${plugin.name} — ${plugin.description}`, enabled, (value) => this.setPluginEnabled(plugin.id, value)));
-        if (enabled) this.appendPluginPanel(wrap, plugin.id);
-      }
-    } else if (this.section === "desktop") {
-      wrap.append(el("h2", "", "Desktop"), el("p", "lede", "The menu bar or system tray shows the unread count. Closing the window can leave Lark there."));
+    } else if (this.section === "lark") {
+      wrap.append(el("h2", "", "Lark"), el("p", "lede", "Frame cap, tray, and plugins. Plugins stay off until you turn them on."));
       wrap.append(this.toggle("Minimise to tray", this.config.desktop.minimize_to_tray, (value) => {
         this.config.desktop.minimize_to_tray = value;
         this.persist();
@@ -2374,8 +2530,28 @@ class LarkApp {
       wrap.append(el("p", "hint", hz
         ? `This display is about ${hz} Hz. The hard cap is 240.`
         : "Measuring the display. The hard cap is 240."));
+      wrap.append(el("h3", "", "Plugins"));
+      const pack = new Set<string>(PACK_IDS);
+      let headed = false;
+      for (const plugin of this.catalog) {
+        if (!headed && pack.has(plugin.id)) {
+          headed = true;
+          wrap.append(el("h3", "", "Pack"));
+          wrap.append(el("p", "lede", "Reading tools stay on this device. Send later and the status plugins use the same single Discord requests as the composer and the profile chip, paced so they cannot burst."));
+        }
+        const enabled = this.config.plugins.enabled.includes(plugin.id);
+        wrap.append(this.toggle(`${plugin.name} — ${plugin.description}`, enabled, (value) => this.setPluginEnabled(plugin.id, value)));
+        if (enabled) this.appendPluginPanel(wrap, plugin.id);
+      }
     } else {
-      wrap.append(el("h2", "", "Account"), el("p", "lede", "The token never goes in the config file, logs, or a plugin."));
+      const me = this.demo ? people[0] : this.me;
+      wrap.append(el("h2", "", "My Account"));
+      const who = el("div", "settings-account");
+      who.append(portrait(me.name, me.id, me.avatarUrl));
+      const copy = el("div");
+      copy.append(el("strong", "", me.name), el("div", "hint", me.custom || statusLabel(me.status)), el("div", "hint", me.id));
+      who.append(copy);
+      wrap.append(who, el("p", "lede", "Name, avatar, and id come from Discord. Lark does not edit them. The token never goes in the config file, logs, or a plugin."));
       const grid = el("div", "platform-grid");
       grid.append(this.platformCard("macOS", "macOS Keychain", "~/Library/Application Support/dev.lark.desktop"));
       grid.append(this.platformCard("Windows", "Windows Credential Manager", "%APPDATA%\\dev.lark.desktop"));
@@ -2396,6 +2572,31 @@ class LarkApp {
     const card = el("article", `platform-card${current ? " is-current" : ""}`);
     card.append(el("strong", "", title), el("div", "", body), el("div", "hint", extra));
     return card;
+  }
+
+  private devicePicker(label: string, current: string, options: { id: string; label: string }[], onChange: (value: string) => void): HTMLElement {
+    const wrap = el("label", "device");
+    wrap.append(el("span", "", label));
+    const select = el("select");
+    select.setAttribute("aria-label", label);
+    const def = el("option", "", "System default");
+    def.value = "";
+    select.append(def);
+    const known = new Set(options.map((option) => option.id));
+    if (current && !known.has(current)) {
+      const extra = el("option", "", current);
+      extra.value = current;
+      select.append(extra);
+    }
+    for (const option of options) {
+      const node = el("option", "", option.label);
+      node.value = option.id;
+      select.append(node);
+    }
+    select.value = current;
+    select.addEventListener("change", () => onChange(select.value));
+    wrap.append(select);
+    return wrap;
   }
 
   private choice(values: string[], current: string, onPick: (value: string) => void): HTMLElement {
@@ -2507,11 +2708,34 @@ class LarkApp {
       else if (this.lightbox) {
         this.lightbox = null;
         this.paintLightbox();
+      } else if (this.invite) {
+        this.invite = null;
+        this.paintInvite();
+      } else if (this.themeOpen) {
+        this.themeOpen = false;
+        this.paintTheme();
+      } else if (this.searchOpen) {
+        this.searchOpen = false;
+        this.paintSearch();
+      } else if (this.pinsOpen) {
+        this.pinsOpen = false;
+        this.paintPins();
+      } else if (this.bookmarksOpen) {
+        this.bookmarksOpen = false;
+        this.paintBookmarks();
+      } else if (this.statusOpen || this.popout) {
+        this.statusOpen = false;
+        this.popout = null;
+        this.paintPopout();
       } else if (this.reply || this.editing || this.pendingDelete) {
         this.reply = null;
         this.editing = null;
         this.pendingDelete = null;
         this.paintComposer();
+      } else {
+        const field = event.target as HTMLElement | null;
+        const typingField = field === this.composer || field?.tagName === "INPUT" || field?.tagName === "TEXTAREA";
+        if (!typingField) this.markReadFromEscape();
       }
       return;
     }
@@ -2559,14 +2783,15 @@ class LarkApp {
   }
 
   private cycle(delta: number) {
-    const list = this.visibleChannels().filter((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group");
+    const list = this.visibleChannels().filter((channel) => channel.kind === "text" || channel.kind === "dm" || channel.kind === "group" || channel.kind === "announcement" || channel.kind === "forum");
+    if (!list.length) return;
     const index = list.findIndex((channel) => channel.id === this.channelId);
     const next = list[(index + delta + list.length) % list.length];
     if (next) void this.openChannel(next.id);
   }
 
   private nextUnread() {
-    const list = this.visibleChannels().filter((channel) => (this.unread[channel.id] ?? 0) > 0);
+    const list = this.visibleChannels().filter((channel) => (this.unread[channel.id] ?? 0) > 0 || (this.mentions[channel.id] ?? 0) > 0);
     if (list[0]) void this.openChannel(list[0].id);
   }
 
@@ -3011,7 +3236,14 @@ class LarkApp {
       this.friends = this.friends.filter((person) => person.id !== userId);
       this.schedulePeoplePaint();
     } else if (event.kind === "channels" && event.guildId && event.channels) {
-      this.liveChannels[event.guildId] = event.channels.map(normalizeChannel);
+      const incoming = event.channels.map(normalizeChannel);
+      if ((event as { replace?: boolean }).replace === false) {
+        const prev = this.liveChannels[event.guildId] ?? [];
+        const byId = new Map(prev.map((channel) => [channel.id, channel]));
+        for (const channel of incoming) byId.set(channel.id, channel);
+        this.liveChannels[event.guildId] = [...byId.values()];
+      } else this.liveChannels[event.guildId] = incoming;
+      for (const channel of this.liveChannels[event.guildId] ?? []) this.refreshChannelBadge(channel.id);
       if (event.guildId === this.guildId && !this.channelId) {
         const first = this.visibleChannels().find((channel) => channel.kind === "text");
         if (first) void this.openChannel(first.id);
@@ -3020,17 +3252,68 @@ class LarkApp {
         this.paintChannels();
         this.paintHeader();
       }
+    } else if (event.kind === "channelGone" && event.guildId && event.channelId) {
+      this.liveChannels[event.guildId] = (this.liveChannels[event.guildId] ?? []).filter((channel) => channel.id !== event.channelId);
+      if (event.guildId === this.guildId) {
+        this.paintChannels();
+        this.paintHeader();
+      }
+      this.paintRail();
+      this.syncBadge();
+    } else if (event.kind === "folders") {
+      const folders = ((event as { folders?: { id?: string | number | null; name?: string | null; color?: string | null; guildIds?: string[] }[] }).folders ?? [])
+        .map((folder) => normalizeFolder(folder))
+        .filter((folder): folder is GuildFolder => Boolean(folder));
+      if (folders.length) this.folders = folders;
+      this.paintRail();
+    } else if (event.kind === "guildAccess") {
+      const access = (event as { access?: { guildId?: string; owner?: boolean; permissions?: string; roles?: { id: string; permissions: string }[]; myRoles?: string[] } }).access;
+      if (access?.guildId) {
+        this.access[access.guildId] = {
+          owner: Boolean(access.owner),
+          permissions: access.permissions ?? "",
+          roles: access.roles ?? [],
+          myRoles: access.myRoles ?? [],
+        };
+        if (access.guildId === this.guildId) {
+          this.paintChannels();
+          this.paintHeader();
+        }
+        this.paintRail();
+        this.syncBadge();
+      }
+    } else if (event.kind === "guildNotify") {
+      this.applyNotify((event as { entries?: Parameters<LarkApp["applyNotify"]>[0] }).entries ?? []);
+      this.paintRail();
+      this.paintChannels();
+      this.syncBadge();
     } else if (event.kind === "messageCreate" && event.message) {
       const message = normalizeMessage(event.message);
       this.userNames[message.authorId] = message.authorName;
       const bucket = this.pages[message.channelId] ?? [];
       if (!bucket.some((item) => item.id === message.id)) this.pages[message.channelId] = [...bucket, message];
-      const mentionsMe = message.mentionEveryone || (message.mentionIds ?? []).includes(this.meId());
-      const guildId = this.guildForChannel(message.channelId);
-      const level = effectiveLevel(this.config, guildId, message.channelId);
-      if (message.channelId !== this.channelId && bumpsUnread(level, mentionsMe)) {
-        this.unread[message.channelId] = (this.unread[message.channelId] ?? 0) + 1;
-        if (mentionsMe) this.mentions[message.channelId] = (this.mentions[message.channelId] ?? 0) + 1;
+      const guildId = message.guildId || this.guildForChannel(message.channelId);
+      const pref = guildId ? this.discordNotify.guilds[guildId] : undefined;
+      const mentionsMe = mentionsUser({
+        mentionIds: message.mentionIds ?? [],
+        mentionRoles: message.mentionRoles ?? [],
+        mentionEveryone: Boolean(message.mentionEveryone),
+        meId: this.meId(),
+        myRoles: guildId ? this.access[guildId]?.myRoles ?? [] : [],
+        suppressEveryone: pref?.suppressEveryone ?? false,
+        suppressRoles: pref?.suppressRoles ?? false,
+        direct: !guildId,
+      });
+      const level = this.levelFor(guildId, message.channelId);
+      if (message.channelId === this.channelId) {
+        this.localUnread[message.channelId] = 0;
+        this.localMentions[message.channelId] = 0;
+        this.markers[message.channelId] = { lastMessageId: message.id, mentionCount: 0 };
+        this.refreshChannelBadge(message.channelId);
+      } else if (message.authorId !== this.meId() && bumpsUnread(level, mentionsMe)) {
+        this.localUnread[message.channelId] = (this.localUnread[message.channelId] ?? 0) + 1;
+        if (mentionsMe) this.localMentions[message.channelId] = (this.localMentions[message.channelId] ?? 0) + 1;
+        this.refreshChannelBadge(message.channelId);
       }
       const alreadyNotified = shouldDesktopNotify({
         level,
@@ -3090,9 +3373,16 @@ class LarkApp {
       this.schedulePeoplePaint();
     } else if (event.kind === "readState" && event.channelId) {
       const mention = Number((event as { mentionCount?: number }).mentionCount ?? 0);
-      if (event.channelId !== this.channelId) this.mentions[event.channelId] = mention;
+      const last = String((event as { lastMessageId?: string }).lastMessageId ?? "");
+      this.markers[event.channelId] = { lastMessageId: last, mentionCount: mention };
+      if (event.channelId === this.channelId) {
+        this.localUnread[event.channelId] = 0;
+        this.localMentions[event.channelId] = 0;
+      }
+      this.refreshChannelBadge(event.channelId);
       this.syncBadge();
       this.paintChannels();
+      this.paintRail();
     } else if (event.kind === "voiceState") {
       const userId = event.userId ?? "";
       const channelId = String((event as { channelId?: string }).channelId ?? "");
@@ -3469,7 +3759,13 @@ class LarkApp {
   }
 
   private channelById(id: string): Channel | undefined {
-    return [...this.visibleChannels(), ...this.dms()].find((channel) => channel.id === id);
+    const dm = this.dms().find((channel) => channel.id === id);
+    if (dm) return dm;
+    for (const guild of this.guilds()) {
+      const found = this.channelsOf(guild.id).find((channel) => channel.id === id);
+      if (found) return found;
+    }
+    return undefined;
   }
 
   private paintSearch() {
@@ -3792,7 +4088,7 @@ class LarkApp {
         });
         card.append(el("div", "hint", `Words only in ${channel.name}`), local);
         card.append(el("div", "hint", "Notification rule for this channel"));
-        const level = effectiveLevel(this.config, this.guildId, this.channelId);
+        const level = this.levelFor(this.guildId, this.channelId);
         card.append(this.choice(["all", "mentions", "mute"], level, (value) => {
           const next = value as NotifyLevel;
           this.config.notifications.channels[this.channelId!] = next === "mute" ? { muted: true } : { level: next, muted: false };
@@ -4163,15 +4459,224 @@ class LarkApp {
   }
 
   private syncBadge() {
-    const count = Object.values(this.mentions).reduce((sum, value) => sum + value, 0) + Object.values(this.unread).reduce((sum, value) => sum + value, 0);
+    const entries: { mentions: number; unread: number; dm: boolean }[] = [];
+    for (const dm of this.dms()) {
+      entries.push({ mentions: this.mentions[dm.id] ?? 0, unread: this.unread[dm.id] ?? 0, dm: true });
+    }
+    for (const guild of this.guilds()) {
+      if (this.guildMuted(guild.id)) continue;
+      for (const channel of this.channelsOf(guild.id)) {
+        if (channel.kind === "category" || !this.canSeeChannel(guild.id, channel)) continue;
+        if (this.levelFor(guild.id, channel.id) === "mute") continue;
+        entries.push({ mentions: this.mentions[channel.id] ?? 0, unread: this.unread[channel.id] ?? 0, dm: false });
+      }
+    }
+    const count = dockBadge(entries);
+    if (count === this.badgeSent) return;
+    this.badgeSent = count;
     if (isTauri()) void invoke("set_unread", { count }).catch(() => undefined);
   }
 
+  private refreshChannelBadge(channelId: string) {
+    const channel = this.channelById(channelId);
+    const flags = channelFlags({
+      lastMessageId: channel?.lastMessageId,
+      marker: this.markers[channelId],
+      localUnread: this.localUnread[channelId] ?? 0,
+      localMentions: this.localMentions[channelId] ?? 0,
+      viewing: channelId === this.channelId,
+    });
+    if (flags.unread) this.unread[channelId] = flags.unread;
+    else delete this.unread[channelId];
+    if (flags.mentions) this.mentions[channelId] = flags.mentions;
+    else delete this.mentions[channelId];
+  }
+
+  private toggleCategory(channelId: string) {
+    if (this.collapsedCats.has(channelId)) this.collapsedCats.delete(channelId);
+    else this.collapsedCats.add(channelId);
+    this.catSeeded = true;
+    localStorage.setItem("lark.categories.v1", JSON.stringify([...this.collapsedCats]));
+    this.paintChannels();
+    if (!this.demo && this.guildId && isTauri()) {
+      void invoke("set_channel_collapsed", {
+        guildId: this.guildId,
+        channelId,
+        collapsed: this.collapsedCats.has(channelId),
+      }).catch(() => undefined);
+    }
+  }
+
+  private applyNotify(entries: {
+    guildId?: string | null;
+    muted?: boolean;
+    level?: string | null;
+    suppressEveryone?: boolean;
+    suppressRoles?: boolean;
+    channels?: { channelId?: string; muted?: boolean; level?: string | null; collapsed?: boolean }[];
+  }[]) {
+    for (const entry of entries) {
+      const channels: GuildPref["channels"] = {};
+      for (const channel of entry.channels ?? []) {
+        if (!channel.channelId) continue;
+        const level = channel.level === "all" || channel.level === "mentions" || channel.level === "mute" ? channel.level : null;
+        channels[channel.channelId] = { muted: Boolean(channel.muted), level, collapsed: Boolean(channel.collapsed) };
+        if (channel.collapsed && !this.catSeeded) this.collapsedCats.add(channel.channelId);
+      }
+      if (!entry.guildId) {
+        for (const [id, pref] of Object.entries(channels)) this.discordNotify.dms[id] = pref;
+        continue;
+      }
+      const level = entry.level === "all" || entry.level === "mentions" || entry.level === "mute" ? entry.level : null;
+      this.discordNotify.guilds[entry.guildId] = {
+        muted: Boolean(entry.muted),
+        level,
+        suppressEveryone: Boolean(entry.suppressEveryone),
+        suppressRoles: Boolean(entry.suppressRoles),
+        channels,
+      };
+    }
+  }
+
+  private markReadFromEscape() {
+    const current = this.channelId;
+    const pending = (id: string) => (this.unread[id] ?? 0) + (this.mentions[id] ?? 0);
+    if (current && pending(current) > 0) {
+      this.markRead([current]);
+      return;
+    }
+    const ids = this.visibleChannels().filter((channel) => channel.kind !== "category" && pending(channel.id) > 0).map((channel) => channel.id);
+    if (ids.length) this.markRead(ids);
+  }
+
+  private markRead(ids: string[]) {
+    for (const id of ids) {
+      this.localUnread[id] = 0;
+      this.localMentions[id] = 0;
+      const last = this.pages[id]?.at(-1)?.id ?? this.channelById(id)?.lastMessageId ?? this.markers[id]?.lastMessageId ?? "";
+      this.markers[id] = { lastMessageId: last, mentionCount: 0 };
+      this.refreshChannelBadge(id);
+      if (!this.demo && last) void invoke("ack_message", { channelId: id, messageId: last }).catch(() => undefined);
+    }
+    this.badgeSent = -1;
+    this.syncBadge();
+    this.paint();
+  }
+
+  private openInvite(code: string) {
+    this.invite = { code, name: "Invite", detail: "Looking up the server…", icon: "" };
+    this.paintInvite();
+    if (!isTauri()) {
+      this.invite.detail = "Join this server?";
+      this.invite.name = "Discord server";
+      this.paintInvite();
+      return;
+    }
+    void invoke<{ guildName?: string; iconUrl?: string | null; memberCount?: number; channelName?: string }>("preview_invite", { code })
+      .then((preview) => {
+        if (!this.invite || this.invite.code !== code) return;
+        this.invite.name = preview.guildName || "Server";
+        this.invite.icon = preview.iconUrl || "";
+        const count = preview.memberCount ? `${preview.memberCount} members` : "";
+        const channel = preview.channelName ? `#${preview.channelName}` : "";
+        this.invite.detail = [count, channel].filter(Boolean).join(" · ") || "Join this server?";
+        this.paintInvite();
+      })
+      .catch((err) => {
+        if (!this.invite || this.invite.code !== code) return;
+        this.invite.detail = commandError(err, "Couldn't open that invite.");
+        this.paintInvite();
+      });
+  }
+
+  private paintInvite() {
+    this.inviteEl.hidden = !this.invite;
+    clear(this.inviteEl);
+    if (!this.invite) return;
+    const card = el("div", "invite-card");
+    card.append(el("h2", "", this.invite.name));
+    if (this.invite.icon) {
+      const img = el("img", "invite-icon");
+      img.src = this.invite.icon;
+      img.alt = "";
+      card.append(img);
+    }
+    card.append(el("p", "lede", this.invite.detail), el("p", "hint", `discord.gg/${this.invite.code}`));
+    const row = el("div", "choice-row");
+    const join = el("button", "primary", "Join server");
+    join.type = "button";
+    const code = this.invite.code;
+    join.addEventListener("click", () => {
+      if (!isTauri()) {
+        this.toast("Invite", "Joining a server needs the Lark app.");
+        return;
+      }
+      join.disabled = true;
+      void invoke("accept_invite", { code })
+        .then(() => {
+          this.toast("Joined", this.invite?.name || "Server");
+          this.invite = null;
+          this.paintInvite();
+        })
+        .catch((err) => {
+          join.disabled = false;
+          if (this.invite) {
+            this.invite.detail = commandError(err, "Couldn't join that server.");
+            this.paintInvite();
+          }
+        });
+    });
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      this.invite = null;
+      this.paintInvite();
+    });
+    row.append(join, cancel);
+    card.append(row);
+    this.inviteEl.append(card);
+    this.inviteEl.onclick = (event) => {
+      if (event.target === this.inviteEl) {
+        this.invite = null;
+        this.paintInvite();
+      }
+    };
+  }
+
+  private async listDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    let listed: MediaDeviceInfo[] = [];
+    try {
+      listed = await navigator.mediaDevices.enumerateDevices();
+    } catch {
+      return;
+    }
+    const unlabeled = listed.some((device) => device.kind === "audioinput" && !device.label);
+    if (unlabeled && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of stream.getTracks()) track.stop();
+        listed = await navigator.mediaDevices.enumerateDevices();
+      } catch {
+        /* The picker still stores a device id once labels are available. */
+      }
+    }
+    const map = (kind: MediaDeviceKind) =>
+      listed
+        .filter((device) => device.kind === kind && device.deviceId)
+        .map((device) => ({ id: device.deviceId, label: device.label || device.deviceId }));
+    this.audioInputs = map("audioinput");
+    this.audioOutputs = map("audiooutput");
+    this.videoInputs = map("videoinput");
+    if (this.settings && this.section === "voice") this.renderSettings();
+  }
+
   private guildForChannel(channelId: string): string | null {
-    for (const [guildId, list] of Object.entries(this.liveChannels)) {
+    const index = this.demo ? demoChannels : this.liveChannels;
+    for (const [guildId, list] of Object.entries(index)) {
       if (list.some((channel) => channel.id === channelId)) return guildId;
     }
-    return this.guildId;
+    return null;
   }
 }
 
@@ -4210,6 +4715,20 @@ function localInputValue(time: number): string {
   const date = new Date(time);
   const pad = (part: number) => String(part).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function readStringMap(key: string): Record<string, boolean> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, boolean> = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (typeof value === "boolean") out[id] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 function readJson(key: string): Record<string, never> & { pages?: Record<string, RawMessage[]> } {

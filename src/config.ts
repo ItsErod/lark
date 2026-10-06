@@ -42,6 +42,7 @@ export function defaultConfig(): AppConfig {
       noise_suppression: true,
       input_device: "",
       output_device: "",
+      video_device: "",
     },
     desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240 },
     accents: {},
@@ -96,8 +97,9 @@ export function sanitizeConfig(input: unknown): AppConfig {
       base.voice.sensitivity = Math.min(100, Math.max(0, Math.round(raw.voice.sensitivity)));
     }
     if (typeof raw.voice.noise_suppression === "boolean") base.voice.noise_suppression = raw.voice.noise_suppression;
-    if (typeof raw.voice.input_device === "string") base.voice.input_device = raw.voice.input_device.slice(0, 80);
-    if (typeof raw.voice.output_device === "string") base.voice.output_device = raw.voice.output_device.slice(0, 80);
+    if (typeof raw.voice.input_device === "string") base.voice.input_device = raw.voice.input_device.slice(0, 128);
+    if (typeof raw.voice.output_device === "string") base.voice.output_device = raw.voice.output_device.slice(0, 128);
+    if (typeof raw.voice.video_device === "string") base.voice.video_device = raw.voice.video_device.slice(0, 128);
   }
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;

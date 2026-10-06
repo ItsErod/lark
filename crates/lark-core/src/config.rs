@@ -228,6 +228,7 @@ pub struct Voice {
     pub noise_suppression: bool,
     pub input_device: String,
     pub output_device: String,
+    pub video_device: String,
 }
 
 impl Default for Voice {
@@ -238,6 +239,7 @@ impl Default for Voice {
             noise_suppression: true,
             input_device: String::new(),
             output_device: String::new(),
+            video_device: String::new(),
         }
     }
 }

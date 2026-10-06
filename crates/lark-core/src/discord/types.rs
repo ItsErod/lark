@@ -38,6 +38,13 @@ pub struct DiscordGuild {
     #[serde(default)]
     pub presences: Vec<DiscordPresence>,
     #[serde(default)]
+    pub owner: bool,
+    #[serde(default)]
+    pub owner_id: Option<String>,
+    /// The current user's base permissions, excluding channel overwrites.
+    #[serde(default, deserialize_with = "de_bitfield")]
+    pub permissions: String,
+    #[serde(default)]
     pub roles: Vec<DiscordRole>,
 }
 
@@ -70,7 +77,20 @@ pub struct DiscordChannel {
     #[serde(default)]
     pub recipients: Vec<DiscordUser>,
     #[serde(default)]
+    pub permission_overwrites: Vec<DiscordOverwrite>,
+    #[serde(default)]
     pub last_message_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordOverwrite {
+    pub id: String,
+    #[serde(rename = "type", default)]
+    pub kind: i32,
+    #[serde(default, deserialize_with = "de_bitfield")]
+    pub allow: String,
+    #[serde(default, deserialize_with = "de_bitfield")]
+    pub deny: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,6 +118,8 @@ pub struct DiscordMessage {
     pub mentions: Vec<DiscordUser>,
     #[serde(default)]
     pub mention_everyone: bool,
+    #[serde(default)]
+    pub mention_roles: Vec<String>,
     #[serde(default)]
     pub referenced_message: Option<Box<DiscordMessage>>,
     #[serde(rename = "type", default)]
@@ -212,6 +234,8 @@ pub struct DiscordRole {
     pub position: i32,
     #[serde(default)]
     pub hoist: bool,
+    #[serde(default, deserialize_with = "de_bitfield")]
+    pub permissions: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -246,6 +270,17 @@ pub struct ClientChannel {
     pub recipients: Vec<ClientUser>,
     #[serde(default)]
     pub last_message_id: Option<String>,
+    #[serde(default)]
+    pub overwrites: Vec<ClientOverwrite>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientOverwrite {
+    pub id: String,
+    pub kind: i32,
+    pub allow: String,
+    pub deny: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -316,6 +351,10 @@ pub struct ClientMessage {
     pub reactions: Vec<ClientReaction>,
     pub mention_ids: Vec<String>,
     pub mention_everyone: bool,
+    #[serde(default)]
+    pub mention_roles: Vec<String>,
+    #[serde(default)]
+    pub guild_id: Option<String>,
     pub reply: Option<ClientReply>,
     pub kind: String,
 }
@@ -372,6 +411,15 @@ pub struct ClientProfile {
     pub mutual_friends: u32,
     pub bot: bool,
     pub joined_at: String,
+}
+
+fn de_bitfield<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value.unwrap_or(serde_json::Value::Null) {
+        serde_json::Value::String(text) => text,
+        serde_json::Value::Number(number) => number.to_string(),
+        _ => String::new(),
+    })
 }
 
 pub fn snowflake_ok(value: &str) -> bool {
@@ -519,7 +567,21 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
         topic: channel.topic.clone(),
         recipient_ids: channel.recipients.iter().map(|u| u.id.clone()).collect(),
         recipients: channel.recipients.iter().map(user_to_client).collect(),
-        last_message_id: channel.last_message_id.clone(),
+        last_message_id: channel
+            .last_message_id
+            .clone()
+            .filter(|id| snowflake_ok(id)),
+        overwrites: channel
+            .permission_overwrites
+            .iter()
+            .filter(|overwrite| snowflake_ok(&overwrite.id))
+            .map(|overwrite| ClientOverwrite {
+                id: overwrite.id.clone(),
+                kind: overwrite.kind,
+                allow: overwrite.allow.clone(),
+                deny: overwrite.deny.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -585,6 +647,13 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
             .collect(),
         mention_ids: message.mentions.iter().map(|u| u.id.clone()).collect(),
         mention_everyone: message.mention_everyone,
+        mention_roles: message
+            .mention_roles
+            .iter()
+            .filter(|id| snowflake_ok(id))
+            .cloned()
+            .collect(),
+        guild_id: message.guild_id.clone().filter(|id| snowflake_ok(id)),
         reply,
         kind: kind_name(message.kind).into(),
     }

@@ -13,6 +13,7 @@ use crate::ratelimit::{
 };
 use crate::redact::redact;
 
+use super::shell::{invite_code_ok, invite_from_json, ClientInvite};
 use super::types::{
     friends_from_relationships, member_to_client, message_to_client, profile_from_value,
     role_to_client, safe_file_name, snowflake_ok, validate_outgoing, ClientChannel, ClientMember,
@@ -502,6 +503,52 @@ impl DiscordRest {
         }
         let _ = Self::json_body(response, &self.token).await?;
         Ok(())
+    }
+
+    pub async fn invite_preview(&self, code: &str) -> Result<ClientInvite, RestError> {
+        self.ensure_invite(code)?;
+        let path = format!("/invites/{code}?with_counts=true");
+        let value = self
+            .send_json(Method::GET, "GET /invites/{code}", "invites", &path, None)
+            .await?;
+        Ok(invite_from_json(code, &value))
+    }
+
+    pub async fn accept_invite(&self, code: &str) -> Result<ClientInvite, RestError> {
+        self.ensure_invite(code)?;
+        let path = format!("/invites/{code}");
+        let value = self
+            .send_json(Method::POST, "POST /invites/{code}", "invites", &path, Some(json!({})))
+            .await?;
+        Ok(invite_from_json(code, &value))
+    }
+
+    pub async fn set_channel_collapsed(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        collapsed: bool,
+    ) -> Result<(), RestError> {
+        self.ensure_snowflake(guild_id)?;
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/users/@me/guilds/{guild_id}/settings");
+        let route = route_key("PATCH", "/users/@me/guilds/{guild.id}/settings", guild_id);
+        let body = json!({
+            "channel_overrides": {
+                channel_id: { "collapsed": collapsed }
+            }
+        });
+        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body))
+            .await?;
+        Ok(())
+    }
+
+    fn ensure_invite(&self, code: &str) -> Result<(), RestError> {
+        if invite_code_ok(code) {
+            Ok(())
+        } else {
+            Err(RestError::Message("That invite link is not valid.".into()))
+        }
     }
 
     fn ensure_snowflake(&self, value: &str) -> Result<(), RestError> {

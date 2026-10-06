@@ -149,7 +149,24 @@ button { cursor: pointer; }
 .channel-head h1, .chat-head h2, .member-head h2 { font-size: 16px; margin: 0; font-weight: 600; color: var(--heading); }
 .channel-scroll, .member-scroll, .messages { overflow: auto; overscroll-behavior: contain; min-height: 0; }
 .channel-scroll, .member-scroll { flex: 1; padding: 8px 8px 12px; }
-.category { margin: 16px 0 4px; padding: 0 8px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+.category, button.category {
+  width: 100%; margin: 16px 0 4px; border: 0; background: transparent; color: var(--muted);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; text-align: left;
+  display: flex; align-items: center; gap: 6px; padding: 0 8px; cursor: pointer;
+}
+button.category:hover { color: var(--text); }
+.folder { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+.folder-button .server-face { color: #fff; font-weight: 600; }
+.server-button.is-muted { opacity: 0.45; }
+.settings-account { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.settings-account strong { display: block; }
+.status-choice { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
+.popout.status-menu { position: fixed; left: 84px; bottom: 16px; margin: 0; width: 240px; }
+.invite-card {
+  width: min(420px, calc(100% - 32px)); margin: 12vh auto; background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: grid; gap: 10px;
+}
+.invite-icon { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; }
 .channel-row, .dm-row, .member-row {
   position: relative; width: 100%; text-align: left; border: 0; background: transparent; border-radius: 4px;
   display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 6px 8px; min-height: 34px;
