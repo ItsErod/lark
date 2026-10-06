@@ -15,6 +15,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # GitHub's macOS and Windows images ship CMake 4, which rejects the
+  # vendored Opus CMakeLists (cmake_minimum_required 3.1).
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
 jobs:
   test:
     runs-on: ubuntu-latest
