@@ -7,6 +7,7 @@ export function previewQr(): string {
 }
 
 export const DISCORD_BUTTON = "Sign in with Discord";
+export const BROWSER_BUTTON = "Sign in in your browser";
 export const QR_CAPTION = "Scan with the Discord mobile app";
 export const ADVANCED_LABEL = "Advanced";
 export const PREVIEW_BUTTON = "Preview with sample data";
@@ -17,6 +18,7 @@ export const OAUTH_NOTE =
 
 export interface SignInCopy {
   discordButton: string;
+  browserButton: string;
   qrCaption: string;
   advancedLabel: string;
   previewButton: string;
@@ -28,6 +30,7 @@ export interface SignInCopy {
 export function signInCopy(): SignInCopy {
   return {
     discordButton: DISCORD_BUTTON,
+    browserButton: BROWSER_BUTTON,
     qrCaption: QR_CAPTION,
     advancedLabel: ADVANCED_LABEL,
     previewButton: PREVIEW_BUTTON,

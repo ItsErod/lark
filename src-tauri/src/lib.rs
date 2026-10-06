@@ -1,3 +1,4 @@
+mod browser_login;
 mod keychain;
 mod login;
 mod paths;
@@ -34,6 +35,7 @@ struct Shared {
     screen_dirty: Arc<AtomicBool>,
     hide_on_close: Arc<AtomicBool>,
     qr_stop: Mutex<Option<watch::Sender<bool>>>,
+    browser_stop: Mutex<Option<watch::Sender<bool>>>,
 }
 
 struct VoiceSlot {
@@ -98,6 +100,7 @@ pub fn run() {
                 screen_dirty: Arc::new(AtomicBool::new(false)),
                 hide_on_close: hide_on_close.clone(),
                 qr_stop: Mutex::new(None),
+                browser_stop: Mutex::new(None),
             };
             app.manage(shared);
             if let Some(window) = app.get_webview_window("main") {
@@ -130,6 +133,8 @@ pub fn run() {
             set_token,
             clear_token,
             open_discord_login,
+            open_browser_login,
+            cancel_browser_login,
             start_qr_login,
             stop_qr_login,
             connect,
@@ -255,6 +260,25 @@ fn open_discord_login(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn open_browser_login(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    if let Some(tx) = state.browser_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    let (tx, rx) = watch::channel(false);
+    let cancel = tx.clone();
+    *state.browser_stop.lock().await = Some(tx);
+    browser_login::start(app, rx, cancel).await
+}
+
+#[tauri::command]
+async fn cancel_browser_login(state: State<'_, Shared>) -> Result<(), String> {
+    if let Some(tx) = state.browser_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn start_qr_login(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
     if let Some(tx) = state.qr_stop.lock().await.take() {
         let _ = tx.send(true);
@@ -277,6 +301,9 @@ async fn stop_qr_login(state: State<'_, Shared>) -> Result<(), String> {
 async fn clear_token(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
     disconnect_inner(&state).await;
     if let Some(tx) = state.qr_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    if let Some(tx) = state.browser_stop.lock().await.take() {
         let _ = tx.send(true);
     }
     keychain::on_main(&app, keychain::clear_token)?

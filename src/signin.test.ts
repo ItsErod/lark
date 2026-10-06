@@ -8,6 +8,8 @@ describe("sign-in screen", () => {
     expect(copy.advancedOpen).toBe(false);
     expect(copy.advancedLabel).toBe("Advanced");
     expect(copy.discordButton).toBe("Sign in with Discord");
+    expect(copy.browserButton).toBe("Sign in in your browser");
+    expect(copy.browserButton.toLowerCase()).not.toContain("oauth");
     expect(copy.qrCaption).toBe("Scan with the Discord mobile app");
     expect(copy.saveButton).toBe("Save and connect");
     expect(copy.oauthNote.toLowerCase()).toContain("oauth2");
