@@ -364,7 +364,8 @@ kbd, .kbd { font-family: var(--mono); background: var(--bg-0); border-radius: 6p
 .overlay, .switcher-card, .settings-card { transition: opacity 120ms ease; }
 .head-actions .icon-button { min-width: 32px; }
 
-.signin-discord { width: 100%; margin: 4px 0 14px; padding: 12px 14px; }
+.signin-discord { width: 100%; margin: 4px 0 8px; padding: 12px 14px; }
+.signin-window { width: 100%; margin: 0 0 14px; }
 .qr-block { display: grid; justify-items: center; gap: 8px; margin: 4px 0 12px; text-align: center; }
 .qr-block h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .qr-slot { width: 232px; height: 232px; background: #fff; border-radius: 16px; padding: 8px; }

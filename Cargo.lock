@@ -2240,6 +2240,7 @@ dependencies = [
  "tokio-tungstenite",
  "toml 0.8.2",
  "urlencoding",
+ "zeroize",
 ]
 
 [[package]]

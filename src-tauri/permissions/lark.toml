@@ -34,6 +34,11 @@ description = "Open Discord's own login page in a separate window."
 commands.allow = ["open_discord_login"]
 
 [[permission]]
+identifier = "allow-open-discord-session"
+description = "Open Discord's login page and accept the session it returns on a local port."
+commands.allow = ["open_discord_session"]
+
+[[permission]]
 identifier = "allow-start-qr-login"
 description = "Start Discord's mobile QR login."
 commands.allow = ["start_qr_login"]

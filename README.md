@@ -24,9 +24,11 @@ On Windows, SmartScreen may say the publisher is unknown. Use **More info → Ru
 
 ## Sign in
 
-The first screen has **Sign in with Discord** and a QR code.
+The first screen has **Sign in with Discord**, a QR code, and the older sign-in window.
 
-**Sign in with Discord** opens Discord’s own login page in a separate window. The password, two-factor prompt, and captcha stay on that page. Lark waits until Discord’s session appears, stores it, and closes the window.
+**Sign in with Discord** opens Discord’s own login page. The password, two-factor prompt, and captcha stay on that page. Lark does not read the page’s storage. When Discord’s login response includes a session, that page sends it to Lark on this computer. Lark stores it in the macOS Keychain or Windows Credential Manager, reads it back, and only then connects. If the credential store refuses the save, Lark shows that error and does not continue.
+
+**Use the other sign-in window** is the older page reader. It stays available when the session handoff cannot reach Lark.
 
 **Scan with the Discord mobile app** is Discord’s QR login. If that step asks for a captcha, use **Sign in with Discord** instead.
 

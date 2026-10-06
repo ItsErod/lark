@@ -11,6 +11,7 @@ export interface SignInState {
 
 export interface SignInActions {
   onDiscord: () => void;
+  onWindow: () => void;
   onPreview: () => void;
   onSave: (token: string) => void;
 }
@@ -34,7 +35,10 @@ export function renderSignIn(host: HTMLElement, state: SignInState, actions: Sig
   const discord = el("button", "primary signin-discord", copy.discordButton);
   discord.type = "button";
   discord.addEventListener("click", actions.onDiscord);
-  card.append(discord);
+  const windowLogin = el("button", "ghost signin-window", copy.windowButton);
+  windowLogin.type = "button";
+  windowLogin.addEventListener("click", actions.onWindow);
+  card.append(discord, windowLogin);
 
   card.append(renderQr(copy, state));
 
@@ -61,6 +65,7 @@ export function renderSignIn(host: HTMLElement, state: SignInState, actions: Sig
         ? `The token is stored in ${state.store}. Nothing is logged, and it is not sent anywhere except Discord.`
         : "Nothing is logged, and the token is not sent anywhere except Discord.",
     ),
+    el("p", "gate-note session-note", copy.sessionNote),
     el("p", "gate-note oauth-note", copy.oauthNote),
   );
   host.append(card);

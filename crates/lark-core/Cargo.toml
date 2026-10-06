@@ -22,3 +22,4 @@ tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 toml = "0.8"
 urlencoding = "2"
+zeroize = "1"

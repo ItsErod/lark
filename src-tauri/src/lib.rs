@@ -2,6 +2,7 @@ mod keychain;
 mod login;
 mod paths;
 mod refresh;
+mod session;
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -129,6 +130,7 @@ pub fn run() {
             set_token,
             clear_token,
             open_discord_login,
+            open_discord_session,
             start_qr_login,
             stop_qr_login,
             connect,
@@ -254,6 +256,11 @@ fn open_discord_login(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn open_discord_session(app: AppHandle) -> Result<(), String> {
+    session::open_discord_session(&app).await
+}
+
+#[tauri::command]
 async fn start_qr_login(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
     if let Some(tx) = state.qr_stop.lock().await.take() {
         let _ = tx.send(true);
@@ -277,6 +284,9 @@ async fn clear_token(app: AppHandle, state: State<'_, Shared>) -> Result<(), Str
     disconnect_inner(&state).await;
     if let Some(tx) = state.qr_stop.lock().await.take() {
         let _ = tx.send(true);
+    }
+    if let Some(window) = app.get_webview_window("discord-session") {
+        let _ = window.close();
     }
     keychain::on_main(&app, keychain::clear_token)?
 }

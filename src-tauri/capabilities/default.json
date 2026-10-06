@@ -14,6 +14,7 @@
     "allow-set-token",
     "allow-clear-token",
     "allow-open-discord-login",
+    "allow-open-discord-session",
     "allow-start-qr-login",
     "allow-stop-qr-login",
     "allow-connect",

@@ -703,7 +703,8 @@ class LarkApp {
     const existing = this.gate.querySelector(".gate-card");
     if (!existing) {
       renderSignIn(this.gate, this.signInState(), {
-        onDiscord: () => void this.openDiscordLogin(),
+        onDiscord: () => void this.openDiscordSession(),
+        onWindow: () => void this.openDiscordLogin(),
         onPreview: () => this.enterDemo(),
         onSave: (token) => void this.saveToken(token),
       });
@@ -732,7 +733,15 @@ class LarkApp {
     });
   }
 
+  private async openDiscordSession() {
+    await this.beginLogin("open_discord_session", "Couldn't open Discord's login page.");
+  }
+
   private async openDiscordLogin() {
+    await this.beginLogin("open_discord_login", "Couldn't open the other sign-in window.");
+  }
+
+  private async beginLogin(command: string, fallback: string) {
     if (!isTauri()) {
       this.tokenNote = "Sign in with Discord opens inside the Lark app on macOS or Windows. This preview only shows the screen.";
       this.paintGate();
@@ -742,10 +751,10 @@ class LarkApp {
     this.tokenNote = "";
     this.paintGate();
     try {
-      await invoke("open_discord_login");
+      await invoke(command);
     } catch (err) {
       this.signInBusy = "";
-      this.tokenNote = commandError(err, "Couldn't open Discord's login page.");
+      this.tokenNote = commandError(err, fallback);
       this.paintGate();
     }
   }
@@ -758,10 +767,16 @@ class LarkApp {
       void this.finishConnect();
       return;
     }
+    if (payload.phase === "closed") {
+      this.signInBusy = "";
+      if (this.view === "gate") this.paintGate();
+      return;
+    }
     if (payload.phase === "failed") {
       this.signInBusy = "";
       this.view = "gate";
       this.tokenNote = payload.detail || "Discord sign-in failed.";
+      this.toast("Sign in", this.tokenNote);
       this.paint();
       return;
     }

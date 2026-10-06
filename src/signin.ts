@@ -7,20 +7,26 @@ export function previewQr(): string {
 }
 
 export const DISCORD_BUTTON = "Sign in with Discord";
+export const WINDOW_BUTTON = "Use the other sign-in window";
 export const QR_CAPTION = "Scan with the Discord mobile app";
 export const ADVANCED_LABEL = "Advanced";
 export const PREVIEW_BUTTON = "Preview with sample data";
 export const SAVE_BUTTON = "Save and connect";
+
+export const SESSION_NOTE =
+  "Sign in with Discord opens Discord's own login page. Your password stays there. When Discord returns a session, Lark stores it in the system credential store and checks that the store kept it before connecting. The other sign-in window is the older page reader.";
 
 export const OAUTH_NOTE =
   "Discord's OAuth2 consent screen cannot grant the user session a full client needs for reading and sending messages. Lark uses Discord's own login page and the mobile QR code instead.";
 
 export interface SignInCopy {
   discordButton: string;
+  windowButton: string;
   qrCaption: string;
   advancedLabel: string;
   previewButton: string;
   saveButton: string;
+  sessionNote: string;
   oauthNote: string;
   advancedOpen: boolean;
 }
@@ -28,10 +34,12 @@ export interface SignInCopy {
 export function signInCopy(): SignInCopy {
   return {
     discordButton: DISCORD_BUTTON,
+    windowButton: WINDOW_BUTTON,
     qrCaption: QR_CAPTION,
     advancedLabel: ADVANCED_LABEL,
     previewButton: PREVIEW_BUTTON,
     saveButton: SAVE_BUTTON,
+    sessionNote: SESSION_NOTE,
     oauthNote: OAUTH_NOTE,
     advancedOpen: false,
   };

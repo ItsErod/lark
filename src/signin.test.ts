@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { commandError, OAUTH_NOTE, PREVIEW_QR_URL, signInCopy, signInErrorVisible } from "./signin";
+import { commandError, OAUTH_NOTE, PREVIEW_QR_URL, SESSION_NOTE, signInCopy, signInErrorVisible } from "./signin";
 
 describe("sign-in screen", () => {
   it("keeps manual paste under Advanced and does not offer OAuth", () => {
@@ -8,6 +8,11 @@ describe("sign-in screen", () => {
     expect(copy.advancedOpen).toBe(false);
     expect(copy.advancedLabel).toBe("Advanced");
     expect(copy.discordButton).toBe("Sign in with Discord");
+    expect(copy.windowButton).toBe("Use the other sign-in window");
+    expect(copy.sessionNote).toBe(SESSION_NOTE);
+    expect(copy.sessionNote.toLowerCase()).toContain("credential store");
+    expect(copy.sessionNote.toLowerCase()).toContain("kept it");
+    expect(copy.sessionNote.toLowerCase()).not.toContain("localstorage");
     expect(copy.qrCaption).toBe("Scan with the Discord mobile app");
     expect(copy.saveButton).toBe("Save and connect");
     expect(copy.oauthNote.toLowerCase()).toContain("oauth2");
