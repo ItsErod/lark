@@ -1,0 +1,139 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import {
+  applyRootOverrides,
+  contrastRatio,
+  filterThemes,
+  galleryEntries,
+  LEGACY_THEME_IDS,
+  loadImportedThemes,
+  parseThemeCss,
+  shadowBlurPx,
+  SHIPPED_THEMES,
+  themeFromJson,
+  themeIdFromFilename,
+  themePack,
+  themeToJson,
+  validateThemeCss,
+} from "./themes";
+
+const legacy = new Set<string>(LEGACY_THEME_IDS);
+
+describe("theme pack", () => {
+  const files = readdirSync("themes").filter((name) => name.endsWith(".css")).sort();
+
+  it("ships 14 new themes plus the three originals", () => {
+    expect(themePack().length).toBe(14);
+    expect(themePack().length).toBeGreaterThanOrEqual(10);
+    expect(themePack().length).toBeLessThanOrEqual(15);
+    expect(files).toEqual(SHIPPED_THEMES.map((theme) => `${theme.id}.css`).sort());
+    const doc = readFileSync("THEMES.md", "utf8");
+    for (const theme of SHIPPED_THEMES) expect(doc, theme.id).toContain(theme.id);
+  });
+
+  it("keeps every theme to variables, with a cheap shadow on the new pack", () => {
+    for (const theme of SHIPPED_THEMES) {
+      const css = readFileSync(`themes/${theme.id}.css`, "utf8");
+      expect(validateThemeCss(css), theme.id).toBeNull();
+      const parsed = parseThemeCss(css);
+      expect(parsed.vars["--bg-0"], theme.id).toBeTruthy();
+      expect(parsed.vars["--text"], theme.id).toBeTruthy();
+      expect(parsed.vars["--accent"], theme.id).toBeTruthy();
+      if (!legacy.has(theme.id)) {
+        expect(shadowBlurPx(parsed.vars["--shadow"] ?? ""), theme.id).toBeLessThanOrEqual(12);
+        expect(css.toLowerCase().includes("animation:") || css.toLowerCase().includes("@keyframes"), theme.id).toBe(false);
+      }
+    }
+  });
+
+  it("uses true black for OLED and a mono face for the terminal", () => {
+    const oled = parseThemeCss(readFileSync("themes/oled.css", "utf8"));
+    expect(oled.vars["--bg-0"]).toBe("#000000");
+    expect(oled.vars["--bg-1"]).toBe("#000000");
+    expect(oled.vars["--bg-2"]).toBe("#000000");
+    const phosphor = parseThemeCss(readFileSync("themes/phosphor.css", "utf8"));
+    expect(phosphor.vars["--font"]).toContain("monospace");
+  });
+
+  it("asks for native vibrancy without a CSS blur", () => {
+    const css = readFileSync("themes/frosted.css", "utf8");
+    const parsed = parseThemeCss(css);
+    expect(parsed.material).toBe("vibrancy");
+    expect(css).toContain("html.is-vibrancy");
+    expect(css.toLowerCase()).not.toContain("backdrop-filter");
+    expect(parseThemeCss(css).vars["--bg-0"]).toBe("#1c212b");
+  });
+
+  it("keeps high contrast text at 7:1", () => {
+    const parsed = parseThemeCss(readFileSync("themes/high-contrast.css", "utf8"));
+    const pairs: [string, string][] = [
+      ["--text", "--bg-0"],
+      ["--text", "--bg-2"],
+      ["--muted", "--bg-0"],
+      ["--muted", "--bg-2"],
+      ["--faint", "--bg-0"],
+      ["--faint", "--bg-2"],
+      ["--accent-ink", "--accent"],
+      ["--mention-fg", "--mention-bg"],
+    ];
+    for (const [fg, bg] of pairs) {
+      const ratio = contrastRatio(parsed.vars[fg], parsed.vars[bg]);
+      expect(ratio, `${fg} on ${bg}`).not.toBeNull();
+      expect(ratio ?? 0, `${fg} on ${bg}`).toBeGreaterThanOrEqual(7);
+    }
+  });
+});
+
+describe("theme import and export", () => {
+  const nord = readFileSync("themes/nord.css", "utf8");
+
+  it("round-trips a file through JSON", () => {
+    const back = themeFromJson(themeToJson("nord", nord));
+    expect(back.id).toBe("nord");
+    expect(back.css).toBe(nord);
+  });
+
+  it("builds CSS from a vars object", () => {
+    const back = themeFromJson(JSON.stringify({
+      name: "custom-ink",
+      colorScheme: "dark",
+      vars: { "--bg-0": "#111111", "--text": "#f4f4f5", "--accent": "#5e6ad2" },
+    }));
+    expect(back.id).toBe("custom-ink");
+    expect(parseThemeCss(back.css).vars["--accent"]).toBe("#5e6ad2");
+    expect(validateThemeCss(back.css)).toBeNull();
+  });
+
+  it("rejects blur, remote urls, and layout rules", () => {
+    expect(validateThemeCss(":root { --bg-0: #000; --text: #fff; --accent: #fff; } .shell { backdrop-filter: blur(12px); }")).toMatch(/backdrop-filter|variables/);
+    expect(validateThemeCss(":root { --bg-0: url(https://example.test); --text: #fff; --accent: #fff; }")).toMatch(/url/);
+    expect(validateThemeCss(":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 40px 200px #000; }")).toMatch(/blur/i);
+    expect(themeIdFromFilename("My Theme.css")).toBe("my-theme");
+    expect(themeIdFromFilename("../secret.css")).toBe("secret");
+    expect(() => themeFromJson("{")).toThrow();
+  });
+
+  it("patches only the first root block", () => {
+    const next = applyRootOverrides(nord, { "--accent": "#88c0d0" });
+    expect(parseThemeCss(next).vars["--accent"]).toBe("#88c0d0");
+    expect(validateThemeCss(next)).toBeNull();
+  });
+
+  it("drops unsafe imported themes from the browser cache", () => {
+    const raw = JSON.stringify({
+      nord,
+      "bad-theme": ".message { display: none; backdrop-filter: blur(8px); }",
+      "../nope": ":root { --bg-0: #000; --text: #fff; --accent: #fff; }",
+    });
+    const loaded = loadImportedThemes(raw);
+    expect([...loaded.keys()]).toEqual(["nord"]);
+    expect(loaded.get("nord")).toBe(nord);
+  });
+
+  it("filters the gallery and appends installed ids", () => {
+    const entries = galleryEntries(["nord", "custom-ink", "Nope", "../x"]);
+    expect(entries.some((theme) => theme.id === "custom-ink")).toBe(true);
+    expect(entries.filter((theme) => theme.id === "nord")).toHaveLength(1);
+    expect(filterThemes(entries, "latte").map((theme) => theme.id)).toEqual(["catppuccin-latte"]);
+  });
+});

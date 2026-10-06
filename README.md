@@ -113,7 +113,7 @@ The member list shows online, idle, do-not-disturb, and offline when Discord sen
 | Deafen | `mod+shift+d` |
 | Push to talk | `` ` `` |
 
-Themes are CSS files that set variables (`--bg-0`, `--text`, `--accent`, and the rest in `themes/modern-dark.css`). Shipped themes: **modern-dark** (the default), **daylight**, **ink-contrast**. Drop another `name.css` in the themes folder; `name` must match `[a-z0-9][a-z0-9-]{0,63}`. The file is picked up while the app is open.
+Themes are CSS files that set variables (`--bg-0`, `--text`, `--accent`, and the rest in `themes/modern-dark.css`). The gallery in Settings previews each one and applies it in one click. Import and export use CSS or JSON. Shipped themes are listed in [THEMES.md](THEMES.md): a Linear-style dark and light, OLED black, Nord, Tokyo Night, Catppuccin Mocha and Latte, Dracula, Gruvbox, synthwave, a static RGB accent, frosted glass (native vibrancy on macOS and Windows), a phosphor terminal, a 7:1 high-contrast theme, plus the original **modern-dark** (the default), **daylight**, and **ink-contrast**. A theme id matches `[a-z0-9][a-z0-9-]{0,63}`. New files are copied into the config folder when they are missing. A file you already edited there is left alone. The file is picked up while the app is open.
 
 The UI font is bundled Inter so both operating systems match. Settings can switch to the system UI font (Segoe UI on Windows), a serif stack, or a mono stack (SF Mono, Cascadia Mono, Consolas).
 
@@ -145,7 +145,7 @@ npm test
 cargo test -p lark-core
 ```
 
-Frontend tests cover message rendering, shortcuts, notification rules, and platform labels. The Rust crate covers config parsing, the rate limiter, and Discord payload mapping.
+Frontend tests cover message rendering, shortcuts, notification rules, platform labels, and the theme pack. The Rust crate covers config parsing, theme CSS checks, the rate limiter, and Discord payload mapping.
 
 ## Continuous integration
 

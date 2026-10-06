@@ -1,0 +1,26 @@
+/* Lark theme: Catppuccin Latte. Cool paper and a mauve accent. */
+:root {
+  color-scheme: light;
+  --bg-0: #dce0e8;
+  --bg-1: #e6e9ef;
+  --bg-2: #eff1f5;
+  --bg-3: #ccd0da;
+  --bg-4: #bcc0cc;
+  --line: rgba(76, 79, 105, 0.14);
+  --text: #4c4f69;
+  --muted: #5c5f77;
+  --faint: #6c6f85;
+  --accent: #8839ef;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(136, 57, 239, 0.12);
+  --ok: #2f7d22;
+  --idle: #b86e0a;
+  --busy: #d20f39;
+  --danger: #d20f39;
+  --mention-bg: rgba(136, 57, 239, 0.12);
+  --mention-fg: #6c2bc4;
+  --shadow: 0 1px 2px rgba(76, 79, 105, 0.12);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

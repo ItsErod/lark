@@ -6,6 +6,8 @@ describe("command palette", () => {
     const ids = commandCatalog().map((item) => item.id);
     expect(ids).toContain("split");
     expect(ids).toContain("theme");
+    expect(ids).toContain("themes");
+    expect(matchCommands("nord", commandCatalog()).some((item) => item.id === "themes")).toBe(true);
     expect(ids).toContain("mute");
     expect(matchCommands("voice", commandCatalog()).some((item) => item.id === "mute")).toBe(true);
     expect(matchCommands("zzzz", commandCatalog())).toEqual([]);

@@ -11,6 +11,8 @@ pub enum ConfigError {
     Shortcut { key: String, reason: String },
     #[error("theme name must be a short lowercase slug (letters, numbers, hyphens)")]
     Theme,
+    #[error("invalid theme css: {0}")]
+    ThemeCss(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -342,6 +344,289 @@ pub fn example_config_text() -> &'static str {
     include_str!("../../../config.example.toml")
 }
 
+const THEME_BANNED: &[&str] = &[
+    "@import",
+    "url(",
+    "expression(",
+    "backdrop-filter",
+    "@keyframes",
+    "animation:",
+    "will-change",
+    "javascript:",
+    "-moz-binding",
+    "behavior:",
+    "blur(",
+    "drop-shadow",
+];
+
+/// Themes may only set custom properties. Blur, animation, and external URLs are refused.
+pub fn validate_theme_css(css: &str) -> Result<(), ConfigError> {
+    if css.len() > 16 * 1024 || css.trim().is_empty() || css.contains('\0') {
+        return Err(ConfigError::ThemeCss(
+            "theme file is empty, too large, or not text".into(),
+        ));
+    }
+    let stripped = strip_css_comments(css);
+    let lower = stripped.to_ascii_lowercase();
+    for token in THEME_BANNED {
+        if lower.contains(token) {
+            return Err(ConfigError::ThemeCss(format!(
+                "theme css cannot include {token}"
+            )));
+        }
+    }
+    let blocks = parse_css_blocks(&stripped)?;
+    let mut saw_root = false;
+    let mut saw_bg = false;
+    let mut saw_text = false;
+    let mut saw_accent = false;
+    for block in blocks {
+        if block.selector != ":root" && block.selector != "html.is-vibrancy" {
+            return Err(ConfigError::ThemeCss(
+                "theme css can only set variables on :root and html.is-vibrancy".into(),
+            ));
+        }
+        if block.selector == ":root" {
+            saw_root = true;
+        }
+        for (name, value) in block.decls {
+            let name_l = name.to_ascii_lowercase();
+            let value = value.trim();
+            if value.len() > 300
+                || value.contains('{')
+                || value.contains('}')
+                || value.contains('<')
+                || value.contains('>')
+            {
+                return Err(ConfigError::ThemeCss(format!(
+                    "unsupported value for {name_l}"
+                )));
+            }
+            if name_l == "color-scheme" {
+                if value != "dark" && value != "light" {
+                    return Err(ConfigError::ThemeCss(
+                        "color-scheme must be dark or light".into(),
+                    ));
+                }
+                continue;
+            }
+            if !is_custom_prop(&name_l) {
+                return Err(ConfigError::ThemeCss(format!(
+                    "unsupported property {name_l}"
+                )));
+            }
+            if name_l == "--window-material" && value != "none" && value != "vibrancy" {
+                return Err(ConfigError::ThemeCss(
+                    "window material must be none or vibrancy".into(),
+                ));
+            }
+            if name_l == "--shadow" && shadow_blur_px(value) > 64.0 {
+                return Err(ConfigError::ThemeCss("shadow blur is too large".into()));
+            }
+            if name_l == "--bg-0" {
+                saw_bg = true;
+            }
+            if name_l == "--text" {
+                saw_text = true;
+            }
+            if name_l == "--accent" {
+                saw_accent = true;
+            }
+        }
+    }
+    if !saw_root || !saw_bg || !saw_text || !saw_accent {
+        return Err(ConfigError::ThemeCss(
+            "a theme needs :root with --bg-0, --text, and --accent".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Copy theme files that are not already in the user folder. Existing files stay as the user left them.
+pub fn copy_missing_themes(dest: &std::path::Path, source: &std::path::Path) -> u32 {
+    let Ok(entries) = std::fs::read_dir(source) else {
+        return 0;
+    };
+    let mut copied = 0;
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if !kind.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(stem) = name.strip_suffix(".css") else {
+            continue;
+        };
+        if validate_theme_name(stem).is_err() {
+            continue;
+        }
+        let target = dest.join(name);
+        if target.exists() {
+            continue;
+        }
+        if std::fs::copy(entry.path(), target).is_ok() {
+            copied += 1;
+        }
+    }
+    copied
+}
+
+fn is_custom_prop(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("--") else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+fn strip_css_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        if let Some(end) = rest[start + 2..].find("*/") {
+            rest = &rest[start + 2 + end + 2..];
+        } else {
+            rest = "";
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+struct CssBlock {
+    selector: String,
+    decls: Vec<(String, String)>,
+}
+
+fn parse_css_blocks(css: &str) -> Result<Vec<CssBlock>, ConfigError> {
+    let mut blocks = Vec::new();
+    let bytes = css.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let Some(open) = css[i..].find('{') else {
+            return Err(ConfigError::ThemeCss(
+                "theme css can only set variables on :root and html.is-vibrancy".into(),
+            ));
+        };
+        let selector = css[i..i + open].trim().to_string();
+        if selector.is_empty() {
+            return Err(ConfigError::ThemeCss(
+                "theme css can only set variables on :root and html.is-vibrancy".into(),
+            ));
+        }
+        let body_start = i + open + 1;
+        let Some(close) = css[body_start..].find('}') else {
+            return Err(ConfigError::ThemeCss(
+                "theme css can only set variables on :root and html.is-vibrancy".into(),
+            ));
+        };
+        let body = &css[body_start..body_start + close];
+        let mut decls = Vec::new();
+        for part in body.split(';') {
+            let item = part.trim();
+            if item.is_empty() {
+                continue;
+            }
+            let Some(colon) = item.find(':') else {
+                return Err(ConfigError::ThemeCss(
+                    "theme css can only set variables on :root and html.is-vibrancy".into(),
+                ));
+            };
+            if colon == 0 {
+                return Err(ConfigError::ThemeCss(
+                    "theme css can only set variables on :root and html.is-vibrancy".into(),
+                ));
+            }
+            decls.push((item[..colon].trim().to_string(), item[colon + 1..].trim().to_string()));
+        }
+        blocks.push(CssBlock { selector, decls });
+        i = body_start + close + 1;
+    }
+    Ok(blocks)
+}
+
+fn shadow_blur_px(shadow: &str) -> f64 {
+    let mut max: f64 = 0.0;
+    for layer in split_commas(shadow) {
+        let stripped = strip_funcs(&layer);
+        let mut tokens = Vec::new();
+        let mut rest = stripped.as_str();
+        while !rest.is_empty() {
+            rest = rest.trim_start();
+            if rest.is_empty() {
+                break;
+            }
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let token = &rest[..end];
+            if token == "0" || token.ends_with("px") {
+                if let Some(number) = token.strip_suffix("px").or(Some(token)) {
+                    if let Ok(value) = number.parse::<f64>() {
+                        tokens.push(value.abs());
+                    }
+                }
+            }
+            rest = &rest[end..];
+        }
+        if tokens.len() >= 3 {
+            max = max.max(tokens[2]);
+        }
+    }
+    max
+}
+
+fn strip_funcs(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find('(') {
+        let head = &rest[..start];
+        let name_end = head
+            .rfind(|c: char| !c.is_ascii_alphabetic() && c != '-')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        out.push_str(&head[..name_end]);
+        out.push(' ');
+        let Some(end) = rest[start..].find(')') else {
+            break;
+        };
+        rest = &rest[start + end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn split_commas(value: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0;
+    for (index, ch) in value.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&value[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&value[start..]);
+    parts
+}
+
 pub fn validate_theme_name(name: &str) -> Result<(), ConfigError> {
     let ok = (1..=64).contains(&name.len())
         && name
@@ -598,5 +883,38 @@ mod tests {
     #[test]
     fn unknown_appearance_field_is_rejected() {
         assert!(parse_config("appearance.sparkles = true\n").is_err());
+    }
+
+    #[test]
+    fn theme_css_rejects_blur_layout_and_huge_shadows() {
+        let ok = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }";
+        assert!(validate_theme_css(ok).is_ok());
+        assert!(validate_theme_css(".shell { backdrop-filter: blur(20px); }").is_err());
+        assert!(validate_theme_css(":root { --bg-0: #000; --text: #fff; --accent: url(https://example.test); }").is_err());
+        assert!(validate_theme_css(":root { --bg-0: #000; --text: #fff; --accent: #fff; } @keyframes spin { }").is_err());
+        let heavy = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 24px 200px #000; }";
+        assert!(validate_theme_css(heavy).is_err());
+        let legacy = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 24px 60px rgba(0, 0, 0, 0.38); }";
+        assert!(validate_theme_css(legacy).is_ok());
+    }
+
+    #[test]
+    fn copy_missing_themes_leaves_existing_files() {
+        let root = std::env::temp_dir().join(format!("lark-themes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("src");
+        let dst = root.join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dst).unwrap();
+        std::fs::write(src.join("nord.css"), "nord").unwrap();
+        std::fs::write(src.join("notes.txt"), "no").unwrap();
+        std::fs::write(dst.join("nord.css"), "custom").unwrap();
+        assert_eq!(copy_missing_themes(&dst, &src), 0);
+        assert_eq!(std::fs::read_to_string(dst.join("nord.css")).unwrap(), "custom");
+        std::fs::write(src.join("oled.css"), "oled").unwrap();
+        assert_eq!(copy_missing_themes(&dst, &src), 1);
+        assert_eq!(std::fs::read_to_string(dst.join("oled.css")).unwrap(), "oled");
+        assert!(!dst.join("notes.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -1,0 +1,26 @@
+/* Lark theme: High contrast. White and near-white type on black, yellow accent, hairline shadow. */
+:root {
+  color-scheme: dark;
+  --bg-0: #000000;
+  --bg-1: #000000;
+  --bg-2: #0a0a0a;
+  --bg-3: #141414;
+  --bg-4: #262626;
+  --line: #8d8d8d;
+  --text: #ffffff;
+  --muted: #f2f2f2;
+  --faint: #d0d0d0;
+  --accent: #ffe14a;
+  --accent-ink: #1a1400;
+  --accent-soft: rgba(255, 225, 74, 0.2);
+  --ok: #5dff9a;
+  --idle: #ffe14a;
+  --busy: #ff8b7a;
+  --danger: #ff6b6b;
+  --mention-bg: #2a2400;
+  --mention-fg: #ffe14a;
+  --shadow: 0 0 0 1px #ffffff;
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

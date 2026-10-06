@@ -32,7 +32,7 @@ pub fn resolve(app: &AppHandle) -> Result<ResolvedPaths, String> {
     let plugins_dir = dir.join("plugins");
     fs::create_dir_all(&themes_dir).map_err(|err| err.to_string())?;
     fs::create_dir_all(&plugins_dir).map_err(|err| err.to_string())?;
-    seed_if_empty(&themes_dir, &bundled(app, "themes"));
+    let _ = lark_core::config::copy_missing_themes(&themes_dir, &bundled(app, "themes"));
     seed_if_empty(&plugins_dir, &bundled(app, "plugins"));
     let config_file = dir.join("config.toml");
     if !config_file.exists() {

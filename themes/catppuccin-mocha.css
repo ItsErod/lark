@@ -1,0 +1,26 @@
+/* Lark theme: Catppuccin Mocha. Crust, mantle, and a mauve accent. */
+:root {
+  color-scheme: dark;
+  --bg-0: #11111b;
+  --bg-1: #181825;
+  --bg-2: #1e1e2e;
+  --bg-3: #313244;
+  --bg-4: #45475a;
+  --line: rgba(205, 214, 244, 0.1);
+  --text: #cdd6f4;
+  --muted: #a6adc8;
+  --faint: #8b91ab;
+  --accent: #cba6f7;
+  --accent-ink: #11111b;
+  --accent-soft: rgba(203, 166, 247, 0.16);
+  --ok: #a6e3a1;
+  --idle: #f9e2af;
+  --busy: #f38ba8;
+  --danger: #f38ba8;
+  --mention-bg: rgba(203, 166, 247, 0.16);
+  --mention-fg: #cba6f7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
