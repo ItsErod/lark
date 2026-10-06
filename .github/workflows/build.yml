@@ -15,6 +15,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # audiopus_sys vendors Opus with a pre-3.5 CMake minimum. CMake 4 rejects that
+  # unless this floor is set. Cargo also sets it from .cargo/config.toml.
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
 jobs:
   test:
     runs-on: ubuntu-latest
