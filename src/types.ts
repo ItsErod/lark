@@ -48,6 +48,7 @@ export interface AppConfig {
     noise_suppression: boolean;
     input_device: string;
     output_device: string;
+    video_device: string;
   };
   desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number };
   accents: Record<string, string>;
@@ -96,7 +97,9 @@ export interface RawMessage {
   embeds?: RawEmbed[];
   reactions?: RawReaction[];
   mentionIds?: string[];
+  mentionRoles?: string[];
   mentionEveryone?: boolean;
+  guildId?: string | null;
   reply?: { id: string; authorName: string; preview: string } | null;
   kind?: "default" | "reply" | "join" | "system";
   stickers?: { name: string; url: string }[];
@@ -134,6 +137,7 @@ export interface Channel {
   lastMessageId?: string | null;
   unread?: number;
   mentions?: number;
+  overwrites?: { id: string; kind: number; allow: string; deny: string }[];
 }
 
 export interface Guild {

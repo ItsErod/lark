@@ -200,8 +200,23 @@ commands.allow = ["search_messages"]
 
 [[permission]]
 identifier = "allow-set-unread"
-description = "Update the tray unread count."
+description = "Update the tray and dock unread count."
 commands.allow = ["set_unread"]
+
+[[permission]]
+identifier = "allow-preview-invite"
+description = "Look up a Discord invite before joining."
+commands.allow = ["preview_invite"]
+
+[[permission]]
+identifier = "allow-accept-invite"
+description = "Join a server from an invite code."
+commands.allow = ["accept_invite"]
+
+[[permission]]
+identifier = "allow-set-channel-collapsed"
+description = "Collapse or expand a channel category in Discord settings."
+commands.allow = ["set_channel_collapsed"]
 
 [[permission]]
 identifier = "allow-set-minimize-to-tray"

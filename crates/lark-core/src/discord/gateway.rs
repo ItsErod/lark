@@ -9,6 +9,10 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::redact::redact;
 
+use super::shell::{
+    access_from_guild, folders_from_settings, guild_prefs, my_roles_from_merged, read_markers,
+    ClientFolder, ClientGuildAccess, ClientGuildPref,
+};
 use super::types::{
     activity_parts, channel_kind_name, channel_to_client, friends_from_relationships,
     guild_to_client, message_to_client, role_to_client, roster_from_chunk, roster_from_guild,
@@ -65,6 +69,8 @@ pub enum ClientEvent {
     Channels {
         guild_id: String,
         channels: Vec<ClientChannel>,
+        /// False when one channel was created or edited. True replaces the list.
+        replace: bool,
     },
     MessageCreate {
         message: ClientMessage,
@@ -157,6 +163,19 @@ pub enum ClientEvent {
     FriendRemoved {
         user_id: String,
     },
+    Folders {
+        folders: Vec<ClientFolder>,
+    },
+    GuildAccess {
+        access: ClientGuildAccess,
+    },
+    GuildNotify {
+        entries: Vec<ClientGuildPref>,
+    },
+    ChannelGone {
+        guild_id: String,
+        channel_id: String,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -222,6 +241,7 @@ fn reconnect(detail: impl Into<String>) -> SessionEnd {
 struct Session {
     id: String,
     seq: Option<u64>,
+    user_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -797,9 +817,11 @@ fn handle_dispatch(
         "RESUMED" => true,
         "READY" => {
             if let Ok(ready) = serde_json::from_value::<Ready>(data.clone()) {
+                let user_id = ready.user.id.clone();
                 *session = Some(Session {
                     id: ready.session_id,
                     seq,
+                    user_id: user_id.clone(),
                 });
                 emit(ClientEvent::Ready {
                     user: user_to_client(&ready.user),
@@ -824,22 +846,24 @@ fn handle_dispatch(
                         emit(ClientEvent::Friends { friends });
                     }
                 }
-                for marker in read_markers(ready.read_state.as_ref()) {
-                    let Some(channel_id) = marker.get("id").and_then(|v| v.as_str()) else {
-                        continue;
-                    };
+                for (index, guild) in ready.guilds.iter().enumerate() {
+                    let roles = my_roles_from_merged(&ready.merged_members, index);
+                    emit_guild_shell(&user_id, guild, &roles, emit);
+                }
+                for marker in read_markers(&ready.read_state) {
                     emit(ClientEvent::ReadState {
-                        channel_id: channel_id.to_string(),
-                        last_message_id: marker
-                            .get("last_message_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        mention_count: marker
-                            .get("mention_count")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as u32,
+                        channel_id: marker.channel_id,
+                        last_message_id: marker.last_message_id,
+                        mention_count: marker.mention_count,
                     });
+                }
+                let folders = folders_from_settings(&ready.user_settings, ready.user_settings_proto.as_deref());
+                if !folders.is_empty() {
+                    emit(ClientEvent::Folders { folders });
+                }
+                let entries = guild_prefs(&ready.user_guild_settings);
+                if !entries.is_empty() {
+                    emit(ClientEvent::GuildNotify { entries });
                 }
                 return true;
             }
@@ -848,25 +872,23 @@ fn handle_dispatch(
         "GUILD_CREATE" => {
             if let Ok(guild) = serde_json::from_value::<DiscordGuild>(data.clone()) {
                 let roster = roster_from_guild(&guild);
-                let guild_id = guild.id.clone();
+                let user_id = session
+                    .as_ref()
+                    .map(|item| item.user_id.clone())
+                    .unwrap_or_default();
                 emit(ClientEvent::Guild {
                     guild: guild_to_client(&guild),
                 });
-                if !guild.channels.is_empty() {
-                    emit(ClientEvent::Channels {
-                        guild_id: guild_id.clone(),
-                        channels: guild.channels.iter().map(channel_to_client).collect(),
-                    });
-                }
                 if !guild.roles.is_empty() {
                     emit(ClientEvent::Roles {
-                        guild_id: guild_id.clone(),
+                        guild_id: guild.id.clone(),
                         roles: guild.roles.iter().map(role_to_client).collect(),
                     });
                 }
+                emit_guild_shell(&user_id, &guild, &[], emit);
                 if !roster.is_empty() {
                     emit(ClientEvent::Members {
-                        guild_id,
+                        guild_id: guild.id.clone(),
                         members: roster,
                     });
                 }
@@ -912,14 +934,43 @@ fn handle_dispatch(
             }
             false
         }
-        "CHANNEL_CREATE" | "CHANNEL_UPDATE" | "CHANNEL_DELETE" => {
+        "CHANNEL_CREATE" | "CHANNEL_UPDATE" => {
             if let Ok(channel) = serde_json::from_value::<DiscordChannel>(data.clone()) {
                 let kind = channel_kind_name(channel.kind);
                 if kind == "dm" || kind == "group" {
                     emit(ClientEvent::DirectChannel {
                         channel: channel_to_client(&channel),
-                        removed: name == "CHANNEL_DELETE",
+                        removed: false,
                     });
+                } else {
+                    let guild_id = channel.guild_id.clone().unwrap_or_default();
+                    if !guild_id.is_empty() {
+                        emit(ClientEvent::Channels {
+                            guild_id,
+                            channels: vec![channel_to_client(&channel)],
+                            replace: false,
+                        });
+                    }
+                }
+            }
+            false
+        }
+        "CHANNEL_DELETE" => {
+            if let Ok(channel) = serde_json::from_value::<DiscordChannel>(data.clone()) {
+                let kind = channel_kind_name(channel.kind);
+                if kind == "dm" || kind == "group" {
+                    emit(ClientEvent::DirectChannel {
+                        channel: channel_to_client(&channel),
+                        removed: true,
+                    });
+                } else {
+                    let guild_id = channel.guild_id.clone().unwrap_or_default();
+                    if !guild_id.is_empty() && !channel.id.is_empty() {
+                        emit(ClientEvent::ChannelGone {
+                            guild_id,
+                            channel_id: channel.id.clone(),
+                        });
+                    }
                 }
             }
             false
@@ -968,6 +1019,25 @@ fn handle_dispatch(
                 });
             if let Some(user_id) = user_id {
                 emit(ClientEvent::FriendRemoved { user_id });
+            }
+            false
+        }
+        "USER_GUILD_SETTINGS_UPDATE" => {
+            let entries = guild_prefs(data);
+            if !entries.is_empty() {
+                emit(ClientEvent::GuildNotify { entries });
+            }
+            false
+        }
+        "USER_SETTINGS_PROTO_UPDATE" => {
+            let encoded = data
+                .get("settings")
+                .and_then(|value| value.get("proto"))
+                .and_then(|value| value.as_str())
+                .or_else(|| data.get("proto").and_then(|value| value.as_str()));
+            let folders = folders_from_settings(&Value::Null, encoded);
+            if !folders.is_empty() {
+                emit(ClientEvent::Folders { folders });
             }
             false
         }
@@ -1119,6 +1189,25 @@ fn handle_dispatch(
     }
 }
 
+fn emit_guild_shell(
+    user_id: &str,
+    guild: &DiscordGuild,
+    my_roles: &[String],
+    emit: &mut impl FnMut(ClientEvent),
+) {
+    let guild_id = guild.id.clone();
+    if !guild.channels.is_empty() {
+        emit(ClientEvent::Channels {
+            guild_id: guild_id.clone(),
+            channels: guild.channels.iter().map(channel_to_client).collect(),
+            replace: true,
+        });
+    }
+    emit(ClientEvent::GuildAccess {
+        access: access_from_guild(guild, user_id, my_roles),
+    });
+}
+
 fn json_str(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -1140,19 +1229,15 @@ struct Ready {
     #[serde(default)]
     presences: Option<Value>,
     #[serde(default)]
-    read_state: Option<Value>,
-}
-
-fn read_markers(value: Option<&Value>) -> Vec<&Value> {
-    match value {
-        Some(Value::Array(items)) => items.iter().collect(),
-        Some(Value::Object(map)) => map
-            .get("entries")
-            .and_then(|entries| entries.as_array())
-            .map(|items| items.iter().collect())
-            .unwrap_or_default(),
-        _ => Vec::new(),
-    }
+    read_state: Value,
+    #[serde(default)]
+    user_settings: Value,
+    #[serde(default)]
+    user_settings_proto: Option<String>,
+    #[serde(default)]
+    user_guild_settings: Value,
+    #[serde(default)]
+    merged_members: Value,
 }
 
 fn member_list_event(data: &Value) -> Option<ClientEvent> {
@@ -1544,6 +1629,45 @@ mod tests {
             .unwrap()
             .contains("Lark"));
         assert_eq!(intents_without_presence(CLIENT_INTENTS) & (1 << 8), 0);
+    }
+
+    #[test]
+    fn ready_carries_folders_read_state_and_channel_bits() {
+        let data = json!({
+            "user": {"id": "100000000000000001", "username": "ethan", "global_name": "Ethan"},
+            "session_id": "sess",
+            "guilds": [{
+                "id": "100000000000000010",
+                "name": "Northwind",
+                "owner": false,
+                "permissions": "1024",
+                "roles": [{"id": "100000000000000010", "name": "@everyone", "permissions": "1024"}],
+                "channels": [{
+                    "id": "100000000000000021",
+                    "type": 0,
+                    "name": "general",
+                    "position": 0,
+                    "last_message_id": "100000000000000300",
+                    "permission_overwrites": [{"id": "100000000000000010", "type": 0, "allow": "0", "deny": "1024"}]
+                }]
+            }],
+            "private_channels": [],
+            "read_state": {"entries": [{"id": "100000000000000021", "last_message_id": "100000000000000200", "mention_count": 1}]},
+            "user_settings": {"guild_folders": [{"id": 1, "name": "Work", "color": 5793266, "guild_ids": ["100000000000000010"]}]},
+            "user_guild_settings": {"entries": [{"guild_id": "100000000000000010", "muted": false, "message_notifications": 0, "channel_overrides": []}]},
+            "merged_members": [[{"roles": ["100000000000000099"]}]]
+        });
+        let mut events = Vec::new();
+        let mut session = None;
+        assert!(handle_dispatch("READY", &data, Some(1), &mut session, &mut |event| events.push(event)));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::Folders { folders } if folders[0].name.as_deref() == Some("Work"))));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::ReadState { mention_count: 1, .. })));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::GuildAccess { access } if access.my_roles == vec!["100000000000000099"] && access.permissions == "1024")));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::Channels { replace: true, channels, .. } if channels[0].overwrites.len() == 1 && channels[0].last_message_id.as_deref() == Some("100000000000000300")
+        )));
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::GuildNotify { .. })));
     }
 
     #[test]

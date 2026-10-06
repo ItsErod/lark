@@ -118,10 +118,15 @@ export function renderProfileCard(host: HTMLElement, view: ProfileView, actions:
     }
     const custom = el("input");
     custom.value = view.person.custom ?? "";
+    custom.maxLength = 128;
     custom.placeholder = "Custom status";
     custom.setAttribute("aria-label", "Custom status");
-    custom.addEventListener("change", () => actions.onStatus?.(view.person.status === "invisible" ? "invisible" : view.person.status === "idle" || view.person.status === "dnd" ? view.person.status : "online", custom.value));
-    picker.append(custom);
+    const current = view.person.status === "invisible" || view.person.status === "idle" || view.person.status === "dnd" ? view.person.status : "online";
+    custom.addEventListener("change", () => actions.onStatus?.(current, custom.value.trim()));
+    const clear = el("button", "ghost", "Clear custom status");
+    clear.type = "button";
+    clear.addEventListener("click", () => actions.onStatus?.(current, ""));
+    picker.append(custom, clear);
     body.append(picker);
   }
 

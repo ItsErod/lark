@@ -1,15 +1,13 @@
+import { effectiveLevel as discordAwareLevel, type DiscordNotify } from "./shell";
 import type { AppConfig, NotifyLevel } from "./types";
 
-export function effectiveLevel(config: AppConfig, guildId: string | null, channelId: string): NotifyLevel {
-  const channel = config.notifications.channels[channelId];
-  if (channel?.muted) return "mute";
-  if (channel?.level) return channel.level;
-  if (guildId) {
-    const guild = config.notifications.guilds[guildId];
-    if (guild?.muted) return "mute";
-    if (guild?.level) return guild.level;
-  }
-  return config.notifications.default;
+export function effectiveLevel(
+  config: AppConfig,
+  guildId: string | null,
+  channelId: string,
+  discord?: DiscordNotify | null,
+): NotifyLevel {
+  return discordAwareLevel(config, guildId, channelId, discord);
 }
 
 export function bumpsUnread(level: NotifyLevel, mentionsMe: boolean): boolean {

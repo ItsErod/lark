@@ -167,6 +167,9 @@ pub fn run() {
             fetch_pins,
             search_messages,
             set_unread,
+            preview_invite,
+            accept_invite,
+            set_channel_collapsed,
             set_minimize_to_tray,
             set_autostart,
             start_screen_share,
@@ -994,9 +997,43 @@ async fn search_messages(state: State<'_, Shared>, guild_id: String, query: Stri
 #[tauri::command]
 fn set_unread(app: AppHandle, count: u32) {
     if let Some(tray) = app.tray_by_id("lark") {
-        let tip = if count == 0 { "Lark".to_string() } else { format!("Lark · {count} unread") };
-        let _ = tray.set_tooltip(Some(tip));
+        let tip = if count == 0 {
+            "Lark".to_string()
+        } else {
+            format!("Lark · {count} unread")
+        };
+        let _ = tray.set_tooltip(Some(&tip));
+        let title = if count == 0 { None } else { Some(count.to_string()) };
+        let _ = tray.set_title(title);
     }
+    if let Some(window) = app.get_webview_window("main") {
+        let badge = if count == 0 { None } else { Some(i64::from(count)) };
+        let _ = window.set_badge_count(badge);
+    }
+}
+
+#[tauri::command]
+async fn preview_invite(state: State<'_, Shared>, code: String) -> Result<lark_core::discord::shell::ClientInvite, String> {
+    rest(&state).await?.invite_preview(&code).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn accept_invite(state: State<'_, Shared>, code: String) -> Result<lark_core::discord::shell::ClientInvite, String> {
+    rest(&state).await?.accept_invite(&code).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_channel_collapsed(
+    state: State<'_, Shared>,
+    guild_id: String,
+    channel_id: String,
+    collapsed: bool,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_channel_collapsed(&guild_id, &channel_id, collapsed)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
