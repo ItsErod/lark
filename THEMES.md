@@ -76,7 +76,7 @@ CSS is the file format above. JSON is the same colours, plus the original CSS so
 
 A JSON file with only `name`, `colorScheme`, and `vars` is enough. `name` has to be a slug. On the desktop app, import writes `name.css` in the themes folder and applies it. In the browser preview, import keeps the theme in this browser only.
 
-The theme editor still edits `--bg-0`, `--bg-2`, `--text`, and the accent live. Export includes those overrides. A per-server accent you set in the editor is included. The demo server tint is not, so an export of Nord stays Nord.
+The theme editor still edits `--bg-0`, `--bg-2`, `--text`, and the accent live. Export includes those overrides. A per-server accent you set in the editor is included, and it replaces the theme accent in the app. Demo server colours do not, so Nord stays Nord on screen and in an export.
 
 ## Font
 

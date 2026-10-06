@@ -145,7 +145,6 @@ class LarkApp {
   private pinsOpen = false;
   private themeOpen = false;
   private themeFilter = "";
-  private focusThemeFilter = false;
   private extraThemeIds: string[] = [];
   private themeCache = new Map<string, string>();
   private imported = new Map<string, string>();
@@ -395,8 +394,9 @@ class LarkApp {
     this.root.dataset.density = appearance.density;
     this.root.dataset.narrow = this.narrow ? "on" : "off";
     const guild = this.guilds().find((item) => item.id === this.guildId);
-    const accent = (guild && this.config.accents[guild.id]) || guild?.accent;
+    const accent = guild && this.config.accents[guild.id];
     if (accent) this.root.style.setProperty("--accent", accent);
+    else this.root.style.removeProperty("--accent");
     this.root.dataset.drawer = this.drawer ? "on" : "off";
     this.root.style.setProperty("--ui-size", `${appearance.font_size}px`);
     if (appearance.font_family === "inter") this.root.style.removeProperty("font-family");
@@ -438,7 +438,7 @@ class LarkApp {
       if (style.textContent !== css) {
         style.textContent = css;
         this.themeCache.set(name, css);
-        if (this.settings && this.section === "appearance") this.renderSettings();
+        if (this.settings && this.section === "appearance") this.paintThemeGallery();
       } else {
         this.themeCache.set(name, css);
       }
@@ -500,7 +500,7 @@ class LarkApp {
     );
     const changed = ids.length !== this.extraThemeIds.length || ids.some((id, index) => id !== this.extraThemeIds[index]);
     this.extraThemeIds = ids;
-    if (this.settings && this.section === "appearance" && (changed || pending.length > 0)) this.renderSettings();
+    if (this.settings && this.section === "appearance" && (changed || pending.length > 0)) this.paintThemeGallery();
   }
 
   private selectTheme(id: string) {
@@ -509,7 +509,58 @@ class LarkApp {
     this.config.appearance.theme = id;
     this.persist();
     this.paint();
-    if (this.settings) this.renderSettings();
+    if (this.settings && this.section === "appearance") this.paintThemeGallery();
+  }
+
+  private paintThemeGallery(root: ParentNode = this.settingsEl) {
+    const grid = root.querySelector(".theme-gallery");
+    if (!(grid instanceof HTMLElement)) return;
+    clear(grid);
+    const visible = filterThemes(galleryEntries(this.extraThemeIds), this.themeFilter);
+    for (const theme of visible) grid.append(this.themeCard(theme));
+    const empty = root.querySelector(".theme-empty");
+    if (!visible.length) {
+      if (!empty) grid.insertAdjacentElement("afterend", el("p", "theme-empty hint", "No theme matches that."));
+    } else {
+      empty?.remove();
+    }
+  }
+
+  private themeCard(theme: { id: string; title: string; blurb: string }): HTMLButtonElement {
+    const on = this.config.appearance.theme === theme.id;
+    const card = el("button", `theme-card${on ? " is-on" : ""}`);
+    card.type = "button";
+    card.setAttribute("aria-label", `Apply ${theme.title}`);
+    card.setAttribute("aria-pressed", on ? "true" : "false");
+    const live = el("div", "theme-live");
+    live.setAttribute("aria-hidden", "true");
+    const css = this.themeCache.get(theme.id);
+    if (css) {
+      const parsed = parseThemeCss(css);
+      live.style.colorScheme = parsed.colorScheme;
+      for (const [key, value] of Object.entries(previewVars(css))) live.style.setProperty(key, value);
+    } else {
+      live.classList.add("is-pending");
+    }
+    const rail = el("div", "theme-live-rail");
+    rail.append(el("i", "is-on"), el("i"), el("i"));
+    const channels = el("div", "theme-live-channels");
+    channels.append(el("span"), el("span", "is-on"), el("span"));
+    const chat = el("div", "theme-live-chat");
+    const pips = el("span", "theme-live-pips");
+    for (const pip of ["ok", "idle", "busy"] as const) {
+      const dot = el("i");
+      dot.style.background = `var(--${pip})`;
+      pips.append(dot);
+    }
+    chat.append(el("strong", "", "Lark"), el("b"), el("b", "short"), pips);
+    live.append(rail, channels, chat);
+    const meta = el("div", "theme-meta");
+    meta.append(el("strong", "", theme.title), el("span", "", theme.blurb));
+    if (on) meta.append(el("span", "theme-on", "On"));
+    card.append(live, meta);
+    card.addEventListener("click", () => this.selectTheme(theme.id));
+    return card;
   }
 
   private async importTheme(file: File) {
@@ -1484,52 +1535,12 @@ class LarkApp {
       filter.setAttribute("aria-label", "Filter themes");
       filter.addEventListener("input", () => {
         this.themeFilter = filter.value;
-        this.focusThemeFilter = true;
-        this.renderSettings();
+        this.paintThemeGallery();
       });
       wrap.append(filter);
       const grid = el("div", "theme-gallery");
-      const visible = filterThemes(galleryEntries(this.extraThemeIds), this.themeFilter);
-      for (const theme of visible) {
-        const on = this.config.appearance.theme === theme.id;
-        const card = el("button", `theme-card${on ? " is-on" : ""}`);
-        card.type = "button";
-        card.setAttribute("aria-label", `Apply ${theme.title}`);
-        card.setAttribute("aria-pressed", on ? "true" : "false");
-        const live = el("div", "theme-live");
-        live.setAttribute("aria-hidden", "true");
-        const css = this.themeCache.get(theme.id);
-        if (css) {
-          const parsed = parseThemeCss(css);
-          live.style.colorScheme = parsed.colorScheme;
-          for (const [key, value] of Object.entries(previewVars(css))) live.style.setProperty(key, value);
-        } else {
-          live.classList.add("is-pending");
-        }
-        const rail = el("div", "theme-live-rail");
-        rail.append(el("i", "is-on"), el("i"), el("i"));
-        const channels = el("div", "theme-live-channels");
-        channels.append(el("span"), el("span", "is-on"), el("span"));
-        const chat = el("div", "theme-live-chat");
-        const lines = el("b");
-        const short = el("b", "short");
-        const pips = el("span", "theme-live-pips");
-        for (const pip of ["ok", "idle", "busy"] as const) {
-          const dot = el("i");
-          dot.style.background = `var(--${pip})`;
-          pips.append(dot);
-        }
-        chat.append(el("strong", "", "Lark"), lines, short, pips);
-        live.append(rail, channels, chat);
-        const meta = el("div", "theme-meta");
-        meta.append(el("strong", "", theme.title), el("span", "", theme.blurb));
-        if (on) meta.append(el("span", "theme-on", "On"));
-        card.append(live, meta);
-        card.addEventListener("click", () => this.selectTheme(theme.id));
-        grid.append(card);
-      }
       wrap.append(grid);
-      if (!visible.length) wrap.append(el("p", "hint", "No theme matches that."));
+      this.paintThemeGallery(wrap);
       const actions = el("div", "theme-actions");
       const exportCss = el("button", "text-button", "Export CSS");
       exportCss.type = "button";
@@ -1553,15 +1564,6 @@ class LarkApp {
       actions.append(exportCss, exportJson, importBtn, file);
       wrap.append(actions, el("p", "hint", "CSS and JSON carry the same colours. Frosted uses the system material on macOS and Windows, and stays opaque elsewhere. Themes do not blur or animate the message list."));
       wrap.append(el("div", "hint", "Font"));
-      if (this.focusThemeFilter) {
-        this.focusThemeFilter = false;
-        queueMicrotask(() => {
-          const box = this.settingsEl.querySelector<HTMLInputElement>(".theme-filter");
-          box?.focus();
-          const len = box?.value.length ?? 0;
-          box?.setSelectionRange(len, len);
-        });
-      }
       wrap.append(this.choice(["inter", "system", "serif", "mono"], this.config.appearance.font_family, (value) => {
         this.config.appearance.font_family = value as AppConfig["appearance"]["font_family"];
         this.persist();
