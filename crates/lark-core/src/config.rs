@@ -82,10 +82,10 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            theme: "modern-dark".into(),
+            theme: "discord".into(),
             density: Density::Cozy,
             font_family: FontFamily::Inter,
-            font_size: 15,
+            font_size: 16,
             channel_list: ChannelList::Left,
             show_member_list: true,
             show_server_rail: true,
@@ -758,8 +758,9 @@ mod tests {
     #[test]
     fn empty_text_uses_defaults() {
         let cfg = parse_config("").unwrap();
-        assert_eq!(cfg.appearance.theme, "modern-dark");
+        assert_eq!(cfg.appearance.theme, "discord");
         assert_eq!(cfg.appearance.density, Density::Cozy);
+        assert_eq!(cfg.appearance.font_size, 16);
         assert_eq!(cfg.shortcuts.quick_switcher, "mod+k");
         assert!(cfg.shortcuts.quick_switcher.starts_with("mod+"));
         assert!(!cfg.shortcuts.quick_switcher.to_lowercase().contains("ctrl"));
@@ -769,7 +770,7 @@ mod tests {
     #[test]
     fn example_file_parses() {
         let cfg = parse_config(example_config_text()).unwrap();
-        assert_eq!(cfg.appearance.theme, "modern-dark");
+        assert_eq!(cfg.appearance.theme, "discord");
         assert_eq!(cfg.appearance.channel_list, ChannelList::Left);
         assert_eq!(cfg.notifications.default, NotifyLevel::All);
         assert_eq!(
@@ -799,7 +800,7 @@ mod tests {
     fn partial_file_fills_defaults() {
         let cfg = parse_config("appearance.theme = \"daylight\"\n").unwrap();
         assert_eq!(cfg.appearance.theme, "daylight");
-        assert_eq!(cfg.appearance.font_size, 15);
+        assert_eq!(cfg.appearance.font_size, 16);
         assert!(cfg.appearance.show_member_list);
     }
 

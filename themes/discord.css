@@ -1,0 +1,37 @@
+/* Lark theme: Discord. Dark charcoal surfaces and a blurple accent. Layout stays in the app. */
+:root {
+  color-scheme: dark;
+  --bg-0: #1e1f22;
+  --bg-1: #2b2d31;
+  --bg-2: #313338;
+  --bg-3: #383a40;
+  --bg-4: #404249;
+  --bg-panel: #232428;
+  --hover: #35373c;
+  --selected: #404249;
+  --message-hover: #2e3035;
+  --line: rgba(255, 255, 255, 0.06);
+  --text: #dbdee1;
+  --muted: #949ba4;
+  --faint: #80848e;
+  --heading: #f2f3f5;
+  --accent: #5865f2;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(88, 101, 242, 0.3);
+  --ok: #23a55a;
+  --idle: #f0b232;
+  --busy: #f23f43;
+  --danger: #f23f43;
+  --mention-bg: rgba(88, 101, 242, 0.3);
+  --mention-fg: #dee0fc;
+  --highlight: rgba(240, 178, 50, 0.15);
+  --highlight-bar: #f0b232;
+  --link: #00a8fc;
+  --pill: #ffffff;
+  --scrollbar: #1a1b1e;
+  --scrollbar-hover: #232428;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

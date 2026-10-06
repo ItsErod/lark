@@ -3,10 +3,10 @@ import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel } from ".
 export function defaultConfig(): AppConfig {
   return {
     appearance: {
-      theme: "modern-dark",
+      theme: "discord",
       density: "cozy",
       font_family: "inter",
-      font_size: 15,
+      font_size: 16,
       channel_list: "left",
       show_member_list: true,
       show_server_rail: true,

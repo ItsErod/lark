@@ -11,7 +11,7 @@ export function commandCatalog(): CommandItem[] {
     { id: "search", label: "Search messages", hint: "This server", keywords: "search find" },
     { id: "split", label: "Toggle split view", hint: "Two channels side by side", keywords: "split pane columns" },
     { id: "theme", label: "Theme editor", hint: "Live colour preview", keywords: "theme color accent editor" },
-    { id: "themes", label: "Theme gallery", hint: "Preview and apply a theme", keywords: "theme nord dracula catppuccin oled appearance gallery" },
+    { id: "themes", label: "Theme gallery", hint: "Preview and apply a theme", keywords: "theme discord blurple nord dracula catppuccin oled appearance gallery warm" },
     { id: "mute", label: "Toggle mute", hint: "Microphone", keywords: "mute mic voice" },
     { id: "deafen", label: "Toggle deafen", hint: "Speakers", keywords: "deafen headset voice" },
     { id: "leave-voice", label: "Leave voice", hint: "Disconnect the call", keywords: "voice hangup leave" },

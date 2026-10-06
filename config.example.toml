@@ -4,10 +4,10 @@
 # The gallery and the file format are described in THEMES.md.
 
 [appearance]
-theme = "modern-dark"          # see THEMES.md
+theme = "discord"              # see THEMES.md; modern-dark is the warm ink option
 density = "cozy"               # cozy | compact | irc
 font_family = "inter"          # inter | system | serif | mono
-font_size = 15                 # clamped to 12–20
+font_size = 16                 # clamped to 12–20
 channel_list = "left"          # left | right | hidden
 show_member_list = true
 show_server_rail = true

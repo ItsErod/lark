@@ -2,7 +2,10 @@
 
 export const THEME_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-export const LEGACY_THEME_IDS = ["modern-dark", "daylight", "ink-contrast"] as const;
+export const LEGACY_THEME_IDS = ["daylight", "ink-contrast"] as const;
+
+/** Original files that still use a large overlay shadow. Warm ink is in the pack, with that shadow kept. */
+export const HEAVY_SHADOW_THEME_IDS = ["modern-dark", "daylight", "ink-contrast"] as const;
 
 export interface ThemeMeta {
   id: string;
@@ -10,8 +13,10 @@ export interface ThemeMeta {
   blurb: string;
 }
 
-/** Shipped themes, in gallery order. The first fourteen are the pack; the last three shipped earlier. */
+/** Shipped themes, in gallery order. Discord is the default. Warm ink stays in the pack. */
 export const SHIPPED_THEMES: ThemeMeta[] = [
+  { id: "discord", title: "Discord", blurb: "Blurple on charcoal" },
+  { id: "modern-dark", title: "Warm ink", blurb: "The original apricot theme" },
   { id: "linear-dark", title: "Linear dark", blurb: "Zinc surfaces, indigo accent" },
   { id: "linear-light", title: "Linear light", blurb: "White, quiet, indigo" },
   { id: "oled", title: "OLED", blurb: "True black, no shadow blur" },
@@ -26,7 +31,6 @@ export const SHIPPED_THEMES: ThemeMeta[] = [
   { id: "frosted", title: "Frosted", blurb: "Native vibrancy on macOS and Windows" },
   { id: "phosphor", title: "Phosphor", blurb: "Retro green terminal" },
   { id: "high-contrast", title: "High contrast", blurb: "Large text contrast" },
-  { id: "modern-dark", title: "Modern dark", blurb: "Warm ink and apricot" },
   { id: "daylight", title: "Daylight", blurb: "Warm paper" },
   { id: "ink-contrast", title: "Ink contrast", blurb: "Bright-room black" },
 ];
@@ -302,6 +306,17 @@ const VAR_ORDER = [
   "--danger",
   "--mention-bg",
   "--mention-fg",
+  "--highlight",
+  "--highlight-bar",
+  "--link",
+  "--bg-panel",
+  "--hover",
+  "--selected",
+  "--message-hover",
+  "--heading",
+  "--pill",
+  "--scrollbar",
+  "--scrollbar-hover",
   "--shadow",
   "--font",
   "--mono",

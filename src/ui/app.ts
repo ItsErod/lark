@@ -500,8 +500,8 @@ class LarkApp {
     if (appearance.font_family === "inter") this.root.style.removeProperty("font-family");
     else this.root.style.fontFamily = fontStack(appearance.font_family);
     const rail = appearance.show_server_rail ? "72px" : "0px";
-    const channelW = appearance.channel_list === "hidden" ? "0px" : "252px";
-    const members = appearance.show_member_list && this.guildId && !this.narrow ? "236px" : "0px";
+    const channelW = appearance.channel_list === "hidden" ? "0px" : "240px";
+    const members = appearance.show_member_list && this.guildId && !this.narrow ? "240px" : "0px";
     this.rail.hidden = !appearance.show_server_rail;
     this.channelPane.hidden = appearance.channel_list === "hidden" && !this.drawer;
     this.membersEl.hidden = !appearance.show_member_list || !this.guildId || this.narrow;
@@ -925,10 +925,15 @@ class LarkApp {
     home.type = "button";
     home.title = "Direct messages";
     home.setAttribute("aria-label", "Direct messages");
-    home.append(icon(paths.message));
-    const dmUnread = this.dms().reduce((sum, dm) => sum + (this.unread[dm.id] ?? 0), 0);
+    const homeFace = el("span", "server-face");
+    homeFace.append(icon(paths.message));
+    home.append(homeFace, el("span", "pip"));
+    const dmUnread = this.dms().reduce((sum, dm) => sum + (this.unread[dm.id] ?? 0) + (this.mentions[dm.id] ?? 0), 0);
+    if (dmUnread && this.guildId !== null) home.classList.add("has-unread");
     if (dmUnread) home.append(el("span", "badge", String(dmUnread)));
     home.addEventListener("click", () => this.selectGuild(null));
+    const sep = el("div", "rail-sep");
+    sep.setAttribute("aria-hidden", "true");
     const servers = el("div", "rail-scroll");
     servers.setAttribute("aria-label", "Server list");
     for (const guild of this.guilds()) {
@@ -937,6 +942,7 @@ class LarkApp {
       button.type = "button";
       button.title = guild.name;
       button.setAttribute("aria-label", guild.name);
+      const face = el("span", "server-face");
       const iconUrl = guild.iconUrl?.trim();
       if (iconUrl) {
         button.classList.add("has-icon");
@@ -947,19 +953,21 @@ class LarkApp {
         img.addEventListener("error", () => {
           img.remove();
           button.classList.remove("has-icon");
-          button.prepend(document.createTextNode(guild.initials));
-          if (!selected) button.style.background = colorFor(guild.id);
+          face.textContent = guild.initials;
+          face.style.background = colorFor(guild.id);
         });
-        button.append(img);
+        face.append(img);
       } else {
-        button.textContent = guild.initials;
-        if (!selected) button.style.background = colorFor(guild.id);
+        face.textContent = guild.initials;
+        face.style.background = colorFor(guild.id);
       }
+      button.append(face, el("span", "pip"));
       const badge = this.guildBadge(guild.id);
-      if (badge.mentions) button.append(el("span", "badge", String(badge.mentions)));
-      else if (badge.count) {
+      if (badge.mentions) {
         button.classList.add("has-unread");
-        button.append(el("span", "pip"));
+        button.append(el("span", "badge", String(badge.mentions)));
+      } else if (badge.count) {
+        button.classList.add("has-unread");
       }
       button.addEventListener("click", () => this.selectGuild(guild.id));
       servers.append(button);
@@ -968,9 +976,11 @@ class LarkApp {
     settings.type = "button";
     settings.title = "Settings";
     settings.setAttribute("aria-label", "Settings");
-    settings.append(icon(paths.settings));
+    const settingsFace = el("span", "server-face");
+    settingsFace.append(icon(paths.settings));
+    settings.append(settingsFace, el("span", "pip"));
     settings.addEventListener("click", () => this.openSettings());
-    this.rail.append(home, servers, settings);
+    this.rail.append(home, sep, servers, settings);
   }
 
   private guildBadge(guildId: string): { count: number; mentions: number } {
@@ -1043,7 +1053,9 @@ class LarkApp {
 
   private channelButton(channel: Channel, dm: boolean): HTMLButtonElement {
     const muted = effectiveLevel(this.config, this.guildId, channel.id) === "mute";
-    const unread = this.unread[channel.id] ?? 0;
+    const unreadCount = this.unread[channel.id] ?? 0;
+    const mentions = this.mentions[channel.id] ?? 0;
+    const unread = unreadCount > 0 || mentions > 0;
     const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.id === this.channelId ? " is-selected" : ""}${unread ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}`);
     button.type = "button";
     if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : paths.hash));
@@ -1054,7 +1066,7 @@ class LarkApp {
     }
     button.append(el("span", "row-label", channel.name));
     if (muted) button.append(el("span", "faint", "muted"));
-    else if (unread) button.append(el("span", "badge", String(unread)));
+    else if (mentions > 0) button.append(el("span", "badge", String(mentions)));
     button.addEventListener("click", () => {
       this.drawer = false;
       if (channel.kind === "voice") {
