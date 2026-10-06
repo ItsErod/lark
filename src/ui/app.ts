@@ -7,6 +7,7 @@ import { commandCatalog, matchCommands } from "../palette";
 import { browserPlatform, fontStack, type PlatformInfo } from "../platform";
 import type { PluginSource } from "../plugins";
 import { describePlugin, buildViewMessage } from "../render/message";
+import { FrameClock } from "../frame";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
@@ -36,6 +37,8 @@ interface PerfMarks {
   ready: number;
   lastSwitch: number;
   lastInput: number;
+  displayHz: number;
+  benchFrames: (ms: number) => Promise<{ paints: number; hz: number }>;
 }
 
 type ScrollMode = "none" | "bottom" | "preserve";
@@ -130,7 +133,7 @@ class LarkApp {
   private statusOpen = false;
   private upload = 0;
   private draftTimer = 0;
-  private virtRaf = 0;
+  private frames = new FrameClock();
 
   constructor(private root: HTMLElement) {}
 
@@ -163,11 +166,21 @@ class LarkApp {
     await this.applyTheme();
     window.setInterval(() => void this.applyTheme(), 1000);
     if (isTauri()) await this.bootDesktop();
+    this.frames.setCap(this.config.desktop.frame_cap);
     if (new URLSearchParams(location.search).has("demo")) this.enterDemo();
     else this.paint();
-    const perf = (window as unknown as { __lark?: PerfMarks }).__lark ?? { ready: 0, lastSwitch: 0, lastInput: 0 };
-    perf.ready = performance.now();
+    const perf: PerfMarks = {
+      ready: performance.now(),
+      lastSwitch: 0,
+      lastInput: 0,
+      displayHz: 0,
+      benchFrames: (ms) => this.frames.bench(ms),
+    };
     (window as unknown as { __lark: PerfMarks }).__lark = perf;
+    void this.frames.measureDisplay().then((hz) => {
+      perf.displayHz = hz;
+      if (this.settings && this.section === "desktop") this.renderSettings();
+    });
     new ResizeObserver(() => {
       const narrow = this.root.clientWidth < 880;
       if (narrow !== this.narrow) {
@@ -318,11 +331,7 @@ class LarkApp {
     window.addEventListener("keyup", (event) => this.onKeyUp(event));
     this.messagesEl.addEventListener("scroll", () => {
       if (this.messagesEl.scrollTop < 80) void this.loadOlder();
-      if (this.virtRaf) return;
-      this.virtRaf = window.requestAnimationFrame(() => {
-        this.virtRaf = 0;
-        this.paintMessages();
-      });
+      this.frames.request(() => this.paintMessages());
     });
   }
 
@@ -884,7 +893,7 @@ class LarkApp {
     }
     const mode = this.scroll;
     this.scroll = "none";
-    requestAnimationFrame(() => {
+    this.frames.request(() => {
       if (mode === "bottom" || stick) this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
       else if (mode === "preserve") this.messagesEl.scrollTop = prevTop + (this.messagesEl.scrollHeight - prevHeight);
       if (mode !== "none") {
@@ -1446,6 +1455,33 @@ class LarkApp {
         this.persist();
         if (isTauri()) void invoke("set_autostart", { enabled: value });
       }));
+      wrap.append(el("p", "lede", "Frame rate. Scrolling and transitions follow the monitor, up to this cap. Lark paints only when something on screen changes."));
+      const caps: [number, string][] = [
+        [0, "Match"],
+        [240, "240"],
+        [165, "165"],
+        [144, "144"],
+        [120, "120"],
+        [60, "60"],
+      ];
+      const row = el("div", "choice-row");
+      for (const [value, label] of caps) {
+        const on = this.config.desktop.frame_cap === value;
+        const button = el("button", on ? "text-button is-on" : "text-button", label);
+        button.type = "button";
+        button.addEventListener("click", () => {
+          this.config.desktop.frame_cap = value;
+          this.frames.setCap(value);
+          this.persist();
+          this.renderSettings();
+        });
+        row.append(button);
+      }
+      wrap.append(row);
+      const hz = this.frames.displayHz;
+      wrap.append(el("p", "hint", hz
+        ? `This display is about ${hz} Hz. The hard cap is 240.`
+        : "Measuring the display. The hard cap is 240."));
     } else {
       wrap.append(el("h2", "", "Account"), el("p", "lede", "The token never goes in the config file, logs, or a plugin."));
       const grid = el("div", "platform-grid");

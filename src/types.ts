@@ -49,7 +49,7 @@ export interface AppConfig {
     input_device: string;
     output_device: string;
   };
-  desktop: { minimize_to_tray: boolean; autostart: boolean };
+  desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number };
   accents: Record<string, string>;
 }
 

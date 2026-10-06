@@ -43,7 +43,7 @@ export function defaultConfig(): AppConfig {
       input_device: "",
       output_device: "",
     },
-    desktop: { minimize_to_tray: true, autostart: false },
+    desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240 },
     accents: {},
   };
 }
@@ -102,6 +102,9 @@ export function sanitizeConfig(input: unknown): AppConfig {
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
     if (typeof raw.desktop.autostart === "boolean") base.desktop.autostart = raw.desktop.autostart;
+    if (typeof raw.desktop.frame_cap === "number" && Number.isFinite(raw.desktop.frame_cap)) {
+      base.desktop.frame_cap = raw.desktop.frame_cap <= 0 ? 0 : Math.min(240, Math.max(30, Math.round(raw.desktop.frame_cap)));
+    }
   }
   if (raw.accents && typeof raw.accents === "object") {
     const accents: Record<string, string> = {};

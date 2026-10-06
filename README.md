@@ -176,12 +176,35 @@ The goal is that the app feels immediate. Message lists are windowed, so a long 
 | Channel switch, first visit | 35 ms (`#general`, includes the short demo page load) | under 50 ms | under 50 ms |
 | Channel switch, cached | 5–8 ms (`#design-crit` after it had been open) | under 20 ms | under 20 ms |
 | Composer input to the counter | under 1 ms (slowest of five keystrokes, 0.3 ms) | under 16 ms | under 16 ms |
-| Message list scroll | 60 fps over half a second; slowest frame 17 ms; 23 message rows in the DOM | the same windowed list | the same windowed list |
+| Message list scroll | 60 fps on this 60 Hz display; slowest frame 17 ms; 23 message rows in the DOM | one paint per vsync, up to the frame cap | one paint per vsync, up to the frame cap |
 | JavaScript heap, demo open | about 3 MB used | the webview adds its own heap on top | the webview adds its own heap on top |
 | Resident memory, desktop shell | about 175 MB RSS, Linux WebKitGTK, measured on the v1 shell (see above) | WKWebView often lands around 150–250 MB | WebView2 often lands around 150–250 MB |
 | Idle CPU, channel open, no voice | about 2% of one core for the Chrome process tree | the UI is waiting | the UI is waiting |
 
-The Chrome process tree for that sample was about 950 MB RSS. That figure is Chrome (browser, renderer, and GPU processes). The page heap inside it was about 3 MB. 200 MB remains a soft target for the packaged shell. Recent channels are cached (up to 8), images stay lazy, and a long history keeps a window of rows in the DOM so scrolling stays at 60 fps.
+The Chrome process tree for that sample was about 950 MB RSS. That figure is Chrome (browser, renderer, and GPU processes). The page heap inside it was about 3 MB. 200 MB remains a soft target for the packaged shell. Recent channels are cached (up to 8), images stay lazy, and a long history keeps a window of rows in the DOM.
+
+## Frame rate
+
+Paints follow the monitor, up to a hard cap of 240 fps. `desktop.frame_cap` in the config (and the Desktop page in Settings) is **240** by default. **0** matches the display and still will not schedule a paint faster than 240. The choices are Match, 240, 165, 144, 120, and 60. Scrolling, the channel drawer, and overlays are timed in milliseconds, so the compositor samples them on each vsync. There is no 16 ms timer and no frame budget that holds motion at 60.
+
+The paint clock asks the browser for a frame only after something changes. A still channel does not run a 240 fps loop. On this machine, after a short burst of paints, idle CPU for the Chrome process tree was about **1%** of one core.
+
+Measured here, in Chrome, the display vsync is **60 Hz**. A 400 ms paint burst produced **25 paints** (about 60 fps), the same rate as scrolling. Headless Chrome stayed near 60 Hz even with vsync disabled, so a faster panel was not available to time directly. The clock’s own tests, fed timestamps for other refresh rates, are the numbers for those panels:
+
+| Display | Cap | Paints |
+| --- | --- | --- |
+| 60 Hz (this machine, Chrome) | 240 | about 60 fps, measured |
+| 144 Hz | 240 | every vsync, about 144 fps |
+| 240 Hz | 120 | about 120 fps, gaps stay above 8 ms |
+| 360 Hz | 240 | under 240 fps (about 180, because paints stay on vsync) |
+
+120, 144, and 165 Hz monitors are estimated the same way: with the default cap, every vsync is slower than 1/240 s, so Lark paints on each one. macOS and Windows estimates match that table when the webview is actually running at the panel rate.
+
+Platform limits:
+
+- **macOS 14 and later.** Lark sets the WKWebView layer’s preferred frame-rate range to 10–240 fps, preferred 240. ProMotion and high-refresh external displays can run above 60, and the system will not be asked for more than 240. **macOS 11–13** have no public API for that range, so WKWebView there often stays at 60 Hz.
+- **Windows.** WebView2 presents through the desktop window manager, which vsyncs to the monitor on current runtimes. WebView2 has no public preferred-frame-rate call. Lark does not pass `--disable-gpu-vsync` or `--disable-frame-rate-limit`, because those keep the GPU busy while the page is idle. A monitor faster than 240 Hz can still composite inside the webview at the monitor rate; script paints stay at or under 240.
+- **Linux.** WebKitGTK follows the compositor. This environment measured 60 Hz.
 
 ## Voice
 

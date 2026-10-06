@@ -50,3 +50,5 @@ output_device = ""
 [desktop]
 minimize_to_tray = true
 autostart = false
+# 0 matches the display. Otherwise a cap from 30 to 240. Never above 240.
+frame_cap = 240

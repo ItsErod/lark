@@ -51,6 +51,11 @@ impl Config {
             .filter(|word| !word.is_empty() && word.len() <= 40)
             .take(20)
             .collect();
+        self.desktop.frame_cap = if self.desktop.frame_cap == 0 {
+            0
+        } else {
+            self.desktop.frame_cap.clamp(30, 240)
+        };
         self.accents.retain(|id, color| {
             (5..=22).contains(&id.len())
                 && id.chars().all(|c| c.is_ascii_digit())
@@ -240,6 +245,8 @@ impl Default for Voice {
 pub struct Desktop {
     pub minimize_to_tray: bool,
     pub autostart: bool,
+    /// 0 matches the display. Any other value is a cap from 30 to 240.
+    pub frame_cap: u16,
 }
 
 impl Default for Desktop {
@@ -247,6 +254,7 @@ impl Default for Desktop {
         Self {
             minimize_to_tray: true,
             autostart: false,
+            frame_cap: 240,
         }
     }
 }
@@ -490,6 +498,16 @@ mod tests {
             NotifyLevel::Mute
         );
         assert_eq!(cfg.plugins.enabled, vec!["highlight-mentions", "code-badge"]);
+        assert_eq!(cfg.desktop.frame_cap, 240);
+    }
+
+    #[test]
+    fn frame_cap_matches_the_display_or_clamps_at_240() {
+        assert_eq!(parse_config("").unwrap().desktop.frame_cap, 240);
+        assert_eq!(parse_config("desktop.frame_cap = 0\n").unwrap().desktop.frame_cap, 0);
+        assert_eq!(parse_config("desktop.frame_cap = 144\n").unwrap().desktop.frame_cap, 144);
+        assert_eq!(parse_config("desktop.frame_cap = 999\n").unwrap().desktop.frame_cap, 240);
+        assert_eq!(parse_config("desktop.frame_cap = 1\n").unwrap().desktop.frame_cap, 30);
     }
 
     #[test]

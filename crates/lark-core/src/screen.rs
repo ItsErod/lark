@@ -122,8 +122,10 @@ pub fn packets_for(plan: &SharePlan) -> u32 {
     if plan.send { 1 } else { 0 }
 }
 
+/// Sleep between share ticks. This is the encoder schedule, separate from the UI
+/// frame cap. A still screen waits a full second. There is no 16 ms floor.
 pub fn frame_interval_ms(fps: u8) -> u64 {
-    if fps == 0 { 1_000 } else { (1000 / u64::from(fps)).max(16) }
+    if fps == 0 { 1_000 } else { 1000 / u64::from(fps.max(1)) }
 }
 
 #[cfg(test)]
@@ -175,5 +177,12 @@ mod tests {
         );
         assert_eq!(encoder_order("windows")[0], "nvenc");
         assert!(encoder_order("windows").contains(&"media-foundation"));
+    }
+
+    #[test]
+    fn share_interval_has_no_16ms_floor() {
+        assert_eq!(frame_interval_ms(0), 1_000);
+        assert_eq!(frame_interval_ms(30), 33);
+        assert_eq!(frame_interval_ms(120), 8);
     }
 }

@@ -82,11 +82,30 @@ function cpuTicks(pids) {
   return ticks;
 }
 
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: true,
-  args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1440,900"],
-});
+async function launchChrome(extraArgs) {
+  return puppeteer.launch({
+    executablePath: CHROME,
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1440,900", ...extraArgs],
+  });
+}
+
+async function benchFrames(page) {
+  await page.waitForFunction(() => window.__lark && window.__lark.displayHz > 0, { timeout: 5000 }).catch(() => undefined);
+  return page.evaluate(async () => {
+    if (!window.__lark?.benchFrames) return { error: "bench missing" };
+    const paced = await window.__lark.benchFrames(400);
+    const idleStart = performance.now();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return {
+      displayHz: window.__lark.displayHz,
+      paced,
+      idleMs: Math.round(performance.now() - idleStart),
+    };
+  });
+}
+
+const browser = await launchChrome([]);
 
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
@@ -182,6 +201,8 @@ const scroll = await page.evaluate(() => new Promise((resolve) => {
   requestAnimationFrame(waitReady);
 }));
 
+const frames = await benchFrames(page);
+
 function classify(pid) {
   try {
     const cmd = readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ");
@@ -214,6 +235,18 @@ const heap = await page.evaluate(() => {
   return memory ? { used: memory.usedJSHeapSize, total: memory.totalJSHeapSize } : null;
 });
 
+let uncapped = null;
+const fast = await launchChrome(["--disable-frame-rate-limit", "--disable-gpu-vsync"]);
+try {
+  const fastPage = await fast.newPage();
+  await fastPage.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+  await fastPage.goto(URL, { waitUntil: "domcontentloaded" });
+  await fastPage.waitForFunction(() => window.__lark && window.__lark.ready > 0, { timeout: 15000 });
+  uncapped = await benchFrames(fastPage);
+} finally {
+  await fast.close();
+}
+
 const report = {
   url: URL,
   host: "linux-chrome",
@@ -223,6 +256,8 @@ const report = {
   channel,
   input,
   scroll,
+  frames,
+  uncapped,
   rssKb: rss,
   rssBeforeKb: beforeRss,
   rssByKindKb: byKind,

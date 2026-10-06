@@ -1,5 +1,6 @@
 mod keychain;
 mod paths;
+mod refresh;
 
 use std::fs;
 use std::path::PathBuf;
@@ -92,6 +93,7 @@ pub fn run() {
             };
             app.manage(shared);
             if let Some(window) = app.get_webview_window("main") {
+                refresh::prefer_native_refresh(&window);
                 let hide = hide_on_close.clone();
                 let win = window.clone();
                 window.on_window_event(move |event| {
