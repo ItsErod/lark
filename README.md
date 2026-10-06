@@ -44,6 +44,7 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 - Plugins that stay off until you turn them on. The pack is in [PLUGINS.md](PLUGINS.md)
 - Voice controls: mute, deafen, push to talk, and voice activity
 - A voice HUD that can sit on top of a game. It stays off until you turn it on
+- A clip hotkey saves up to 30 seconds of the main display while screen share or Game Mode capture is on. The file stays in the clips folder until you attach it
 - Paints follow the display, up to 240 fps
 
 ## Voice HUD
@@ -58,7 +59,7 @@ The window is for macOS and Windows. Exclusive fullscreen can cover it. Borderle
 
 - No video calls.
 - Voice does not capture the microphone or play other people yet.
-- Screen share does not send a live desktop capture yet.
+- Screen share does not send a live desktop capture yet. The clip buffer is a separate local recording of the main display, and only while screen share or Game Mode capture is on.
 - Markdown is a subset: bold, italic, code, quotes, spoilers, mentions, emoji, and links.
 - Plugins are trusted local scripts. They never receive the token.
 - Linux can compile the shell, but it will not save a token.

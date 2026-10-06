@@ -267,3 +267,28 @@ commands.allow = ["sync_voice_overlay"]
 identifier = "allow-current-voice-hud"
 description = "Read the latest voice HUD frame."
 commands.allow = ["current_voice_hud"]
+
+[[permission]]
+identifier = "allow-save-clip"
+description = "Write the rolling screen buffer to a local clip file."
+commands.allow = ["save_clip"]
+
+[[permission]]
+identifier = "allow-clip-status"
+description = "Read whether the local clip buffer is recording."
+commands.allow = ["clip_status"]
+
+[[permission]]
+identifier = "allow-read-clip"
+description = "Read a clip file from the Lark clips folder."
+commands.allow = ["read_clip"]
+
+[[permission]]
+identifier = "allow-show-clip"
+description = "Show a saved clip in Finder or File Explorer."
+commands.allow = ["show_clip"]
+
+[[permission]]
+identifier = "allow-open-clips-dir"
+description = "Open the Lark clips folder."
+commands.allow = ["open_clips_dir"]

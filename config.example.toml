@@ -27,6 +27,8 @@ toggle_mute = "mod+shift+alt+m"
 toggle_deafen = "mod+shift+d"
 push_to_talk = "backquote"
 toggle_voice_overlay = "mod+shift+o"
+# Global on macOS and Windows. Needs a modifier (or a function key). Writes a local clip; it does not upload.
+save_clip = "mod+shift+c"
 
 [notifications]
 default = "all"                # all | mentions | mute
@@ -52,6 +54,11 @@ output_device = ""
 overlay = false                 # always-on-top speaking HUD; hotkey is toggle_voice_overlay
 overlay_opacity = 70            # 35–100
 overlay_click_through = true    # clicks pass through to the game
+
+[clips]
+# Main-display buffer for the clip hotkey. Screen share turns the same buffer on.
+# Both off discards it. Files stay in the clips folder until you attach one.
+game_capture = false
 
 [desktop]
 minimize_to_tray = true

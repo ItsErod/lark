@@ -24,6 +24,7 @@ pub struct Config {
     pub plugins: Plugins,
     pub voice: Voice,
     pub desktop: Desktop,
+    pub clips: Clips,
     pub accents: BTreeMap<String, String>,
 }
 
@@ -36,6 +37,7 @@ impl Default for Config {
             plugins: Plugins::default(),
             voice: Voice::default(),
             desktop: Desktop::default(),
+            clips: Clips::default(),
             accents: BTreeMap::new(),
         }
     }
@@ -135,6 +137,7 @@ pub struct Shortcuts {
     pub toggle_deafen: String,
     pub push_to_talk: String,
     pub toggle_voice_overlay: String,
+    pub save_clip: String,
 }
 
 impl Default for Shortcuts {
@@ -153,12 +156,13 @@ impl Default for Shortcuts {
             toggle_deafen: "mod+shift+d".into(),
             push_to_talk: "backquote".into(),
             toggle_voice_overlay: "mod+shift+o".into(),
+            save_clip: "mod+shift+c".into(),
         }
     }
 }
 
 impl Shortcuts {
-    pub fn entries(&self) -> [(&str, &str); 13] {
+    pub fn entries(&self) -> [(&str, &str); 14] {
         [
             ("quick_switcher", self.quick_switcher.as_str()),
             ("open_settings", self.open_settings.as_str()),
@@ -173,6 +177,7 @@ impl Shortcuts {
             ("toggle_deafen", self.toggle_deafen.as_str()),
             ("push_to_talk", self.push_to_talk.as_str()),
             ("toggle_voice_overlay", self.toggle_voice_overlay.as_str()),
+            ("save_clip", self.save_clip.as_str()),
         ]
     }
 }
@@ -277,6 +282,20 @@ impl Default for Desktop {
             frame_cap: 240,
             hardware_status: false,
         }
+    }
+}
+
+/// Local clip buffer. Recording also turns on while screen share is running.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Clips {
+    /// Record the main display even when screen share is off.
+    pub game_capture: bool,
+}
+
+impl Default for Clips {
+    fn default() -> Self {
+        Self { game_capture: false }
     }
 }
 
@@ -829,6 +848,8 @@ mod tests {
         assert_eq!(cfg.plugins.enabled, vec!["highlight-mentions", "code-badge"]);
         assert_eq!(cfg.desktop.frame_cap, 240);
         assert!(!cfg.desktop.hardware_status);
+        assert_eq!(cfg.shortcuts.save_clip, "mod+shift+c");
+        assert!(!cfg.clips.game_capture);
     }
 
     #[test]

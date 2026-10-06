@@ -25,6 +25,7 @@ export function defaultConfig(): AppConfig {
       toggle_deafen: "mod+shift+d",
       push_to_talk: "backquote",
       toggle_voice_overlay: "mod+shift+o",
+      save_clip: "mod+shift+c",
     },
     notifications: {
       default: "all",
@@ -49,6 +50,7 @@ export function defaultConfig(): AppConfig {
       overlay_click_through: true,
     },
     desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240, hardware_status: false },
+    clips: { game_capture: false },
     accents: {},
   };
 }
@@ -110,6 +112,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
     }
     if (typeof raw.voice.overlay_click_through === "boolean") base.voice.overlay_click_through = raw.voice.overlay_click_through;
   }
+  if (typeof raw.clips?.game_capture === "boolean") base.clips.game_capture = raw.clips.game_capture;
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
     if (typeof raw.desktop.autostart === "boolean") base.desktop.autostart = raw.desktop.autostart;

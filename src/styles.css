@@ -344,6 +344,7 @@ button.category:hover { color: var(--text); }
 }
 .composer-banner input, .schedule-row input { background: var(--bg-0); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 .settings-body h3 { margin: 18px 0 6px; font-size: 15px; }
+.composer-banner.clip-banner { flex-wrap: wrap; justify-content: flex-start; }
 .composer-banner, .banner, .toast {
   display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--accent-soft);
   border-radius: 10px; padding: 6px 8px; margin-bottom: 6px;

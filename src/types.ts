@@ -23,6 +23,7 @@ export interface Shortcuts {
   toggle_deafen: string;
   push_to_talk: string;
   toggle_voice_overlay: string;
+  save_clip: string;
 }
 
 export interface AppConfig {
@@ -55,6 +56,7 @@ export interface AppConfig {
     overlay_click_through: boolean;
   };
   desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number; hardware_status: boolean };
+  clips: { game_capture: boolean };
   accents: Record<string, string>;
 }
 

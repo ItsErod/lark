@@ -59,6 +59,11 @@
     "allow-set-autostart",
     "allow-start-screen-share",
     "allow-stop-screen-share",
-    "allow-sync-voice-overlay"
+    "allow-sync-voice-overlay",
+    "allow-save-clip",
+    "allow-clip-status",
+    "allow-read-clip",
+    "allow-show-clip",
+    "allow-open-clips-dir"
   ]
 }
