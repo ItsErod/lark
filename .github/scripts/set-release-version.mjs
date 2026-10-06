@@ -32,12 +32,24 @@ function replaceCargoVersion(path, version) {
   if (next !== text) writeFileSync(path, next);
 }
 
+export function replaceLockText(text, name, version) {
+  const crlf = text.includes("\r\n");
+  const normalized = text.replace(/\r\n/g, "\n");
+  const pattern = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")[^"]+"`, "g");
+  let count = 0;
+  const next = normalized.replace(pattern, (_match, prefix) => {
+    count += 1;
+    return `${prefix}${version}"`;
+  });
+  if (count !== 1) throw new Error(`Cargo.lock is missing package ${name}`);
+  return crlf ? next.replace(/\n/g, "\r\n") : next;
+}
+
 function replaceLockPackage(name, version) {
   const path = "Cargo.lock";
   const text = readFileSync(path, "utf8");
-  const pattern = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")[^"]+"`);
-  if (!pattern.test(text)) throw new Error(`Cargo.lock is missing package ${name}`);
-  writeFileSync(path, text.replace(pattern, `$1${version}"`));
+  const next = replaceLockText(text, name, version);
+  if (next !== text) writeFileSync(path, next);
 }
 
 export function applyReleaseVersion(version) {
