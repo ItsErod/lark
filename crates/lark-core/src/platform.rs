@@ -14,6 +14,26 @@ pub fn uses_native_credential_store(os: &str) -> bool {
     credential_store_label(os).is_ok()
 }
 
+/// `connect` found no token. This is not a Keychain denial and not a capture failure.
+pub fn credential_not_saved_message(store: &str) -> String {
+    format!("No token saved in the {store}.")
+}
+
+/// The write call returned success, but a new lookup found no item.
+/// That is a store failure, not "nothing was ever saved" and not a capture miss.
+pub fn credential_unreadable_after_save_message(store: &str) -> String {
+    format!(
+        "Couldn't save the token in the {store}. The store accepted the write, but reading it back found nothing, so the session was not stored."
+    )
+}
+
+/// The value read back after a write was not the token that was written.
+pub fn credential_mismatch_after_save_message(store: &str) -> String {
+    format!(
+        "Couldn't save the token in the {store}. The value read back did not match the token, so the session was not stored."
+    )
+}
+
 /// Turn a Keychain or Credential Manager failure into something a person can act on.
 /// `detail` is the OS error text. It must not contain the token.
 pub fn credential_failure_message(store: &str, detail: &str) -> String {
@@ -104,6 +124,33 @@ mod tests {
         assert!(win.contains("%APPDATA%"));
         assert!(win.contains('\\'));
         assert!(!config_dir_hint("linux").contains("APPDATA"));
+    }
+
+    #[test]
+    fn credential_messages_separate_missing_save_and_denial() {
+        let store = "macOS Keychain";
+        let missing = credential_not_saved_message(store);
+        let unreadable = credential_unreadable_after_save_message(store);
+        let mismatch = credential_mismatch_after_save_message(store);
+        let denied = credential_failure_message(store, "User interaction is not allowed. (-25308)");
+        let entitlement =
+            credential_failure_message(store, "A required entitlement isn't present. (-34018)");
+        assert_eq!(missing, "No token saved in the macOS Keychain.");
+        assert!(unreadable.contains("reading it back found nothing"));
+        assert!(unreadable.contains("Couldn't save the token"));
+        assert!(mismatch.contains("did not match"));
+        assert!(denied.contains("-25308"));
+        assert!(entitlement.contains("-34018"));
+        assert_ne!(missing, unreadable);
+        assert_ne!(missing, mismatch);
+        assert_ne!(missing, denied);
+        assert!(!unreadable.contains("No token saved"));
+        assert!(!denied.contains("reading it back"));
+        let secret = "mfa.not-a-real-token";
+        assert!(!missing.contains(secret));
+        assert!(!unreadable.contains(secret));
+        assert!(!mismatch.contains(secret));
+        assert!(!denied.contains(secret));
     }
 
     #[test]

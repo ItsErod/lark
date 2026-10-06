@@ -1,6 +1,6 @@
 [package]
 name = "lark"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2021"
 description = "Lark, a small personal Discord client for macOS and Windows"
 publish = false
@@ -22,4 +22,7 @@ tokio = { version = "1", features = ["sync", "time"] }
 zeroize = "1"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-keyring = "3"
+# keyring 3 enables no stores by default. Without these features the macOS and
+# Windows builds use an in-memory mock: set_password succeeds on one Entry, and
+# the next Entry::new cannot see it. That is the "No token saved" toast.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }

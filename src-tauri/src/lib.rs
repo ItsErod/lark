@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use lark_core::credential_not_saved_message;
 use lark_core::discord::{ClientEvent, DiscordRest};
 use lark_core::normalize_user_token;
 use lark_core::parse_config;
@@ -285,7 +286,7 @@ async fn clear_token(app: AppHandle, state: State<'_, Shared>) -> Result<(), Str
 async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
     let stored = keychain::on_main(&app, keychain::load_token)??
         .filter(|token| !token.is_empty())
-        .ok_or_else(|| format!("No token saved in the {}.", keychain::store_label()))?;
+        .ok_or_else(|| credential_not_saved_message(&keychain::store_label()))?;
     let token = normalize_user_token(&stored)?;
     if token != stored {
         let cleaned = token.clone();
