@@ -18,7 +18,7 @@ use lark_core::normalize_user_token;
 use lark_core::parse_config;
 use lark_core::Config;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, watch, Mutex};
 use zeroize::Zeroize;
@@ -189,6 +189,7 @@ pub fn run() {
             set_voice_volume,
             list_audio_devices,
             set_presence,
+            hardware_snapshot,
             ack_message,
             fetch_pins,
             pin_message,
@@ -1080,6 +1081,34 @@ async fn set_voice_volume(state: State<'_, Shared>, user_id: String, volume: u16
 fn list_audio_devices() -> serde_json::Value {
     let (inputs, outputs) = lark_core::discord::voice_io::list_input_output();
     serde_json::json!({ "inputs": inputs, "outputs": outputs })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HardwareSnapshot {
+    gpu: Option<String>,
+    cpu_temp_c: Option<u16>,
+    game: Option<String>,
+    line: Option<String>,
+}
+
+/// Reads this computer only when Settings has hardware status turned on.
+#[tauri::command]
+async fn hardware_snapshot(state: State<'_, Shared>) -> Result<HardwareSnapshot, String> {
+    let enabled = state.config.lock().await.desktop.hardware_status;
+    if !enabled {
+        return Err("Hardware status is off.".into());
+    }
+    let os = std::env::consts::OS.to_string();
+    let reading = tauri::async_runtime::spawn_blocking(move || lark_core::hardware::sample_hardware(&os))
+        .await
+        .map_err(|_| "Hardware sample failed.".to_string())?;
+    Ok(HardwareSnapshot {
+        line: reading.line(),
+        gpu: reading.gpu,
+        cpu_temp_c: reading.cpu_temp_c,
+        game: reading.game,
+    })
 }
 
 #[tauri::command]

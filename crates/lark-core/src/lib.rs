@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod config;
 pub mod discord;
+pub mod hardware;
 pub mod platform;
 pub mod ratelimit;
 pub mod readstate;

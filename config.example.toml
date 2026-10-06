@@ -58,3 +58,5 @@ minimize_to_tray = true
 autostart = false
 # 0 matches the display. Otherwise a cap from 30 to 240. Never above 240.
 frame_cap = 240
+# Off until Settings → Lark turns it on. GPU, CPU temperature, and the current game.
+hardware_status = false

@@ -54,7 +54,7 @@ export interface AppConfig {
     overlay_opacity: number;
     overlay_click_through: boolean;
   };
-  desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number };
+  desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number; hardware_status: boolean };
   accents: Record<string, string>;
 }
 
