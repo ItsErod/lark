@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use super::types::{
@@ -12,9 +12,10 @@ use super::types::{
     DiscordUser,
 };
 
-/// Guilds, messages, reactions, typing, and direct messages.
-/// Presence and the full member list are intentionally omitted.
+/// Guilds, presence, messages, reactions, typing, and direct messages.
+/// The full member-list intent stays off; members load from the REST list.
 pub const CLIENT_INTENTS: u64 = (1 << 0)
+    | (1 << 8)
     | (1 << 9)
     | (1 << 10)
     | (1 << 11)
@@ -73,6 +74,35 @@ pub enum ClientEvent {
         user_id: String,
         username: String,
     },
+    Presence {
+        guild_id: String,
+        user_id: String,
+        status: String,
+        custom: String,
+    },
+    ReadState {
+        channel_id: String,
+        last_message_id: String,
+        mention_count: u32,
+    },
+    VoiceServer {
+        guild_id: String,
+        endpoint: String,
+        token: String,
+    },
+    VoiceState {
+        guild_id: String,
+        channel_id: String,
+        user_id: String,
+        session_id: String,
+        mute: bool,
+        deaf: bool,
+    },
+    Threads {
+        guild_id: String,
+        channel_id: String,
+        threads: Vec<ClientChannel>,
+    },
 }
 
 #[derive(Debug)]
@@ -88,8 +118,58 @@ struct Session {
     seq: Option<u64>,
 }
 
-pub async fn run_gateway<F>(token: String, mut shutdown: watch::Receiver<bool>, mut emit: F)
-where
+#[derive(Debug, Clone)]
+pub enum GatewayCommand {
+    VoiceState {
+        guild_id: Option<String>,
+        channel_id: Option<String>,
+        mute: bool,
+        deaf: bool,
+    },
+    Presence {
+        status: String,
+        custom: String,
+    },
+}
+
+pub fn gateway_command_payload(command: &GatewayCommand) -> String {
+    match command {
+        GatewayCommand::VoiceState {
+            guild_id,
+            channel_id,
+            mute,
+            deaf,
+        } => super::voice::main_voice_state(guild_id.as_deref(), channel_id.as_deref(), *mute, *deaf),
+        GatewayCommand::Presence { status, custom } => {
+            let activities = if custom.is_empty() {
+                Vec::<serde_json::Value>::new()
+            } else {
+                vec![serde_json::json!({
+                    "name": "Custom Status",
+                    "type": 4,
+                    "state": custom
+                })]
+            };
+            serde_json::json!({
+                "op": 3,
+                "d": {
+                    "since": null,
+                    "activities": activities,
+                    "status": status,
+                    "afk": false
+                }
+            })
+            .to_string()
+        }
+    }
+}
+
+pub async fn run_gateway<F>(
+    token: String,
+    mut shutdown: watch::Receiver<bool>,
+    mut outbound: mpsc::UnboundedReceiver<GatewayCommand>,
+    mut emit: F,
+) where
     F: FnMut(ClientEvent) + Send,
 {
     let mut backoff_secs = 1u64;
@@ -113,7 +193,7 @@ where
             },
             detail: String::new(),
         });
-        match connect_once(&token, &mut session, intents, &mut shutdown, &mut emit).await {
+        match connect_once(&token, &mut session, intents, &mut shutdown, &mut outbound, &mut emit).await {
             Ok(SessionEnd::Shutdown) => break,
             Ok(SessionEnd::AuthFailed) => {
                 emit(ClientEvent::Status {
@@ -156,6 +236,7 @@ async fn connect_once<F>(
     session: &mut Option<Session>,
     intents: u64,
     shutdown: &mut watch::Receiver<bool>,
+    outbound: &mut mpsc::UnboundedReceiver<GatewayCommand>,
     emit: &mut F,
 ) -> Result<SessionEnd, ()>
 where
@@ -182,6 +263,14 @@ where
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
                     return Ok(SessionEnd::Shutdown);
+                }
+            }
+            command = outbound.recv() => {
+                if let Some(command) = command {
+                    let payload = gateway_command_payload(&command);
+                    if write.send(Message::Text(payload)).await.is_err() {
+                        return Ok(SessionEnd::Reconnect);
+                    }
                 }
             }
             _ = heartbeat_wait => {
@@ -377,6 +466,23 @@ fn handle_dispatch(
                         .map(channel_to_client)
                         .collect(),
                 });
+                for marker in &ready.read_state {
+                    let Some(channel_id) = marker.get("id").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    emit(ClientEvent::ReadState {
+                        channel_id: channel_id.to_string(),
+                        last_message_id: marker
+                            .get("last_message_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        mention_count: marker
+                            .get("mention_count")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32,
+                    });
+                }
                 return true;
             }
             false
@@ -426,6 +532,86 @@ fn handle_dispatch(
             emit_reaction(name, data, emit);
             false
         }
+        "PRESENCE_UPDATE" => {
+            let user_id = data
+                .pointer("/user/id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let custom = data
+                .pointer("/activities")
+                .and_then(|v| v.as_array())
+                .and_then(|list| {
+                    list.iter().find_map(|activity| {
+                        activity
+                            .get("state")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                })
+                .unwrap_or_default();
+            if !user_id.is_empty() {
+                emit(ClientEvent::Presence {
+                    guild_id: json_str(data, "guild_id"),
+                    user_id,
+                    status: json_str(data, "status"),
+                    custom,
+                });
+            }
+            false
+        }
+        "MESSAGE_ACK" => {
+            let channel_id = json_str(data, "channel_id");
+            let message_id = json_str(data, "message_id");
+            if !channel_id.is_empty() {
+                emit(ClientEvent::ReadState {
+                    channel_id,
+                    last_message_id: message_id,
+                    mention_count: data
+                        .get("mention_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32,
+                });
+            }
+            false
+        }
+        "VOICE_SERVER_UPDATE" => {
+            let endpoint = json_str(data, "endpoint");
+            let token = json_str(data, "token");
+            if !endpoint.is_empty() && !token.is_empty() {
+                emit(ClientEvent::VoiceServer {
+                    guild_id: json_str(data, "guild_id"),
+                    endpoint,
+                    token,
+                });
+            }
+            false
+        }
+        "VOICE_STATE_UPDATE" => {
+            emit(ClientEvent::VoiceState {
+                guild_id: json_str(data, "guild_id"),
+                channel_id: json_str(data, "channel_id"),
+                user_id: json_str(data, "user_id"),
+                session_id: json_str(data, "session_id"),
+                mute: data.get("mute").and_then(|v| v.as_bool()).unwrap_or(false)
+                    || data.get("self_mute").and_then(|v| v.as_bool()).unwrap_or(false),
+                deaf: data.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false)
+                    || data.get("self_deaf").and_then(|v| v.as_bool()).unwrap_or(false),
+            });
+            false
+        }
+        "THREAD_CREATE" | "THREAD_UPDATE" => {
+            if let Ok(channel) = serde_json::from_value::<DiscordChannel>(data.clone()) {
+                let guild_id = json_str(data, "guild_id");
+                let parent = channel.parent_id.clone().unwrap_or_default();
+                emit(ClientEvent::Threads {
+                    guild_id,
+                    channel_id: parent,
+                    threads: vec![channel_to_client(&channel)],
+                });
+            }
+            false
+        }
         "TYPING_START" => {
             let channel_id = json_str(data, "channel_id");
             let user_id = json_str(data, "user_id");
@@ -464,6 +650,8 @@ struct Ready {
     guilds: Vec<DiscordGuild>,
     #[serde(default)]
     private_channels: Vec<DiscordChannel>,
+    #[serde(default)]
+    read_state: Vec<Value>,
 }
 
 // The reaction helper above is intentionally replaced by passing the event name.
@@ -519,9 +707,9 @@ mod tests {
     }
 
     #[test]
-    fn intents_skip_presence_and_member_lists() {
+    fn intents_include_presence_and_skip_member_lists() {
         assert_eq!(CLIENT_INTENTS & (1 << 1), 0, "guild members");
-        assert_eq!(CLIENT_INTENTS & (1 << 8), 0, "presence");
+        assert_ne!(CLIENT_INTENTS & (1 << 8), 0, "presence");
         assert_ne!(CLIENT_INTENTS & (1 << 9), 0, "guild messages");
         assert_ne!(CLIENT_INTENTS & (1 << 12), 0, "direct messages");
         assert_eq!(

@@ -1,4 +1,4 @@
-export type Density = "cozy" | "compact";
+export type Density = "cozy" | "compact" | "irc";
 export type FontFamily = "inter" | "system" | "serif" | "mono";
 export type ChannelList = "left" | "right" | "hidden";
 export type NotifyLevel = "all" | "mentions" | "mute";
@@ -19,6 +19,9 @@ export interface Shortcuts {
   previous_channel: string;
   next_channel: string;
   edit_last: string;
+  toggle_mute: string;
+  toggle_deafen: string;
+  push_to_talk: string;
 }
 
 export interface AppConfig {
@@ -36,8 +39,18 @@ export interface AppConfig {
     default: NotifyLevel;
     guilds: Record<string, NotifyOverride>;
     channels: Record<string, NotifyOverride>;
+    keywords: string[];
   };
   plugins: { enabled: string[] };
+  voice: {
+    mode: "vad" | "ptt";
+    sensitivity: number;
+    noise_suppression: boolean;
+    input_device: string;
+    output_device: string;
+  };
+  desktop: { minimize_to_tray: boolean; autostart: boolean };
+  accents: Record<string, string>;
 }
 
 export interface RawAttachment {
@@ -86,20 +99,23 @@ export interface RawMessage {
   mentionEveryone?: boolean;
   reply?: { id: string; authorName: string; preview: string } | null;
   kind?: "default" | "reply" | "join" | "system";
+  stickers?: { name: string; url: string }[];
+  thread?: { id: string; name: string; count: number } | null;
 }
 
 export interface Person {
   id: string;
   name: string;
   bot?: boolean;
-  status?: "online" | "idle" | "dnd" | "offline";
+  status?: "online" | "idle" | "dnd" | "offline" | "invisible";
+  custom?: string;
   color?: string;
 }
 
 export interface Channel {
   id: string;
   name: string;
-  kind: "text" | "voice" | "category" | "forum" | "dm" | "group" | "announcement";
+  kind: "text" | "voice" | "category" | "forum" | "dm" | "group" | "announcement" | "thread";
   parentId?: string | null;
   position: number;
   topic?: string | null;
@@ -112,6 +128,7 @@ export interface Guild {
   id: string;
   name: string;
   initials: string;
+  accent?: string;
   iconUrl?: string | null;
   unread?: number;
   mentions?: number;

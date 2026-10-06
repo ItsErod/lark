@@ -11,12 +11,13 @@ use lark_core::Config;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 struct Shared {
     config: Mutex<Config>,
     paths: Resolved,
     rest: Mutex<Option<Arc<DiscordRest>>>,
+    gateway: Mutex<Option<mpsc::UnboundedSender<lark_core::discord::GatewayCommand>>>,
     shutdown: Mutex<Option<watch::Sender<bool>>>,
     _watcher: Mutex<Option<RecommendedWatcher>>,
 }
@@ -54,6 +55,7 @@ pub fn run() {
                     plugins_dir: resolved.plugins_dir,
                 },
                 rest: Mutex::new(None),
+                gateway: Mutex::new(None),
                 shutdown: Mutex::new(None),
                 _watcher: Mutex::new(None),
             };
@@ -191,9 +193,11 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     *state.rest.lock().await = Some(rest);
     let (tx, rx) = watch::channel(false);
     *state.shutdown.lock().await = Some(tx);
+    let (gateway_tx, gateway_rx) = mpsc::unbounded_channel();
+    *state.gateway.lock().await = Some(gateway_tx);
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        lark_core::discord::run_gateway(token, rx, move |event: ClientEvent| {
+        lark_core::discord::run_gateway(token, rx, gateway_rx, move |event: ClientEvent| {
             let _ = app_handle.emit("discord", &event);
         })
         .await;
@@ -211,6 +215,7 @@ async fn disconnect_inner(state: &Shared) {
     if let Some(tx) = state.shutdown.lock().await.take() {
         let _ = tx.send(true);
     }
+    *state.gateway.lock().await = None;
     *state.rest.lock().await = None;
 }
 

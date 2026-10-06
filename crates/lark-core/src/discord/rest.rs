@@ -135,6 +135,67 @@ impl DiscordRest {
         Ok(messages.iter().map(message_to_client).collect())
     }
 
+    /// One mark-read for the channel the user is looking at. Not a bulk sweep.
+    pub async fn ack_message(&self, channel_id: &str, message_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let path = format!("/channels/{channel_id}/messages/{message_id}/ack");
+        let route = route_key("POST", "/channels/{channel.id}/messages/{message.id}/ack", channel_id);
+        self.send_json(Method::POST, &route, channel_id, &path, Some(json!({"token": null})))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn pins(&self, channel_id: &str) -> Result<Vec<ClientMessage>, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/pins");
+        let route = route_key("GET", "/channels/{channel.id}/pins", channel_id);
+        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let messages: Vec<DiscordMessage> = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read pins".into()))?;
+        Ok(messages.iter().map(message_to_client).collect())
+    }
+
+    pub async fn active_threads(&self, channel_id: &str) -> Result<Vec<ClientChannel>, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/threads/active");
+        let route = route_key("GET", "/channels/{channel.id}/threads/active", channel_id);
+        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let threads = value
+            .get("threads")
+            .cloned()
+            .unwrap_or(Value::Array(Vec::new()));
+        let threads: Vec<DiscordChannel> = serde_json::from_value(threads)
+            .map_err(|_| RestError::Message("Could not read threads".into()))?;
+        Ok(threads.iter().map(super::types::channel_to_client).collect())
+    }
+
+    pub async fn search_guild(&self, guild_id: &str, query: &str) -> Result<Vec<ClientMessage>, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let query = query.trim();
+        if query.is_empty() || query.len() > 80 {
+            return Err(RestError::Message("Search needs a short query.".into()));
+        }
+        let path = format!(
+            "/guilds/{guild_id}/messages/search?content={}",
+            urlencoding::encode(query)
+        );
+        let route = route_key("GET", "/guilds/{guild.id}/messages/search", guild_id);
+        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let mut out = Vec::new();
+        if let Some(groups) = value.get("messages").and_then(|v| v.as_array()) {
+            for group in groups {
+                let Some(first) = group.as_array().and_then(|items| items.first()) else {
+                    continue;
+                };
+                if let Ok(message) = serde_json::from_value::<DiscordMessage>(first.clone()) {
+                    out.push(message_to_client(&message));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub async fn send_message(
         &self,
         channel_id: &str,

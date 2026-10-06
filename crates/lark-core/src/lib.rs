@@ -1,10 +1,12 @@
 //! Shared logic for Lark: config, rate limits, and the Discord connection.
 //! The desktop shell (macOS and Windows) is a thin Tauri wrapper around this crate.
 
+pub mod cache;
 pub mod config;
 pub mod discord;
 pub mod platform;
 pub mod ratelimit;
+pub mod readstate;
 pub mod redact;
 
 pub use config::{parse_config, Config, ConfigError};
