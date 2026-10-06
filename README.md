@@ -8,9 +8,9 @@ Lark is a personal Discord client for one account on macOS and Windows. It is no
 
 Installers are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
-- [macOS universal .dmg](https://github.com/ItsErod/lark/releases/latest/download/Lark_0.1.0_universal.dmg) — Apple Silicon and Intel
-- [Windows setup .exe](https://github.com/ItsErod/lark/releases/latest/download/Lark_0.1.0_x64-setup.exe)
-- [Windows .msi](https://github.com/ItsErod/lark/releases/latest/download/Lark_0.1.0_x64_en-US.msi)
+- [macOS universal .dmg](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.1_universal.dmg) — Apple Silicon and Intel
+- [Windows setup .exe](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.1_x64-setup.exe)
+- [Windows .msi](https://github.com/ItsErod/lark/releases/latest/download/Lark_2.2.1_x64_en-US.msi)
 
 macOS 11 or newer, or 64-bit Windows 10 or newer. Windows on ARM is not built.
 
@@ -26,7 +26,7 @@ On Windows, SmartScreen may say the publisher is unknown. Use **More info → Ru
 
 The first screen has **Sign in with Discord** and a QR code.
 
-**Sign in with Discord** opens Discord’s own login page in a separate window. The password, two-factor prompt, and captcha stay on that page. Lark stores the session and closes the window.
+**Sign in with Discord** opens Discord’s own login page in a separate window. The password, two-factor prompt, and captcha stay on that page. Lark waits until Discord’s session appears, stores it, and closes the window.
 
 **Scan with the Discord mobile app** is Discord’s QR login. If that step asks for a captcha, use **Sign in with Discord** instead.
 

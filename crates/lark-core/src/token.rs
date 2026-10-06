@@ -119,15 +119,12 @@ fn plausible_user_token(token: &str) -> bool {
 }
 
 /// Reads the session token out of Discord's page. It does not send the value anywhere.
-pub const READ_SESSION_JS: &str = r#"(() => {
-  try {
-    const raw = window.localStorage.getItem('token');
-    if (typeof raw !== 'string' || raw.length === 0) return '';
-    return raw;
-  } catch (err) {
-    return '';
-  }
-})()"#;
+/// Discord hides `localStorage.getItem('token')` on the main window, so the script
+/// also asks a fresh iframe, sessionStorage, other storage keys, and the app's getToken().
+pub const READ_SESSION_JS: &str = concat!(
+    include_str!("discord/read_session.js"),
+    "\nreadLarkSession()"
+);
 
 #[cfg(test)]
 mod tests {
@@ -178,9 +175,15 @@ mod tests {
     }
 
     #[test]
-    fn session_script_only_reads_local_storage() {
+    fn session_script_reads_storage_without_network() {
         let script = READ_SESSION_JS.to_ascii_lowercase();
+        assert!(script.trim_end().ends_with("readlarksession()"));
         assert!(script.contains("localstorage"));
+        assert!(script.contains("sessionstorage"));
+        assert!(script.contains("storage.prototype") || script.contains(".prototype"));
+        assert!(script.contains("iframe"));
+        assert!(script.contains("gettoken"));
+        assert!(script.contains("webpackchunkdiscord_app"));
         assert!(!script.contains("fetch("));
         assert!(!script.contains("xmlhttprequest"));
         assert!(!script.contains("http://"));
