@@ -1,4 +1,5 @@
 mod keychain;
+mod login;
 mod paths;
 mod refresh;
 
@@ -8,12 +9,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use lark_core::discord::{ClientEvent, DiscordRest};
+use lark_core::normalize_user_token;
 use lark_core::parse_config;
 use lark_core::Config;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, watch, Mutex};
+use zeroize::Zeroize;
 
 struct Shared {
     config: Mutex<Config>,
@@ -28,6 +31,7 @@ struct Shared {
     screen_stop: Mutex<Option<watch::Sender<bool>>>,
     screen_dirty: Arc<AtomicBool>,
     hide_on_close: Arc<AtomicBool>,
+    qr_stop: Mutex<Option<watch::Sender<bool>>>,
 }
 
 struct VoiceSlot {
@@ -58,6 +62,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            keychain::mark_main_thread();
             let resolved = paths::resolve(app.handle())?;
             let text = fs::read_to_string(&resolved.config_file).unwrap_or_default();
             let config = parse_config(&text).unwrap_or_else(|err| {
@@ -90,6 +95,7 @@ pub fn run() {
                 screen_stop: Mutex::new(None),
                 screen_dirty: Arc::new(AtomicBool::new(false)),
                 hide_on_close: hide_on_close.clone(),
+                qr_stop: Mutex::new(None),
             };
             app.manage(shared);
             if let Some(window) = app.get_webview_window("main") {
@@ -121,6 +127,9 @@ pub fn run() {
             has_token,
             set_token,
             clear_token,
+            open_discord_login,
+            start_qr_login,
+            stop_qr_login,
             connect,
             disconnect,
             fetch_guild_channels,
@@ -219,35 +228,80 @@ fn app_paths(state: State<'_, Shared>) -> paths::AppPaths {
 }
 
 #[tauri::command]
-fn has_token() -> bool {
-    matches!(keychain::load_token(), Ok(Some(token)) if !token.is_empty())
+fn has_token(app: AppHandle) -> Result<bool, String> {
+    let loaded = keychain::on_main(&app, keychain::load_token)??;
+    Ok(loaded.map(|token| !token.is_empty()).unwrap_or(false))
 }
 
 #[tauri::command]
-fn set_token(token: String) -> Result<(), String> {
-    let token = token.trim().to_string();
-    if token.is_empty() {
-        return Err("Token is empty.".into());
-    }
-    if token.len() > 400 || token.chars().any(|c| c.is_whitespace()) {
-        return Err("That doesn't look like a token.".into());
-    }
-    keychain::save_token(&token)
+fn set_token(app: AppHandle, token: String) -> Result<(), String> {
+    let token = normalize_user_token(&token)?;
+    keychain::on_main(&app, move || {
+        let result = keychain::save_token(&token);
+        let mut token = token;
+        token.zeroize();
+        result
+    })?
 }
 
 #[tauri::command]
-async fn clear_token(state: State<'_, Shared>) -> Result<(), String> {
+fn open_discord_login(app: AppHandle) -> Result<(), String> {
+    login::open_discord_login(&app)
+}
+
+#[tauri::command]
+async fn start_qr_login(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    if let Some(tx) = state.qr_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    let (tx, rx) = watch::channel(false);
+    *state.qr_stop.lock().await = Some(tx);
+    login::spawn_qr(app, rx);
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_qr_login(state: State<'_, Shared>) -> Result<(), String> {
+    if let Some(tx) = state.qr_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn clear_token(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
     disconnect_inner(&state).await;
-    keychain::clear_token()
+    if let Some(tx) = state.qr_stop.lock().await.take() {
+        let _ = tx.send(true);
+    }
+    keychain::on_main(&app, keychain::clear_token)?
 }
 
 #[tauri::command]
 async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
-    let token = keychain::load_token()?
+    let stored = keychain::on_main(&app, keychain::load_token)??
         .filter(|token| !token.is_empty())
         .ok_or_else(|| format!("No token saved in the {}.", keychain::store_label()))?;
+    let token = normalize_user_token(&stored)?;
+    if token != stored {
+        let cleaned = token.clone();
+        keychain::on_main(&app, move || {
+            let result = keychain::save_token(&cleaned);
+            let mut cleaned = cleaned;
+            cleaned.zeroize();
+            result
+        })??;
+    }
     disconnect_inner(&state).await;
     let rest = Arc::new(DiscordRest::new(token.clone()).map_err(|err| err.to_string())?);
+    match rest.current_user().await {
+        Ok(user) => {
+            if let Ok(mut slot) = state.voice.lock() {
+                slot.user_id = user.id;
+            }
+        }
+        Err(err) => return Err(err.to_string()),
+    }
     *state.rest.lock().await = Some(rest);
     let (tx, rx) = watch::channel(false);
     *state.shutdown.lock().await = Some(tx);

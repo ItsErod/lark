@@ -22,7 +22,14 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:47321 ws://127.0.0.1:47321; script-src 'self' 'unsafe-eval'"
+      "csp": {
+        "default-src": "'self'",
+        "img-src": "'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:47321 ws://127.0.0.1:47321",
+        "script-src": "'self' 'unsafe-eval'"
+      }
     }
   },
   "bundle": {

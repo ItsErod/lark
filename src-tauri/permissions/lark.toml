@@ -29,6 +29,21 @@ description = "Remove the stored Discord token."
 commands.allow = ["clear_token"]
 
 [[permission]]
+identifier = "allow-open-discord-login"
+description = "Open Discord's own login page in a separate window."
+commands.allow = ["open_discord_login"]
+
+[[permission]]
+identifier = "allow-start-qr-login"
+description = "Start Discord's mobile QR login."
+commands.allow = ["start_qr_login"]
+
+[[permission]]
+identifier = "allow-stop-qr-login"
+description = "Stop Discord's mobile QR login."
+commands.allow = ["stop_qr_login"]
+
+[[permission]]
 identifier = "allow-connect"
 description = "Open the Discord gateway."
 commands.allow = ["connect"]
