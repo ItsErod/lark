@@ -13,8 +13,10 @@ import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
 import { rowEstimate, sliceWindow } from "../virtual";
+import { commandError, previewQr, QR_CAPTION } from "../signin";
 import { clear, colorFor, el, icon, initials, paths } from "./dom";
 import { renderMessage } from "./messages";
+import { patchSignIn, renderSignIn } from "./signin";
 
 interface VoiceMember {
   id: string;
@@ -88,6 +90,10 @@ class LarkApp {
   private msgSig = "";
   private openedAt = 0;
   private tokenNote = "";
+  private signInBusy = "";
+  private qrSvg = "";
+  private qrStatus = QR_CAPTION;
+  private qrWatching = false;
   private connection = "Demo";
   private focused = true;
   private typingSent = 0;
@@ -165,10 +171,17 @@ class LarkApp {
     await this.loadPlugins();
     await this.applyTheme();
     window.setInterval(() => void this.applyTheme(), 1000);
-    if (isTauri()) await this.bootDesktop();
     this.frames.setCap(this.config.desktop.frame_cap);
-    if (new URLSearchParams(location.search).has("demo")) this.enterDemo();
-    else this.paint();
+    const params = new URLSearchParams(location.search);
+    if (!isTauri() && params.has("notice")) {
+      this.tokenNote = "Discord rejected the token (HTTP 401). Lark sent it only to discord.com. It may be expired, revoked, or still wrapped in quotes.";
+    }
+    if (params.has("demo")) this.enterDemo();
+    else {
+      this.qrSvg = previewQr();
+      this.paint();
+    }
+    if (isTauri()) await this.bootDesktop();
     const perf: PerfMarks = {
       ready: performance.now(),
       lastSwitch: 0,
@@ -223,6 +236,12 @@ class LarkApp {
         if (!this.settings) void this.reloadConfig();
       });
       await listen("discord", (event) => this.onDiscord(event.payload));
+      await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("login-status", (event) => {
+        this.onLoginStatus(event.payload);
+      });
+      await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("qr-login", (event) => {
+        this.onQrLogin(event.payload);
+      });
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       this.focused = await win.isFocused();
@@ -231,10 +250,20 @@ class LarkApp {
       });
       if (await invoke<boolean>("has_token")) {
         this.connection = "Connecting";
+        this.signInBusy = "Checking the saved token with Discord…";
+        this.paint();
         await invoke("connect");
+        this.signInBusy = "Connecting to Discord…";
+        if (this.view === "gate") this.paintGate();
       }
+      if (this.view === "gate" && !this.signInBusy) this.ensureQr();
     } catch (err) {
-      this.tokenNote = err instanceof Error ? err.message : "Desktop bridge unavailable.";
+      this.view = "gate";
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Desktop bridge unavailable.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
     }
   }
 
@@ -418,57 +447,138 @@ class LarkApp {
   }
 
   private paintGate() {
-    clear(this.gate);
-    const card = el("div", "gate-card");
-    const mark = el("div", "mark", "L");
-    const title = el("h1", "", "Lark");
-    const lede = el("p", "lede", "A small Discord client for one account, on macOS and Windows. Fast enough to leave open.");
-    const warning = el("div", "warning");
-    warning.append(
-      el("strong", "", "This can ban the account"),
-      el("p", "", "Discord's terms don't allow third-party clients that sign in with a user token. Using Lark on your own account can get that account suspended. The token stays in the macOS Keychain or Windows Credential Manager and is sent only to Discord."),
-    );
-    const label = el("label", "field");
-    label.append(el("span", "", "Token"));
-    const input = el("input", "token-input");
-    input.type = "password";
-    input.autocomplete = "off";
-    input.spellcheck = false;
-    input.placeholder = "Paste your token";
-    input.setAttribute("aria-label", "Discord token");
-    label.append(input);
-    const actions = el("div", "gate-actions");
-    const save = el("button", "primary", "Save and connect");
-    save.type = "button";
-    save.addEventListener("click", () => void this.saveToken(input));
-    const demo = el("button", "ghost", "Preview with sample data");
-    demo.type = "button";
-    demo.addEventListener("click", () => this.enterDemo());
-    actions.append(save, demo);
-    const note = el("p", "gate-note", this.tokenNote || `On this computer the token would be stored in ${this.platform.credentialStore}. Nothing is logged.`);
-    card.append(mark, title, lede, warning, label, actions, note);
-    this.gate.append(card);
+    if (!this.qrSvg) this.qrSvg = previewQr();
+    const existing = this.gate.querySelector(".gate-card");
+    if (!existing) {
+      renderSignIn(this.gate, this.signInState(), {
+        onDiscord: () => void this.openDiscordLogin(),
+        onPreview: () => this.enterDemo(),
+        onSave: (token) => void this.saveToken(token),
+      });
+    } else {
+      patchSignIn(this.gate, this.signInState());
+    }
   }
 
-  private async saveToken(input: HTMLInputElement) {
-    const token = input.value.trim();
-    input.value = "";
+  private signInState() {
+    return {
+      error: this.tokenNote,
+      qrSvg: this.qrSvg,
+      qrStatus: this.qrStatus,
+      store: this.platform.credentialStore,
+      busy: this.signInBusy,
+    };
+  }
+
+  private ensureQr() {
+    if (!isTauri() || this.qrWatching || this.view !== "gate") return;
+    this.qrWatching = true;
+    void invoke("start_qr_login").catch((err) => {
+      this.qrWatching = false;
+      this.qrStatus = commandError(err, "QR login could not start.");
+      if (this.view === "gate") patchSignIn(this.gate, this.signInState());
+    });
+  }
+
+  private async openDiscordLogin() {
+    if (!isTauri()) {
+      this.tokenNote = "Sign in with Discord opens inside the Lark app on macOS or Windows. This preview only shows the screen.";
+      this.paintGate();
+      return;
+    }
+    this.signInBusy = "Opening Discord's login page…";
+    this.tokenNote = "";
+    this.paintGate();
+    try {
+      await invoke("open_discord_login");
+    } catch (err) {
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't open Discord's login page.");
+      this.paintGate();
+    }
+  }
+
+  private onLoginStatus(payload: { phase?: string; detail?: string }) {
+    if (payload.phase === "saved") {
+      this.signInBusy = "Checking the token with Discord…";
+      this.tokenNote = "";
+      this.paintGate();
+      void this.finishConnect();
+      return;
+    }
+    if (payload.phase === "failed") {
+      this.signInBusy = "";
+      this.view = "gate";
+      this.tokenNote = payload.detail || "Discord sign-in failed.";
+      this.paint();
+      return;
+    }
+    if (payload.detail) {
+      this.signInBusy = payload.detail;
+      this.paintGate();
+    }
+  }
+
+  private onQrLogin(payload: { phase?: string; detail?: string; svg?: string; username?: string }) {
+    if (payload.phase === "qr" && payload.svg) {
+      this.qrSvg = payload.svg;
+      this.qrStatus = QR_CAPTION;
+    } else if (payload.phase === "scanned") {
+      this.qrStatus = payload.username ? `Confirm on your phone as ${payload.username}` : "Confirm on your phone";
+    } else if (payload.phase === "done") {
+      this.qrStatus = "Checking the token with Discord…";
+      this.signInBusy = "Checking the token with Discord…";
+      this.tokenNote = "";
+      void this.finishConnect();
+    } else if (payload.phase === "stopped") {
+      this.qrWatching = false;
+      this.signInBusy = "";
+      this.qrStatus = payload.detail || "QR login stopped.";
+      this.tokenNote = this.qrStatus;
+    } else if (payload.phase === "failed") {
+      this.qrStatus = payload.detail || "The QR code failed. A new one is coming.";
+    }
+    if (this.view === "gate") this.paintGate();
+  }
+
+  private async finishConnect() {
+    try {
+      await invoke("connect");
+      this.signInBusy = "Connecting to Discord…";
+      if (this.view === "gate") this.paintGate();
+    } catch (err) {
+      this.view = "gate";
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't sign in with the saved token.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
+    }
+  }
+
+  private async saveToken(token: string) {
     if (!isTauri()) {
       this.tokenNote = "This preview can't accept a token. Run the Lark app on macOS or Windows to save one in the system credential store.";
       this.paintGate();
       return;
     }
+    this.signInBusy = "Checking the token with Discord…";
+    this.tokenNote = "";
+    this.qrWatching = false;
+    this.paintGate();
     try {
+      await invoke("stop_qr_login");
       await invoke("set_token", { token });
-      this.tokenNote = `Saved in ${this.platform.credentialStore}.`;
-      this.demo = false;
-      this.view = "app";
-      this.connection = "Connecting";
       await invoke("connect");
-      this.paint();
+      this.signInBusy = "Connecting to Discord…";
+      if (this.view === "gate") this.paintGate();
     } catch (err) {
-      this.tokenNote = err instanceof Error ? err.message : "Couldn't save the token.";
-      this.paintGate();
+      this.view = "gate";
+      this.signInBusy = "";
+      this.tokenNote = commandError(err, "Couldn't save the token.");
+      this.qrWatching = false;
+      this.paint();
+      this.ensureQr();
     }
   }
 
@@ -1531,12 +1641,25 @@ class LarkApp {
   }
 
   private async forgetToken() {
-    await invoke("clear_token");
+    try {
+      await invoke("clear_token");
+    } catch (err) {
+      const message = commandError(err, "Couldn't remove the saved token.");
+      this.tokenNote = message;
+      this.toast("Sign out", message);
+      return;
+    }
     this.view = "gate";
     this.demo = false;
+    this.qrWatching = false;
+    this.qrSvg = previewQr();
+    this.qrStatus = QR_CAPTION;
+    this.tokenNote = "";
+    this.signInBusy = "";
     this.connection = "Signed out";
     this.closeSettings();
     this.paint();
+    this.ensureQr();
   }
 
   private paintLightbox() {
@@ -1727,11 +1850,28 @@ class LarkApp {
     };
     if (event.kind === "status") {
       this.connection = event.state === "connected" ? "Connected" : event.state ?? "Offline";
-      if (event.state === "failed") this.toast("Discord", event.detail || "The connection stopped.");
+      if (event.state === "failed") {
+        this.view = "gate";
+        this.demo = false;
+        this.signInBusy = "";
+        this.tokenNote = event.detail || "Discord closed the connection.";
+        this.qrWatching = false;
+        this.paint();
+        this.ensureQr();
+        return;
+      }
+      if (this.view === "gate" && event.detail) {
+        this.signInBusy = event.detail;
+        this.paintGate();
+      }
       this.paintChannels();
     } else if (event.kind === "ready" && event.user) {
       this.demo = false;
       this.view = "app";
+      this.tokenNote = "";
+      this.signInBusy = "";
+      this.qrWatching = false;
+      if (isTauri()) void invoke("stop_qr_login").catch(() => undefined);
       this.me = { id: event.user.id, name: event.user.name, bot: event.user.bot, status: "online" };
       this.userNames[this.me.id] = this.me.name;
       this.liveGuilds = event.guilds ?? [];

@@ -4,7 +4,10 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+use crate::redact::redact;
 
 use super::types::{
     channel_to_client, guild_to_client, message_to_client, user_to_client, ClientChannel,
@@ -28,12 +31,20 @@ pub fn intents_without_message_content(intents: u64) -> u64 {
     intents & !(1 << 15)
 }
 
+pub fn intents_without_presence(intents: u64) -> u64 {
+    intents & !(1 << 8)
+}
+
 pub fn gateway_url() -> &'static str {
     "wss://gateway.discord.gg/?v=10&encoding=json"
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ClientEvent {
     Status {
         state: String,
@@ -108,8 +119,9 @@ pub enum ClientEvent {
 #[derive(Debug)]
 enum SessionEnd {
     Shutdown,
-    Reconnect,
-    AuthFailed,
+    Reconnect(String),
+    /// Stop and show `detail` on the sign-in screen. Do not reconnect.
+    Stop(String),
     DisallowedIntent,
 }
 
@@ -139,7 +151,9 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
             channel_id,
             mute,
             deaf,
-        } => super::voice::main_voice_state(guild_id.as_deref(), channel_id.as_deref(), *mute, *deaf),
+        } => {
+            super::voice::main_voice_state(guild_id.as_deref(), channel_id.as_deref(), *mute, *deaf)
+        }
         GatewayCommand::Presence { status, custom } => {
             let activities = if custom.is_empty() {
                 Vec::<serde_json::Value>::new()
@@ -176,6 +190,7 @@ pub async fn run_gateway<F>(
     let mut session: Option<Session> = None;
     let mut intents = CLIENT_INTENTS;
     let mut dropped_content_intent = false;
+    let mut dropped_presence_intent = false;
 
     loop {
         if *shutdown.borrow() {
@@ -193,12 +208,21 @@ pub async fn run_gateway<F>(
             },
             detail: String::new(),
         });
-        match connect_once(&token, &mut session, intents, &mut shutdown, &mut outbound, &mut emit).await {
+        match connect_once(
+            &token,
+            &mut session,
+            intents,
+            &mut shutdown,
+            &mut outbound,
+            &mut emit,
+        )
+        .await
+        {
             Ok(SessionEnd::Shutdown) => break,
-            Ok(SessionEnd::AuthFailed) => {
+            Ok(SessionEnd::Stop(detail)) => {
                 emit(ClientEvent::Status {
                     state: "failed".into(),
-                    detail: "Discord rejected the token.".into(),
+                    detail,
                 });
                 break;
             }
@@ -208,14 +232,36 @@ pub async fn run_gateway<F>(
                 session = None;
                 emit(ClientEvent::Status {
                     state: "reconnecting".into(),
-                    detail: "Discord rejected the message content intent. Reconnecting without it. History still loads from the API.".into(),
+                    detail: "Discord rejected the message content intent (close 4014). Reconnecting without it. History still loads from the API.".into(),
                 });
                 continue;
             }
-            Ok(_) | Err(_) => {
+            Ok(SessionEnd::DisallowedIntent) if !dropped_presence_intent => {
+                intents = intents_without_presence(intents);
+                dropped_presence_intent = true;
+                session = None;
                 emit(ClientEvent::Status {
                     state: "reconnecting".into(),
-                    detail: format!("Waiting {backoff_secs}s before reconnecting."),
+                    detail: "Discord rejected the presence intent (close 4014). Reconnecting without it.".into(),
+                });
+                continue;
+            }
+            Ok(SessionEnd::DisallowedIntent) => {
+                emit(ClientEvent::Status {
+                    state: "failed".into(),
+                    detail: "Discord rejected the gateway intents (close 4014) even after message content and presence were removed.".into(),
+                });
+                break;
+            }
+            Ok(SessionEnd::Reconnect(detail)) | Err(detail) => {
+                let detail = if detail.is_empty() {
+                    format!("The gateway connection dropped. Waiting {backoff_secs}s before reconnecting.")
+                } else {
+                    format!("{detail} Waiting {backoff_secs}s before reconnecting.")
+                };
+                emit(ClientEvent::Status {
+                    state: "reconnecting".into(),
+                    detail,
                 });
                 tokio::select! {
                     changed = shutdown.changed() => {
@@ -238,11 +284,14 @@ async fn connect_once<F>(
     shutdown: &mut watch::Receiver<bool>,
     outbound: &mut mpsc::UnboundedReceiver<GatewayCommand>,
     emit: &mut F,
-) -> Result<SessionEnd, ()>
+) -> Result<SessionEnd, String>
 where
     F: FnMut(ClientEvent),
 {
-    let (socket, _) = connect_async(gateway_url()).await.map_err(|_| ())?;
+    let request = gateway_handshake_request()?;
+    let (socket, _) = connect_async(request)
+        .await
+        .map_err(|err| super::rest::explain_transport(&redact(&err.to_string(), &[token])))?;
     let (mut write, mut read) = socket.split();
     let mut heartbeat_every: Option<Duration> = None;
     let mut next_heartbeat: Option<Instant> = None;
@@ -250,7 +299,7 @@ where
     let mut identified = false;
 
     loop {
-            let heartbeat_wait = async {
+        let heartbeat_wait = async {
             match next_heartbeat {
                 Some(when) => {
                     let delay = when.saturating_duration_since(Instant::now());
@@ -269,20 +318,20 @@ where
                 if let Some(command) = command {
                     let payload = gateway_command_payload(&command);
                     if write.send(Message::Text(payload)).await.is_err() {
-                        return Ok(SessionEnd::Reconnect);
+                        return Ok(SessionEnd::Reconnect("The gateway write failed.".into()));
                     }
                 }
             }
             _ = heartbeat_wait => {
                 if let Some(every) = heartbeat_every {
                     if last_ack.elapsed() > every * 2 && identified {
-                        return Ok(SessionEnd::Reconnect);
+                        return Ok(SessionEnd::Reconnect("Discord missed a heartbeat.".into()));
                     }
                 }
                 let seq = session.as_ref().and_then(|s| s.seq);
                 let payload = heartbeat_payload(seq);
                 if write.send(Message::Text(payload)).await.is_err() {
-                    return Ok(SessionEnd::Reconnect);
+                    return Ok(SessionEnd::Reconnect("The heartbeat write failed.".into()));
                 }
                 if let Some(every) = heartbeat_every {
                     next_heartbeat = Some(Instant::now() + every);
@@ -290,16 +339,20 @@ where
             }
             frame = read.next() => {
                 let Some(frame) = frame else {
-                    return Ok(SessionEnd::Reconnect);
+                    return Ok(SessionEnd::Reconnect("The gateway closed.".into()));
                 };
-                let frame = frame.map_err(|_| ())?;
+                let frame = frame.map_err(|err| redact(&err.to_string(), &[token]))?;
                 match frame {
                     Message::Ping(payload) => {
                         let _ = write.send(Message::Pong(payload)).await;
                     }
                     Message::Close(frame) => {
-                        let code = frame.map(|c| u16::from(c.code)).unwrap_or(0);
-                        return Ok(close_code_end(code));
+                        let code = frame.as_ref().map(|c| u16::from(c.code)).unwrap_or(0);
+                        let reason = frame
+                            .as_ref()
+                            .map(|c| redact(&c.reason.to_string(), &[token]))
+                            .unwrap_or_default();
+                        return Ok(close_code_end(code, &reason));
                     }
                     Message::Text(text) => {
                         let incoming = match parse_frame(&text) {
@@ -330,7 +383,7 @@ where
                                     identify_payload(token, intents)
                                 };
                                 if write.send(Message::Text(payload)).await.is_err() {
-                                    return Ok(SessionEnd::Reconnect);
+                                    return Ok(SessionEnd::Reconnect("Identify could not be sent.".into()));
                                 }
                                 identified = true;
                             }
@@ -341,13 +394,15 @@ where
                                 let seq = session.as_ref().and_then(|s| s.seq);
                                 let _ = write.send(Message::Text(heartbeat_payload(seq))).await;
                             }
-                            7 => return Ok(SessionEnd::Reconnect),
+                            7 => return Ok(SessionEnd::Reconnect("Discord asked for a reconnect.".into())),
                             9 => {
                                 let can_resume = incoming.data.as_bool().unwrap_or(false);
                                 if !can_resume {
                                     *session = None;
                                 }
-                                return Ok(SessionEnd::Reconnect);
+                                return Ok(SessionEnd::Reconnect(
+                                    "Discord invalidated the session. Reconnecting.".into(),
+                                ));
                             }
                             0 => {
                                 if let Some(seq) = incoming.seq {
@@ -374,12 +429,56 @@ where
     }
 }
 
-fn close_code_end(code: u16) -> SessionEnd {
+fn close_code_end(code: u16, reason: &str) -> SessionEnd {
     match code {
-        4004 => SessionEnd::AuthFailed,
+        4004 => SessionEnd::Stop(gateway_close_message(code, reason)),
+        4010 | 4011 | 4012 | 4013 => SessionEnd::Stop(gateway_close_message(code, reason)),
         4014 => SessionEnd::DisallowedIntent,
-        _ => SessionEnd::Reconnect,
+        _ => SessionEnd::Reconnect(gateway_close_message(code, reason)),
     }
+}
+
+pub fn gateway_close_message(code: u16, reason: &str) -> String {
+    let reason = reason.trim();
+    let extra = if reason.is_empty() {
+        String::new()
+    } else {
+        format!(" Discord said: {reason}.")
+    };
+    match code {
+        4004 => format!(
+            "Discord rejected the token (gateway close 4004, authentication failed).{extra} It may be expired, revoked, or copied with quotes or spaces. Lark sent it only to Discord and will not retry this token."
+        ),
+        4003 => format!("Discord said the gateway session is not authenticated (close 4003).{extra}"),
+        4010 => format!("Discord rejected the shard id (close 4010).{extra}"),
+        4011 => format!("Discord requires sharding (close 4011). Lark uses one connection.{extra}"),
+        4012 => format!("Discord rejected the gateway API version (close 4012).{extra}"),
+        4013 => format!("Discord rejected the gateway intents as invalid (close 4013).{extra}"),
+        4014 => format!("Discord rejected a privileged intent (close 4014).{extra}"),
+        0 => "The gateway closed before Discord sent a close code.".into(),
+        _ => format!("Discord closed the gateway (close {code}).{extra}"),
+    }
+}
+
+pub fn gateway_handshake_request(
+) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
+    let mut request = gateway_url()
+        .into_client_request()
+        .map_err(|err| super::rest::explain_transport(&err.to_string()))?;
+    let headers = request.headers_mut();
+    headers.insert(
+        "Origin",
+        "https://discord.com"
+            .parse()
+            .map_err(|_| "Could not build the gateway request.".to_string())?,
+    );
+    headers.insert(
+        "User-Agent",
+        "Lark/0.1.0 (personal client)"
+            .parse()
+            .map_err(|_| "Could not build the gateway request.".to_string())?,
+    );
+    Ok(request)
 }
 
 pub(crate) struct Incoming {
@@ -518,7 +617,10 @@ fn handle_dispatch(
             false
         }
         "MESSAGE_DELETE" => {
-            let channel_id = data.get("channel_id").and_then(|v| v.as_str()).unwrap_or("");
+            let channel_id = data
+                .get("channel_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let message_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
             if !channel_id.is_empty() && !message_id.is_empty() {
                 emit(ClientEvent::MessageDelete {
@@ -594,9 +696,15 @@ fn handle_dispatch(
                 user_id: json_str(data, "user_id"),
                 session_id: json_str(data, "session_id"),
                 mute: data.get("mute").and_then(|v| v.as_bool()).unwrap_or(false)
-                    || data.get("self_mute").and_then(|v| v.as_bool()).unwrap_or(false),
+                    || data
+                        .get("self_mute")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                 deaf: data.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false)
-                    || data.get("self_deaf").and_then(|v| v.as_bool()).unwrap_or(false),
+                    || data
+                        .get("self_deaf")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
             });
             false
         }
@@ -723,10 +831,9 @@ mod tests {
         let hello = parse_frame(r#"{"op":10,"d":{"heartbeat_interval":41250}}"#).unwrap();
         assert_eq!(hello.op, 10);
         assert_eq!(hello.data["heartbeat_interval"], 41250);
-        let message = parse_frame(
-            r#"{"t":"MESSAGE_CREATE","s":8,"op":0,"d":{"id":"1","content":"hi"}}"#,
-        )
-        .unwrap();
+        let message =
+            parse_frame(r#"{"t":"MESSAGE_CREATE","s":8,"op":0,"d":{"id":"1","content":"hi"}}"#)
+                .unwrap();
         assert_eq!(message.name.as_deref(), Some("MESSAGE_CREATE"));
         assert_eq!(message.seq, Some(8));
     }
@@ -744,10 +851,48 @@ mod tests {
     }
 
     #[test]
-    fn close_codes() {
-        assert!(matches!(close_code_end(4004), SessionEnd::AuthFailed));
-        assert!(matches!(close_code_end(4014), SessionEnd::DisallowedIntent));
-        assert!(matches!(close_code_end(4000), SessionEnd::Reconnect));
+    fn close_codes_explain_the_failure() {
+        let rejected = gateway_close_message(4004, "Authentication failed");
+        assert!(rejected.contains("4004"));
+        assert!(
+            rejected.contains("authentication failed") || rejected.contains("rejected the token")
+        );
+        assert!(!rejected.contains("secret-token"));
+        assert!(matches!(
+            close_code_end(4004, "Authentication failed"),
+            SessionEnd::Stop(_)
+        ));
+        assert!(matches!(
+            close_code_end(4014, ""),
+            SessionEnd::DisallowedIntent
+        ));
+        assert!(matches!(
+            close_code_end(4000, "unknown"),
+            SessionEnd::Reconnect(_)
+        ));
+        assert!(matches!(close_code_end(4013, ""), SessionEnd::Stop(_)));
+        let request = gateway_handshake_request().unwrap();
+        assert!(request
+            .uri()
+            .to_string()
+            .starts_with("wss://gateway.discord.gg/"));
+        assert!(!request
+            .uri()
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("token"));
+        assert_eq!(
+            request.headers().get("origin").unwrap(),
+            "https://discord.com"
+        );
+        assert!(request
+            .headers()
+            .get("user-agent")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("Lark"));
+        assert_eq!(intents_without_presence(CLIENT_INTENTS) & (1 << 8), 0);
     }
 
     #[test]
@@ -759,7 +904,9 @@ mod tests {
             "user_id": "12",
             "emoji": {"name": "🔥", "id": null}
         });
-        emit_reaction("MESSAGE_REACTION_ADD", &data, &mut |event| events.push(event));
+        emit_reaction("MESSAGE_REACTION_ADD", &data, &mut |event| {
+            events.push(event)
+        });
         match &events[0] {
             ClientEvent::Reaction { added, emoji, .. } => {
                 assert!(*added);

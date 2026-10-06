@@ -1,7 +1,25 @@
 //! Token storage. macOS uses Keychain. Windows uses Credential Manager.
 //! The token is never written to config, logs, or the webview.
+//!
+//! Reads and writes run on the main thread. Unsigned macOS builds cannot show
+//! the Keychain prompt from a background thread (error -25308), which made
+//! Save and connect fail in the packaged app after the token was written.
 
+use std::cell::Cell;
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use lark_core::credential_failure_message;
 use lark_core::credential_store_label;
+use tauri::AppHandle;
+
+thread_local! {
+    static ON_MAIN_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Called from Tauri's setup, which runs on the UI thread.
+pub fn mark_main_thread() {
+    ON_MAIN_THREAD.with(|flag| flag.set(true));
+}
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 const SERVICE: &str = "Lark";
@@ -58,7 +76,9 @@ fn entry() -> Result<keyring::Entry, String> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn native_save(token: &str) -> Result<(), String> {
-    entry()?.set_password(token).map_err(|err| store_error(&err))
+    entry()?
+        .set_password(token)
+        .map_err(|err| store_error(&err))
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -81,11 +101,21 @@ fn native_clear() -> Result<(), String> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn store_error(err: &keyring::Error) -> String {
-    let label = store_label();
-    let detail = err.to_string();
-    if detail.len() > 180 {
-        format!("Couldn't use {label}.")
-    } else {
-        format!("Couldn't use {label}: {detail}")
+    credential_failure_message(&store_label(), &err.to_string())
+}
+
+pub fn on_main<T: Send + 'static>(
+    app: &AppHandle,
+    op: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    if ON_MAIN_THREAD.with(|flag| flag.get()) {
+        return Ok(op());
     }
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = tx.send(op());
+    })
+    .map_err(|err| format!("Couldn't reach the main thread for the credential store: {err}"))?;
+    rx.recv()
+        .map_err(|_| "The credential store stopped responding.".to_string())
 }
