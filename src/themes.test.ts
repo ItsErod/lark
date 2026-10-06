@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { defaultConfig } from "./config";
 import {
   applyRootOverrides,
   contrastRatio,
   filterThemes,
   galleryEntries,
-  LEGACY_THEME_IDS,
+  HEAVY_SHADOW_THEME_IDS,
   loadImportedThemes,
   parseThemeCss,
   shadowBlurPx,
@@ -17,18 +18,21 @@ import {
   validateThemeCss,
 } from "./themes";
 
-const legacy = new Set<string>(LEGACY_THEME_IDS);
+const heavyShadow = new Set<string>(HEAVY_SHADOW_THEME_IDS);
 
 describe("theme pack", () => {
   const files = readdirSync("themes").filter((name) => name.endsWith(".css")).sort();
 
-  it("ships 14 new themes plus the three originals", () => {
-    expect(themePack().length).toBe(14);
-    expect(themePack().length).toBeGreaterThanOrEqual(10);
-    expect(themePack().length).toBeLessThanOrEqual(15);
+  it("ships discord as the default and keeps warm ink in the pack", () => {
+    expect(themePack().length).toBe(16);
+    expect(themePack().map((theme) => theme.id)).toContain("discord");
+    expect(themePack().map((theme) => theme.id)).toContain("modern-dark");
     expect(files).toEqual(SHIPPED_THEMES.map((theme) => `${theme.id}.css`).sort());
     const doc = readFileSync("THEMES.md", "utf8");
     for (const theme of SHIPPED_THEMES) expect(doc, theme.id).toContain(theme.id);
+    expect(defaultConfig().appearance.theme).toBe("discord");
+    expect(defaultConfig().appearance.font_family).toBe("inter");
+    expect(defaultConfig().appearance.font_size).toBe(16);
   });
 
   it("keeps every theme to variables, with a cheap shadow on the new pack", () => {
@@ -39,11 +43,33 @@ describe("theme pack", () => {
       expect(parsed.vars["--bg-0"], theme.id).toBeTruthy();
       expect(parsed.vars["--text"], theme.id).toBeTruthy();
       expect(parsed.vars["--accent"], theme.id).toBeTruthy();
-      if (!legacy.has(theme.id)) {
+      if (!heavyShadow.has(theme.id)) {
         expect(shadowBlurPx(parsed.vars["--shadow"] ?? ""), theme.id).toBeLessThanOrEqual(12);
         expect(css.toLowerCase().includes("animation:") || css.toLowerCase().includes("@keyframes"), theme.id).toBe(false);
       }
     }
+  });
+
+  it("matches the discord dark palette and leaves the warm theme selectable", () => {
+    const discord = parseThemeCss(readFileSync("themes/discord.css", "utf8"));
+    expect(discord.vars["--bg-0"]).toBe("#1e1f22");
+    expect(discord.vars["--bg-1"]).toBe("#2b2d31");
+    expect(discord.vars["--bg-2"]).toBe("#313338");
+    expect(discord.vars["--bg-panel"]).toBe("#232428");
+    expect(discord.vars["--accent"]).toBe("#5865f2");
+    expect(discord.vars["--text"]).toBe("#dbdee1");
+    expect(discord.vars["--muted"]).toBe("#949ba4");
+    expect(discord.vars["--ok"]).toBe("#23a55a");
+    expect(discord.vars["--danger"]).toBe("#f23f43");
+    expect(discord.vars["--font"]).toContain("Inter");
+    expect(shadowBlurPx(discord.vars["--shadow"] ?? "")).toBeLessThanOrEqual(12);
+    const warm = parseThemeCss(readFileSync("themes/modern-dark.css", "utf8"));
+    expect(warm.vars["--bg-0"]).toBe("#12110f");
+    expect(warm.vars["--accent"]).toBe("#e2a15a");
+    const fallback = readFileSync("src/styles.css", "utf8");
+    expect(fallback).toContain("--bg-0: #1e1f22");
+    expect(fallback).toContain("--accent: #5865f2");
+    expect(fallback).toContain("border-radius: 50%");
   });
 
   it("uses true black for OLED and a mono face for the terminal", () => {

@@ -6,7 +6,9 @@ Shipped files live in `themes/`. On first launch, and whenever a new file is mis
 
 | File | Look |
 | --- | --- |
-| `linear-dark` | Neutral zinc, indigo accent. The clean dark default if you want Linear or Vercel rather than warm ink. |
+| `discord` | The default. Discord's dark palette: charcoal panels, blurple accent, Inter at Discord-like sizes. gg sans is not redistributable. |
+| `modern-dark` | Warm ink and apricot. The previous default, still in the gallery. |
+| `linear-dark` | Neutral zinc, indigo accent. The clean dark option if you want Linear or Vercel rather than Discord or warm ink. |
 | `linear-light` | White surfaces, zinc type, the same indigo. |
 | `oled` | `#000000` panels so unused pixels stay off. Hairline edges, no shadow blur. |
 | `nord` | Polar night and frost, from the Nord palette. |
@@ -20,18 +22,19 @@ Shipped files live in `themes/`. On first launch, and whenever a new file is mis
 | `frosted` | Cool glass. On macOS and Windows it asks for native vibrancy. Everywhere else it stays opaque. |
 | `phosphor` | Green on black. The UI uses the mono stack while the font setting is still Inter. |
 | `high-contrast` | White and near-white type on black, yellow accent. Text pairs are at least 7:1. |
-| `modern-dark` | The original warm ink and apricot. Still the config default. |
 | `daylight` | Warm paper. |
 | `ink-contrast` | The earlier bright-room black. `high-contrast` is the stricter one. |
 
-`modern-dark` and `daylight` keep their original overlay shadow. New themes use a 1–2px shadow or a hairline, which is what the message list and the overlays read from `--shadow`.
+`modern-dark`, `daylight`, and `ink-contrast` keep their original overlay shadow. Discord and the rest of the pack use a 1–2px shadow or a hairline, which is what the message list and the overlays read from `--shadow`.
+
+Discord also sets the rail, channel, chat, and user-panel colours (`--bg-0` `#1e1f22`, `--bg-1` `#2b2d31`, `--bg-2` `#313338`, `--bg-panel` `#232428`), blurple `--accent` `#5865f2`, text `#dbdee1`, muted `#949ba4`, online `#23a55a`, and danger `#f23f43`. A theme can override `--hover`, `--selected`, `--message-hover`, `--highlight`, and `--scrollbar`. The server rail, channel rows, message hover, and thin scrollbars live in the app and follow those variables. A config that already names `modern-dark` stays on warm ink. A new config uses `discord`.
 
 ## What a file can contain
 
 A theme is one `:root` block, plus an optional `html.is-vibrancy` block of the same kind of declarations:
 
 - `color-scheme: dark` or `light`
-- custom properties: `--bg-0` through `--bg-4`, `--line`, `--text`, `--muted`, `--faint`, `--accent`, `--accent-ink`, `--accent-soft`, `--ok`, `--idle`, `--busy`, `--danger`, `--mention-bg`, `--mention-fg`, `--shadow`, `--font`, `--mono`, `--emoji`
+- custom properties: `--bg-0` through `--bg-4`, `--bg-panel`, `--hover`, `--selected`, `--message-hover`, `--line`, `--text`, `--muted`, `--faint`, `--heading`, `--accent`, `--accent-ink`, `--accent-soft`, `--ok`, `--idle`, `--busy`, `--danger`, `--mention-bg`, `--mention-fg`, `--highlight`, `--highlight-bar`, `--link`, `--pill`, `--scrollbar`, `--scrollbar-hover`, `--shadow`, `--font`, `--mono`, `--emoji`
 - `--window-material: vibrancy` or `none`
 
 `--bg-0`, `--text`, and `--accent` are required. The name of the file is the theme id: a lowercase slug, `[a-z0-9][a-z0-9-]{0,63}`.
@@ -80,7 +83,7 @@ The theme editor still edits `--bg-0`, `--bg-2`, `--text`, and the accent live. 
 
 ## Font
 
-The font control still wins when it is System, Serif, or Mono. **Inter** means “use the theme”. Phosphor is the one shipped theme that sets a different `--font`.
+The font control still wins when it is System, Serif, or Mono. **Inter** means “use the theme”. Phosphor is the one shipped theme that sets a different `--font`. Discord uses Inter, which is the redistributable stand-in for Discord's face, at 16px with medium channel names and semibold headers.
 
 ## Frame rate
 
