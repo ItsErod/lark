@@ -6,7 +6,7 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 ## [2.3.0](https://github.com/ItsErod/lark/releases/tag/v2.3.0) — 2026-10-06
 
-Discord dark is the default theme, and the open text channel stays stable while messages load. Chat includes mentions and history. Members, presence, profiles, and DMs come from the gateway. The app shell adds folders, badges, settings, and notifications. A voice channel shows who is in it and carries call audio.
+Discord dark is the default theme, and the open text channel stays stable while messages load. Chat includes replies, reactions, markdown, and embeds, and the member list comes from gateway opcode 14. The app shell adds folders, badges, settings, notifications, and Ctrl+K, and a voice channel shows who is in it and carries call audio.
 
 ## [2.2.5](https://github.com/ItsErod/lark/releases/tag/v2.2.5) — 2026-10-06
 
