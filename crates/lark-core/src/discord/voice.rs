@@ -1,13 +1,17 @@
-//! Discord voice transport: UDP discovery, RTP, and the AEAD modes Discord requires.
+//! Discord voice transport: UDP discovery, RTP, and the transport ciphers.
 //!
-//! Preferred mode is `aead_aes256_gcm_rtpsize`. `aead_xchacha20_poly1305_rtpsize` is
-//! always supported because the voice gateway guarantees it. Deprecated XSalsa modes
-//! are refused. The 32-bit packet nonce is appended to the payload and placed in the
-//! first bytes of the cipher nonce, with the rest zeroed.
+//! Preferred mode is `aead_aes256_gcm_rtpsize`, then `aead_xchacha20_poly1305_rtpsize`.
+//! XSalsa20 modes are still accepted when a voice server offers nothing newer. AEAD
+//! nonces are a 32-bit counter appended to the packet and padded with zeros. XSalsa
+//! lite uses that same counter; suffix uses 24 random bytes; the plain mode derives
+//! the nonce from the RTP header.
 
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce as AesNonce};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use rand::Rng;
+use xsalsa20poly1305::aead::Aead as XSalsaAead;
+use xsalsa20poly1305::{Nonce as XSalsaNonce, XSalsa20Poly1305};
 
 pub const OPUS_SILENCE: &[u8] = &[0xF8, 0xFF, 0xFE];
 pub const VOICE_GATEWAY_VERSION: &str = "8";
@@ -16,6 +20,9 @@ pub const VOICE_GATEWAY_VERSION: &str = "8";
 pub enum CipherMode {
     Aes256GcmRtpSize,
     XChaCha20Poly1305RtpSize,
+    XSalsa20Poly1305Lite,
+    XSalsa20Poly1305Suffix,
+    XSalsa20Poly1305,
 }
 
 impl CipherMode {
@@ -23,22 +30,37 @@ impl CipherMode {
         match self {
             Self::Aes256GcmRtpSize => "aead_aes256_gcm_rtpsize",
             Self::XChaCha20Poly1305RtpSize => "aead_xchacha20_poly1305_rtpsize",
+            Self::XSalsa20Poly1305Lite => "xsalsa20_poly1305_lite",
+            Self::XSalsa20Poly1305Suffix => "xsalsa20_poly1305_suffix",
+            Self::XSalsa20Poly1305 => "xsalsa20_poly1305",
+        }
+    }
+
+    fn suffix_len(self) -> usize {
+        match self {
+            Self::XSalsa20Poly1305Suffix => 24,
+            Self::XSalsa20Poly1305 => 0,
+            _ => 4,
         }
     }
 }
 
-/// Prefer AES-GCM when the voice server offers it. Otherwise require XChaCha20.
+/// Prefer AES-GCM, then XChaCha20. Fall back to XSalsa20 if that is all the server offers.
 pub fn choose_mode(offered: &[String]) -> Option<CipherMode> {
-    if offered.iter().any(|mode| mode == "aead_aes256_gcm_rtpsize") {
-        return Some(CipherMode::Aes256GcmRtpSize);
-    }
-    if offered
-        .iter()
-        .any(|mode| mode == "aead_xchacha20_poly1305_rtpsize")
-    {
-        return Some(CipherMode::XChaCha20Poly1305RtpSize);
-    }
-    None
+    const ORDER: &[(&str, CipherMode)] = &[
+        ("aead_aes256_gcm_rtpsize", CipherMode::Aes256GcmRtpSize),
+        ("aead_xchacha20_poly1305_rtpsize", CipherMode::XChaCha20Poly1305RtpSize),
+        ("xsalsa20_poly1305_lite", CipherMode::XSalsa20Poly1305Lite),
+        ("xsalsa20_poly1305_suffix", CipherMode::XSalsa20Poly1305Suffix),
+        ("xsalsa20_poly1305", CipherMode::XSalsa20Poly1305),
+    ];
+    ORDER.iter().find_map(|(name, mode)| {
+        if offered.iter().any(|item| item == name) {
+            Some(*mode)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn rtp_header(sequence: u16, timestamp: u32, ssrc: u32) -> [u8; 12] {
@@ -58,90 +80,149 @@ pub fn encrypt_voice(
     opus: &[u8],
     nonce: u32,
 ) -> Result<Vec<u8>, ()> {
-    let suffix = nonce.to_be_bytes();
-    let cipher_text = match mode {
-        CipherMode::Aes256GcmRtpSize => {
-            let mut raw = [0u8; 12];
-            raw[..4].copy_from_slice(&suffix);
-            let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| ())?;
-            cipher
-                .encrypt(
-                    AesNonce::from_slice(&raw),
-                    Payload {
-                        msg: opus,
-                        aad: header,
-                    },
-                )
-                .map_err(|_| ())?
-        }
-        CipherMode::XChaCha20Poly1305RtpSize => {
-            let mut raw = [0u8; 24];
-            raw[..4].copy_from_slice(&suffix);
-            let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| ())?;
-            cipher
-                .encrypt(
-                    XNonce::from_slice(&raw),
-                    Payload {
-                        msg: opus,
-                        aad: header,
-                    },
-                )
-                .map_err(|_| ())?
-        }
-    };
-    let mut packet = Vec::with_capacity(header.len() + cipher_text.len() + 4);
+    let counter = nonce.to_be_bytes();
+    let mut suffix24 = [0u8; 24];
+    if mode == CipherMode::XSalsa20Poly1305Suffix {
+        rand::thread_rng().fill(&mut suffix24);
+    }
+    let cipher_text = seal(mode, key, header, opus, &counter, &suffix24)?;
+    let suffix = &suffix_bytes(mode, &counter, &suffix24);
+    let mut packet = Vec::with_capacity(header.len() + cipher_text.len() + suffix.len());
     packet.extend_from_slice(header);
     packet.extend_from_slice(&cipher_text);
-    packet.extend_from_slice(&suffix);
+    packet.extend_from_slice(suffix);
     Ok(packet)
 }
 
-pub fn decrypt_voice(
-    mode: CipherMode,
-    key: &[u8; 32],
-    packet: &[u8],
-) -> Result<Vec<u8>, ()> {
-    if packet.len() < 12 + 16 + 4 {
+pub fn decrypt_voice(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<Vec<u8>, ()> {
+    let suffix_len = mode.suffix_len();
+    if packet.len() < 12 + 16 + suffix_len {
         return Err(());
     }
-    let (body, suffix) = packet.split_at(packet.len() - 4);
-    let header_len = rtp_header_len(body).ok_or(())?;
+    let (body, suffix) = packet.split_at(packet.len() - suffix_len);
+    let header_len = if mode == CipherMode::XSalsa20Poly1305 {
+        rtp_header_len(packet).ok_or(())?
+    } else {
+        rtp_header_len(body).ok_or(())?
+    };
     if body.len() < header_len + 16 {
         return Err(());
     }
     let (header, cipher_text) = body.split_at(header_len);
-    let mut nonce_bytes = [0u8; 4];
-    nonce_bytes.copy_from_slice(suffix);
+    let mut counter = [0u8; 4];
+    let mut suffix24 = [0u8; 24];
+    match mode {
+        CipherMode::XSalsa20Poly1305Suffix => {
+            suffix24.copy_from_slice(suffix);
+        }
+        CipherMode::XSalsa20Poly1305 => {}
+        _ => counter.copy_from_slice(suffix),
+    }
+    open(mode, key, header, cipher_text, &counter, &suffix24)
+}
+
+fn suffix_bytes<'a>(mode: CipherMode, counter: &'a [u8; 4], suffix24: &'a [u8; 24]) -> &'a [u8] {
+    match mode {
+        CipherMode::XSalsa20Poly1305Suffix => suffix24,
+        CipherMode::XSalsa20Poly1305 => &[],
+        _ => counter,
+    }
+}
+
+fn seal(
+    mode: CipherMode,
+    key: &[u8; 32],
+    header: &[u8],
+    opus: &[u8],
+    counter: &[u8; 4],
+    suffix24: &[u8; 24],
+) -> Result<Vec<u8>, ()> {
     match mode {
         CipherMode::Aes256GcmRtpSize => {
             let mut raw = [0u8; 12];
-            raw[..4].copy_from_slice(&nonce_bytes);
+            raw[..4].copy_from_slice(counter);
+            let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| ())?;
+            cipher
+                .encrypt(AesNonce::from_slice(&raw), Payload { msg: opus, aad: header })
+                .map_err(|_| ())
+        }
+        CipherMode::XChaCha20Poly1305RtpSize => {
+            let mut raw = [0u8; 24];
+            raw[..4].copy_from_slice(counter);
+            let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| ())?;
+            cipher
+                .encrypt(XNonce::from_slice(&raw), Payload { msg: opus, aad: header })
+                .map_err(|_| ())
+        }
+        CipherMode::XSalsa20Poly1305Lite => {
+            let mut raw = [0u8; 24];
+            raw[..4].copy_from_slice(counter);
+            xsalsa(key, &raw, opus)
+        }
+        CipherMode::XSalsa20Poly1305Suffix => xsalsa(key, suffix24, opus),
+        CipherMode::XSalsa20Poly1305 => {
+            let mut raw = [0u8; 24];
+            let n = header.len().min(12);
+            raw[..n].copy_from_slice(&header[..n]);
+            xsalsa(key, &raw, opus)
+        }
+    }
+}
+
+fn open(
+    mode: CipherMode,
+    key: &[u8; 32],
+    header: &[u8],
+    cipher_text: &[u8],
+    counter: &[u8; 4],
+    suffix24: &[u8; 24],
+) -> Result<Vec<u8>, ()> {
+    match mode {
+        CipherMode::Aes256GcmRtpSize => {
+            let mut raw = [0u8; 12];
+            raw[..4].copy_from_slice(counter);
             let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| ())?;
             cipher
                 .decrypt(
                     AesNonce::from_slice(&raw),
-                    Payload {
-                        msg: cipher_text,
-                        aad: header,
-                    },
+                    Payload { msg: cipher_text, aad: header },
                 )
                 .map_err(|_| ())
         }
         CipherMode::XChaCha20Poly1305RtpSize => {
             let mut raw = [0u8; 24];
-            raw[..4].copy_from_slice(&nonce_bytes);
+            raw[..4].copy_from_slice(counter);
             let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| ())?;
             cipher
                 .decrypt(
                     XNonce::from_slice(&raw),
-                    Payload {
-                        msg: cipher_text,
-                        aad: header,
-                    },
+                    Payload { msg: cipher_text, aad: header },
                 )
                 .map_err(|_| ())
         }
+        CipherMode::XSalsa20Poly1305Lite => {
+            let mut raw = [0u8; 24];
+            raw[..4].copy_from_slice(counter);
+            xsalsa_open(key, &raw, cipher_text)
+        }
+        CipherMode::XSalsa20Poly1305Suffix => xsalsa_open(key, suffix24, cipher_text),
+        CipherMode::XSalsa20Poly1305 => {
+            let mut raw = [0u8; 24];
+            let n = header.len().min(12);
+            raw[..n].copy_from_slice(&header[..n]);
+            xsalsa_open(key, &raw, cipher_text)
+        }
     }
+}
+
+fn xsalsa(key: &[u8; 32], nonce: &[u8; 24], opus: &[u8]) -> Result<Vec<u8>, ()> {
+    let cipher = XSalsa20Poly1305::new_from_slice(key).map_err(|_| ())?;
+    XSalsaAead::encrypt(&cipher, XSalsaNonce::from_slice(nonce), opus).map_err(|_| ())
+}
+
+fn xsalsa_open(key: &[u8; 32], nonce: &[u8; 24], cipher_text: &[u8]) -> Result<Vec<u8>, ()> {
+    let cipher = XSalsa20Poly1305::new_from_slice(key).map_err(|_| ())?;
+    XSalsaAead::decrypt(&cipher, XSalsaNonce::from_slice(nonce), cipher_text).map_err(|_| ())
 }
 
 /// RTP size modes leave the header (and any CSRCs or extension preamble) unencrypted.
@@ -324,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn prefers_aes_and_requires_xchacha() {
+    fn prefers_aes_then_xchacha_then_xsalsa() {
         assert_eq!(
             choose_mode(&["aead_xchacha20_poly1305_rtpsize".into(), "xsalsa20_poly1305".into()]),
             Some(CipherMode::XChaCha20Poly1305RtpSize)
@@ -336,18 +417,36 @@ mod tests {
             ]),
             Some(CipherMode::Aes256GcmRtpSize)
         );
-        assert_eq!(choose_mode(&["xsalsa20_poly1305".into()]), None);
+        assert_eq!(
+            choose_mode(&["xsalsa20_poly1305".into(), "xsalsa20_poly1305_lite".into()]),
+            Some(CipherMode::XSalsa20Poly1305Lite)
+        );
+        assert_eq!(choose_mode(&["xsalsa20_poly1305".into()]), Some(CipherMode::XSalsa20Poly1305));
+        assert_eq!(choose_mode(&["nope".into()]), None);
     }
 
     #[test]
-    fn both_required_modes_round_trip() {
+    fn every_transport_mode_round_trips_once() {
         let header = rtp_header(7, 96_000, 42);
         assert_eq!(header[0], 0x80);
         assert_eq!(header[1], 0x78);
         let opus = b"not-really-opus-but-round-trips";
-        for mode in [CipherMode::Aes256GcmRtpSize, CipherMode::XChaCha20Poly1305RtpSize] {
+        for mode in [
+            CipherMode::Aes256GcmRtpSize,
+            CipherMode::XChaCha20Poly1305RtpSize,
+            CipherMode::XSalsa20Poly1305Lite,
+            CipherMode::XSalsa20Poly1305Suffix,
+            CipherMode::XSalsa20Poly1305,
+        ] {
             let packet = encrypt_voice(mode, &key(), &header, opus, 9).unwrap();
-            assert_eq!(&packet[packet.len() - 4..], &9u32.to_be_bytes());
+            assert!(packet.starts_with(&header));
+            assert_eq!(packet.windows(header.len()).filter(|win| *win == header).count(), 1);
+            if mode.suffix_len() == 4 {
+                assert_eq!(&packet[packet.len() - 4..], &9u32.to_be_bytes());
+            }
+            if mode == CipherMode::XSalsa20Poly1305Suffix {
+                assert_eq!(packet.len(), header.len() + opus.len() + 16 + 24);
+            }
             let plain = decrypt_voice(mode, &key(), &packet).unwrap();
             assert_eq!(plain, opus);
         }

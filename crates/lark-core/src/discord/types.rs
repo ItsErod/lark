@@ -470,6 +470,21 @@ pub struct ClientRole {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ClientVoiceState {
+    pub guild_id: String,
+    pub channel_id: String,
+    pub user_id: String,
+    pub session_id: String,
+    pub self_mute: bool,
+    pub self_deaf: bool,
+    pub server_mute: bool,
+    pub server_deaf: bool,
+    pub name: String,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientMember {
     pub id: String,
     pub name: String,
@@ -1298,6 +1313,81 @@ pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
     })
 }
 
+/// Voice states on a GUILD_CREATE payload. `None` when Discord omitted the field.
+pub fn parse_guild_voice_states(data: &serde_json::Value) -> Option<Vec<ClientVoiceState>> {
+    let list = data.get("voice_states")?.as_array()?;
+    let guild_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    Some(
+        list.iter()
+            .filter_map(|value| parse_voice_state(value, guild_id))
+            .filter(|state| !state.channel_id.is_empty())
+            .collect(),
+    )
+}
+
+/// One VOICE_STATE_UPDATE. An empty channel id means the user left voice.
+pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Option<ClientVoiceState> {
+    let member = value.get("member");
+    let user = member.and_then(|item| item.get("user"));
+    let user_id = first_str(&[
+        value.get("user_id"),
+        user.and_then(|item| item.get("id")),
+    ]);
+    if user_id.is_empty() {
+        return None;
+    }
+    let nick = member.and_then(|item| item.get("nick")).and_then(|v| v.as_str()).unwrap_or("");
+    let global = user.and_then(|item| item.get("global_name")).and_then(|v| v.as_str()).unwrap_or("");
+    let username = user.and_then(|item| item.get("username")).and_then(|v| v.as_str()).unwrap_or("");
+    let name = if !nick.is_empty() {
+        nick.to_string()
+    } else if !global.is_empty() {
+        global.to_string()
+    } else if !username.is_empty() {
+        username.to_string()
+    } else {
+        String::new()
+    };
+    let avatar = user
+        .and_then(|item| item.get("avatar"))
+        .and_then(|v| v.as_str())
+        .map(|hash| hash.to_string());
+    let guild_id = first_str(&[value.get("guild_id")]);
+    Some(ClientVoiceState {
+        guild_id: if guild_id.is_empty() { fallback_guild.to_string() } else { guild_id },
+        channel_id: value.get("channel_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        user_id,
+        session_id: value.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        self_mute: value.get("self_mute").and_then(|v| v.as_bool()).unwrap_or(false),
+        self_deaf: value.get("self_deaf").and_then(|v| v.as_bool()).unwrap_or(false),
+        server_mute: value.get("mute").and_then(|v| v.as_bool()).unwrap_or(false),
+        server_deaf: value.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false),
+        avatar_url: avatar_url_from_hash(&value_user_id(value, user), &avatar),
+        name,
+    })
+}
+
+fn value_user_id(value: &serde_json::Value, user: Option<&serde_json::Value>) -> String {
+    let direct = value.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+    if !direct.is_empty() {
+        return direct.to_string();
+    }
+    user.and_then(|item| item.get("id")).and_then(|v| v.as_str()).unwrap_or("").to_string()
+}
+
+fn avatar_url_from_hash(user_id: &str, avatar: &Option<String>) -> Option<String> {
+    avatar_url(user_id, avatar)
+}
+
+fn first_str(values: &[Option<&serde_json::Value>]) -> String {
+    values
+        .iter()
+        .find_map(|value| value.and_then(|item| item.as_str()))
+        .filter(|text| !text.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
 /// One GUILD_MEMBERS_CHUNK. Later chunks are merged by the shell.
 pub fn roster_from_chunk(data: &serde_json::Value) -> Vec<ClientMember> {
     let members = data
@@ -1464,6 +1554,43 @@ mod tests {
     fn initials_handle_one_and_two_words() {
         assert_eq!(initials("Northwind"), "N");
         assert_eq!(initials("night market"), "NM");
+    }
+
+    #[test]
+    fn voice_states_keep_nick_avatar_and_a_leave() {
+        let guild = serde_json::json!({
+            "id": "100000000000000010",
+            "voice_states": [{
+                "guild_id": "100000000000000010",
+                "channel_id": "100000000000000026",
+                "user_id": "100000000000000002",
+                "session_id": "sess",
+                "self_mute": true,
+                "self_deaf": false,
+                "mute": false,
+                "deaf": true,
+                "member": {
+                    "nick": "Maya",
+                    "user": {"id": "100000000000000002", "username": "maya", "global_name": "Maya Chen", "avatar": "a1b2c3d4"}
+                }
+            }]
+        });
+        let states = parse_guild_voice_states(&guild).unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].name, "Maya");
+        assert_eq!(states[0].channel_id, "100000000000000026");
+        assert!(states[0].self_mute);
+        assert!(states[0].server_deaf);
+        assert!(states[0].avatar_url.as_deref().unwrap().contains("/avatars/100000000000000002/a1b2c3d4.png"));
+        let left = serde_json::json!({
+            "guild_id": "100000000000000010",
+            "channel_id": null,
+            "user_id": "100000000000000002",
+            "session_id": "sess"
+        });
+        let update = parse_voice_state(&left, "100000000000000010").unwrap();
+        assert!(update.channel_id.is_empty());
+        assert!(parse_guild_voice_states(&serde_json::json!({"id": "1"})).is_none());
     }
 
     #[test]

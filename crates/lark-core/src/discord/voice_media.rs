@@ -1,0 +1,647 @@
+//! Microphone frames, Opus, and the playback mix.
+//!
+//! The Opus encoder and decoders stay on one thread. Capture and playback callbacks
+//! only move PCM through short queues so a 20 ms voice frame does not wait on the UI.
+
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+use tokio::sync::{mpsc as async_mpsc, watch};
+
+use super::voice::{
+    decrypt_voice, encrypt_voice, rtp_header, voice_active, CipherMode, OPUS_SILENCE,
+};
+use super::voice_io::DeviceStreams;
+
+pub const FRAME_SAMPLES: usize = 960;
+pub const SAMPLE_RATE: u32 = 48_000;
+
+struct OpusEncoder {
+    raw: *mut audiopus_sys::OpusEncoder,
+}
+
+impl OpusEncoder {
+    fn new() -> Result<Self, ()> {
+        let mut error = 0;
+        let raw = unsafe {
+            audiopus_sys::opus_encoder_create(SAMPLE_RATE as i32, 2, audiopus_sys::OPUS_APPLICATION_VOIP, &mut error)
+        };
+        if raw.is_null() || error != audiopus_sys::OPUS_OK {
+            return Err(());
+        }
+        unsafe {
+            audiopus_sys::opus_encoder_ctl(raw, audiopus_sys::OPUS_SET_BITRATE_REQUEST, 64_000i32);
+        }
+        Ok(Self { raw })
+    }
+
+    fn encode(&mut self, pcm: &[i16], out: &mut [u8]) -> Result<usize, ()> {
+        let wrote = unsafe {
+            audiopus_sys::opus_encode(
+                self.raw,
+                pcm.as_ptr(),
+                FRAME_SAMPLES as i32,
+                out.as_mut_ptr(),
+                out.len() as i32,
+            )
+        };
+        if wrote <= 0 { Err(()) } else { Ok(wrote as usize) }
+    }
+}
+
+impl Drop for OpusEncoder {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            unsafe { audiopus_sys::opus_encoder_destroy(self.raw) };
+            self.raw = std::ptr::null_mut();
+        }
+    }
+}
+
+struct OpusDecoder {
+    raw: *mut audiopus_sys::OpusDecoder,
+}
+
+impl OpusDecoder {
+    fn new() -> Result<Self, ()> {
+        let mut error = 0;
+        let raw = unsafe { audiopus_sys::opus_decoder_create(SAMPLE_RATE as i32, 2, &mut error) };
+        if raw.is_null() || error != audiopus_sys::OPUS_OK {
+            return Err(());
+        }
+        Ok(Self { raw })
+    }
+
+    fn decode(&mut self, packet: Option<&[u8]>, pcm: &mut [i16], frame_size: i32) -> Result<usize, ()> {
+        let (ptr, len) = match packet {
+            Some(bytes) => (bytes.as_ptr(), bytes.len() as i32),
+            None => (std::ptr::null(), 0),
+        };
+        let wrote = unsafe { audiopus_sys::opus_decode(self.raw, ptr, len, pcm.as_mut_ptr(), frame_size, 0) };
+        if wrote <= 0 { Err(()) } else { Ok(wrote as usize) }
+    }
+}
+
+impl Drop for OpusDecoder {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            unsafe { audiopus_sys::opus_decoder_destroy(self.raw) };
+            self.raw = std::ptr::null_mut();
+        }
+    }
+}
+const MAX_SPEAKERS: usize = 32;
+const MAX_PCM: usize = SAMPLE_RATE as usize / 5;
+const TARGET_PCM: usize = SAMPLE_RATE as usize / 10;
+
+#[derive(Debug, Clone)]
+pub struct VoiceAudio {
+    pub deafened: bool,
+    pub vad: bool,
+    pub sensitivity: u8,
+    pub noise_suppression: bool,
+    pub input_device: String,
+    pub output_device: String,
+}
+
+impl Default for VoiceAudio {
+    fn default() -> Self {
+        Self {
+            deafened: false,
+            vad: true,
+            sensitivity: 45,
+            noise_suppression: true,
+            input_device: String::new(),
+            output_device: String::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CaptureBuf {
+    pub samples: VecDeque<f32>,
+    pub rate: u32,
+}
+
+impl CaptureBuf {
+    pub fn new() -> Self {
+        Self { samples: VecDeque::new(), rate: 0 }
+    }
+}
+
+#[derive(Debug)]
+pub struct SpeakerBuf {
+    pub user_id: String,
+    pub samples: VecDeque<f32>,
+}
+
+#[derive(Debug)]
+pub struct Playback {
+    pub speakers: HashMap<u32, SpeakerBuf>,
+    pub deafened: bool,
+    pub rate: u32,
+    pub channels: u16,
+}
+
+impl Playback {
+    pub fn new() -> Self {
+        Self {
+            speakers: HashMap::new(),
+            deafened: false,
+            rate: SAMPLE_RATE,
+            channels: 2,
+        }
+    }
+
+    /// Mono PCM at the output device rate. Deafened output is silence, and the
+    /// queues are still drained so undeafen does not play a backlog.
+    pub fn render(&mut self, device_frames: usize, volumes: &HashMap<String, f32>) -> Vec<f32> {
+        if device_frames == 0 {
+            return Vec::new();
+        }
+        let rate = self.rate.max(1);
+        let src_frames = ((device_frames as u64 * u64::from(SAMPLE_RATE)) / u64::from(rate)).max(1) as usize;
+        let mut mixed = vec![0f32; src_frames];
+        for speaker in self.speakers.values_mut() {
+            let gain = if self.deafened {
+                0.0
+            } else {
+                volumes.get(&speaker.user_id).copied().unwrap_or(1.0).clamp(0.0, 2.0)
+            };
+            for sample in mixed.iter_mut() {
+                let Some(input) = speaker.samples.pop_front() else { break };
+                *sample += input * gain;
+            }
+        }
+        if !self.deafened {
+            for sample in &mut mixed {
+                *sample = sample.clamp(-1.0, 1.0);
+            }
+        }
+        if rate == SAMPLE_RATE && src_frames == device_frames {
+            mixed
+        } else {
+            resample_mono(&mixed, device_frames)
+        }
+    }
+}
+
+pub fn push_speaker(play: &mut Playback, ssrc: u32, user_id: &str, pcm: &[f32]) {
+    if pcm.is_empty() {
+        return;
+    }
+    if !play.speakers.contains_key(&ssrc) && play.speakers.len() >= MAX_SPEAKERS {
+        return;
+    }
+    let speaker = play.speakers.entry(ssrc).or_insert_with(|| SpeakerBuf {
+        user_id: user_id.to_string(),
+        samples: VecDeque::new(),
+    });
+    if !user_id.is_empty() {
+        speaker.user_id = user_id.to_string();
+    }
+    speaker.samples.extend(pcm);
+    if speaker.samples.len() > MAX_PCM {
+        let extra = speaker.samples.len() - TARGET_PCM;
+        speaker.samples.drain(..extra);
+    }
+}
+
+pub fn pull_mono_frame(buf: &mut CaptureBuf) -> Option<Vec<f32>> {
+    if buf.rate == 0 || buf.samples.is_empty() {
+        return None;
+    }
+    let need = ((FRAME_SAMPLES as u64 * u64::from(buf.rate)) / u64::from(SAMPLE_RATE)).max(1) as usize;
+    if buf.samples.len() < need {
+        return None;
+    }
+    let chunk: Vec<f32> = buf.samples.drain(..need).collect();
+    if buf.rate == SAMPLE_RATE && chunk.len() == FRAME_SAMPLES {
+        Some(chunk)
+    } else {
+        Some(resample_mono(&chunk, FRAME_SAMPLES))
+    }
+}
+
+pub fn resample_mono(input: &[f32], out_len: usize) -> Vec<f32> {
+    if out_len == 0 {
+        return Vec::new();
+    }
+    if input.is_empty() {
+        return vec![0.0; out_len];
+    }
+    if input.len() == out_len {
+        return input.to_vec();
+    }
+    let mut out = Vec::with_capacity(out_len);
+    let last = (input.len() - 1) as f32;
+    let scale = if out_len == 1 { 0.0 } else { last / (out_len - 1) as f32 };
+    for i in 0..out_len {
+        let pos = i as f32 * scale;
+        let idx = pos.floor() as usize;
+        let frac = pos - idx as f32;
+        let a = input[idx.min(input.len() - 1)];
+        let b = input[(idx + 1).min(input.len() - 1)];
+        out.push(a + (b - a) * frac);
+    }
+    out
+}
+
+pub struct MediaPipe {
+    pub outbound: async_mpsc::UnboundedReceiver<Vec<u8>>,
+    pub inbound: mpsc::SyncSender<Vec<u8>>,
+    pub speaking: async_mpsc::UnboundedReceiver<bool>,
+    cancel: Arc<AtomicBool>,
+    _join: Option<JoinHandle<()>>,
+}
+
+impl Drop for MediaPipe {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn start_media(
+    mode: CipherMode,
+    key: [u8; 32],
+    ssrc: u32,
+    controls: watch::Receiver<VoiceAudio>,
+    transmit: watch::Receiver<bool>,
+    volumes: Arc<Mutex<HashMap<String, f32>>>,
+    ssrc_users: Arc<Mutex<HashMap<u32, String>>>,
+) -> Result<MediaPipe, String> {
+    let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
+    let (inbound_tx, inbound_rx) = mpsc::sync_channel(64);
+    let (speaking_tx, speaking_rx) = async_mpsc::unbounded_channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_thread = cancel.clone();
+    let capture = Arc::new(Mutex::new(CaptureBuf::new()));
+    let playback = Arc::new(Mutex::new(Playback::new()));
+    let join = std::thread::Builder::new()
+        .name("lark-voice".into())
+        .spawn(move || {
+            run_media(MediaArgs {
+                mode,
+                key,
+                ssrc,
+                controls,
+                transmit,
+                volumes,
+                ssrc_users,
+                capture,
+                playback,
+                inbound: inbound_rx,
+                outbound: outbound_tx,
+                speaking_out: speaking_tx,
+                cancel: cancel_thread,
+            });
+        })
+        .map_err(|err| err.to_string())?;
+    Ok(MediaPipe {
+        outbound: outbound_rx,
+        inbound: inbound_tx,
+        speaking: speaking_rx,
+        cancel,
+        _join: Some(join),
+    })
+}
+
+struct MediaArgs {
+    mode: CipherMode,
+    key: [u8; 32],
+    ssrc: u32,
+    controls: watch::Receiver<VoiceAudio>,
+    transmit: watch::Receiver<bool>,
+    volumes: Arc<Mutex<HashMap<String, f32>>>,
+    ssrc_users: Arc<Mutex<HashMap<u32, String>>>,
+    capture: Arc<Mutex<CaptureBuf>>,
+    playback: Arc<Mutex<Playback>>,
+    inbound: mpsc::Receiver<Vec<u8>>,
+    outbound: async_mpsc::UnboundedSender<Vec<u8>>,
+    speaking_out: async_mpsc::UnboundedSender<bool>,
+    cancel: Arc<AtomicBool>,
+}
+
+struct Incoming {
+    decoder: OpusDecoder,
+    next_seq: Option<u16>,
+    last: Instant,
+}
+
+fn run_media(args: MediaArgs) {
+    let mut encoder = match OpusEncoder::new() {
+        Ok(encoder) => encoder,
+        Err(_) => return,
+    };
+    let mut decoders: HashMap<u32, Incoming> = HashMap::new();
+    let mut streams = DeviceStreams::new(args.capture.clone(), args.playback.clone(), args.volumes.clone());
+    let mut next_frame = Instant::now();
+    let mut seq = 0u16;
+    let mut timestamp = 0u32;
+    let mut nonce = 0u32;
+    let mut last_talking = false;
+    let mut scratch = vec![0i16; 12_000];
+    let mut pcm = [0i16; FRAME_SAMPLES * 2];
+    let mut opus_buf = [0u8; 1_500];
+    let mut last_sweep = Instant::now();
+
+    loop {
+        if args.cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        let controls = args.controls.borrow().clone();
+        streams.sync(&controls.input_device, &controls.output_device);
+        if let Ok(mut play) = args.playback.lock() {
+            play.deafened = controls.deafened;
+        }
+        let wait = next_frame.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        match args.inbound.recv_timeout(wait) {
+            Ok(packet) => handle_packet(&args, &mut decoders, &mut scratch, packet),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        while let Ok(packet) = args.inbound.try_recv() {
+            handle_packet(&args, &mut decoders, &mut scratch, packet);
+        }
+        if Instant::now() >= next_frame {
+            produce_frame(
+                &args,
+                &controls,
+                &mut encoder,
+                &mut pcm,
+                &mut opus_buf,
+                &mut seq,
+                &mut timestamp,
+                &mut nonce,
+                &mut last_talking,
+            );
+            next_frame += Duration::from_millis(20);
+            if next_frame + Duration::from_millis(80) < Instant::now() {
+                next_frame = Instant::now() + Duration::from_millis(20);
+            }
+        }
+        if last_sweep.elapsed() >= Duration::from_secs(5) {
+            let now = Instant::now();
+            decoders.retain(|ssrc, incoming| {
+                let keep = now.duration_since(incoming.last) < Duration::from_secs(30);
+                if !keep {
+                    if let Ok(mut play) = args.playback.lock() {
+                        play.speakers.remove(ssrc);
+                    }
+                }
+                keep
+            });
+            last_sweep = now;
+        }
+    }
+}
+
+fn produce_frame(
+    args: &MediaArgs,
+    controls: &VoiceAudio,
+    encoder: &mut OpusEncoder,
+    pcm: &mut [i16],
+    opus_buf: &mut [u8],
+    seq: &mut u16,
+    timestamp: &mut u32,
+    nonce: &mut u32,
+    last_talking: &mut bool,
+) {
+    let frame = args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf));
+    let have_audio = frame.is_some();
+    let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
+    if controls.noise_suppression {
+        super::voice::suppress_noise(&mut owned);
+    }
+    let transmit = *args.transmit.borrow();
+    let active = voice_active(&owned, controls.sensitivity);
+    let talking = transmit && have_audio && (!controls.vad || active);
+    if talking != *last_talking {
+        let _ = args.speaking_out.send(talking);
+        *last_talking = talking;
+    }
+    let opus = if talking {
+        stereo_from_mono(&owned, pcm);
+        match encoder.encode(pcm, opus_buf) {
+            Ok(len) if len > 0 => opus_buf[..len].to_vec(),
+            _ => OPUS_SILENCE.to_vec(),
+        }
+    } else {
+        OPUS_SILENCE.to_vec()
+    };
+    let header = rtp_header(*seq, *timestamp, args.ssrc);
+    if let Ok(packet) = encrypt_voice(args.mode, &args.key, &header, &opus, *nonce) {
+        let _ = args.outbound.send(packet);
+    }
+    *seq = seq.wrapping_add(1);
+    *timestamp = timestamp.wrapping_add(FRAME_SAMPLES as u32);
+    *nonce = nonce.wrapping_add(1);
+}
+
+fn stereo_from_mono(mono: &[f32], pcm: &mut [i16]) {
+    for (index, sample) in mono.iter().take(FRAME_SAMPLES).enumerate() {
+        let value = (sample.clamp(-1.0, 1.0) * 32_767.0) as i16;
+        pcm[index * 2] = value;
+        pcm[index * 2 + 1] = value;
+    }
+}
+
+fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratch: &mut [i16], packet: Vec<u8>) {
+    let Some(ssrc) = rtp_ssrc(&packet) else { return };
+    if ssrc == 0 || ssrc == args.ssrc {
+        return;
+    }
+    let Ok(opus) = decrypt_voice(args.mode, &args.key, &packet) else { return };
+    if opus.is_empty() {
+        return;
+    }
+    let seq = rtp_sequence(&packet);
+    if !decoders.contains_key(&ssrc) {
+        if decoders.len() >= MAX_SPEAKERS {
+            return;
+        }
+        let Some(created) = Incoming::new() else { return };
+        decoders.insert(ssrc, created);
+    }
+    let Some(incoming) = decoders.get_mut(&ssrc) else { return };
+    if let (Some(expected), Some(seq)) = (incoming.next_seq, seq) {
+        match packets_to_conceal(expected, seq) {
+            None => return,
+            Some(missed) => {
+                for _ in 0..missed {
+                    if let Some(pcm) = decode_mono(&mut incoming.decoder, None, scratch) {
+                        deliver(args, ssrc, &pcm);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(seq) = seq {
+        incoming.next_seq = Some(seq.wrapping_add(1));
+    }
+    incoming.last = Instant::now();
+    if let Some(pcm) = decode_mono(&mut incoming.decoder, Some(opus.as_slice()), scratch) {
+        deliver(args, ssrc, &pcm);
+    }
+}
+
+fn deliver(args: &MediaArgs, ssrc: u32, pcm: &[f32]) {
+    let user_id = args
+        .ssrc_users
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&ssrc).cloned())
+        .unwrap_or_default();
+    if let Ok(mut play) = args.playback.lock() {
+        push_speaker(&mut play, ssrc, &user_id, pcm);
+    }
+}
+
+impl Incoming {
+    fn new() -> Option<Self> {
+        OpusDecoder::new().ok().map(|decoder| Self {
+            decoder,
+            next_seq: None,
+            last: Instant::now(),
+        })
+    }
+}
+
+fn decode_mono(decoder: &mut OpusDecoder, packet: Option<&[u8]>, scratch: &mut [i16]) -> Option<Vec<f32>> {
+    let space = (scratch.len() / 2) as i32;
+    let frame = if packet.is_none() { FRAME_SAMPLES as i32 } else { space };
+    let per_channel = decoder.decode(packet, scratch, frame).ok()?;
+    if per_channel == 0 {
+        return None;
+    }
+    let mut mono = Vec::with_capacity(per_channel);
+    for index in 0..per_channel {
+        let left = scratch.get(index * 2).copied().unwrap_or(0) as f32 / 32_768.0;
+        let right = scratch.get(index * 2 + 1).map(|sample| *sample as f32 / 32_768.0).unwrap_or(left);
+        mono.push((left + right) * 0.5);
+    }
+    Some(mono)
+}
+
+pub fn rtp_ssrc(packet: &[u8]) -> Option<u32> {
+    if packet.len() < 12 || packet[0] >> 6 != 2 {
+        return None;
+    }
+    Some(u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]))
+}
+
+pub fn rtp_sequence(packet: &[u8]) -> Option<u16> {
+    if packet.len() < 4 || packet[0] >> 6 != 2 {
+        return None;
+    }
+    Some(u16::from_be_bytes([packet[2], packet[3]]))
+}
+
+/// Lost packets to conceal before `seq`, when `expected` is the next sequence.
+/// `None` drops a late or duplicate packet. A forward jump larger than five
+/// skips concealment and decodes the packet that arrived.
+pub fn packets_to_conceal(expected: u16, seq: u16) -> Option<u16> {
+    let gap = seq.wrapping_sub(expected);
+    if gap == 0 {
+        Some(0)
+    } else if (1..=5).contains(&gap) {
+        Some(gap)
+    } else if gap >= 0x8000 {
+        None
+    } else {
+        Some(0)
+    }
+}
+
+#[cfg(test)]
+fn encode_opus_frame(encoder: &mut OpusEncoder, mono: &[f32]) -> Result<Vec<u8>, ()> {
+    let mut pcm = [0i16; FRAME_SAMPLES * 2];
+    stereo_from_mono(mono, &mut pcm);
+    let mut opus_buf = [0u8; 1_500];
+    let len = encoder.encode(&pcm, &mut opus_buf).map_err(|_| ())?;
+    if len == 0 {
+        return Err(());
+    }
+    Ok(opus_buf[..len].to_vec())
+}
+
+#[cfg(test)]
+fn decode_opus_frame(decoder: &mut OpusDecoder, packet: &[u8]) -> Result<Vec<f32>, ()> {
+    let mut scratch = vec![0i16; 12_000];
+    decode_mono(decoder, Some(packet), &mut scratch).ok_or(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resample_and_pull_keep_a_20ms_frame() {
+        let input = vec![0.0, 1.0];
+        let out = resample_mono(&input, 3);
+        assert_eq!(out.len(), 3);
+        assert!(out[1] > 0.4 && out[1] < 0.6);
+        let mut capture = CaptureBuf { samples: VecDeque::from(vec![0.25; 960]), rate: 48_000 };
+        let frame = pull_mono_frame(&mut capture).unwrap();
+        assert_eq!(frame.len(), 960);
+        assert!(pull_mono_frame(&mut capture).is_none());
+        let mut slow = CaptureBuf { samples: VecDeque::from(vec![0.5; 882]), rate: 44_100 };
+        let pulled = pull_mono_frame(&mut slow).unwrap();
+        assert_eq!(pulled.len(), 960);
+    }
+
+    #[test]
+    fn mix_applies_volume_and_deafen_stays_live() {
+        let mut play = Playback::new();
+        push_speaker(&mut play, 1, "a", &[0.5; 4]);
+        push_speaker(&mut play, 2, "b", &[0.5; 4]);
+        let mut volumes = HashMap::new();
+        volumes.insert("a".into(), 0.0);
+        volumes.insert("b".into(), 1.0);
+        let mixed = play.render(4, &volumes);
+        assert_eq!(mixed.len(), 4);
+        assert!(mixed.iter().all(|sample| (*sample - 0.5).abs() < 0.001));
+        push_speaker(&mut play, 2, "b", &[0.8; 4]);
+        play.deafened = true;
+        let silent = play.render(4, &volumes);
+        assert!(silent.iter().all(|sample| *sample == 0.0));
+        assert!(play.speakers.get(&2).unwrap().samples.is_empty());
+    }
+
+    #[test]
+    fn speaker_buffer_drops_old_audio() {
+        let mut play = Playback::new();
+        push_speaker(&mut play, 7, "a", &vec![1.0; MAX_PCM + 100]);
+        let queued = play.speakers.get(&7).unwrap().samples.len();
+        assert!(queued <= TARGET_PCM + 1);
+        assert!(queued > 100);
+    }
+
+    #[test]
+    fn opus_frame_round_trips_a_tone() {
+        let mut encoder = OpusEncoder::new().unwrap();
+        let mut tone = vec![0.0; FRAME_SAMPLES];
+        for (index, sample) in tone.iter_mut().enumerate() {
+            *sample = (index as f32 * 0.2).sin() * 0.4;
+        }
+        let packet = encode_opus_frame(&mut encoder, &tone).unwrap();
+        assert!(packet.len() > 8);
+        let mut decoder = OpusDecoder::new().unwrap();
+        let decoded = decode_opus_frame(&mut decoder, &packet).unwrap();
+        assert!(decoded.len() >= FRAME_SAMPLES / 2);
+        let energy: f32 = decoded.iter().map(|sample| sample * sample).sum();
+        assert!(energy > 1.0, "energy {energy}");
+    }
+
+    #[test]
+    fn in_order_audio_is_kept_and_old_packets_are_dropped() {
+        assert_eq!(packets_to_conceal(5, 5), Some(0));
+        assert_eq!(packets_to_conceal(5, 6), Some(1));
+        assert_eq!(packets_to_conceal(5, 8), Some(3));
+        assert_eq!(packets_to_conceal(1, 0), None);
+        assert_eq!(packets_to_conceal(65534, 1), Some(3));
+    }
+}
