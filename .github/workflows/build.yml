@@ -16,8 +16,8 @@ permissions:
   contents: write
 
 env:
-  # audiopus_sys vendors Opus with a pre-3.5 CMake minimum. CMake 4 rejects that
-  # unless this floor is set. Cargo also sets it from .cargo/config.toml.
+  # GitHub's macOS and Windows images ship CMake 4, which rejects the
+  # vendored Opus CMakeLists (cmake_minimum_required 3.1).
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
