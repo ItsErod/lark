@@ -254,6 +254,11 @@ description = "Collapse or expand a channel category in Discord settings."
 commands.allow = ["set_channel_collapsed"]
 
 [[permission]]
+identifier = "allow-set-guild-folders"
+description = "Save server folder order to Discord user settings."
+commands.allow = ["set_guild_folders"]
+
+[[permission]]
 identifier = "allow-set-minimize-to-tray"
 description = "Choose whether closing hides the window."
 commands.allow = ["set_minimize_to_tray"]

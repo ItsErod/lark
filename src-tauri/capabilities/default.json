@@ -58,6 +58,7 @@
     "allow-preview-invite",
     "allow-accept-invite",
     "allow-set-channel-collapsed",
+    "allow-set-guild-folders",
     "allow-set-minimize-to-tray",
     "allow-set-autostart",
     "allow-start-screen-share",

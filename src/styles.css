@@ -91,6 +91,15 @@ button { cursor: pointer; }
   align-items: center;
   gap: 8px;
   padding: 0;
+  position: relative;
+}
+.rail-scroll .server-button { cursor: grab; }
+.rail.is-reordering .server-button { cursor: grabbing; }
+.rail-scroll .server-button.is-dragging { opacity: 0.45; }
+.rail-scroll .server-button.is-drop-target .server-face { box-shadow: 0 0 0 2px var(--accent); }
+.rail-drop-line {
+  position: absolute; left: 18px; width: 36px; height: 2px; margin-top: -1px;
+  border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 2;
 }
 .channels { grid-area: channels; background: var(--bg-1); display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .stage { grid-area: chat; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--bg-2); }
@@ -158,6 +167,19 @@ button { cursor: pointer; }
 button.category:hover { color: var(--text); }
 .folder { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
 .folder-button .server-face { color: #fff; font-weight: 600; }
+.folder-menu {
+  position: fixed; z-index: 40; width: 220px; padding: 10px; display: grid; gap: 8px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.folder-menu-label { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+.folder-menu input {
+  width: 100%; background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--text); padding: 6px 8px;
+}
+.folder-colors { display: flex; flex-wrap: wrap; gap: 6px; }
+.folder-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; padding: 0; }
+.folder-swatch.is-on { border-color: var(--text); }
 .server-button.is-muted { opacity: 0.45; }
 .settings-account { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
 .settings-account strong { display: block; }

@@ -3,8 +3,10 @@
 //! permission bitfield after role and overwrite math. Notification mutes
 //! come from user guild settings.
 
+use std::collections::HashSet;
+
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::types::{color_hex, snowflake_ok, DiscordGuild, DiscordRole};
@@ -12,13 +14,22 @@ use super::types::{color_hex, snowflake_ok, DiscordGuild, DiscordRole};
 pub const VIEW_CHANNEL: u64 = 1 << 10;
 pub const ADMINISTRATOR: u64 = 1 << 3;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientFolder {
+    #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
     pub color: Option<String>,
+    #[serde(default)]
     pub guild_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderSnapshot {
+    pub folders: Vec<ClientFolder>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -207,15 +218,22 @@ pub fn my_roles_from_merged(merged: &Value, index: usize) -> Vec<String> {
 }
 
 pub fn folders_from_settings(user_settings: &Value, proto_b64: Option<&str>) -> Vec<ClientFolder> {
+    folder_snapshot(user_settings, proto_b64).folders
+}
+
+/// Proto guild folders win when they parse. Field 14 is the current preloaded-settings slot.
+pub fn folder_snapshot(user_settings: &Value, proto_b64: Option<&str>) -> FolderSnapshot {
     if let Some(encoded) = proto_b64.map(str::trim).filter(|value| !value.is_empty()) {
         if let Some(bytes) = decode_proto(encoded) {
-            let parsed = folders_from_proto(&bytes);
-            if !parsed.is_empty() {
+            let parsed = snapshot_from_proto(&bytes);
+            if !parsed.folders.is_empty() {
                 return parsed;
             }
         }
     }
-    folders_from_json(user_settings)
+    FolderSnapshot {
+        folders: folders_from_json(user_settings),
+    }
 }
 
 pub fn folders_from_json(settings: &Value) -> Vec<ClientFolder> {
@@ -290,15 +308,68 @@ fn json_color(value: &Value) -> Option<String> {
 }
 
 pub fn folders_from_proto(bytes: &[u8]) -> Vec<ClientFolder> {
-    for field in walk(bytes) {
-        if field.number == 3 && field.wire == 2 {
-            return folders_in_guild_settings(field.bytes);
-        }
-    }
-    Vec::new()
+    snapshot_from_proto(bytes).folders
 }
 
-fn folders_in_guild_settings(bytes: &[u8]) -> Vec<ClientFolder> {
+fn snapshot_from_proto(bytes: &[u8]) -> FolderSnapshot {
+    let mut modern = None;
+    let mut legacy = None;
+    for field in walk(bytes) {
+        if field.wire != 2 {
+            continue;
+        }
+        // Current preloaded settings keep guild_folders at field 14.
+        // Field 3 is per-guild settings now; an older layout stored folders there.
+        if field.number == 14 {
+            modern = Some(snapshot_in_guild_settings(field.bytes));
+        } else if field.number == 3 {
+            legacy = Some(field.bytes);
+        }
+    }
+    if let Some(snap) = modern.filter(|snap| !snap.folders.is_empty()) {
+        return snap;
+    }
+    if let Some(bytes) = legacy.filter(|bytes| legacy_folder_list(bytes)) {
+        return snapshot_in_guild_settings(bytes);
+    }
+    FolderSnapshot {
+        folders: Vec::new(),
+    }
+}
+
+fn legacy_folder_list(bytes: &[u8]) -> bool {
+    let mut any = false;
+    for field in walk(bytes) {
+        if field.number == 1 && field.wire == 2 {
+            any = true;
+            if !folder_body_ok(field.bytes) {
+                return false;
+            }
+        }
+    }
+    any
+}
+
+fn folder_body_ok(bytes: &[u8]) -> bool {
+    let mut guilds = false;
+    for field in walk(bytes) {
+        let ok = match (field.number, field.wire) {
+            (1, 0) | (1, 1) | (1, 2) => {
+                guilds = true;
+                true
+            }
+            (2, 0) | (3, 2) | (4, 0) | (4, 5) => true,
+            (2, 2) | (4, 2) => wrapper_varint(field.bytes).is_some(),
+            _ => false,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    guilds
+}
+
+fn snapshot_in_guild_settings(bytes: &[u8]) -> FolderSnapshot {
     let mut folders = Vec::new();
     for field in walk(bytes) {
         if field.number == 1 && field.wire == 2 {
@@ -307,7 +378,203 @@ fn folders_in_guild_settings(bytes: &[u8]) -> Vec<ClientFolder> {
             }
         }
     }
-    folders
+    FolderSnapshot { folders }
+}
+
+/// Encode preloaded user settings field 14 (`guild_folders`) the way the official client stores the rail.
+pub fn encode_guild_folders(folders: &[ClientFolder]) -> Result<String, String> {
+    let clean = sanitize_guild_folders(folders)?;
+    let bytes = encode_guild_folders_proto(&clean);
+    if bytes.len() > 24_000 {
+        return Err("Folder settings are too large.".into());
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+fn sanitize_guild_folders(folders: &[ClientFolder]) -> Result<Vec<ClientFolder>, String> {
+    if folders.len() > 200 {
+        return Err("Too many server folders.".into());
+    }
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for folder in folders {
+        let mut ids = Vec::new();
+        for id in &folder.guild_ids {
+            if !snowflake_ok(id) {
+                return Err("A server id is not valid.".into());
+            }
+            if seen.insert(id.clone()) {
+                ids.push(id.clone());
+            }
+        }
+        if ids.is_empty() {
+            continue;
+        }
+        let id = match folder
+            .id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            None => None,
+            Some(text) => {
+                if text == "0" || text.len() > 20 || !text.chars().all(|ch| ch.is_ascii_digit()) {
+                    return Err("A folder id is not valid.".into());
+                }
+                let _ = text
+                    .parse::<u64>()
+                    .map_err(|_| "A folder id is not valid.".to_string())?;
+                Some(text.to_string())
+            }
+        };
+        if let Some(color) = folder.color.as_deref() {
+            if !color.is_empty()
+                && parse_color(color).is_none()
+                && !color.eq_ignore_ascii_case("#000000")
+            {
+                return Err("A folder color is not valid.".into());
+            }
+        }
+        let name = folder.name.as_deref().map(|text| {
+            text.chars()
+                .filter(|ch| *ch != '\0')
+                .take(80)
+                .collect::<String>()
+        });
+        let name = name.and_then(|text| {
+            let trimmed = text.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        });
+        out.push(ClientFolder {
+            id,
+            name,
+            color: folder
+                .color
+                .as_deref()
+                .and_then(parse_color)
+                .map(|bits| format!("#{bits:06x}")),
+            guild_ids: ids,
+        });
+    }
+    if out.is_empty() {
+        return Err("Nothing to save.".into());
+    }
+    Ok(out)
+}
+
+fn parse_color(value: &str) -> Option<u32> {
+    let hex = value.trim().strip_prefix('#')?;
+    if hex.len() != 6 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    let bits = u32::from_str_radix(hex, 16).ok()?;
+    if bits == 0 {
+        None
+    } else {
+        Some(bits & 0xffffff)
+    }
+}
+
+fn encode_guild_folders_proto(folders: &[ClientFolder]) -> Vec<u8> {
+    let mut guilds = Vec::new();
+    let mut positions = Vec::new();
+    for folder in folders {
+        let mut body = Vec::new();
+        for id in &folder.guild_ids {
+            let value = id.parse::<u64>().unwrap_or(0);
+            if value == 0 {
+                continue;
+            }
+            body.extend(proto_key(1, 1));
+            body.extend(value.to_le_bytes());
+            positions.push(value);
+        }
+        if let Some(id) = folder
+            .id
+            .as_deref()
+            .and_then(|text| text.parse::<u64>().ok())
+            .filter(|id| *id != 0)
+        {
+            body.extend(int_wrapper(2, id));
+        }
+        if let Some(name) = folder.name.as_deref() {
+            body.extend(string_wrapper(3, name));
+        }
+        if let Some(color) = folder.color.as_deref().and_then(parse_color) {
+            body.extend(int_wrapper(4, u64::from(color)));
+        }
+        guilds.extend(proto_len(1, &body));
+    }
+    for id in positions {
+        guilds.extend(proto_key(2, 1));
+        guilds.extend(id.to_le_bytes());
+    }
+    proto_len(14, &guilds)
+}
+
+fn int_wrapper(field: u32, value: u64) -> Vec<u8> {
+    let mut inner = proto_key(1, 0);
+    inner.extend(proto_varint(value));
+    proto_len(field, &inner)
+}
+
+fn string_wrapper(field: u32, text: &str) -> Vec<u8> {
+    proto_len(field, &proto_len(1, text.as_bytes()))
+}
+
+fn wrapper_varint(bytes: &[u8]) -> Option<u64> {
+    let fields = walk(bytes);
+    if fields.len() == 1 && fields[0].number == 1 && fields[0].wire == 0 {
+        fields[0].varint
+    } else {
+        None
+    }
+}
+
+fn read_folder_name(bytes: &[u8]) -> Option<String> {
+    let fields = walk(bytes);
+    let text = if fields.len() == 1 && fields[0].number == 1 && fields[0].wire == 2 {
+        std::str::from_utf8(fields[0].bytes).ok()?
+    } else {
+        std::str::from_utf8(bytes).ok()?
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.chars().take(80).collect())
+    }
+}
+
+fn proto_varint(mut value: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+    out
+}
+
+fn proto_key(field: u32, wire: u32) -> Vec<u8> {
+    proto_varint(((field as u64) << 3) | u64::from(wire))
+}
+
+fn proto_len(field: u32, payload: &[u8]) -> Vec<u8> {
+    let mut out = proto_key(field, 2);
+    out.extend(proto_varint(payload.len() as u64));
+    out.extend(payload);
+    out
 }
 
 fn folder_from_proto(bytes: &[u8]) -> Option<ClientFolder> {
@@ -333,16 +600,15 @@ fn folder_from_proto(bytes: &[u8]) -> Option<ClientFolder> {
                 }
             }
             (2, 0) => id = field.varint.map(|value| value.to_string()),
-            (3, 2) => {
-                name = std::str::from_utf8(field.bytes)
-                    .ok()
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(|text| text.chars().take(80).collect());
-            }
+            (2, 2) => id = wrapper_varint(field.bytes).map(|value| value.to_string()),
+            (3, 2) => name = read_folder_name(field.bytes),
             (4, 0) => {
                 color = field
                     .varint
+                    .and_then(|value| color_hex((value & 0xffffff) as u32))
+            }
+            (4, 2) => {
+                color = wrapper_varint(field.bytes)
                     .and_then(|value| color_hex((value & 0xffffff) as u32))
             }
             (4, 5) => {
@@ -984,30 +1250,35 @@ mod tests {
         assert!(!invite_code_ok("../etc"));
     }
 
-    fn proto_varint(mut value: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        loop {
-            let mut byte = (value & 0x7f) as u8;
-            value >>= 7;
-            if value != 0 {
-                byte |= 0x80;
-            }
-            out.push(byte);
-            if value == 0 {
-                break;
-            }
-        }
-        out
-    }
-
-    fn proto_key(field: u32, wire: u32) -> Vec<u8> {
-        proto_varint(((field as u64) << 3) | wire as u64)
-    }
-
-    fn proto_len(field: u32, payload: &[u8]) -> Vec<u8> {
-        let mut out = proto_key(field, 2);
-        out.extend(proto_varint(payload.len() as u64));
-        out.extend(payload);
-        out
+    #[test]
+    fn guild_folders_round_trip_through_the_preloaded_proto() {
+        let folders = vec![
+            ClientFolder {
+                id: Some("7".into()),
+                name: Some("Friends".into()),
+                color: Some("#ff0000".into()),
+                guild_ids: vec!["100000000000000010".into(), "100000000000000011".into()],
+            },
+            ClientFolder {
+                id: None,
+                name: None,
+                color: None,
+                guild_ids: vec!["100000000000000012".into()],
+            },
+        ];
+        let encoded = encode_guild_folders(&folders).unwrap();
+        let bytes = decode_proto(&encoded).unwrap();
+        assert_eq!(walk(&bytes)[0].number, 14);
+        let snap = snapshot_from_proto(&bytes);
+        assert_eq!(snap.folders, folders);
+        let again = encode_guild_folders(&snap.folders).unwrap();
+        assert_eq!(again, encoded);
+        assert!(encode_guild_folders(&[ClientFolder {
+            id: None,
+            name: None,
+            color: None,
+            guild_ids: vec!["nope".into()],
+        }])
+        .is_err());
     }
 }
