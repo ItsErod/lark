@@ -3,8 +3,10 @@
 //! Lark does not ask the operating system for "the last 30 seconds." macOS has no
 //! replay-buffer API, and Windows Game Bar does not hand its buffer to other apps.
 //! While screen share or Game Mode capture is on, the desktop shell samples the main
-//! display into this ring. The clip hotkey writes what is already in the ring to an
-//! MJPEG AVI file. Turning both off discards the ring. Nothing here uploads.
+//! display into this ring as JPEG. The clip hotkey encodes that ring to a faststart
+//! H.264 + AAC MP4. Turning both off discards the ring. Nothing here uploads.
+
+pub use crate::clip_encode::{encode_clip, EncodedClip};
 
 use std::collections::VecDeque;
 
@@ -20,7 +22,7 @@ pub const CLIP_SAMPLE_INTERVAL_MS: u64 = 200;
 pub const CLIP_MAX_EDGE: u32 = 960;
 /// JPEG quality for stored frames. Lower keeps a 30 second clip under the 8 MB attach limit.
 pub const CLIP_JPEG_QUALITY: u8 = 45;
-/// Bytes of JPEG payload reserved so the AVI still fits in an 8 MB attachment.
+/// Bytes of JPEG payload reserved so the MP4 still fits in an 8 MB attachment.
 pub const CLIP_MAX_BYTES: usize = 7_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +37,16 @@ pub struct EncodedFrame {
 pub struct ClipFile {
     pub bytes: Vec<u8>,
     pub frames: u32,
+    pub fps: u32,
+    pub width: u32,
+    pub height: u32,
+    pub span_ms: u64,
+}
+
+/// JPEG frames chosen for one save. Encoding runs after the buffer lock is released.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipPlan {
+    pub frames: Vec<EncodedFrame>,
     pub fps: u32,
     pub width: u32,
     pub height: u32,
@@ -96,7 +108,8 @@ impl ClipBuffer {
         }
     }
 
-    pub fn export(&self) -> Result<ClipFile, String> {
+    /// Choose frames without encoding. The caller can drop the buffer lock first.
+    pub fn plan(&self) -> Result<ClipPlan, String> {
         if self.frames.is_empty() {
             return Err("The clip buffer is empty.".into());
         }
@@ -110,14 +123,25 @@ impl ClipBuffer {
             .saturating_sub(selected[0].at_ms)
             .max(CLIP_SAMPLE_INTERVAL_MS);
         let fps = playback_fps(selected.len(), span_ms);
-        let bytes = write_mjpeg_avi(&selected, fps, width, height);
-        Ok(ClipFile {
-            frames: selected.len() as u32,
+        Ok(ClipPlan {
+            frames: selected.into_iter().cloned().collect(),
             fps,
             width,
             height,
             span_ms,
-            bytes,
+        })
+    }
+
+    pub fn export(&self) -> Result<ClipFile, String> {
+        let plan = self.plan()?;
+        let encoded = crate::clip_encode::encode_clip(&plan)?;
+        Ok(ClipFile {
+            frames: plan.frames.len() as u32,
+            fps: plan.fps,
+            width: encoded.width,
+            height: encoded.height,
+            span_ms: plan.span_ms,
+            bytes: encoded.bytes,
         })
     }
 }
@@ -170,7 +194,7 @@ fn select_frames(
     }
 }
 
-/// Scale so the long edge fits `max_edge`, then force even dimensions for the AVI header.
+/// Scale so the long edge fits `max_edge`, then force even dimensions for the encoder.
 pub fn fit_rgba(
     src: &[u8],
     width: u32,
@@ -331,12 +355,14 @@ fn accelerator_key(key: &str) -> String {
 
 pub fn clip_file_name(unix_secs: u64) -> String {
     let (year, month, day, hour, minute, second) = civil_utc(unix_secs);
-    format!("lark-clip-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}Z.avi")
+    format!("lark-clip-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}Z.mp4")
 }
 
+/// New clips are `.mp4`. Older `.avi` names still attach.
 pub fn is_clip_name(name: &str) -> bool {
+    let extension = name.ends_with(".mp4") || name.ends_with(".avi");
     name.starts_with("lark-clip-")
-        && name.ends_with(".avi")
+        && extension
         && name.len() < 80
         && name
             .chars()
@@ -360,141 +386,6 @@ fn civil_utc(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
     let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
     let year = (if month <= 2 { y + 1 } else { y }) as i32;
     (year, month, day, hour, minute, second)
-}
-
-fn write_mjpeg_avi(frames: &[&EncodedFrame], fps: u32, width: u32, height: u32) -> Vec<u8> {
-    let fps = fps.max(1);
-    let count = frames.len() as u32;
-    let max_frame = frames
-        .iter()
-        .map(|frame| frame.jpeg.len())
-        .max()
-        .unwrap_or(0) as u32;
-    let mut out = Vec::with_capacity(
-        4096 + frames
-            .iter()
-            .map(|frame| frame.jpeg.len() + 8)
-            .sum::<usize>(),
-    );
-    out.extend_from_slice(b"RIFF");
-    let riff_size_at = out.len();
-    push_u32(&mut out, 0);
-    out.extend_from_slice(b"AVI ");
-
-    out.extend_from_slice(b"LIST");
-    let hdrl_size_at = out.len();
-    push_u32(&mut out, 0);
-    let hdrl_data = out.len();
-    out.extend_from_slice(b"hdrl");
-    out.extend_from_slice(b"avih");
-    push_u32(&mut out, 56);
-    push_u32(&mut out, 1_000_000 / fps);
-    push_u32(&mut out, max_frame.saturating_mul(fps));
-    push_u32(&mut out, 0);
-    push_u32(&mut out, 0x110);
-    push_u32(&mut out, count);
-    push_u32(&mut out, 0);
-    push_u32(&mut out, 1);
-    push_u32(&mut out, max_frame);
-    push_u32(&mut out, width);
-    push_u32(&mut out, height);
-    for _ in 0..4 {
-        push_u32(&mut out, 0);
-    }
-
-    out.extend_from_slice(b"LIST");
-    let strl_size_at = out.len();
-    push_u32(&mut out, 0);
-    let strl_data = out.len();
-    out.extend_from_slice(b"strl");
-    out.extend_from_slice(b"strh");
-    push_u32(&mut out, 56);
-    out.extend_from_slice(b"vids");
-    out.extend_from_slice(b"MJPG");
-    push_u32(&mut out, 0);
-    push_u16(&mut out, 0);
-    push_u16(&mut out, 0);
-    push_u32(&mut out, 0);
-    push_u32(&mut out, 1);
-    push_u32(&mut out, fps);
-    push_u32(&mut out, 0);
-    push_u32(&mut out, count);
-    push_u32(&mut out, max_frame);
-    push_u32(&mut out, u32::MAX);
-    push_u32(&mut out, 0);
-    push_i16(&mut out, 0);
-    push_i16(&mut out, 0);
-    push_i16(&mut out, width.min(i16::MAX as u32) as i16);
-    push_i16(&mut out, height.min(i16::MAX as u32) as i16);
-    out.extend_from_slice(b"strf");
-    push_u32(&mut out, 40);
-    push_u32(&mut out, 40);
-    push_i32(&mut out, width as i32);
-    push_i32(&mut out, height as i32);
-    push_u16(&mut out, 1);
-    push_u16(&mut out, 24);
-    out.extend_from_slice(b"MJPG");
-    push_u32(&mut out, max_frame);
-    push_i32(&mut out, 0);
-    push_i32(&mut out, 0);
-    push_u32(&mut out, 0);
-    push_u32(&mut out, 0);
-    let strl_size = (out.len() - strl_data) as u32;
-    let hdrl_size = (out.len() - hdrl_data) as u32;
-    patch_u32(&mut out, strl_size_at, strl_size);
-    patch_u32(&mut out, hdrl_size_at, hdrl_size);
-
-    out.extend_from_slice(b"LIST");
-    let movi_size_at = out.len();
-    push_u32(&mut out, 0);
-    let movi_tag = out.len();
-    out.extend_from_slice(b"movi");
-    let mut index = Vec::with_capacity(frames.len());
-    for frame in frames {
-        let chunk_at = out.len();
-        // Offset from the byte after the `movi` tag. Players seek idx1 against that base.
-        index.push((chunk_at - (movi_tag + 4), frame.jpeg.len()));
-        out.extend_from_slice(b"00dc");
-        push_u32(&mut out, frame.jpeg.len() as u32);
-        out.extend_from_slice(&frame.jpeg);
-        if frame.jpeg.len() % 2 == 1 {
-            out.push(0);
-        }
-    }
-    let movi_size = (out.len() - (movi_size_at + 4)) as u32;
-    patch_u32(&mut out, movi_size_at, movi_size);
-
-    out.extend_from_slice(b"idx1");
-    push_u32(&mut out, (index.len() * 16) as u32);
-    for (offset, size) in index {
-        out.extend_from_slice(b"00dc");
-        push_u32(&mut out, 0x10);
-        push_u32(&mut out, offset as u32);
-        push_u32(&mut out, size as u32);
-    }
-    let riff_size = (out.len() - 8) as u32;
-    patch_u32(&mut out, riff_size_at, riff_size);
-    out
-}
-
-fn push_u16(out: &mut Vec<u8>, value: u16) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn push_u32(out: &mut Vec<u8>, value: u32) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn push_i16(out: &mut Vec<u8>, value: i16) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn push_i32(out: &mut Vec<u8>, value: i32) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn patch_u32(out: &mut [u8], at: usize, value: u32) {
-    out[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 #[cfg(test)]
@@ -545,45 +436,20 @@ mod tests {
     }
 
     #[test]
-    fn export_is_an_mjpeg_avi_under_the_attach_limit() {
+    fn export_is_a_faststart_mp4_under_the_attach_limit() {
         let rgba = solid(4, 2, [20, 40, 80, 255]);
         let mut buffer = ClipBuffer::default();
         for index in 0..8 {
             buffer.push(prepare_frame(&rgba, 4, 2, index * CLIP_SAMPLE_INTERVAL_MS).unwrap());
         }
         let clip = buffer.export().unwrap();
-        assert!(clip.bytes.starts_with(b"RIFF"));
-        assert_eq!(&clip.bytes[8..12], b"AVI ");
+        assert_eq!(&clip.bytes[4..8], b"ftyp");
+        assert!(crate::mp4mux::moov_before_mdat(&clip.bytes));
+        crate::mp4mux::require_discord_mp4(&clip.bytes).unwrap();
         assert!(clip.bytes.len() < 8 * 1024 * 1024);
         assert_eq!(clip.frames, 8);
-        assert_eq!(clip.width, 4);
-        assert_eq!(clip.height, 2);
-        let movi = clip
-            .bytes
-            .windows(4)
-            .position(|tag| tag == b"movi")
-            .unwrap();
-        let idx = clip
-            .bytes
-            .windows(4)
-            .position(|tag| tag == b"idx1")
-            .unwrap();
-        assert_eq!(&clip.bytes[idx + 8..idx + 12], b"00dc");
-        let offset =
-            u32::from_le_bytes(clip.bytes[idx + 16..idx + 20].try_into().unwrap()) as usize;
-        assert_eq!(&clip.bytes[movi + 4 + offset..movi + 8 + offset], b"00dc");
-        let mut chunks = 0;
-        let mut cursor = movi + 4;
-        let movi_end = idx;
-        while cursor + 8 <= movi_end {
-            assert_eq!(&clip.bytes[cursor..cursor + 4], b"00dc");
-            let size =
-                u32::from_le_bytes(clip.bytes[cursor + 4..cursor + 8].try_into().unwrap()) as usize;
-            assert_eq!(&clip.bytes[cursor + 8..cursor + 10], &[0xff, 0xd8]);
-            chunks += 1;
-            cursor += 8 + size + (size % 2);
-        }
-        assert_eq!(chunks, 8);
+        assert_eq!(clip.width % 16, 0);
+        assert_eq!(clip.height % 16, 0);
     }
 
     #[test]
@@ -598,10 +464,11 @@ mod tests {
                 jpeg: jpeg.clone(),
             });
         }
-        let clip = buffer.export().unwrap();
-        assert!(clip.bytes.len() <= CLIP_MAX_BYTES + 64 * 1024);
-        assert!(clip.frames < 20);
-        assert!(clip.span_ms >= 19_000);
+        let plan = buffer.plan().unwrap();
+        let payload: usize = plan.frames.iter().map(|frame| frame.jpeg.len()).sum();
+        assert!(payload <= CLIP_MAX_BYTES);
+        assert!(plan.frames.len() < 20);
+        assert!(plan.span_ms >= 19_000);
     }
 
     #[test]
@@ -634,14 +501,15 @@ mod tests {
 
     #[test]
     fn clip_names_are_utc_and_cannot_escape_the_folder() {
-        assert_eq!(clip_file_name(0), "lark-clip-19700101-000000Z.avi");
+        assert_eq!(clip_file_name(0), "lark-clip-19700101-000000Z.mp4");
         assert_eq!(
             clip_file_name(1_700_000_000),
-            "lark-clip-20231114-221320Z.avi"
+            "lark-clip-20231114-221320Z.mp4"
         );
         assert!(is_clip_name(&clip_file_name(0)));
-        assert!(!is_clip_name("../lark-clip-19700101-000000Z.avi"));
-        assert!(!is_clip_name("lark-clip-19700101-000000Z.mp4"));
+        assert!(is_clip_name("lark-clip-19700101-000000Z.avi"));
+        assert!(!is_clip_name("../lark-clip-19700101-000000Z.mp4"));
+        assert!(!is_clip_name("lark-clip-19700101-000000Z.mov"));
         assert!(!is_clip_name("notes.avi"));
     }
 }

@@ -5,7 +5,11 @@ edition = "2021"
 description = "Core logic for Lark, a small personal Discord client"
 publish = false
 
+[build-dependencies]
+cc = "1"
+
 [dependencies]
+lark-clip-hw = { path = "../lark-clip-hw" }
 aes-gcm = "0.10"
 # `static` compiles the bundled Opus sources when the system has no libopus.
 audiopus_sys = { version = "0.2", features = ["static"] }
@@ -14,6 +18,7 @@ cpal = "0.15"
 dave = "0.3"
 futures-util = "0.3"
 base64 = "0.22"
+jpeg-decoder = "0.3"
 jpeg-encoder = "0.6"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.8"

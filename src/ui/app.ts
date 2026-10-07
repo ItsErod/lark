@@ -4189,8 +4189,9 @@ class LarkApp {
     try {
       const encoded = await invoke<string>("read_clip", { name: clip.name });
       const bytes = bytesFromBase64(encoded);
-      const blob = new Blob([bytes], { type: "video/x-msvideo" });
-      this.files.push({ name: clip.name, mime: "video/x-msvideo", bytes, url: URL.createObjectURL(blob) });
+      const mime = clip.name.toLowerCase().endsWith(".avi") ? "video/x-msvideo" : "video/mp4";
+      const blob = new Blob([bytes], { type: mime });
+      this.files.push({ name: clip.name, mime, bytes, url: URL.createObjectURL(blob) });
       this.pendingClip = null;
       this.paintComposer();
       this.toast("Clip attached", "Press Enter to send it. Lark has not uploaded the file.");

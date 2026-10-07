@@ -21,7 +21,12 @@ export function clipBehaviorNote(os: OsName): string {
     : os === "windows"
       ? "Windows records with GDI. A game in exclusive fullscreen can come out black; borderless and windowed games are captured. A per-frame Windows Graphics Capture session would flash the system border, so this buffer does not use one."
       : "The macOS and Windows apps record the display. This system does not.";
-  return `Lark keeps about 30 seconds of the main display, and only while screen share or Game Mode capture is on. Turning both off discards the buffer. The clip hotkey writes an MJPEG AVI into the clips folder on this computer, at about 5 frames per second, scaled to fit a 960 pixel edge, and kept under 8 MB so it can be attached. Nothing is uploaded until you attach the file and send the message. ${platform} There is no system replay API for the previous 30 seconds, so the buffer has to be running before you press the hotkey.`;
+  const encoder = os === "macos"
+    ? "macOS encodes with VideoToolbox when it is available."
+    : os === "windows"
+      ? "Windows encodes with Media Foundation when it is available."
+      : "The macOS and Windows apps encode the file.";
+  return `Lark keeps about 30 seconds of the main display, and only while screen share or Game Mode capture is on. Turning both off discards the buffer. The clip hotkey writes an MP4 (H.264 video and AAC audio, with the moov atom at the front so Discord can play it inline) into the clips folder on this computer. Encoding runs when you press the hotkey, not while the rolling buffer is filling, at about 5 frames per second, scaled to fit a 960 pixel edge, and kept under 8 MB so it can be attached. ${encoder} Nothing is uploaded until you attach the file and send the message. ${platform} There is no system replay API for the previous 30 seconds, so the buffer has to be running before you press the hotkey.`;
 }
 
 export function bytesFromBase64(data: string): Uint8Array {
