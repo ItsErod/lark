@@ -720,14 +720,14 @@ html.is-game-mode *::after {
 @media (max-width: 860px) {
   .platform-grid { grid-template-columns: 1fr; }
   .settings-layer { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .settings-sidebar { padding: 12px; }
+  .settings-sidebar { max-height: 168px; padding: 12px 12px 8px; overflow: hidden; }
   .settings-search { align-self: stretch; width: auto; margin: 0 0 8px; }
-  .settings-nav-scroll { flex-direction: row; align-items: stretch; }
+  .settings-nav-scroll { flex: 0 1 auto; min-height: 40px; max-height: 96px; flex-direction: row; align-items: flex-start; }
   .settings-nav { width: max-content; flex-direction: row; align-items: center; }
   .settings-group { display: flex; align-items: center; gap: 4px; }
   .settings-group-label { margin: 0 8px; }
-  .settings-stage { grid-template-columns: minmax(0, 1fr) 56px; }
-  .settings-body { padding: 20px 12px 48px; }
+  .settings-stage { grid-template-columns: minmax(0, 1fr) 56px; min-height: 0; }
+  .settings-body { padding: 16px 8px 40px 12px; }
 }
 
 .virtual, .message-column { display: flex; flex-direction: column; width: 100%; }
