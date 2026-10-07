@@ -451,6 +451,35 @@ fn produce_frame(
     *nonce = nonce.wrapping_add(1);
 }
 
+/// Opus encoder for app audio on a Go Live stream. The call keeps its own encoder.
+///
+/// libopus may move with the stream task. One task owns it, so it is not shared.
+pub struct AppOpus {
+    inner: OpusEncoder,
+}
+
+// SAFETY: `OpusEncoder` is an owned pointer. `AppOpus` only uses it through `&mut self`.
+unsafe impl Send for AppOpus {}
+
+impl AppOpus {
+    pub fn new() -> Result<Self, ()> {
+        Ok(Self { inner: OpusEncoder::new()? })
+    }
+
+    pub fn frame_from_f32(&self, samples: &[f32]) -> Vec<i16> {
+        let mut pcm = vec![0i16; FRAME_SAMPLES * 2];
+        stereo_from_mono(samples, &mut pcm);
+        pcm
+    }
+
+    pub fn encode(&mut self, pcm: &[i16]) -> Result<Vec<u8>, ()> {
+        let mut out = vec![0u8; 512];
+        let wrote = self.inner.encode(pcm, &mut out)?;
+        out.truncate(wrote);
+        Ok(out)
+    }
+}
+
 fn stereo_from_mono(mono: &[f32], pcm: &mut [i16]) {
     for (index, sample) in mono.iter().take(FRAME_SAMPLES).enumerate() {
         let value = (sample.clamp(-1.0, 1.0) * 32_767.0) as i16;

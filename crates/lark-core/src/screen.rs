@@ -1,10 +1,8 @@
-//! Screen-share scheduler.
+//! Capture hints for screen share.
 //!
-//! Discord carries screen share as a full-frame H.264 or VP8 video stream, not as
-//! raw dirty rectangles. This module decides whether a frame is worth encoding at
-//! all. A static screen produces zero packets. Motion scales frame rate and bitrate.
-//! The desktop shell asks for a hardware encoder (VideoToolbox, or NVENC / Quick Sync
-//! / AMF / Media Foundation) only when a plan says to send.
+//! Go Live quality, bitrate, and frame pacing live in `discord::stream`. This module
+//! only names the platform capture and encoder, and compares luma thumbnails when a
+//! caller wants to know whether the picture moved. It does not invent a frame rate.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -14,21 +12,45 @@ pub struct Rect {
     pub h: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SharePlan {
-    pub send: bool,
-    pub fps: u8,
-    pub bitrate: u32,
-    pub dirty_ratio: f32,
-    pub regions: Vec<Rect>,
-}
-
 pub fn capture_backends(os: &str) -> &'static [&'static str] {
     match os {
         "macos" => &["screencapturekit"],
         "windows" => &["windows-graphics-capture", "dxgi"],
         _ => &["unavailable"],
     }
+}
+
+/// A small JPEG the share dialog can show. Returns nothing when the buffer is short.
+pub fn thumbnail_jpeg(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+    if width == 0 || height == 0 || width > 4096 || height > 4096 || rgba.len() < (width as usize) * (height as usize) * 4 {
+        return None;
+    }
+    let mut buf = Vec::new();
+    let encoder = jpeg_encoder::Encoder::new(&mut buf, 70);
+    encoder.encode(rgba, width as u16, height as u16, jpeg_encoder::ColorType::Rgba).ok()?;
+    Some(buf)
+}
+
+/// Box-filter a thumbnail so the picker does not hold a full desktop frame.
+pub fn scale_rgba(rgba: &[u8], width: u32, height: u32, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+    if width < 2 || height < 2 || rgba.len() < width as usize * height as usize * 4 {
+        return None;
+    }
+    let edge = max_edge.max(2);
+    let scale = (edge as f32 / width as f32).min(edge as f32 / height as f32).min(1.0);
+    let out_w = ((width as f32 * scale).round() as u32).max(2) & !1;
+    let out_h = ((height as f32 * scale).round() as u32).max(2) & !1;
+    let mut out = vec![0u8; out_w as usize * out_h as usize * 4];
+    for y in 0..out_h {
+        let src_y = (y as u64 * u64::from(height) / u64::from(out_h)) as u32;
+        for x in 0..out_w {
+            let src_x = (x as u64 * u64::from(width) / u64::from(out_w)) as u32;
+            let from = ((src_y * width + src_x) * 4) as usize;
+            let to = ((y * out_w + x) * 4) as usize;
+            out[to..to + 4].copy_from_slice(&rgba[from..from + 4]);
+        }
+    }
+    Some((out, out_w, out_h))
 }
 
 pub fn encoder_order(os: &str) -> &'static [&'static str] {
@@ -84,87 +106,27 @@ fn tile_changed(prev: &[u8], next: &[u8], width: u32, x: u32, y: u32, tw: u32, t
     false
 }
 
-pub fn plan_from_ratio(ratio: f32, regions: Vec<Rect>) -> SharePlan {
-    let ratio = ratio.clamp(0.0, 1.0);
-    if ratio <= 0.001 || regions.is_empty() {
-        return SharePlan {
-            send: false,
-            fps: 0,
-            bitrate: 0,
-            dirty_ratio: 0.0,
-            regions: Vec::new(),
-        };
-    }
-    let (fps, bitrate) = if ratio < 0.05 {
-        (5, 200_000)
-    } else if ratio < 0.25 {
-        (15, 1_200_000)
-    } else {
-        (30, 2_500_000)
-    };
-    SharePlan {
-        send: true,
-        fps,
-        bitrate,
-        dirty_ratio: ratio,
-        regions,
-    }
-}
-
-pub fn plan_frame(prev: &[u8], next: &[u8], width: u32) -> SharePlan {
-    let (ratio, regions) = luma_diff(prev, next, width, 16);
-    plan_from_ratio(ratio, regions)
-}
-
-/// One encoded video frame, or nothing. Discord cannot take a raw dirty rectangle
-/// as its own packet, so a skipped frame is zero packets rather than a partial blit.
-pub fn packets_for(plan: &SharePlan) -> u32 {
-    if plan.send { 1 } else { 0 }
-}
-
-/// Sleep between share ticks. This is the encoder schedule, separate from the UI
-/// frame cap. A still screen waits a full second. There is no 16 ms floor.
-pub fn frame_interval_ms(fps: u8) -> u64 {
-    if fps == 0 { 1_000 } else { 1000 / u64::from(fps.max(1)) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn static_screen_sends_nothing() {
+    fn a_static_thumbnail_has_no_dirty_tiles() {
         let frame = vec![8u8; 32 * 18];
-        let plan = plan_frame(&frame, &frame, 32);
-        assert!(!plan.send);
-        assert_eq!(plan.fps, 0);
-        assert_eq!(plan.bitrate, 0);
-        assert_eq!(packets_for(&plan), 0);
-        assert!(plan.regions.is_empty());
+        let (ratio, regions) = luma_diff(&frame, &frame, 32, 16);
+        assert_eq!(ratio, 0.0);
+        assert!(regions.is_empty());
     }
 
     #[test]
-    fn one_tile_is_a_small_update() {
+    fn one_changed_pixel_marks_one_tile() {
         let prev = vec![0u8; 64 * 96];
         let mut next = prev.clone();
         next[0] = 255;
-        let plan = plan_frame(&prev, &next, 64);
-        assert!(plan.send, "ratio {}", plan.dirty_ratio);
-        assert_eq!(plan.fps, 5, "ratio {} regions {}", plan.dirty_ratio, plan.regions.len());
-        assert_eq!(plan.bitrate, 200_000);
-        assert_eq!(plan.regions.len(), 1);
-        assert_eq!(plan.regions[0], Rect { x: 0, y: 0, w: 16, h: 16 });
-        assert_eq!(packets_for(&plan), 1);
-    }
-
-    #[test]
-    fn broad_motion_ramps_up() {
-        let prev = vec![0u8; 32 * 32];
-        let next = vec![255u8; 32 * 32];
-        let plan = plan_frame(&prev, &next, 32);
-        assert_eq!(plan.fps, 30);
-        assert_eq!(plan.bitrate, 2_500_000);
-        assert!(plan.dirty_ratio > 0.9);
+        let (ratio, regions) = luma_diff(&prev, &next, 64, 16);
+        assert!(ratio > 0.0);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0], Rect { x: 0, y: 0, w: 16, h: 16 });
     }
 
     #[test]
@@ -177,12 +139,5 @@ mod tests {
         );
         assert_eq!(encoder_order("windows")[0], "nvenc");
         assert!(encoder_order("windows").contains(&"media-foundation"));
-    }
-
-    #[test]
-    fn share_interval_has_no_16ms_floor() {
-        assert_eq!(frame_interval_ms(0), 1_000);
-        assert_eq!(frame_interval_ms(30), 33);
-        assert_eq!(frame_interval_ms(120), 8);
     }
 }

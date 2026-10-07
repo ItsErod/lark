@@ -1,5 +1,6 @@
 mod browser_login;
 mod clip_rec;
+mod golive;
 mod keychain;
 mod login;
 mod overlay;
@@ -39,8 +40,7 @@ struct Shared {
     voice_volumes: Arc<std::sync::Mutex<HashMap<String, f32>>>,
     sound_mix: Arc<std::sync::Mutex<lark_core::soundboard::SoundMix>>,
     sound_hotkeys: std::sync::Mutex<Vec<String>>,
-    screen_stop: Mutex<Option<watch::Sender<bool>>>,
-    screen_dirty: Arc<AtomicBool>,
+    streams: Arc<golive::StreamHub>,
     clips: clip_rec::ClipEngine,
     premium_type: Arc<AtomicI64>,
     hide_on_close: Arc<AtomicBool>,
@@ -138,8 +138,7 @@ pub fn run() {
                 voice_volumes: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 sound_mix: Arc::new(std::sync::Mutex::new(lark_core::soundboard::SoundMix::new())),
                 sound_hotkeys: std::sync::Mutex::new(Vec::new()),
-                screen_stop: Mutex::new(None),
-                screen_dirty: Arc::new(AtomicBool::new(false)),
+                streams: Arc::new(golive::StreamHub::new()),
                 clips,
                 premium_type: Arc::new(AtomicI64::new(0)),
                 hide_on_close: hide_on_close.clone(),
@@ -239,8 +238,13 @@ pub fn run() {
             set_guild_folders,
             set_minimize_to_tray,
             set_autostart,
+            list_share_sources,
             start_screen_share,
             stop_screen_share,
+            set_share_paused,
+            set_share_quality,
+            watch_stream,
+            stop_watch_stream,
             overlay::sync_voice_overlay,
             overlay::current_voice_hud,
             save_clip,
@@ -475,6 +479,7 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     let app_handle = app.clone();
     let voice_slot = state.voice.clone();
     let premium_type = Arc::clone(&state.premium_type);
+    let streams = state.streams.clone();
     tauri::async_runtime::spawn(async move {
         lark_core::discord::run_gateway(token, rx, gateway_rx, move |event: ClientEvent| {
             let outbound = match &event {
@@ -496,6 +501,15 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
                         "guildId": guild_id,
                         "endpoint": endpoint,
                         "token": ""
+                    }))
+                }
+                ClientEvent::StreamServer { stream_key, endpoint, token, guild_id } => {
+                    streams.note_server(stream_key, endpoint, token);
+                    Some(serde_json::json!({
+                        "kind": "streamServer",
+                        "streamKey": stream_key,
+                        "endpoint": endpoint,
+                        "guildId": guild_id
                     }))
                 }
                 ClientEvent::VoiceState(state) => {
@@ -1095,6 +1109,7 @@ async fn stop_voice(state: &Shared) {
 
 #[tauri::command]
 async fn leave_voice(state: State<'_, Shared>) -> Result<(), String> {
+    stop_screen_share_inner(&state).await;
     stop_voice(&state).await;
     if let Some(gateway) = state.gateway.lock().await.clone() {
         let _ = gateway.send(lark_core::discord::GatewayCommand::VoiceState {
@@ -1502,57 +1517,96 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn start_screen_share(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
-    state.clips.set_share(true);
-    if let Some(tx) = state.screen_stop.lock().await.take() {
-        let _ = tx.send(true);
-    }
-    let (tx, mut rx) = watch::channel(false);
-    *state.screen_stop.lock().await = Some(tx);
-    let dirty = state.screen_dirty.clone();
-    let os = std::env::consts::OS;
-    tauri::async_runtime::spawn(async move {
-        let capture = lark_core::screen::capture_backends(os).first().copied().unwrap_or("unavailable");
-        let encoder = lark_core::screen::encoder_order(os).first().copied().unwrap_or("software");
-        let still = vec![0u8; 160 * 90];
-        let mut moved = still.clone();
-        moved[0] = 255;
-        loop {
-            if *rx.borrow() {
-                break;
-            }
-            let next = if dirty.load(Ordering::Relaxed) { &moved } else { &still };
-            let plan = lark_core::screen::plan_frame(&still, next, 160);
-            let _ = app.emit(
-                "discord",
-                serde_json::json!({
-                    "kind": "screenShare",
-                    "send": plan.send,
-                    "fps": plan.fps,
-                    "bitrate": plan.bitrate,
-                    "packets": lark_core::screen::packets_for(&plan),
-                    "capture": capture,
-                    "encoder": encoder
-                }),
-            );
-            tokio::select! {
-                changed = rx.changed() => {
-                    if changed.is_err() || *rx.borrow() { break; }
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(lark_core::screen::frame_interval_ms(plan.fps))) => {}
-            }
+fn list_share_sources() -> Vec<golive::ShareSource> {
+    golive::list_sources()
+}
+
+#[tauri::command]
+async fn start_screen_share(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    source_id: String,
+    resolution: String,
+    fps: u8,
+    app_audio: bool,
+    encoder: String,
+    source_width: u32,
+    source_height: u32,
+) -> Result<(), String> {
+    let request = {
+        let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        golive::ShareStart {
+            guild_id: slot.guild_id.clone(),
+            channel_id: slot.channel_id.clone(),
+            user_id: slot.user_id.clone(),
+            session_id: slot.session_id.clone(),
+            source_id,
+            resolution,
+            fps,
+            app_audio,
+            encoder,
+            source_width,
+            source_height,
         }
-    });
-    Ok(())
+    };
+    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    state.clips.set_share(true);
+    let started = golive::start_share(app, state.streams.clone(), gateway, request).await;
+    if started.is_err() {
+        state.clips.set_share(false);
+    }
+    started
 }
 
 #[tauri::command]
 async fn stop_screen_share(state: State<'_, Shared>) -> Result<(), String> {
-    if let Some(tx) = state.screen_stop.lock().await.take() {
-        let _ = tx.send(true);
+    stop_screen_share_inner(&state).await;
+    Ok(())
+}
+
+async fn stop_screen_share_inner(state: &Shared) {
+    if let Some(gateway) = state.gateway.lock().await.clone() {
+        golive::stop_publish(&state.streams, &gateway).await;
     }
-    state.screen_dirty.store(false, Ordering::Relaxed);
+    golive::stop_watch(&state.streams).await;
     state.clips.set_share(false);
+}
+
+#[tauri::command]
+async fn set_share_paused(state: State<'_, Shared>, paused: bool) -> Result<(), String> {
+    if let Some(gateway) = state.gateway.lock().await.clone() {
+        golive::set_paused(&state.streams, &gateway, paused).await;
+    } else {
+        state.streams.set_paused_local(paused);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_share_quality(
+    state: State<'_, Shared>,
+    resolution: String,
+    fps: u8,
+    source_width: u32,
+    source_height: u32,
+) -> lark_core::discord::stream::VideoSpan {
+    golive::set_quality(&state.streams, &resolution, fps, source_width, source_height)
+}
+
+#[tauri::command]
+async fn watch_stream(app: AppHandle, state: State<'_, Shared>, stream_key: String) -> Result<(), String> {
+    let (server_id, channel_id, user_id, session_id) = {
+        let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        let server_id = if slot.guild_id.is_empty() { slot.channel_id.clone() } else { slot.guild_id.clone() };
+        (server_id, slot.channel_id.clone(), slot.user_id.clone(), slot.session_id.clone())
+    };
+    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    golive::watch_stream(app, state.streams.clone(), gateway, stream_key, server_id, channel_id, user_id, session_id).await
+}
+
+#[tauri::command]
+async fn stop_watch_stream(state: State<'_, Shared>) -> Result<(), String> {
+    golive::stop_watch(&state.streams).await;
     Ok(())
 }
 

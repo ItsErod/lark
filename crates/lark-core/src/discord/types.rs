@@ -501,6 +501,9 @@ pub struct ClientVoiceState {
     pub self_deaf: bool,
     pub server_mute: bool,
     pub server_deaf: bool,
+    /// Discord sets this while the member is sharing with Go Live.
+    #[serde(default)]
+    pub self_stream: bool,
     pub name: String,
     pub avatar_url: Option<String>,
 }
@@ -1406,6 +1409,7 @@ pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Opt
         self_deaf: value.get("self_deaf").and_then(|v| v.as_bool()).unwrap_or(false),
         server_mute: value.get("mute").and_then(|v| v.as_bool()).unwrap_or(false),
         server_deaf: value.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false),
+        self_stream: value.get("self_stream").and_then(|v| v.as_bool()).unwrap_or(false),
         avatar_url: avatar_url_from_hash(&value_user_id(value, user), &avatar),
         name,
     })

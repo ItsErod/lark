@@ -715,6 +715,11 @@ fn sample_loop(inner: Arc<Inner>) {
                 bitrate: resolved.bitrate,
                 hevc: resolved.codec == VideoCodec::Hevc,
                 game_mode: pace,
+                stream: false,
+                source: String::new(),
+                app_audio: false,
+                encoder: String::new(),
+                idr_interval: 0,
             };
             match LiveSession::open(&config) {
                 Ok(opened) => {

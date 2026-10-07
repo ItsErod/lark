@@ -14,6 +14,8 @@ export interface VoiceStateInput {
   sharing?: boolean;
   /** Short label drawn on a stream tile. Empty clears it. Omitted leaves the previous value. */
   streamLabel?: string;
+  /** Discord voice-state field. When present, it sets `sharing`. */
+  selfStream?: boolean;
 }
 
 export interface VoiceParticipant {
@@ -71,7 +73,7 @@ export function applyVoiceState(roster: VoiceRoster, state: VoiceStateInput): Vo
     volume: previous?.volume ?? 100,
     localMuted: previous?.localMuted ?? false,
     video: state.video ?? previous?.video ?? false,
-    sharing: state.sharing ?? previous?.sharing ?? false,
+    sharing: state.selfStream !== undefined ? Boolean(state.selfStream) : (state.sharing ?? previous?.sharing ?? false),
     streamLabel: streamLabel(state.streamLabel, previous?.streamLabel),
   };
   roster[key] = participant;
@@ -106,7 +108,7 @@ export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: 
       if (!state.name || state.name === "Someone") participant.name = prior.name;
       if (!state.avatarUrl) participant.avatarUrl = prior.avatarUrl;
       if (state.video === undefined) participant.video = prior.video;
-      if (state.sharing === undefined) participant.sharing = prior.sharing;
+      if (state.sharing === undefined && state.selfStream === undefined) participant.sharing = prior.sharing;
       if (state.streamLabel === undefined) participant.streamLabel = prior.streamLabel;
     }
   }

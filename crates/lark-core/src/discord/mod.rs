@@ -9,6 +9,8 @@ pub mod noise;
 pub mod voice;
 pub mod voice_dave;
 pub mod voice_io;
+pub mod stream;
+pub mod stream_link;
 pub mod voice_link;
 pub mod voice_media;
 

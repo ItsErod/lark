@@ -55,6 +55,26 @@ impl Config {
         self.voice.sensitivity = self.voice.sensitivity.min(100);
         self.voice.overlay_opacity = self.voice.overlay_opacity.clamp(35, 100);
         self.voice.speak_color = normalize_speak_color(&self.voice.speak_color);
+        self.voice.share_resolution = match self.voice.share_resolution.to_ascii_lowercase().as_str() {
+            "720" | "720p" => "720".into(),
+            "1440" | "1440p" => "1440".into(),
+            "2160" | "2160p" | "4k" => "2160".into(),
+            "source" => "source".into(),
+            _ => "1080".into(),
+        };
+        self.voice.share_fps = match self.voice.share_fps {
+            15 => 15,
+            60 => 60,
+            _ => 30,
+        };
+        self.voice.share_encoder = match self.voice.share_encoder.to_ascii_lowercase().as_str() {
+            "nvenc" => "nvenc".into(),
+            "amf" => "amf".into(),
+            "qsv" => "qsv".into(),
+            "videotoolbox" => "videotoolbox".into(),
+            "media-foundation" => "media-foundation".into(),
+            _ => "auto".into(),
+        };
         self.voice.levels.retain(|id, level| {
             let snowflake = (5..=22).contains(&id.len()) && id.chars().all(|c| c.is_ascii_digit());
             if snowflake {
@@ -300,6 +320,34 @@ pub struct Voice {
     pub speak_color: String,
     /// Playback for other people. Local mute does not tell Discord.
     pub levels: BTreeMap<String, UserLevel>,
+    /// Go Live default. 720, 1080, 1440, 2160, or source.
+    #[serde(default = "default_share_resolution")]
+    pub share_resolution: String,
+    /// 15, 30, or 60.
+    #[serde(default = "default_share_fps")]
+    pub share_fps: u8,
+    /// Capture the shared app's audio when the platform can.
+    #[serde(default = "default_share_audio")]
+    pub share_app_audio: bool,
+    /// auto, nvenc, amf, qsv, videotoolbox, or media-foundation.
+    #[serde(default = "default_share_encoder")]
+    pub share_encoder: String,
+}
+
+fn default_share_resolution() -> String {
+    "1080".into()
+}
+
+fn default_share_fps() -> u8 {
+    30
+}
+
+fn default_share_audio() -> bool {
+    true
+}
+
+fn default_share_encoder() -> String {
+    "auto".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -330,6 +378,10 @@ impl Default for Voice {
             overlay_click_through: true,
             speak_color: "#23a559".to_string(),
             levels: BTreeMap::new(),
+            share_resolution: default_share_resolution(),
+            share_fps: default_share_fps(),
+            share_app_audio: default_share_audio(),
+            share_encoder: default_share_encoder(),
         }
     }
 }

@@ -1,33 +1,56 @@
-import { describe, expect, it } from "vitest";
-import { dirtyRatio, planShare } from "./share";
+import { afterEach, describe, expect, it } from "vitest";
+import { clearSettingsExtensions, searchSettings } from "./ui/settings";
+import { installShareSettings, resetShareSettingsInstall } from "./share-settings";
+import {
+  formatBitrate,
+  presetBitrate,
+  qualityLabel,
+  shareBitrate,
+  snapShareFps,
+  snapShareHeight,
+  streamKeyFor,
+} from "./share";
 
-describe("screen share scheduler", () => {
-  it("sends nothing when the thumbnail is unchanged", () => {
-    const frame = new Uint8Array(32 * 18);
-    const diff = dirtyRatio(frame, frame, 32);
-    const plan = planShare(diff.ratio, diff.regions);
-    expect(plan.send).toBe(false);
-    expect(plan.fps).toBe(0);
-    expect(plan.bitrate).toBe(0);
+afterEach(() => {
+  clearSettingsExtensions();
+  resetShareSettingsInstall();
+});
+
+describe("go live quality", () => {
+  it("uses the same bitrate table as the stream encoder", () => {
+    const heights = [720, 1080, 1440, 2160];
+    const rates = [15, 30, 60];
+    for (const height of heights) {
+      let previous = 0;
+      for (const fps of rates) {
+        const bitrate = presetBitrate(height, fps);
+        expect(bitrate).toBeGreaterThan(previous);
+        previous = bitrate;
+      }
+    }
+    expect(shareBitrate(1920, 1080, 60)).toBe(6_000_000);
+    expect(shareBitrate(1280, 720, 30)).toBe(2_500_000);
+    expect(shareBitrate(3840, 2160, 60)).toBe(20_000_000);
+    expect(shareBitrate(1280, 720, 15)).toBe(1_500_000);
+    expect(shareBitrate(2560, 1440, 30)).toBe(8_000_000);
+    expect(shareBitrate(2560, 1600, 30)).toBeGreaterThan(shareBitrate(1920, 1080, 30));
+    expect(snapShareHeight("source")).toBe(0);
+    expect(snapShareHeight("4k")).toBe(2160);
+    expect(snapShareFps(45)).toBe(30);
+    expect(formatBitrate(presetBitrate(1080, 30))).toBe("4.5 Mbps");
+    expect(qualityLabel(720, 60)).toBe("720p · 60 fps · 4.5 Mbps");
   });
 
-  it("keeps a one-tile edit at a low rate", () => {
-    const prev = new Uint8Array(64 * 96);
-    const next = new Uint8Array(prev);
-    next[0] = 255;
-    const diff = dirtyRatio(prev, next, 32);
-    const plan = planShare(diff.ratio, diff.regions);
-    expect(diff.regions).toBe(1);
-    expect(plan.fps).toBe(5);
-    expect(plan.bitrate).toBe(200_000);
+  it("registers screen share settings on Voice & Video", () => {
+    installShareSettings();
+    const hit = searchSettings("screen share quality");
+    expect(hit[0]?.section).toBe("voice");
+    expect(hit[0]?.id).toBe("voice.share.quality");
+    expect(searchSettings("application audio")[0]?.id).toBe("voice.share.audio");
   });
 
-  it("ramps when most of the frame changes", () => {
-    const prev = new Uint8Array(32 * 32);
-    const next = new Uint8Array(32 * 32).fill(255);
-    const diff = dirtyRatio(prev, next, 32);
-    const plan = planShare(diff.ratio, diff.regions);
-    expect(plan.fps).toBe(30);
-    expect(plan.bitrate).toBe(2_500_000);
+  it("builds guild and call stream keys", () => {
+    expect(streamKeyFor("10", "20", "30")).toBe("guild:10:20:30");
+    expect(streamKeyFor("", "20", "30")).toBe("call:20:30");
   });
 });

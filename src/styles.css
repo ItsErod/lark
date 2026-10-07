@@ -956,6 +956,70 @@ html.is-game-mode .is-speaking .speak-ring-spin { opacity: 1; background: var(--
 .chat-title svg { width: 20px; height: 20px; color: var(--muted); flex: none; }
 .shortcut-row input[type="range"] { width: 88px; flex: none; }
 .share-stats { margin: 0; color: var(--muted); font-size: 13px; }
+.voice-panel-lead { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.live-badge {
+  display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px;
+  background: #da373c; color: white; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; flex: none;
+}
+.live-badge.is-paused { background: var(--bg-4); color: var(--text); }
+.stream-slot {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+}
+.stream-tile {
+  position: relative; width: 100%; height: 100%; min-height: 180px; border-radius: 8px; overflow: hidden;
+  background: #111214; color: white;
+}
+.stream-tile.is-compact { min-height: 0; height: 100%; }
+.stream-preview { width: 100%; height: 100%; object-fit: cover; display: block; background: #1e1f22; }
+.stream-tile-top, .stream-tile-foot, .stream-tile-actions, .stream-note, .share-popover {
+  position: absolute; z-index: 1;
+}
+.stream-tile-top { top: 8px; left: 8px; right: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stream-tile-foot {
+  left: 8px; right: 8px; bottom: 36px; display: flex; flex-direction: column; gap: 2px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.stream-tile-name { font-weight: 650; }
+.stream-tile-quality, .stream-note { font-size: 12px; color: #f2f3f5; }
+.stream-note { left: 8px; right: 8px; bottom: 64px; margin: 0; }
+.stream-tile-actions { left: 8px; right: 8px; bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.stream-tile-actions .text-button, .share-dialog .text-button { background: rgba(0, 0, 0, 0.45); color: white; }
+.share-popover {
+  right: 8px; bottom: 44px; width: min(280px, calc(100% - 16px)); display: grid; gap: 8px;
+  background: var(--bg-3); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+}
+.share-choices { display: flex; flex-wrap: wrap; gap: 4px; }
+.share-choices button {
+  border: 0; border-radius: 6px; padding: 4px 8px; background: var(--bg-0); color: var(--text); font-size: 12px;
+}
+.share-choices button.is-on { background: var(--accent); color: white; }
+.share-layer {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
+  background: color-mix(in srgb, black 55%, transparent); padding: 24px;
+}
+.share-dialog {
+  width: min(720px, 100%); max-height: min(640px, 100%); overflow: auto;
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+  display: grid; gap: 12px;
+}
+.share-dialog-head, .share-dialog-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.share-dialog h2 { margin: 0; font-size: 18px; }
+.share-sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.share-source {
+  display: grid; gap: 4px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-0);
+  color: var(--text); text-align: left;
+}
+.share-source.is-selected { border-color: var(--accent); }
+.share-thumb { display: grid; place-items: center; height: 84px; border-radius: 6px; overflow: hidden; background: #2b2d31; }
+.share-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.share-thumb-fallback { color: white; font-weight: 700; }
+.share-source-name { font-weight: 650; font-size: 13px; }
+.share-source-kind, .share-quality-summary { color: var(--muted); font-size: 12px; }
+.share-quality, .share-audio { display: grid; gap: 8px; }
+.share-audio { grid-auto-flow: column; justify-content: start; align-items: center; }
+.voice-tile.is-screen .stream-tile,
+.call-pip .stream-tile { position: absolute; inset: 0; border-radius: 0; min-height: 0; }
 .device { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .device select, .theme-field input, .popout input { background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 .pins { position: absolute; right: 12px; top: 64px; width: min(280px, 80%); background: var(--bg-3); border: 1px solid var(--line); border-radius: 14px; padding: 12px; z-index: 6; }

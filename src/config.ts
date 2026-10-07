@@ -1,6 +1,7 @@
 import { parseCompressMode } from "./clips";
 import { sanitizeGames } from "./game";
 import { sanitizeClipFps, sanitizeClipResolution } from "./clip";
+import { snapShareFps, snapShareHeight } from "./share";
 import { sanitizeClips } from "./soundboard";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
 import { speakColor } from "./voice-stage";
@@ -58,6 +59,10 @@ export function defaultConfig(): AppConfig {
       overlay_click_through: true,
       speak_color: speakColor(undefined),
       levels: {},
+      share_resolution: "1080",
+      share_fps: 30,
+      share_app_audio: true,
+      share_encoder: "auto",
     },
     soundboard: { clips: [] },
     desktop: {
@@ -134,6 +139,18 @@ export function sanitizeConfig(input: unknown): AppConfig {
     if (typeof raw.voice.overlay_click_through === "boolean") base.voice.overlay_click_through = raw.voice.overlay_click_through;
     base.voice.speak_color = speakColor(raw.voice.speak_color);
     base.voice.levels = sanitizeLevels(raw.voice.levels);
+    if (typeof raw.voice.share_resolution === "string") {
+      const height = snapShareHeight(raw.voice.share_resolution);
+      base.voice.share_resolution = height === 0 ? "source" : String(height);
+    }
+    if (typeof raw.voice.share_fps === "number" && Number.isFinite(raw.voice.share_fps)) {
+      base.voice.share_fps = snapShareFps(raw.voice.share_fps);
+    }
+    if (typeof raw.voice.share_app_audio === "boolean") base.voice.share_app_audio = raw.voice.share_app_audio;
+    if (typeof raw.voice.share_encoder === "string") {
+      const encoder = raw.voice.share_encoder.trim().toLowerCase();
+      base.voice.share_encoder = ["nvenc", "amf", "qsv", "videotoolbox", "media-foundation"].includes(encoder) ? encoder : "auto";
+    }
   }
   base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
   if (typeof raw.clips?.game_capture === "boolean") base.clips.game_capture = raw.clips.game_capture;

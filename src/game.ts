@@ -39,7 +39,8 @@ export interface ResolvedGame {
 }
 
 /** How often a repeating UI task should run. Game Mode stretches these clocks only.
- *  Voice and Discord gateway heartbeats stay on the interval from Hello. */
+ *  Voice and Discord gateway heartbeats stay on the interval from Hello.
+ *  Go Live capture and its stream socket keep their own clocks too. */
 export function pollInterval(kind: PollKind, gameMode: boolean): number {
   return gameMode ? GAME_MS[kind] : BASE_MS[kind];
 }
