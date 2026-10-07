@@ -21,8 +21,10 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["sync", "time"] }
 zeroize = "1"
+base64 = "0.22"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+xcap = { version = "0.9.8", default-features = false }
 # keyring 3 enables no stores by default. Without these features the macOS and
 # Windows builds use an in-memory mock: set_password succeeds on one Entry, and
 # the next Entry::new cannot see it. That is the "No token saved" toast.

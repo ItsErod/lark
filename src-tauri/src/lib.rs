@@ -1,4 +1,5 @@
 mod browser_login;
+mod clip_rec;
 mod keychain;
 mod login;
 mod overlay;
@@ -20,6 +21,7 @@ use lark_core::Config;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::sync::{mpsc, watch, Mutex};
 use zeroize::Zeroize;
 
@@ -37,6 +39,7 @@ struct Shared {
     voice_volumes: Arc<std::sync::Mutex<HashMap<String, f32>>>,
     screen_stop: Mutex<Option<watch::Sender<bool>>>,
     screen_dirty: Arc<AtomicBool>,
+    clips: clip_rec::ClipEngine,
     hide_on_close: Arc<AtomicBool>,
     qr_stop: Mutex<Option<watch::Sender<bool>>>,
     browser_stop: Mutex<Option<watch::Sender<bool>>>,
@@ -90,6 +93,8 @@ pub fn run() {
                 log::warn!("config ignored: {err}");
                 Config::default()
             });
+            let save_clip = config.shortcuts.save_clip.clone();
+            let clips = clip_rec::ClipEngine::spawn(resolved.clips_dir.clone(), config.clips.game_capture);
             let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
             let overlay_shortcut = config.shortcuts.toggle_voice_overlay.clone();
             let (speaking, _) = watch::channel(false);
@@ -119,12 +124,16 @@ pub fn run() {
                 voice_volumes: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 screen_stop: Mutex::new(None),
                 screen_dirty: Arc::new(AtomicBool::new(false)),
+                clips,
                 hide_on_close: hide_on_close.clone(),
                 qr_stop: Mutex::new(None),
                 browser_stop: Mutex::new(None),
             };
             app.manage(shared);
             overlay::sync_hotkey(app.handle(), &overlay_shortcut);
+            if let Err(err) = install_clip_hotkey(app.handle(), &save_clip) {
+                log::warn!("clip hotkey: {err}");
+            }
             if let Some(window) = app.get_webview_window("main") {
                 refresh::prefer_native_refresh(&window);
                 let hide = hide_on_close.clone();
@@ -206,7 +215,12 @@ pub fn run() {
             start_screen_share,
             stop_screen_share,
             overlay::sync_voice_overlay,
-            overlay::current_voice_hud
+            overlay::current_voice_hud,
+            save_clip,
+            clip_status,
+            read_clip,
+            show_clip,
+            open_clips_dir
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -223,7 +237,11 @@ async fn install_watcher(app: AppHandle) -> Result<(), String> {
         };
         for path in event.paths {
             if path.ends_with("config.toml") {
-                let _ = app_for_watch.emit("config-changed", ());
+                let app = app_for_watch.clone();
+                tauri::async_runtime::spawn(async move {
+                    apply_saved_clip_settings(&app).await;
+                    let _ = app.emit("config-changed", ());
+                });
             } else if path.extension().and_then(|ext| ext.to_str()) == Some("css") {
                 let stem = path
                     .file_stem()
@@ -270,6 +288,7 @@ async fn save_config(app: AppHandle, state: State<'_, Shared>, config: Config) -
     fs::write(&state.paths.config_file, pretty).map_err(|err| err.to_string())?;
     *state.config.lock().await = normalized.clone();
     overlay::sync_hotkey(&app, &normalized.shortcuts.toggle_voice_overlay);
+    apply_clip_config(&app, &normalized);
     Ok(normalized)
 }
 
@@ -279,6 +298,7 @@ fn app_paths(state: State<'_, Shared>) -> paths::AppPaths {
         config_file: state.paths.config_file.clone(),
         themes_dir: state.paths.themes_dir.clone(),
         plugins_dir: state.paths.plugins_dir.clone(),
+        clips_dir: state.clips.dir().to_path_buf(),
     })
 }
 
@@ -1212,6 +1232,7 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 async fn start_screen_share(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    state.clips.set_share(true);
     if let Some(tx) = state.screen_stop.lock().await.take() {
         let _ = tx.send(true);
     }
@@ -1260,7 +1281,122 @@ async fn stop_screen_share(state: State<'_, Shared>) -> Result<(), String> {
         let _ = tx.send(true);
     }
     state.screen_dirty.store(false, Ordering::Relaxed);
+    state.clips.set_share(false);
     Ok(())
+}
+
+#[tauri::command]
+fn save_clip(app: AppHandle, state: State<'_, Shared>) -> Result<clip_rec::ClipSaved, String> {
+    match state.clips.save() {
+        Ok(saved) => {
+            let _ = app.emit("clip-ready", &saved);
+            Ok(saved)
+        }
+        Err(error) => {
+            let _ = app.emit("clip-ready", clip_rec::ClipSaved::failed(error.clone()));
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+fn clip_status(state: State<'_, Shared>) -> clip_rec::ClipStatus {
+    state.clips.status()
+}
+
+#[tauri::command]
+fn read_clip(state: State<'_, Shared>, name: String) -> Result<String, String> {
+    state.clips.read_base64(&name)
+}
+
+#[tauri::command]
+fn show_clip(state: State<'_, Shared>, name: String) -> Result<(), String> {
+    let path = state.clips.clip_path(&name)?;
+    clip_rec::reveal_path(&path)
+}
+
+#[tauri::command]
+fn open_clips_dir(state: State<'_, Shared>) -> Result<(), String> {
+    clip_rec::open_dir(state.clips.dir())
+}
+
+fn install_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    // The voice HUD already installs the global-shortcut plugin. A second plugin
+    // would replace that handler, so the clip key is registered on the same one.
+    let state = app.state::<Shared>();
+    state.clips.set_plugin_ready();
+    apply_clip_hotkey(app, shortcut);
+    Ok(())
+}
+
+fn on_clip_hotkey(app: &AppHandle) {
+    let state = app.state::<Shared>();
+    match state.clips.save() {
+        Ok(saved) => {
+            let _ = app.emit("clip-ready", &saved);
+        }
+        Err(error) => {
+            log::info!("clip hotkey: {error}");
+            let _ = app.emit("clip-ready", clip_rec::ClipSaved::failed(error));
+        }
+    }
+}
+
+fn apply_clip_hotkey(app: &AppHandle, shortcut: &str) {
+    let state = app.state::<Shared>();
+    if !state.clips.plugin_ready() {
+        state.clips.set_hotkey_error("The global clip hotkey is not available.".into());
+        return;
+    }
+    match sync_clip_hotkey(app, shortcut) {
+        Ok(()) => state.clips.set_hotkey_error(String::new()),
+        Err(err) => {
+            log::warn!("clip hotkey: {err}");
+            state.clips.set_hotkey_error(err);
+        }
+    }
+}
+
+fn sync_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    let state = app.state::<Shared>();
+    let gate = state.clips.hotkey_lock();
+    let _held = gate.lock().unwrap_or_else(|err| err.into_inner());
+    let accel = lark_core::clip::global_accelerator(shortcut)?;
+    let current = state.clips.registered_hotkey();
+    if current == accel {
+        return Ok(());
+    }
+    let shortcuts = app.global_shortcut();
+    if !current.is_empty() {
+        let _ = shortcuts.unregister(current.as_str());
+        // Drop the remembered accelerator if the new one fails to register,
+        // so the next save retries instead of treating the old key as live.
+        state.clips.set_registered_hotkey(String::new());
+    }
+    shortcuts
+        .on_shortcut(accel.as_str(), |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            on_clip_hotkey(app);
+        })
+        .map_err(|err| err.to_string())?;
+    state.clips.set_registered_hotkey(accel);
+    Ok(())
+}
+
+fn apply_clip_config(app: &AppHandle, config: &Config) {
+    let state = app.state::<Shared>();
+    state.clips.set_game(config.clips.game_capture);
+    apply_clip_hotkey(app, &config.shortcuts.save_clip);
+}
+
+async fn apply_saved_clip_settings(app: &AppHandle) {
+    let state = app.state::<Shared>();
+    let Ok(config) = read_config_file(&state.paths.config_file) else {
+        return;
+    };
+    apply_clip_config(app, &config);
 }
 
 #[cfg(target_os = "macos")]

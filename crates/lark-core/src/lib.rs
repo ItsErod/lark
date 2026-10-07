@@ -2,6 +2,7 @@
 //! The desktop shell (macOS and Windows) is a thin Tauri wrapper around this crate.
 
 pub mod cache;
+pub mod clip;
 pub mod config;
 pub mod discord;
 pub mod hardware;

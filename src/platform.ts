@@ -51,6 +51,7 @@ export interface PlatformInfo {
   configDir: string;
   themesDir: string;
   pluginsDir: string;
+  clipsDir: string;
   configFile: string;
   notificationNote: string;
 }
@@ -65,6 +66,7 @@ export function browserPlatform(): PlatformInfo {
     configDir: dir,
     themesDir: `${dir}${sep}themes`,
     pluginsDir: `${dir}${sep}plugins`,
+    clipsDir: `${dir}${sep}clips`,
     configFile: `${dir}${sep}config.toml`,
     notificationNote: notificationNote(os),
   };

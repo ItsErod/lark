@@ -47,6 +47,7 @@ import {
   stepHardware,
   type HardwareState,
 } from "../hardware";
+import { bytesFromBase64, clipBehaviorNote } from "../clip";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
@@ -258,6 +259,7 @@ class LarkApp {
   private membersEl!: HTMLElement;
   private composer!: HTMLTextAreaElement;
   private composerBanner!: HTMLElement;
+  private clipBanner!: HTMLElement;
   private composerMeta!: HTMLElement;
   private gate!: HTMLElement;
   private switcherEl!: HTMLElement;
@@ -280,6 +282,9 @@ class LarkApp {
   private cpalOutputs: string[] = [];
   private shareOn = false;
   private shareMotion = false;
+  private pendingClip: { name: string; path: string; bytes: number; spanMs: number } | null = null;
+  private clipNotice = "";
+  private clipStatus: { recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string } | null = null;
   private pttHeld = false;
   private recent: string[] = [];
   private drafts: Record<string, string> = {};
@@ -415,13 +420,14 @@ class LarkApp {
 
   private async bootDesktop() {
     try {
-      const info = await invoke<PlatformInfo & { os: string; credentialStore: string; configDir: string; themesDir: string; pluginsDir: string; configFile: string; notificationNote: string }>("app_paths");
+      const info = await invoke<PlatformInfo & { os: string; credentialStore: string; configDir: string; themesDir: string; pluginsDir: string; clipsDir: string; configFile: string; notificationNote: string }>("app_paths");
       this.platform = {
         os: info.os === "macos" || info.os === "windows" || info.os === "linux" ? info.os : "other",
         credentialStore: info.credentialStore,
         configDir: info.configDir,
         themesDir: info.themesDir,
         pluginsDir: info.pluginsDir,
+        clipsDir: info.clipsDir,
         configFile: info.configFile,
         notificationNote: info.notificationNote,
       };
@@ -438,6 +444,9 @@ class LarkApp {
       await listen("discord", (event) => this.onDiscord(event.payload));
       await listen("voice-overlay-hotkey", () => this.toggleVoiceOverlay());
       await listen("voice-overlay-dismissed", () => this.setVoiceOverlay(false, true));
+      await listen<{ ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }>("clip-ready", (event) => {
+        this.onClipReady(event.payload);
+      });
       await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("login-status", (event) => {
         this.onLoginStatus(event.payload);
       });
@@ -490,13 +499,15 @@ class LarkApp {
     const composer = el("form", "composer");
     this.suggestEl = el("div", "suggest");
     this.suggestEl.hidden = true;
+    this.clipBanner = el("div", "composer-banner clip-banner");
+    this.clipBanner.hidden = true;
     this.composerBanner = el("div", "composer-banner");
     this.composer = el("textarea");
     this.composer.rows = 1;
     this.composer.placeholder = "Message";
     this.composer.setAttribute("aria-label", "Message");
     this.composerMeta = el("div", "composer-meta");
-    composer.append(this.suggestEl, this.composerBanner, this.composer, this.composerMeta);
+    composer.append(this.suggestEl, this.clipBanner, this.composerBanner, this.composer, this.composerMeta);
     composer.addEventListener("submit", (event) => {
       event.preventDefault();
       void this.send();
@@ -2160,6 +2171,7 @@ class LarkApp {
     if (wrap instanceof HTMLElement) wrap.hidden = this.friendsOpen && !this.guildId;
     const channel = this.currentChannel();
     this.composer.placeholder = channel ? `Message ${channel.kind === "text" ? "#" : ""}${channel.name}` : "Message";
+    this.paintClipBanner();
     clear(this.composerBanner);
     this.composerBanner.hidden = true;
     if (this.pendingDelete) {
@@ -2525,6 +2537,9 @@ class LarkApp {
     this.settingsEl.hidden = false;
     this.renderSettings();
     if (this.section === "appearance") void this.refreshThemeIndex();
+    if (this.section === "voice") void this.pullClipStatus().then(() => {
+      if (this.settings && this.section === "voice") this.renderSettings();
+    });
   }
 
   private closeSettings() {
@@ -2553,6 +2568,9 @@ class LarkApp {
         this.section = id;
         this.renderSettings();
         if (id === "appearance") void this.refreshThemeIndex();
+        if (id === "voice") void this.pullClipStatus().then(() => {
+          if (this.settings && this.section === "voice") this.renderSettings();
+        });
       });
       nav.append(button);
     }
@@ -2714,8 +2732,23 @@ class LarkApp {
       listDevices.type = "button";
       listDevices.addEventListener("click", () => void this.listDevices());
       wrap.append(listDevices);
+      wrap.append(el("h3", "", "Clips"), el("p", "lede", clipBehaviorNote(this.platform.os)));
+      wrap.append(el("p", "hint", this.clipStatusLine()));
+      wrap.append(el("p", "hint", `Clips folder: ${this.clipStatus?.dir || this.platform.clipsDir}`));
+      if (this.clipStatus?.hotkeyError) wrap.append(el("p", "warning", this.clipStatus.hotkeyError));
+      wrap.append(this.toggle("Game Mode capture", this.config.clips.game_capture, (value) => {
+        this.config.clips.game_capture = value;
+        return this.persist().then(() => this.pullClipStatus());
+      }));
+      wrap.append(el("p", "hint", `Hotkey: ${formatShortcut(this.config.shortcuts.save_clip, this.platform.os)}. Change it under Keybinds. It is global on macOS and Windows, works while another app is in front, and needs a modifier or a function key.`));
+      if (isTauri()) {
+        const openClips = el("button", "text-button", "Open clips folder");
+        openClips.type = "button";
+        openClips.addEventListener("click", () => void this.openClipsFolder());
+        wrap.append(openClips);
+      }
     } else if (this.section === "shortcuts") {
-      wrap.append(el("h2", "", "Keybinds"), el("p", "lede", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys."));
+      wrap.append(el("h2", "", "Keybinds"), el("p", "lede", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys. Save clip is global on macOS and Windows, so it still works while a game is in front."));
       const fixed = el("div", "shortcut-row");
       fixed.append(el("span", "", "mark read"), el("span", "kbd", "Esc"));
       wrap.append(fixed);
@@ -3071,6 +3104,9 @@ class LarkApp {
     } else if (matchShortcut(event, shortcuts.toggle_voice_overlay, os)) {
       event.preventDefault();
       this.toggleVoiceOverlay();
+    } else if (matchShortcut(event, shortcuts.save_clip, os)) {
+      event.preventDefault();
+      void this.saveClip();
     } else if (this.voice && this.config.voice.mode === "ptt" && matchShortcut(event, shortcuts.push_to_talk, os)) {
       event.preventDefault();
       this.pttHeld = true;
@@ -3137,9 +3173,133 @@ class LarkApp {
     }
   }
 
-  private persist() {
+  private persist(): Promise<void> {
     localStorage.setItem("lark.config.v1", JSON.stringify(this.config));
-    if (isTauri()) void invoke("save_config", { config: this.config });
+    if (!isTauri()) return Promise.resolve();
+    return invoke("save_config", { config: this.config }).then(() => undefined);
+  }
+
+  private clipStatusLine(): string {
+    if (!isTauri()) return "The desktop app keeps the buffer. This preview does not record the screen.";
+    const status = this.clipStatus;
+    if (!status) return "Checking the clip buffer…";
+    if (status.recording) {
+      const seconds = Math.max(0, Math.round(status.spanMs / 1000));
+      return `Recording the main display · ${seconds}s in the buffer · ${status.backend}`;
+    }
+    return status.error
+      ? `Buffer off. ${status.error}`
+      : "Buffer off. Turn on Game Mode capture or share your screen. The hotkey does nothing until one of those is on.";
+  }
+
+  private async pullClipStatus() {
+    if (!isTauri()) return;
+    try {
+      const status = await invoke<{ recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string }>("clip_status");
+      this.clipStatus = status;
+    } catch {
+      this.clipStatus = null;
+    }
+  }
+
+  private onClipReady(payload: { ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }) {
+    if (!payload?.ok || !payload.name) {
+      const error = payload?.error || "Couldn't save a clip.";
+      if (this.clipNotice === error) return;
+      this.clipNotice = error;
+      window.setTimeout(() => {
+        if (this.clipNotice === error) this.clipNotice = "";
+      }, 1500);
+      void this.notify("Clip", error);
+      return;
+    }
+    if (this.clipNotice === payload.name) return;
+    this.clipNotice = payload.name;
+    window.setTimeout(() => {
+      if (this.clipNotice === payload.name) this.clipNotice = "";
+    }, 1500);
+    this.pendingClip = {
+      name: payload.name,
+      path: payload.path || "",
+      bytes: payload.bytes || 0,
+      spanMs: payload.spanMs || 0,
+    };
+    void this.notify("Clip saved", `${payload.name} is on this computer. Attach it to share it. Nothing was uploaded.`);
+    if (this.view === "app") this.paintComposer();
+  }
+
+  private async saveClip() {
+    if (!isTauri()) {
+      this.toast("Clips", "The clip hotkey saves a file in the macOS and Windows app while screen share or Game Mode capture is on.");
+      return;
+    }
+    try {
+      const saved = await invoke<{ ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }>("save_clip");
+      this.onClipReady(saved);
+    } catch (err) {
+      this.onClipReady({ ok: false, error: commandError(err, "Couldn't save a clip.") });
+    }
+  }
+
+  private paintClipBanner() {
+    clear(this.clipBanner);
+    const clip = this.pendingClip;
+    this.clipBanner.hidden = !clip;
+    if (!clip) return;
+    const seconds = Math.max(1, Math.round(clip.spanMs / 1000));
+    this.clipBanner.append(el("span", "", `Clip saved · about ${seconds}s · not uploaded`));
+    const attach = el("button", "primary", "Attach");
+    attach.type = "button";
+    attach.addEventListener("click", () => void this.attachPendingClip());
+    const folder = el("button", "text-button", "Show in folder");
+    folder.type = "button";
+    folder.addEventListener("click", () => void this.showPendingClip());
+    const dismiss = el("button", "ghost", "Dismiss");
+    dismiss.type = "button";
+    dismiss.addEventListener("click", () => {
+      this.pendingClip = null;
+      this.paintClipBanner();
+    });
+    this.clipBanner.append(attach, folder, dismiss);
+  }
+
+  private async attachPendingClip() {
+    const clip = this.pendingClip;
+    if (!clip) return;
+    if (!this.channelId) {
+      this.toast("Clip", "Open a channel, then attach the clip.");
+      return;
+    }
+    try {
+      const encoded = await invoke<string>("read_clip", { name: clip.name });
+      const bytes = bytesFromBase64(encoded);
+      const blob = new Blob([bytes], { type: "video/x-msvideo" });
+      this.files.push({ name: clip.name, mime: "video/x-msvideo", bytes, url: URL.createObjectURL(blob) });
+      this.pendingClip = null;
+      this.paintComposer();
+      this.toast("Clip attached", "Press Enter to send it. Lark has not uploaded the file.");
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't read the clip."));
+    }
+  }
+
+  private async showPendingClip() {
+    const clip = this.pendingClip;
+    if (!clip || !isTauri()) return;
+    try {
+      await invoke("show_clip", { name: clip.name });
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't show the clip."));
+    }
+  }
+
+  private async openClipsFolder() {
+    if (!isTauri()) return;
+    try {
+      await invoke("open_clips_dir");
+    } catch (err) {
+      this.toast("Clips", commandError(err, "Couldn't open the clips folder."));
+    }
   }
 
   private async ensureGuild(guildId: string) {
@@ -4358,7 +4518,16 @@ class LarkApp {
       if (!this.demo) void invoke(this.shareOn ? "start_screen_share" : "stop_screen_share").catch(() => undefined);
       this.paintVoice();
     });
-    share.append(toggle);
+    const game = el("button", this.config.clips.game_capture ? "text-button is-on" : "text-button", this.config.clips.game_capture ? "Game capture on" : "Game capture");
+    game.type = "button";
+    game.title = "Record the main display for the clip hotkey without sharing";
+    game.addEventListener("click", () => {
+      this.config.clips.game_capture = !this.config.clips.game_capture;
+      void this.persist();
+      this.paintVoice();
+    });
+    share.append(toggle, game);
+    share.append(el("p", "hint", `Clip hotkey ${formatShortcut(this.config.shortcuts.save_clip, this.platform.os)} saves the last 30 seconds while sharing or game capture is on. The file stays on this computer.`));
     if (this.shareOn) {
       const motion = el("button", "ghost", this.shareMotion ? "Screen is changing" : "Screen is still");
       motion.type = "button";
