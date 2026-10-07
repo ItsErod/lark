@@ -24,6 +24,16 @@ use super::types::{
 };
 
 const API: &str = "https://discord.com/api/v10";
+const NOTE_LIMIT: usize = 256;
+
+/// Discord notes are short. Drop a NUL and keep the first 256 characters.
+pub fn clamp_note(note: &str) -> String {
+    note.chars().filter(|ch| *ch != '\0').take(NOTE_LIMIT).collect()
+}
+
+pub fn note_from_value(value: &Value) -> String {
+    value.get("note").and_then(|item| item.as_str()).map(clamp_note).unwrap_or_default()
+}
 
 type ChannelResult = Result<Vec<ClientChannel>, String>;
 type ChannelTx = watch::Sender<Option<ChannelResult>>;
@@ -270,6 +280,35 @@ impl DiscordRest {
             )
             .await?;
         Ok(friends_from_relationships(&value, None))
+    }
+
+    /// A note only the signed-in account can see. Discord returns 404 when there is none.
+    pub async fn user_note(&self, user_id: &str) -> Result<String, RestError> {
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/users/@me/notes/{user_id}");
+        let response = self
+            .send(Method::GET, "GET /users/@me/notes/{user.id}", &path, None, &[])
+            .await?;
+        if response.status().as_u16() == 404 {
+            return Ok(String::new());
+        }
+        let value = Self::json_body(response, &self.token).await?;
+        Ok(note_from_value(&value))
+    }
+
+    pub async fn set_user_note(&self, user_id: &str, note: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(user_id)?;
+        let note = clamp_note(note);
+        let path = format!("/users/@me/notes/{user_id}");
+        self.send_json(
+            Method::PUT,
+            "PUT /users/@me/notes/{user.id}",
+            "me",
+            &path,
+            Some(json!({ "note": note })),
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn open_dm(&self, user_id: &str) -> Result<ClientChannel, RestError> {
@@ -931,6 +970,14 @@ mod tests {
     fn reaction_paths_are_encoded() {
         assert_eq!(reaction_emoji_path("🔥", None), "%F0%9F%94%A5");
         assert_eq!(reaction_emoji_path("lark", Some("99")), "lark:99");
+    }
+
+    #[test]
+    fn notes_are_capped_and_read_from_the_payload() {
+        assert_eq!(clamp_note("  hello\0"), "  hello");
+        assert_eq!(clamp_note(&"n".repeat(300)).chars().count(), 256);
+        assert_eq!(note_from_value(&json!({"note": "booth"})), "booth");
+        assert!(note_from_value(&json!({})).is_empty());
     }
 
     #[test]

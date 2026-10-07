@@ -53,7 +53,8 @@ export function voiceHudFrame(roster: VoiceRoster, session: VoiceHudSession | nu
   const people = participantsIn(roster, session.guildId, session.channelId).map((person) => {
     const self = person.userId === session.selfId;
     const deafened = self ? session.deafened || person.selfDeaf || person.serverDeaf : person.selfDeaf || person.serverDeaf;
-    const muted = deafened || (self ? session.muted || person.selfMute || person.serverMute : person.selfMute || person.serverMute);
+    const local = !self && person.localMuted;
+    const muted = deafened || local || (self ? session.muted || person.selfMute || person.serverMute : person.selfMute || person.serverMute);
     return {
       userId: person.userId,
       name: person.name,

@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc as async_mpsc, watch};
 
+use crate::soundboard::SoundMix;
+
+use super::noise::NoiseSuppressor;
 use super::voice::{
     decrypt_voice, encrypt_voice, rtp_header, voice_active, CipherMode, OPUS_SILENCE,
 };
@@ -272,6 +275,7 @@ pub fn start_media(
     transmit: watch::Receiver<bool>,
     volumes: Arc<Mutex<HashMap<String, f32>>>,
     ssrc_users: Arc<Mutex<HashMap<u32, String>>>,
+    board: Arc<Mutex<SoundMix>>,
 ) -> Result<MediaPipe, String> {
     let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
     let (inbound_tx, inbound_rx) = mpsc::sync_channel(64);
@@ -291,6 +295,7 @@ pub fn start_media(
                 transmit,
                 volumes,
                 ssrc_users,
+                board,
                 capture,
                 playback,
                 inbound: inbound_rx,
@@ -317,6 +322,7 @@ struct MediaArgs {
     transmit: watch::Receiver<bool>,
     volumes: Arc<Mutex<HashMap<String, f32>>>,
     ssrc_users: Arc<Mutex<HashMap<u32, String>>>,
+    board: Arc<Mutex<SoundMix>>,
     capture: Arc<Mutex<CaptureBuf>>,
     playback: Arc<Mutex<Playback>>,
     inbound: mpsc::Receiver<Vec<u8>>,
@@ -347,6 +353,7 @@ fn run_media(args: MediaArgs) {
     let mut pcm = [0i16; FRAME_SAMPLES * 2];
     let mut opus_buf = [0u8; 1_500];
     let mut last_sweep = Instant::now();
+    let mut denoiser = NoiseSuppressor::new();
 
     loop {
         if args.cancel.load(Ordering::Relaxed) {
@@ -370,6 +377,7 @@ fn run_media(args: MediaArgs) {
             produce_frame(
                 &args,
                 &controls,
+                &mut denoiser,
                 &mut encoder,
                 &mut pcm,
                 &mut opus_buf,
@@ -402,6 +410,7 @@ fn run_media(args: MediaArgs) {
 fn produce_frame(
     args: &MediaArgs,
     controls: &VoiceAudio,
+    denoiser: &mut NoiseSuppressor,
     encoder: &mut OpusEncoder,
     pcm: &mut [i16],
     opus_buf: &mut [u8],
@@ -413,12 +422,13 @@ fn produce_frame(
     let frame = args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf));
     let have_audio = frame.is_some();
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
-    if controls.noise_suppression {
-        super::voice::suppress_noise(&mut owned);
+    if controls.noise_suppression && have_audio {
+        denoiser.process(&mut owned);
     }
     let transmit = *args.transmit.borrow();
     let active = voice_active(&owned, controls.sensitivity);
-    let talking = transmit && have_audio && (!controls.vad || active);
+    let board = args.board.lock().ok().map(|mut mix| mix.mix_into(&mut owned)).unwrap_or(false);
+    let talking = board || (transmit && have_audio && (!controls.vad || active));
     if talking != *last_talking {
         let _ = args.speaking_out.send(talking);
         *last_talking = talking;

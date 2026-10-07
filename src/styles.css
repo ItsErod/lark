@@ -182,6 +182,9 @@ button.category:hover { color: var(--text); }
   border-radius: 0 4px 4px 0; background: var(--pill);
 }
 .row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.row-copy .row-label { flex: none; }
+.dm-activity, .friend-note { font-size: 12px; font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel-row.is-muted { color: var(--faint); font-style: italic; font-weight: 500; }
 .channel-row.is-voice { opacity: 0.72; }
 .voice-block.has-people .channel-row.is-voice { opacity: 1; }
@@ -366,6 +369,10 @@ button.category:hover { color: var(--text); }
 .member-count { margin: 2px 0 0; color: var(--faint); font-size: 12px; }
 .bot-tag { flex: none; font-size: 10px; letter-spacing: 0.04em; background: var(--accent); color: var(--accent-ink, #1a1815); border-radius: 4px; padding: 1px 4px; }
 .friend-row { width: 100%; text-align: left; border: 0; background: transparent; border-radius: 12px; display: flex; gap: 12px; align-items: center; padding: 8px 10px; color: inherit; }
+.friend-glance { display: grid; gap: 8px; margin-bottom: 12px; }
+.friend-glance-row { display: flex; gap: 8px; overflow: auto; }
+.friend-chip { flex: none; text-align: left; border: 1px solid var(--line); background: var(--bg-2); color: inherit; border-radius: 12px; padding: 8px 10px; display: grid; gap: 2px; min-width: 140px; }
+.friend-chip span { color: var(--faint); font-size: 12px; }
 .friend-row:hover, .member-row:hover { background: var(--bg-3); }
 .friends-board { padding: 18px 20px 32px; display: flex; flex-direction: column; gap: 2px; }
 .profile-layer { position: fixed; inset: 0; z-index: 24; }
@@ -384,7 +391,8 @@ button.category:hover { color: var(--text); }
 .profile-body h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
 .profile-handle, .profile-status, .profile-activity, .profile-since, .profile-section p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
 .profile-status-picker { display: flex; flex-wrap: wrap; gap: 6px; }
-.profile-card input { width: 100%; background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: inherit; }
+.profile-card input, .profile-note { width: 100%; background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: inherit; }
+.profile-note { min-height: 72px; resize: vertical; }
 .role-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .role-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-3); border-radius: 99px; padding: 3px 8px; font-size: 12px; }
 .role-swatch { width: 10px; height: 10px; border-radius: 99px; display: inline-block; }
@@ -609,6 +617,10 @@ kbd, .kbd { font-family: var(--mono); background: var(--bg-0); border-radius: 6p
 .voice-person.is-speaking .speaking-dot { color: var(--ok); }
 .speaking-dot { font-size: 12px; color: var(--faint); min-width: 64px; }
 .voice-person input, .voice-sense input { flex: 1; }
+.voice-mix { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 168px; }
+.voice-person.is-local-muted { opacity: 0.72; }
+.sound-dock { display: flex; flex-wrap: wrap; gap: 6px; }
+.shortcut-row input[type="range"] { width: 88px; flex: none; }
 .share-stats { margin: 0; color: var(--muted); font-size: 13px; }
 .device { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .device select, .theme-field input, .popout input { background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }

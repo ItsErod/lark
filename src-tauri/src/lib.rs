@@ -37,6 +37,8 @@ struct Shared {
     speaking: watch::Sender<bool>,
     voice_audio: watch::Sender<lark_core::discord::voice_media::VoiceAudio>,
     voice_volumes: Arc<std::sync::Mutex<HashMap<String, f32>>>,
+    sound_mix: Arc<std::sync::Mutex<lark_core::soundboard::SoundMix>>,
+    sound_hotkeys: std::sync::Mutex<Vec<String>>,
     screen_stop: Mutex<Option<watch::Sender<bool>>>,
     screen_dirty: Arc<AtomicBool>,
     clips: clip_rec::ClipEngine,
@@ -122,6 +124,8 @@ pub fn run() {
                 speaking,
                 voice_audio,
                 voice_volumes: Arc::new(std::sync::Mutex::new(HashMap::new())),
+                sound_mix: Arc::new(std::sync::Mutex::new(lark_core::soundboard::SoundMix::new())),
+                sound_hotkeys: std::sync::Mutex::new(Vec::new()),
                 screen_stop: Mutex::new(None),
                 screen_dirty: Arc::new(AtomicBool::new(false)),
                 clips,
@@ -134,6 +138,8 @@ pub fn run() {
             if let Err(err) = install_clip_hotkey(app.handle(), &save_clip) {
                 log::warn!("clip hotkey: {err}");
             }
+            let sound_clips = app.state::<Shared>().config.blocking_lock().soundboard.clips.clone();
+            sync_sound_hotkeys(app.handle(), &sound_clips);
             if let Some(window) = app.get_webview_window("main") {
                 refresh::prefer_native_refresh(&window);
                 let hide = hide_on_close.clone();
@@ -196,6 +202,11 @@ pub fn run() {
             set_voice_transmit,
             set_voice_audio,
             set_voice_volume,
+            play_soundboard,
+            import_sound_clip,
+            delete_sound_clip,
+            fetch_user_note,
+            save_user_note,
             list_audio_devices,
             set_presence,
             hardware_snapshot,
@@ -289,6 +300,7 @@ async fn save_config(app: AppHandle, state: State<'_, Shared>, config: Config) -
     *state.config.lock().await = normalized.clone();
     overlay::sync_hotkey(&app, &normalized.shortcuts.toggle_voice_overlay);
     apply_clip_config(&app, &normalized);
+    sync_sound_hotkeys(&app, &normalized.soundboard.clips);
     Ok(normalized)
 }
 
@@ -958,6 +970,7 @@ async fn join_voice(
     let speaking = state.speaking.subscribe();
     let audio = state.voice_audio.subscribe();
     let volumes = state.voice_volumes.clone();
+    let board = state.sound_mix.clone();
     let slot = state.voice.clone();
     let server_id = guild_id.unwrap_or(channel_id);
     tauri::async_runtime::spawn(async move {
@@ -973,7 +986,7 @@ async fn join_voice(
             return;
         };
         hello.epoch = epoch;
-        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, audio, volumes, move |event| {
+        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, audio, volumes, board, move |event| {
             let payload = match event {
                 lark_core::discord::voice_link::VoiceLinkEvent::Status { state, detail, epoch } => {
                     serde_json::json!({"kind": "voiceLink", "state": state, "detail": detail, "epoch": epoch})
@@ -1016,6 +1029,9 @@ async fn wait_for_voice(
 }
 
 async fn stop_voice(state: &Shared) {
+    if let Ok(mut mix) = state.sound_mix.lock() {
+        mix.clear();
+    }
     if let Some(tx) = state.voice_stop.lock().await.take() {
         let _ = tx.send(true);
     }
@@ -1086,6 +1102,159 @@ async fn set_voice_audio(
         output_device,
     });
     Ok(())
+}
+
+fn push_clip(state: &Shared, clip: &lark_core::config::SoundClip) -> Result<(), String> {
+    let bytes = fs::read(&clip.path).map_err(|_| format!("Could not read {}.", clip.name))?;
+    let pcm = lark_core::soundboard::decode_wav_mono(&bytes)?;
+    let gain = (f32::from(clip.volume) / 100.0).clamp(0.0, 2.0);
+    let gained: Vec<f32> = pcm.into_iter().map(|sample| (sample * gain).clamp(-1.0, 1.0)).collect();
+    state
+        .sound_mix
+        .lock()
+        .map_err(|_| "Soundboard is busy.".to_string())?
+        .push(gained);
+    Ok(())
+}
+
+fn queue_sound(state: &Shared, id: &str) -> Result<(), String> {
+    if state.voice_stop.blocking_lock().is_none() {
+        return Err("Join a voice channel to play a sound.".into());
+    }
+    let clip = {
+        let config = state.config.blocking_lock();
+        config.soundboard.clips.iter().find(|clip| clip.id == id).cloned()
+    };
+    let Some(clip) = clip else {
+        return Err("That sound is not on the board.".into());
+    };
+    push_clip(state, &clip)
+}
+
+fn soundboard_dir(config_file: &std::path::Path) -> PathBuf {
+    config_file.parent().unwrap_or_else(|| std::path::Path::new(".")).join("soundboard")
+}
+
+fn window_focused(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false)
+}
+
+fn sync_sound_hotkeys(app: &AppHandle, clips: &[lark_core::config::SoundClip]) {
+    let state = app.state::<Shared>();
+    let mut registered = state.sound_hotkeys.lock().unwrap_or_else(|err| err.into_inner());
+    let shortcuts = app.global_shortcut();
+    for accel in registered.drain(..) {
+        let _ = shortcuts.unregister(accel.as_str());
+    }
+    for clip in clips {
+        if clip.hotkey.trim().is_empty() {
+            continue;
+        }
+        let Ok(accel) = lark_core::clip::global_accelerator(&clip.hotkey) else {
+            continue;
+        };
+        let id = clip.id.clone();
+        match shortcuts.on_shortcut(accel.as_str(), move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed || window_focused(app) {
+                return;
+            }
+            let state = app.state::<Shared>();
+            if let Err(error) = queue_sound(&*state, &id) {
+                log::info!("soundboard: {error}");
+                let _ = app.emit("soundboard", serde_json::json!({ "id": id, "error": error }));
+            }
+        }) {
+            Ok(()) => registered.push(accel),
+            Err(err) => log::warn!("soundboard hotkey: {err}"),
+        }
+    }
+}
+
+#[tauri::command]
+async fn play_soundboard(state: State<'_, Shared>, id: String) -> Result<(), String> {
+    if state.voice_stop.lock().await.is_none() {
+        return Err("Join a voice channel to play a sound.".into());
+    }
+    let clip = {
+        let config = state.config.lock().await;
+        config.soundboard.clips.iter().find(|clip| clip.id == id).cloned()
+    };
+    let Some(clip) = clip else {
+        return Err("That sound is not on the board.".into());
+    };
+    push_clip(&*state, &clip)
+}
+
+#[tauri::command]
+fn import_sound_clip(state: State<'_, Shared>, name: String, bytes: Vec<u8>) -> Result<lark_core::config::SoundClip, String> {
+    let pcm = lark_core::soundboard::decode_wav_mono(&bytes)?;
+    if pcm.is_empty() {
+        return Err("That WAV file has no audio.".into());
+    }
+    let dir = soundboard_dir(&state.paths.config_file);
+    fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    let id = sound_clip_id(&name, bytes.first().copied().unwrap_or(0));
+    let path = dir.join(format!("{id}.wav"));
+    fs::write(&path, &bytes).map_err(|err| err.to_string())?;
+    Ok(lark_core::config::SoundClip {
+        id,
+        name: sound_clip_name(&name),
+        path: path.display().to_string(),
+        hotkey: String::new(),
+        volume: 100,
+    })
+}
+
+fn sound_clip_id(name: &str, salt: u8) -> String {
+    let slug: String = name
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .take(12)
+        .collect();
+    let slug = if slug.is_empty() { "clip".to_string() } else { slug };
+    let tick = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    format!("{slug}-{tick:x}{salt:02x}")
+}
+
+fn sound_clip_name(name: &str) -> String {
+    let stem = std::path::Path::new(name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(name);
+    let cleaned: String = stem.trim().chars().filter(|ch| !ch.is_control()).take(40).collect();
+    if cleaned.is_empty() { "Sound".into() } else { cleaned }
+}
+
+#[tauri::command]
+fn delete_sound_clip(state: State<'_, Shared>, path: String) -> Result<(), String> {
+    let dir = soundboard_dir(&state.paths.config_file);
+    let Ok(dir) = dir.canonicalize() else {
+        return Ok(());
+    };
+    let candidate = std::path::PathBuf::from(path);
+    let Ok(candidate) = candidate.canonicalize() else {
+        return Ok(());
+    };
+    if candidate.starts_with(&dir) && candidate.is_file() {
+        fs::remove_file(candidate).map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn fetch_user_note(state: State<'_, Shared>, user_id: String) -> Result<String, String> {
+    rest(&state).await?.user_note(&user_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn save_user_note(state: State<'_, Shared>, user_id: String, note: String) -> Result<(), String> {
+    rest(&state).await?.set_user_note(&user_id, &note).await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]

@@ -344,21 +344,6 @@ pub fn voice_heartbeat(now_ms: u64, seq_ack: Option<i64>) -> String {
     .to_string()
 }
 
-/// Cheap high-pass gate. Samples under the noise floor are attenuated.
-/// This is not a neural denoiser and it does not cancel echo.
-pub fn suppress_noise(samples: &mut [f32]) {
-    let mut prev = 0f32;
-    for sample in samples.iter_mut() {
-        let high = *sample - prev;
-        prev = *sample;
-        if high.abs() < 0.02 {
-            *sample = high * 0.2;
-        } else {
-            *sample = high;
-        }
-    }
-}
-
 /// Energy detector for voice activity. Higher sensitivity hears quieter speech.
 pub fn voice_active(samples: &[f32], sensitivity: u8) -> bool {
     if samples.is_empty() {
@@ -504,14 +489,4 @@ mod tests {
         assert_eq!(voice_reconnect_delay_ms(8), 20_000);
     }
 
-    #[test]
-    fn noise_gate_quiets_a_hum() {
-        let mut hum = vec![0.005f32; 32];
-        suppress_noise(&mut hum);
-        assert!(hum.iter().all(|sample| sample.abs() < 0.005));
-        let mut spike = vec![0f32; 8];
-        spike[4] = 0.4;
-        suppress_noise(&mut spike);
-        assert!(spike[4].abs() > 0.1);
-    }
 }

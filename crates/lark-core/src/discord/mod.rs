@@ -5,6 +5,7 @@ pub mod remote_auth;
 pub mod rest;
 pub mod shell;
 pub mod types;
+pub mod noise;
 pub mod voice;
 pub mod voice_io;
 pub mod voice_link;

@@ -25,6 +25,7 @@ pub struct Config {
     pub voice: Voice,
     pub desktop: Desktop,
     pub clips: Clips,
+    pub soundboard: Soundboard,
     pub accents: BTreeMap<String, String>,
 }
 
@@ -38,6 +39,7 @@ impl Default for Config {
             voice: Voice::default(),
             desktop: Desktop::default(),
             clips: Clips::default(),
+            soundboard: Soundboard::default(),
             accents: BTreeMap::new(),
         }
     }
@@ -48,6 +50,18 @@ impl Config {
         self.appearance.font_size = self.appearance.font_size.clamp(12, 20);
         self.voice.sensitivity = self.voice.sensitivity.min(100);
         self.voice.overlay_opacity = self.voice.overlay_opacity.clamp(35, 100);
+        self.voice.levels.retain(|id, level| {
+            let snowflake = (5..=22).contains(&id.len()) && id.chars().all(|c| c.is_ascii_digit());
+            if snowflake {
+                level.volume = level.volume.min(200);
+            }
+            snowflake
+        });
+        if self.voice.levels.len() > 200 {
+            let keep: Vec<String> = self.voice.levels.keys().take(200).cloned().collect();
+            self.voice.levels.retain(|id, _| keep.iter().any(|saved| saved == id));
+        }
+        self.soundboard.clips = normalize_clips(self.soundboard.clips);
         self.notifications.keywords = self
             .notifications
             .keywords
@@ -244,6 +258,22 @@ pub struct Voice {
     pub overlay_opacity: u8,
     /// When true, clicks pass through the HUD to the game.
     pub overlay_click_through: bool,
+    /// Playback for other people. Local mute does not tell Discord.
+    pub levels: BTreeMap<String, UserLevel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UserLevel {
+    /// 0–200. 100 is unity.
+    pub volume: u16,
+    pub muted: bool,
+}
+
+impl Default for UserLevel {
+    fn default() -> Self {
+        Self { volume: 100, muted: false }
+    }
 }
 
 impl Default for Voice {
@@ -258,6 +288,7 @@ impl Default for Voice {
             overlay: false,
             overlay_opacity: 70,
             overlay_click_through: true,
+            levels: BTreeMap::new(),
         }
     }
 }
@@ -297,6 +328,88 @@ impl Default for Clips {
     fn default() -> Self {
         Self { game_capture: false }
     }
+}
+
+/// One local WAV mixed into the voice channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SoundClip {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub hotkey: String,
+    /// 0–200. 100 is unity.
+    pub volume: u8,
+}
+
+impl Default for SoundClip {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            path: String::new(),
+            hotkey: String::new(),
+            volume: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Soundboard {
+    pub clips: Vec<SoundClip>,
+}
+
+impl Default for Soundboard {
+    fn default() -> Self {
+        Self { clips: Vec::new() }
+    }
+}
+
+fn clip_id_ok(id: &str) -> bool {
+    let bytes = id.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 41
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes.iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+}
+
+fn normalize_clips(clips: Vec<SoundClip>) -> Vec<SoundClip> {
+    let mut seen_ids = std::collections::BTreeSet::new();
+    let mut seen_keys = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for mut clip in clips {
+        let id = clip.id.trim().to_string();
+        if !clip_id_ok(&id) || !seen_ids.insert(id.clone()) {
+            continue;
+        }
+        let path = clip.path.replace('\0', "").trim().to_string();
+        if path.is_empty() || path.len() > 512 || path.chars().any(|ch| ch.is_control()) {
+            continue;
+        }
+        let mut name: String = clip.name.trim().chars().filter(|ch| !ch.is_control()).take(40).collect();
+        if name.is_empty() {
+            name = "Sound".into();
+        }
+        let hotkey = clip.hotkey.trim();
+        let hotkey = if hotkey.is_empty() {
+            String::new()
+        } else if parse_shortcut(hotkey).is_ok() && seen_keys.insert(hotkey.to_lowercase()) {
+            hotkey.to_string()
+        } else {
+            String::new()
+        };
+        clip.id = id;
+        clip.name = name;
+        clip.path = path;
+        clip.hotkey = hotkey;
+        clip.volume = clip.volume.min(200);
+        out.push(clip);
+        if out.len() == 24 {
+            break;
+        }
+    }
+    out
 }
 
 fn is_hex_color(value: &str) -> bool {
@@ -951,6 +1064,51 @@ mod tests {
     fn mod_key_is_command_on_mac_and_ctrl_on_windows() {
         assert_eq!(mod_means("macos"), "Command");
         assert_eq!(mod_means("windows"), "Ctrl");
+    }
+
+    #[test]
+    fn user_levels_and_soundboard_clips_are_kept() {
+        let cfg = parse_config(
+            r#"
+[voice.levels.100000000000000002]
+volume = 80
+muted = true
+
+[voice.levels.nope]
+volume = 10
+
+[[soundboard.clips]]
+id = "horn"
+name = "Horn"
+path = "/tmp/horn.wav"
+hotkey = "mod+shift+1"
+volume = 120
+
+[[soundboard.clips]]
+id = "bad key"
+name = "Nope"
+path = "/tmp/nope.wav"
+hotkey = "mod+shift+2"
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.voice.levels.len(), 1);
+        assert!(cfg.voice.levels["100000000000000002"].muted);
+        assert_eq!(cfg.voice.levels["100000000000000002"].volume, 80);
+        assert_eq!(cfg.soundboard.clips.len(), 1);
+        assert_eq!(cfg.soundboard.clips[0].hotkey, "mod+shift+1");
+        assert_eq!(cfg.soundboard.clips[0].volume, 120);
+        let cleared = parse_config(
+            r#"
+[[soundboard.clips]]
+id = "horn"
+name = "Horn"
+path = "/tmp/horn.wav"
+hotkey = "!!!"
+"#,
+        )
+        .unwrap();
+        assert!(cleared.soundboard.clips[0].hotkey.is_empty());
     }
 
     #[test]

@@ -1,4 +1,5 @@
-import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel } from "./types";
+import { sanitizeClips } from "./soundboard";
+import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
 
 export function defaultConfig(): AppConfig {
   return {
@@ -48,7 +49,9 @@ export function defaultConfig(): AppConfig {
       overlay: false,
       overlay_opacity: 70,
       overlay_click_through: true,
+      levels: {},
     },
+    soundboard: { clips: [] },
     desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240, hardware_status: false },
     clips: { game_capture: false },
     accents: {},
@@ -111,7 +114,9 @@ export function sanitizeConfig(input: unknown): AppConfig {
       base.voice.overlay_opacity = Math.min(100, Math.max(35, Math.round(raw.voice.overlay_opacity)));
     }
     if (typeof raw.voice.overlay_click_through === "boolean") base.voice.overlay_click_through = raw.voice.overlay_click_through;
+    base.voice.levels = sanitizeLevels(raw.voice.levels);
   }
+  base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
   if (typeof raw.clips?.game_capture === "boolean") base.clips.game_capture = raw.clips.game_capture;
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
@@ -129,6 +134,20 @@ export function sanitizeConfig(input: unknown): AppConfig {
     base.accents = accents;
   }
   return base;
+}
+
+function sanitizeLevels(input: unknown): Record<string, UserMix> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, UserMix> = {};
+  for (const [id, value] of Object.entries(input as Record<string, { volume?: number; muted?: boolean }>)) {
+    if (!/^\d{5,22}$/.test(id) || !value || typeof value !== "object") continue;
+    const volume = typeof value.volume === "number" && Number.isFinite(value.volume)
+      ? Math.min(200, Math.max(0, Math.round(value.volume)))
+      : 100;
+    out[id] = { volume, muted: Boolean(value.muted) };
+    if (Object.keys(out).length >= 200) break;
+  }
+  return out;
 }
 
 function sanitizeOverrides(input: unknown): AppConfig["notifications"]["guilds"] {
