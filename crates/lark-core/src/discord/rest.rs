@@ -15,7 +15,7 @@ use crate::ratelimit::{
 };
 use crate::redact::redact;
 
-use super::shell::{invite_code_ok, invite_from_json, ClientInvite};
+use super::shell::{encode_guild_folders, invite_code_ok, invite_from_json, ClientFolder, ClientInvite};
 use super::types::{
     friends_from_relationships, member_to_client, message_to_client, profile_from_value,
     role_to_client, safe_file_name, snowflake_ok, validate_outgoing, ClientChannel, ClientEmoji,
@@ -694,6 +694,22 @@ impl DiscordRest {
         });
         self.send_json(Method::PATCH, &route, guild_id, &path, Some(body))
             .await?;
+        Ok(())
+    }
+
+    /// Write preloaded user settings `guild_folders` (field 14), where the official client stores the rail.
+    pub async fn set_guild_folders(&self, folders: &[ClientFolder]) -> Result<(), RestError> {
+        let settings = encode_guild_folders(folders).map_err(RestError::Message)?;
+        let path = "/users/@me/settings-proto/1";
+        let route = route_key("PATCH", "/users/@me/settings-proto/1", "me");
+        self.send_json(
+            Method::PATCH,
+            &route,
+            "me",
+            path,
+            Some(json!({ "settings": settings })),
+        )
+        .await?;
         Ok(())
     }
 

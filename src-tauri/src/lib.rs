@@ -236,6 +236,7 @@ pub fn run() {
             preview_invite,
             accept_invite,
             set_channel_collapsed,
+            set_guild_folders,
             set_minimize_to_tray,
             set_autostart,
             start_screen_share,
@@ -1474,6 +1475,18 @@ async fn set_channel_collapsed(
     rest(&state)
         .await?
         .set_channel_collapsed(&guild_id, &channel_id, collapsed)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_guild_folders(
+    state: State<'_, Shared>,
+    folders: Vec<lark_core::discord::shell::ClientFolder>,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_guild_folders(&folders)
         .await
         .map_err(|err| err.to_string())
 }

@@ -10,7 +10,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use crate::redact::redact;
 
 use super::shell::{
-    access_from_guild, folders_from_settings, guild_prefs, my_roles_from_merged, read_markers,
+    access_from_guild, folder_snapshot, guild_prefs, my_roles_from_merged, read_markers,
     ClientFolder, ClientGuildAccess, ClientGuildPref,
 };
 use super::types::{
@@ -886,9 +886,9 @@ fn handle_dispatch(
                         mention_count: marker.mention_count,
                     });
                 }
-                let folders = folders_from_settings(&ready.user_settings, ready.user_settings_proto.as_deref());
-                if !folders.is_empty() {
-                    emit(ClientEvent::Folders { folders });
+                let folders = folder_snapshot(&ready.user_settings, ready.user_settings_proto.as_deref());
+                if !folders.folders.is_empty() {
+                    emit(ClientEvent::Folders { folders: folders.folders });
                 }
                 let entries = guild_prefs(&ready.user_guild_settings);
                 if !entries.is_empty() {
@@ -1077,9 +1077,9 @@ fn handle_dispatch(
                 .and_then(|value| value.get("proto"))
                 .and_then(|value| value.as_str())
                 .or_else(|| data.get("proto").and_then(|value| value.as_str()));
-            let folders = folders_from_settings(&Value::Null, encoded);
-            if !folders.is_empty() {
-                emit(ClientEvent::Folders { folders });
+            let folders = folder_snapshot(&Value::Null, encoded);
+            if !folders.folders.is_empty() {
+                emit(ClientEvent::Folders { folders: folders.folders });
             }
             false
         }

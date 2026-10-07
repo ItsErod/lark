@@ -6,6 +6,19 @@ import { rememberEmoji, frecency, EMOJI, type EmojiUse } from "../emoji";
 import { applyMention, mentionHits, mentionQuery, plainPreview, type MentionHit } from "../mentions";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
 import {
+  FOLDER_COLORS,
+  FOLDER_STORAGE_KEY,
+  FolderSync,
+  applyFolderDrop,
+  folderStructureKey,
+  foldersKey,
+  intentFromHit,
+  recolorFolder,
+  renameFolder,
+  type DropIntent,
+  type RailHit,
+} from "../folders";
+import {
   canViewChannel,
   channelFlags,
   dockBadge,
@@ -444,6 +457,11 @@ class LarkApp {
   private statusOpen = false;
   private folders: GuildFolder[] = [];
   private folderOpen: Record<string, boolean> = {};
+  private folderSync: FolderSync | null = null;
+  private folderMenuEl: HTMLElement | null = null;
+  private suppressRailClick = false;
+  private railIntent: DropIntent | null = null;
+  private railDrag: { pointerId: number; kind: "guild" | "folder"; id: string; x: number; y: number; moved: boolean } | null = null;
   private collapsedCats = new Set<string>();
   private catSeeded = false;
   private markers: Record<string, ReadMarker> = {};
@@ -486,6 +504,11 @@ class LarkApp {
     this.extraThemeIds = [...this.imported.keys()];
     this.seedUnreads();
     this.folderOpen = readStringMap("lark.folders.v1");
+    const params = new URLSearchParams(location.search);
+    if (!params.has("demo")) {
+      const stored = this.ensureFolderSync().load();
+      if (stored) this.folders = stored.folders;
+    }
     try {
       const cats = JSON.parse(localStorage.getItem("lark.categories.v1") ?? "null");
       if (Array.isArray(cats)) {
@@ -523,7 +546,6 @@ class LarkApp {
     await this.applyTheme();
     this.syncGameEffects();
     this.frames.setCap(this.config.desktop.frame_cap);
-    const params = new URLSearchParams(location.search);
     if (!isTauri() && params.has("notice")) {
       this.tokenNote = "Discord rejected the token (HTTP 401). Lark sent it only to discord.com. It may be expired, revoked, or still wrapped in quotes.";
     }
@@ -632,6 +654,7 @@ class LarkApp {
         this.connection = "Connecting";
         this.beginStartup(true);
         await invoke("connect");
+        if (!this.demo) this.ensureFolderSync().retry();
       }
       if (this.view === "gate" && !this.signInBusy) this.ensureQr();
     } catch (err) {
@@ -657,6 +680,14 @@ class LarkApp {
     this.shell = el("div", "shell");
     this.rail = el("nav", "rail");
     this.rail.setAttribute("aria-label", "Servers");
+    this.rail.addEventListener("pointerdown", (event) => this.onRailPointerDown(event));
+    this.rail.addEventListener("pointermove", (event) => this.onRailPointerMove(event));
+    this.rail.addEventListener("pointerup", (event) => this.onRailPointerUp(event));
+    this.rail.addEventListener("pointercancel", (event) => this.onRailPointerUp(event));
+    this.rail.addEventListener("contextmenu", (event) => this.onRailContextMenu(event));
+    this.root.addEventListener("pointerdown", (event) => {
+      if (this.folderMenuEl && !this.folderMenuEl.contains(event.target as Node)) this.closeFolderMenu();
+    });
     this.channelPane = el("aside", "channels");
     const chat = el("main", "chat");
     this.chatHead = el("header", "chat-head");
@@ -1658,7 +1689,7 @@ class LarkApp {
 
   private railShapeSig(): string {
     const guilds = this.guilds().map((guild) => `${guild.id}:${guild.name}:${guild.iconUrl ?? ""}:${this.guildMuted(guild.id) ? "m" : ""}`).join(",");
-    const folders = this.folders.map((folder) => `${folder.id ?? ""}:${folder.name ?? ""}:${folder.id ? this.folderOpen[folder.id] !== false : true}:${folder.guildIds.join(".")}`).join(";");
+    const folders = this.folders.map((folder) => `${folder.id ?? ""}:${folder.name ?? ""}:${folder.color ?? ""}:${folder.id ? this.folderOpen[folder.id] !== false : true}:${folder.guildIds.join(".")}`).join(";");
     return `${guilds}|${folders}`;
   }
 
@@ -1744,7 +1775,7 @@ class LarkApp {
     servers.setAttribute("aria-label", "Server list");
     const entries = layoutRail(this.guilds().map((guild) => guild.id), this.folders);
     for (const entry of entries) {
-      if (entry.kind === "guild") this.appendServerButton(servers, entry.guildId);
+      if (entry.kind === "guild") this.appendServerButton(servers, entry.guildId, null);
       else this.appendFolder(servers, entry);
     }
     const settings = el("button", "rail-button");
@@ -1780,19 +1811,20 @@ class LarkApp {
       button.classList.add("has-unread");
       button.append(el("span", "badge", String(badge.mentions)));
     } else if (badge.unread) button.classList.add("has-unread");
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      if (this.consumeRailClick(event)) return;
       this.folderOpen[entry.id] = !open;
       localStorage.setItem("lark.folders.v1", JSON.stringify(this.folderOpen));
       this.paintRail();
     });
     wrap.append(button);
     if (open) {
-      for (const guildId of entry.guildIds) this.appendServerButton(wrap, guildId);
+      for (const guildId of entry.guildIds) this.appendServerButton(wrap, guildId, entry.id);
     }
     parent.append(wrap);
   }
 
-  private appendServerButton(parent: HTMLElement, guildId: string) {
+  private appendServerButton(parent: HTMLElement, guildId: string, folderId: string | null) {
     const guild = this.guilds().find((item) => item.id === guildId);
     if (!guild) return;
     const selected = guild.id === this.guildId;
@@ -1800,6 +1832,7 @@ class LarkApp {
     const button = el("button", `server-button${selected ? " is-selected" : ""}${muted ? " is-muted" : ""}`);
     button.type = "button";
     button.dataset.guild = guild.id;
+    if (folderId) button.dataset.inFolder = folderId;
     button.title = muted ? `${guild.name} (muted)` : guild.name;
     button.setAttribute("aria-label", guild.name);
     const face = el("span", "server-face");
@@ -1829,8 +1862,256 @@ class LarkApp {
       button.classList.add("has-unread");
       button.append(el("span", "badge", String(badge.mentions)));
     } else if (badge.count) button.classList.add("has-unread");
-    button.addEventListener("click", () => this.selectGuild(guild.id));
+    button.addEventListener("click", (event) => {
+      if (this.consumeRailClick(event)) return;
+      this.selectGuild(guild.id);
+    });
     parent.append(button);
+  }
+
+  private ensureFolderSync(): FolderSync {
+    if (this.folderSync) return this.folderSync;
+    this.folderSync = new FolderSync({
+      read: () => localStorage.getItem(FOLDER_STORAGE_KEY),
+      write: (raw) => localStorage.setItem(FOLDER_STORAGE_KEY, raw),
+      send: async (folders) => {
+        if (this.demo || !isTauri()) throw new Error("offline");
+        await invoke("set_guild_folders", { folders });
+      },
+      schedule: (ms, fn) => window.setTimeout(fn, ms),
+      cancel: (id) => window.clearTimeout(id),
+      onError: () => this.toast("Servers", "Discord didn't save the server order. Lark kept it on this device."),
+    });
+    return this.folderSync;
+  }
+
+  private consumeRailClick(event: Event): boolean {
+    if (!this.suppressRailClick) return false;
+    this.suppressRailClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
+
+  private commitFolders(next: GuildFolder[]) {
+    if (foldersKey(next) === foldersKey(this.folders)) return;
+    const structural = folderStructureKey(next) !== folderStructureKey(this.folders);
+    this.folders = next;
+    if (!structural && this.rail.querySelector("[data-guild]")) {
+      this.railShape = this.railShapeSig();
+      this.patchFolderLabels();
+    } else this.paintRail();
+    if (this.demo) return;
+    this.ensureFolderSync().edit(next);
+  }
+
+  private patchFolderLabels() {
+    for (const button of this.rail.querySelectorAll<HTMLElement>("[data-folder]")) {
+      const folder = this.folders.find((item) => item.id === button.dataset.folder);
+      if (!folder?.id) continue;
+      const name = folder.name?.trim() || "Folder";
+      const open = this.folderOpen[folder.id] !== false;
+      button.title = name;
+      button.setAttribute("aria-label", `${name} folder`);
+      const face = button.querySelector<HTMLElement>(".server-face");
+      if (face) {
+        face.textContent = open ? "–" : name.slice(0, 2).toUpperCase();
+        if (folder.color) face.style.background = folder.color;
+        else face.style.removeProperty("background");
+      }
+      const wrap = button.closest<HTMLElement>(".folder");
+      if (folder.color) wrap?.style.setProperty("--folder", folder.color);
+      else wrap?.style.removeProperty("--folder");
+    }
+    for (const swatch of this.folderMenuEl?.querySelectorAll<HTMLElement>(".folder-swatch") ?? []) {
+      swatch.classList.toggle("is-on", swatch.dataset.color === (this.folderMenuEl?.dataset.color ?? ""));
+    }
+  }
+
+  private onRailPointerDown(event: PointerEvent) {
+    if (this.suppressRailClick) this.suppressRailClick = false;
+    if (event.button !== 0) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLElement>(".rail-scroll .server-button");
+    if (!button) return;
+    const folderId = button.dataset.folder;
+    const guildId = button.dataset.guild;
+    if (!folderId && !guildId) return;
+    this.railDrag = {
+      pointerId: event.pointerId,
+      kind: folderId ? "folder" : "guild",
+      id: folderId || guildId || "",
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+    };
+    this.railIntent = null;
+  }
+
+  private onRailPointerMove(event: PointerEvent) {
+    const drag = this.railDrag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.moved) {
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      if (dx * dx + dy * dy < 25) return;
+      drag.moved = true;
+      this.rail.setPointerCapture(event.pointerId);
+      this.rail.classList.add("is-reordering");
+      this.closeFolderMenu();
+      const selector = drag.kind === "folder" ? `[data-folder="${CSS.escape(drag.id)}"]` : `[data-guild="${CSS.escape(drag.id)}"]`;
+      this.rail.querySelector(selector)?.classList.add("is-dragging");
+    }
+    this.cueRail(event.clientY);
+  }
+
+  private onRailPointerUp(event: PointerEvent) {
+    const drag = this.railDrag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const moved = drag.moved;
+    const intent = this.railIntent;
+    if (this.rail.hasPointerCapture(event.pointerId)) this.rail.releasePointerCapture(event.pointerId);
+    this.railDrag = null;
+    this.railIntent = null;
+    this.clearRailCue();
+    if (!moved || !intent) return;
+    this.suppressRailClick = true;
+    this.commitFolders(applyFolderDrop(this.guilds().map((guild) => guild.id), this.folders, { kind: drag.kind, id: drag.id }, intent, Date.now()));
+  }
+
+  private railHits(): RailHit[] {
+    const scroll = this.rail.querySelector(".rail-scroll");
+    if (!scroll) return [];
+    const hits: RailHit[] = [];
+    for (const button of scroll.querySelectorAll<HTMLElement>(".server-button")) {
+      const rect = button.getBoundingClientRect();
+      if (button.dataset.folder) {
+        hits.push({ role: "folder", guildId: null, folderId: button.dataset.folder, top: rect.top, bottom: rect.bottom });
+      } else if (button.dataset.guild) {
+        hits.push({ role: "guild", guildId: button.dataset.guild, folderId: button.dataset.inFolder ?? null, top: rect.top, bottom: rect.bottom });
+      }
+    }
+    return hits;
+  }
+
+  private cueRail(clientY: number) {
+    const drag = this.railDrag;
+    if (!drag?.moved) return;
+    const hits = this.railHits();
+    const intent = intentFromHit(hits, clientY, { kind: drag.kind, id: drag.id });
+    this.railIntent = intent;
+    const scroll = this.rail.querySelector<HTMLElement>(".rail-scroll");
+    if (!scroll) return;
+    scroll.querySelectorAll(".is-drop-target").forEach((node) => node.classList.remove("is-drop-target"));
+    const line = this.ensureDropLine(scroll);
+    if (!intent || intent.kind === "onto-guild" || intent.kind === "into-folder") {
+      line.hidden = true;
+      if (intent?.kind === "onto-guild") scroll.querySelector(`[data-guild="${CSS.escape(intent.guildId)}"]`)?.classList.add("is-drop-target");
+      else if (intent?.kind === "into-folder") scroll.querySelector(`[data-folder="${CSS.escape(intent.folderId)}"]`)?.classList.add("is-drop-target");
+      return;
+    }
+    const edge = this.dropEdge(intent, hits, scroll);
+    if (edge == null) {
+      line.hidden = true;
+      return;
+    }
+    line.hidden = false;
+    line.style.top = `${edge}px`;
+  }
+
+  private dropEdge(intent: DropIntent, hits: RailHit[], scroll: HTMLElement): number | null {
+    const rect = scroll.getBoundingClientRect();
+    const toContent = (viewport: number) => viewport - rect.top + scroll.scrollTop;
+    if (intent.kind === "end") {
+      const last = hits[hits.length - 1];
+      return last ? toContent(last.bottom) + 4 : 4;
+    }
+    const hit = hits.find((item) => {
+      if (intent.kind === "before-folder" || intent.kind === "after-folder") return item.role === "folder" && item.folderId === intent.folderId;
+      if (intent.kind === "before-guild" || intent.kind === "after-guild") return item.role === "guild" && item.guildId === intent.guildId;
+      return false;
+    });
+    if (!hit) return null;
+    const before = intent.kind === "before-folder" || intent.kind === "before-guild";
+    return toContent(before ? hit.top : hit.bottom) - 5;
+  }
+
+  private ensureDropLine(scroll: HTMLElement): HTMLElement {
+    let line = scroll.querySelector<HTMLElement>(".rail-drop-line");
+    if (!line) {
+      line = el("div", "rail-drop-line");
+      line.setAttribute("aria-hidden", "true");
+      scroll.append(line);
+    }
+    return line;
+  }
+
+  private clearRailCue() {
+    this.rail.classList.remove("is-reordering");
+    this.rail.querySelectorAll(".is-drop-target, .is-dragging").forEach((node) => node.classList.remove("is-drop-target", "is-dragging"));
+    this.rail.querySelector(".rail-drop-line")?.remove();
+  }
+
+  private onRailContextMenu(event: MouseEvent) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLElement>("[data-folder]");
+    const folderId = button?.dataset.folder;
+    if (!folderId) return;
+    event.preventDefault();
+    this.openFolderMenu(folderId, event.clientX, event.clientY);
+  }
+
+  private openFolderMenu(folderId: string, x: number, y: number) {
+    this.closeFolderMenu();
+    const folder = this.folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    const menu = el("div", "folder-menu");
+    menu.dataset.folder = folderId;
+    menu.dataset.color = folder.color ?? "";
+    menu.setAttribute("role", "dialog");
+    menu.setAttribute("aria-label", "Folder settings");
+    const input = el("input");
+    input.value = folder.name ?? "";
+    input.placeholder = "Folder name";
+    input.maxLength = 80;
+    input.setAttribute("aria-label", "Folder name");
+    input.addEventListener("input", () => this.commitFolders(renameFolder(this.folders, folderId, input.value)));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === "Escape") {
+        event.preventDefault();
+        this.closeFolderMenu();
+      }
+      event.stopPropagation();
+    });
+    const colors = el("div", "folder-colors");
+    for (const color of FOLDER_COLORS) {
+      const swatch = el("button", "folder-swatch");
+      swatch.type = "button";
+      swatch.dataset.color = color ?? "";
+      swatch.title = color ?? "Default";
+      swatch.setAttribute("aria-label", color ? `Color ${color}` : "Default color");
+      swatch.style.background = color ?? "var(--bg-4)";
+      if ((folder.color ?? "") === (color ?? "")) swatch.classList.add("is-on");
+      swatch.addEventListener("click", () => {
+        menu.dataset.color = color ?? "";
+        this.commitFolders(recolorFolder(this.folders, folderId, color));
+      });
+      colors.append(swatch);
+    }
+    menu.append(el("p", "folder-menu-label", "Folder"), input, colors);
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 232))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - 140))}px`;
+    document.body.append(menu);
+    this.folderMenuEl = menu;
+    input.focus();
+    input.select();
+  }
+
+  private closeFolderMenu() {
+    this.folderMenuEl?.remove();
+    this.folderMenuEl = null;
   }
 
   private guildBadge(guildId: string): { count: number; mentions: number } {
@@ -5534,10 +5815,13 @@ class LarkApp {
       this.paintRail();
       this.syncBadge();
     } else if (event.kind === "folders") {
+      if (this.demo || this.railDrag) return;
       const folders = ((event as { folders?: { id?: string | number | null; name?: string | null; color?: string | null; guildIds?: string[] }[] }).folders ?? [])
         .map((folder) => normalizeFolder(folder))
         .filter((folder): folder is GuildFolder => Boolean(folder));
-      if (folders.length) this.folders = folders;
+      if (!folders.length) return;
+      if (!this.ensureFolderSync().acceptRemote(folders)) return;
+      this.folders = folders;
       this.paintRail();
     } else if (event.kind === "guildAccess") {
       const access = (event as { access?: { guildId?: string; owner?: boolean; permissions?: string; roles?: { id: string; permissions: string }[]; myRoles?: string[] } }).access;
