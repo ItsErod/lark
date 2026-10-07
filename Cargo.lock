@@ -2629,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "lark"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "base64 0.22.1",
  "env_logger",
@@ -2651,7 +2651,7 @@ dependencies = [
 
 [[package]]
 name = "lark-core"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "aes-gcm",
  "audiopus_sys",
