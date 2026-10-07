@@ -49,6 +49,11 @@ export function fitAction(bytes: number, limit: number, mode: CompressMode): Fit
   return "ask";
 }
 
+/** How to attach a saved clip. Size follows the account tier, not a fixed 8 MB cap. */
+export function clipAttachAction(bytes: number, premiumType: number | null | undefined, mode: CompressMode): FitAction {
+  return fitAction(bytes, uploadLimitBytes(premiumType), mode);
+}
+
 /** Video bitrate, in bits per second, aimed under the upload limit. */
 export function videoBitrate(durationMs: number, limitBytes: number): number {
   const duration = Math.max(1, durationMs);

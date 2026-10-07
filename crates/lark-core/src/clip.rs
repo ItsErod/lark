@@ -17,13 +17,13 @@ use crate::config::parse_shortcut;
 
 /// How long a clip can reach back.
 pub const CLIP_WINDOW_MS: u64 = 30_000;
-/// Samples while a capture mode is on. The file may use a lower rate to stay attachable.
+/// Samples while a capture mode is on. The fallback ring stays small; send-time compression handles the upload limit.
 pub const CLIP_SAMPLE_INTERVAL_MS: u64 = 200;
 /// Longest edge of a stored frame, in pixels.
 pub const CLIP_MAX_EDGE: u32 = 960;
-/// JPEG quality for stored frames. Lower keeps a 30 second clip under the 8 MB attach limit.
+/// JPEG quality for stored frames. The fallback ring stays bounded in memory.
 pub const CLIP_JPEG_QUALITY: u8 = 45;
-/// Bytes of JPEG payload reserved so the MP4 still fits in an 8 MB attachment.
+/// JPEG payload kept for the fallback ring. Upload size is decided when the clip is sent.
 pub const CLIP_MAX_BYTES: usize = 7_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

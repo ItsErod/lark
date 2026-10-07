@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CLIP_DRAG,
+  clipAttachAction,
   compressCopy,
   DEFAULT_UPLOAD_LIMIT,
   demoClips,
@@ -27,6 +28,21 @@ describe("clip library", () => {
     expect(uploadLimitBytes(1)).toBe(50 * 1024 * 1024);
     expect(uploadLimitBytes(3)).toBe(50 * 1024 * 1024);
     expect(uploadLimitBytes(2)).toBe(NITRO_LIMIT);
+  });
+
+  it("attaches an 8 MB clip and compresses only past the account tier", () => {
+    const eight = 8 * 1024 * 1024;
+    expect(clipAttachAction(eight, 0, "never")).toBe("send");
+    expect(clipAttachAction(eight, 0, "ask")).toBe("send");
+    const twelve = 12 * 1024 * 1024;
+    expect(clipAttachAction(twelve, 0, "ask")).toBe("ask");
+    expect(clipAttachAction(twelve, 0, "always")).toBe("compress");
+    expect(clipAttachAction(twelve, 0, "never")).toBe("block");
+    expect(clipAttachAction(twelve, 2, "never")).toBe("send");
+    const sixty = 60 * 1024 * 1024;
+    expect(clipAttachAction(sixty, 1, "always")).toBe("compress");
+    expect(clipAttachAction(sixty, 3, "ask")).toBe("ask");
+    expect(clipAttachAction(sixty, 2, "never")).toBe("send");
   });
 
   it("asks, always compresses, or refuses when a clip is over the limit", () => {
