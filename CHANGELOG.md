@@ -4,6 +4,10 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [2.4.1](https://github.com/ItsErod/lark/releases/tag/v2.4.1) — 2026-10-07
+
+IRC messages use the full column, a message you send shows up once, and joining a voice channel completes the DAVE handshake instead of staying on reconnecting.
+
 ## [2.4.0](https://github.com/ItsErod/lark/releases/tag/v2.4.0) — 2026-10-07
 
 A startup splash covers the window while the first connect loads servers and opens the last channel. Calls add per-person volume and a local mute, RNNoise on the microphone, and a soundboard that plays local WAV clips; profile notes stay on the Discord account, and friends who are in a game or listening to something show that activity. The voice HUD can show RAM, CPU, and FPS, Game Mode and a profile per detected game quiet the shell while a game is in front, and messages add a saved list, one-time reminders, scheduled send, streamer mode, and drafts encrypted with a key in the macOS Keychain or Windows Credential Manager.
