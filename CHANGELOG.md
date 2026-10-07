@@ -4,13 +4,9 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
-## [2.4.0] — unreleased
+## [2.4.0](https://github.com/ItsErod/lark/releases/tag/v2.4.0) — 2026-10-07
 
-Wave 1. The voice HUD can show RAM, CPU, and FPS. Ctrl+Shift+P (⌘⇧P on macOS) toggles that strip, and Settings → Voice & Video has the same switch. Game Mode turns on when a game is in front or when you toggle it: animations stop, channel prefetch stops, and the existing polls slow down. Each detected game can remember push-to-talk, its key, and the Game Mode and overlay defaults.
-
-Per-person volume and a local mute in a voice channel, RNNoise on the microphone, and a soundboard that plays local WAV clips into the call. Notes on a profile are saved to the Discord account, and friends who are in a game or listening to something show that activity on the friends list and under direct messages.
-
-Saved messages, reminders, and scheduled send are part of the app. Save on a message keeps it in a list on this device, Remind notifies you once at the time you pick, and Later in the composer queues a send. Ctrl+K (⌘K on macOS) opens those lists and toggles streamer mode. Streamer mode hides emails, tokens, DM previews, and personal info, and it can turn itself on while screen share or the clip buffer is recording. Composer drafts are encrypted with a key in the macOS Keychain or Windows Credential Manager. A leftover plaintext draft is sealed once and then removed.
+A startup splash covers the window while the first connect loads servers and opens the last channel. Calls add per-person volume and a local mute, RNNoise on the microphone, and a soundboard that plays local WAV clips; profile notes stay on the Discord account, and friends who are in a game or listening to something show that activity. The voice HUD can show RAM, CPU, and FPS, Game Mode and a profile per detected game quiet the shell while a game is in front, and messages add a saved list, one-time reminders, scheduled send, streamer mode, and drafts encrypted with a key in the macOS Keychain or Windows Credential Manager.
 
 ## [2.3.1](https://github.com/ItsErod/lark/releases/tag/v2.3.1) — 2026-10-07
 
