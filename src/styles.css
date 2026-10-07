@@ -260,6 +260,35 @@ button.category:hover { color: var(--text); }
 .compact-line { display: flex; gap: 8px; align-items: baseline; }
 .compact-text { min-width: 0; }
 #app[data-density="compact"] .message { grid-template-columns: 64px minmax(0, 1fr); padding-top: 1px; padding-bottom: 1px; }
+/* IRC has no avatar cell. A 56px first track would pin the only child there. */
+.message.is-irc {
+  grid-template-columns: minmax(0, 1fr);
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.message.is-irc .message-body { min-width: 0; width: 100%; }
+.irc-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  width: 100%;
+}
+.irc-line > .gutter {
+  flex: none;
+  width: 4.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.irc-line > .author {
+  flex: none;
+  width: 8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.irc-line > .compact-text { flex: 1 1 auto; min-width: 0; }
 .mention { background: var(--mention-bg); color: var(--mention-fg); border-radius: 3px; padding: 0 2px; font-weight: 500; }
 .mention.is-me { background: var(--accent); color: var(--accent-ink); }
 .inline-code, .codeblock { font-family: var(--mono); }
@@ -657,8 +686,6 @@ html.is-game-mode *::after {
 .sticker img { width: 72px; height: 72px; object-fit: contain; }
 .thread-chip, .discord-time { font-size: 12px; color: var(--muted); }
 .discord-time { background: var(--bg-4); border-radius: 6px; padding: 0 4px; }
-.irc-line { display: flex; gap: 8px; align-items: baseline; }
-.message.is-irc { padding-top: 1px; padding-bottom: 1px; }
 .overlay, .switcher-card, .settings-card { transition: opacity 120ms ease; }
 .head-actions .icon-button { min-width: 32px; }
 

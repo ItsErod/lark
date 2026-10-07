@@ -35,6 +35,33 @@ pub fn note_from_value(value: &Value) -> String {
     value.get("note").and_then(|item| item.as_str()).map(clamp_note).unwrap_or_default()
 }
 
+/// Nonce Discord will echo on MESSAGE_CREATE. Empty, long, or odd values are omitted.
+pub fn usable_nonce(nonce: Option<&str>) -> Option<String> {
+    let text = nonce?.trim();
+    if text.is_empty() || text.len() > 25 {
+        return None;
+    }
+    if !text.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+        return None;
+    }
+    Some(text.to_string())
+}
+
+pub fn outgoing_payload(content: &str, channel_id: &str, reply_to: Option<&str>, nonce: Option<&str>) -> Value {
+    let mut payload = json!({ "content": content });
+    if let Some(reply_to) = reply_to {
+        payload["message_reference"] = json!({
+            "message_id": reply_to,
+            "channel_id": channel_id,
+            "fail_if_not_exists": false
+        });
+    }
+    if let Some(nonce) = usable_nonce(nonce) {
+        payload["nonce"] = Value::String(nonce);
+    }
+    payload
+}
+
 type ChannelResult = Result<Vec<ClientChannel>, String>;
 type ChannelTx = watch::Sender<Option<ChannelResult>>;
 type ChannelRx = watch::Receiver<Option<ChannelResult>>;
@@ -513,6 +540,7 @@ impl DiscordRest {
         channel_id: &str,
         content: &str,
         reply_to: Option<&str>,
+        nonce: Option<&str>,
         files: &[OutFile],
     ) -> Result<ClientMessage, RestError> {
         self.ensure_snowflake(channel_id)?;
@@ -523,14 +551,7 @@ impl DiscordRest {
         validate_outgoing(content, files.len(), total).map_err(|m| RestError::Message(m.into()))?;
         let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
         let path = format!("/channels/{channel_id}/messages");
-        let mut payload = json!({ "content": content });
-        if let Some(reply_to) = reply_to {
-            payload["message_reference"] = json!({
-                "message_id": reply_to,
-                "channel_id": channel_id,
-                "fail_if_not_exists": false
-            });
-        }
+        let payload = outgoing_payload(content, channel_id, reply_to, nonce);
         let response = self
             .send(Method::POST, &route, &path, Some(payload), files)
             .await?;
@@ -970,6 +991,19 @@ mod tests {
     fn reaction_paths_are_encoded() {
         assert_eq!(reaction_emoji_path("🔥", None), "%F0%9F%94%A5");
         assert_eq!(reaction_emoji_path("lark", Some("99")), "lark:99");
+    }
+
+    #[test]
+    fn send_payload_carries_the_nonce() {
+        let payload = outgoing_payload("test", "100000000000000022", None, Some("local-abc"));
+        assert_eq!(payload["content"], "test");
+        assert_eq!(payload["nonce"], "local-abc");
+        assert!(payload.get("message_reference").is_none());
+        let reply = outgoing_payload("test", "100000000000000022", Some("100000000000000001"), Some(" "));
+        assert!(reply.get("nonce").is_none());
+        assert_eq!(reply["message_reference"]["message_id"], "100000000000000001");
+        assert!(outgoing_payload("test", "1", None, Some("no spaces")).get("nonce").is_none());
+        assert!(outgoing_payload("test", "1", None, Some(&"n".repeat(26))).get("nonce").is_none());
     }
 
     #[test]

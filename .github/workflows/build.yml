@@ -33,6 +33,8 @@ jobs:
           cache: npm
       - name: Install frontend dependencies
         run: npm ci
+      - name: Install Chromium for the IRC layout test
+        run: npx playwright install --with-deps chromium
       - name: Frontend tests
         run: npm test
       - uses: dtolnay/rust-toolchain@1.99.0

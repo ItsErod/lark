@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   channelIsBehind,
   firstUnreadId,
+  mergeIncoming,
+  outgoingNonce,
+  sameOutgoing,
   sameReaction,
   shouldGroup,
   snowflakeAfter,
@@ -47,6 +50,40 @@ describe("read markers", () => {
     expect(firstUnreadId(["10"], undefined)).toBeNull();
     expect(channelIsBehind("100002", "100001")).toBe(true);
     expect(channelIsBehind("100001", "100001")).toBe(false);
+  });
+});
+
+describe("outgoing echo", () => {
+  it("keeps one row when the gateway copy and the send response both arrive", () => {
+    const local = { id: "local-1", nonce: "local-1", content: "test", embeds: [] as string[] };
+    const gateway = { id: "900", nonce: "local-1", content: "test", embeds: ["video"] };
+    const rest = { id: "900", nonce: "local-1", content: "test", embeds: ["video"] };
+    let list = mergeIncoming([local], gateway);
+    list = mergeIncoming(list, rest);
+    expect(list).toEqual([gateway]);
+    const raced = mergeIncoming([local, { id: "900", content: "test", embeds: ["video"] }], rest);
+    expect(raced).toHaveLength(1);
+    expect(raced[0].id).toBe("900");
+    expect(raced[0].embeds).toEqual(["video"]);
+  });
+
+  it("does not collapse two sends that only share text", () => {
+    const first = { id: "local-1", nonce: "local-1", content: "test" };
+    const second = { id: "local-2", nonce: "local-2", content: "test" };
+    const list = mergeIncoming(mergeIncoming([], first), second);
+    expect(list.map((item) => item.id)).toEqual(["local-1", "local-2"]);
+    const confirmed = mergeIncoming(list, { id: "901", nonce: "local-2", content: "test" });
+    expect(confirmed.map((item) => item.id)).toEqual(["local-1", "901"]);
+  });
+
+  it("mints a nonce Discord will echo", () => {
+    const first = outgoingNonce(1_700_000_000_000);
+    const second = outgoingNonce(1_700_000_000_000);
+    expect(first.startsWith("local-")).toBe(true);
+    expect(first.length).toBeLessThanOrEqual(25);
+    expect(second).not.toBe(first);
+    expect(sameOutgoing({ id: first, nonce: first }, { id: "55", nonce: first })).toBe(true);
+    expect(sameOutgoing({ id: "55" }, { id: "56" })).toBe(false);
   });
 });
 

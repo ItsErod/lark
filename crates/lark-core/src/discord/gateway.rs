@@ -699,6 +699,7 @@ pub fn invalidate_session(code: u16) -> bool {
 
 /// Discord's hello interval is milliseconds. A missing or tiny value would
 /// heartbeat in a tight loop and get the gateway rate limited.
+/// Game Mode slows theme and hardware polls only. It does not scale this clock.
 pub fn heartbeat_millis(raw: u64) -> u64 {
     raw.clamp(5_000, 120_000)
 }

@@ -1,4 +1,4 @@
-import { channelIsBehind, firstUnreadId, sameReaction, shouldGroup, typingLine } from "../chat";
+import { channelIsBehind, firstUnreadId, mergeIncoming, outgoingNonce, sameOutgoing, sameReaction, shouldGroup, typingLine } from "../chat";
 import { outgoingError } from "../compose";
 import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
@@ -3148,8 +3148,10 @@ class LarkApp {
       }
       this.msgSig = "";
     } else {
+      const localId = outgoingNonce();
       const message: RawMessage = {
-        id: `local-${Date.now()}`,
+        id: localId,
+        nonce: localId,
         channelId: id,
         authorId: this.meId(),
         authorName: this.demo ? "Ethan Park" : this.me.name,
@@ -3167,8 +3169,7 @@ class LarkApp {
           size: file.bytes.byteLength,
         })),
       };
-      history[id] = [...(history[id] ?? []), message];
-      this.pages[id] = [...(this.pages[id] ?? []), message];
+      this.storeEcho(id, message);
       this.scroll = "bottom";
       this.pinnedToBottom = true;
       this.paintMessages();
@@ -3178,22 +3179,22 @@ class LarkApp {
             channelId: id,
             content,
             replyTo: this.reply?.id ?? null,
+            nonce: localId,
             files: this.files.map((file) => ({ name: file.name, mime: file.mime, bytes: Array.from(file.bytes) })),
           }));
-          message.id = sent.id;
-          message.attachments = sent.attachments?.length ? sent.attachments : message.attachments;
-          message.embeds = sent.embeds;
-          message.authorAvatar = sent.authorAvatar;
+          this.storeEcho(id, { ...sent, nonce: sent.nonce || localId });
           this.absorbMessage(sent);
           this.ackChannel(id, sent.id);
           this.msgSig = "";
         } catch (err) {
-          history[id] = (history[id] ?? []).filter((item) => item.id !== message.id);
-          this.pages[id] = (this.pages[id] ?? []).filter((item) => item.id !== message.id);
+          if ((this.pages[id] ?? []).some((item) => item.id === localId)) {
+            this.dropEcho(id, localId);
+            this.msgSig = "";
+            this.paint();
+            this.toast("Couldn't send", err instanceof Error ? err.message : "Discord refused the message.");
+            return;
+          }
           this.msgSig = "";
-          this.paint();
-          this.toast("Couldn't send", err instanceof Error ? err.message : "Discord refused the message.");
-          return;
         }
       }
       this.reply = null;
@@ -4793,8 +4794,10 @@ class LarkApp {
       const message = normalizeMessage(event.message);
       this.absorbMessage(message);
       const bucket = this.pages[message.channelId] ?? [];
-      const known = bucket.some((item) => item.id === message.id);
-      if (!known) this.pages[message.channelId] = [...bucket, message];
+      const known = bucket.some((item) => sameOutgoing(item, message));
+      this.pages[message.channelId] = mergeIncoming(bucket, message);
+      const prior = history[message.channelId];
+      if (prior?.some((item) => sameOutgoing(item, message))) history[message.channelId] = mergeIncoming(prior, message);
       const guildId = message.guildId || this.guildForChannel(message.channelId);
       const kind = this.channelById(message.channelId)?.kind;
       const direct = kind === "dm" || kind === "group" || !guildId;
@@ -7459,30 +7462,44 @@ class LarkApp {
     }
   }
 
+  private storeEcho(channelId: string, message: RawMessage) {
+    history[channelId] = mergeIncoming(history[channelId] ?? [], message);
+    this.pages[channelId] = mergeIncoming(this.pages[channelId] ?? [], message);
+  }
+
+  private dropEcho(channelId: string, localId: string) {
+    const keep = (item: RawMessage) => item.id !== localId && item.nonce !== localId;
+    history[channelId] = (history[channelId] ?? []).filter(keep);
+    this.pages[channelId] = (this.pages[channelId] ?? []).filter(keep);
+  }
+
   private async postPlain(channelId: string, content: string): Promise<boolean> {
+    const localId = outgoingNonce();
     const message: RawMessage = {
-      id: `local-${Date.now()}`,
+      id: localId,
+      nonce: localId,
       channelId,
       authorId: this.meId(),
       authorName: this.demo ? "Ethan Park" : this.me.name,
       content,
       timestamp: new Date().toISOString(),
     };
-    history[channelId] = [...(history[channelId] ?? []), message];
-    this.pages[channelId] = [...(this.pages[channelId] ?? []), message];
+    this.storeEcho(channelId, message);
     if (!this.demo) {
       try {
         const sent = normalizeMessage(await invoke<RawMessage>("send_message", {
           channelId,
           content,
           replyTo: null,
+          nonce: localId,
           files: [],
         }));
-        message.id = sent.id;
+        this.storeEcho(channelId, { ...sent, nonce: sent.nonce || localId });
       } catch {
-        history[channelId] = (history[channelId] ?? []).filter((item) => item !== message);
-        this.pages[channelId] = (this.pages[channelId] ?? []).filter((item) => item !== message);
-        return false;
+        if ((this.pages[channelId] ?? []).some((item) => item.id === localId)) {
+          this.dropEcho(channelId, localId);
+          return false;
+        }
       }
     }
     if (channelId === this.channelId) {
@@ -7836,8 +7853,10 @@ function rgbToHex(value: string): string {
 
 function normalizeMessage(message: RawMessage): RawMessage {
   const kind = message.kind === "reply" || message.kind === "join" || message.kind === "system" ? message.kind : "default";
+  const nonce = message.nonce == null ? "" : String(message.nonce).trim();
   return {
     ...message,
+    nonce: nonce || undefined,
     kind,
     attachments: message.attachments ?? [],
     embeds: message.embeds ?? [],

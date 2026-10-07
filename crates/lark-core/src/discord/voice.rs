@@ -1,10 +1,9 @@
 //! Discord voice transport: UDP discovery, RTP, and the transport ciphers.
 //!
 //! Preferred mode is `aead_aes256_gcm_rtpsize`, then `aead_xchacha20_poly1305_rtpsize`.
-//! XSalsa20 modes are still accepted when a voice server offers nothing newer. AEAD
-//! nonces are a 32-bit counter appended to the packet and padded with zeros. XSalsa
-//! lite uses that same counter; suffix uses 24 random bytes; the plain mode derives
-//! the nonce from the RTP header.
+//! Discord removed the legacy XSalsa20 modes; selecting one closes the gateway with
+//! 4016. AEAD nonces are a 32-bit counter appended to the packet and padded with zeros.
+//! The XSalsa helpers remain so an already-captured packet can still be decoded.
 
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce as AesNonce};
@@ -15,6 +14,9 @@ use xsalsa20poly1305::{Nonce as XSalsaNonce, XSalsa20Poly1305};
 
 pub const OPUS_SILENCE: &[u8] = &[0xF8, 0xFF, 0xFE];
 pub const VOICE_GATEWAY_VERSION: &str = "8";
+/// Highest DAVE protocol version this client can negotiate. Zero means "no DAVE",
+/// which the voice gateway now rejects with close code 4017.
+pub const MAX_DAVE_PROTOCOL_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CipherMode {
@@ -45,14 +47,11 @@ impl CipherMode {
     }
 }
 
-/// Prefer AES-GCM, then XChaCha20. Fall back to XSalsa20 if that is all the server offers.
+/// Prefer AES-GCM, then XChaCha20. XSalsa20 is no longer a voice mode Discord accepts.
 pub fn choose_mode(offered: &[String]) -> Option<CipherMode> {
     const ORDER: &[(&str, CipherMode)] = &[
         ("aead_aes256_gcm_rtpsize", CipherMode::Aes256GcmRtpSize),
         ("aead_xchacha20_poly1305_rtpsize", CipherMode::XChaCha20Poly1305RtpSize),
-        ("xsalsa20_poly1305_lite", CipherMode::XSalsa20Poly1305Lite),
-        ("xsalsa20_poly1305_suffix", CipherMode::XSalsa20Poly1305Suffix),
-        ("xsalsa20_poly1305", CipherMode::XSalsa20Poly1305),
     ];
     ORDER.iter().find_map(|(name, mode)| {
         if offered.iter().any(|item| item == name) {
@@ -287,7 +286,7 @@ pub fn voice_identify(server_id: &str, user_id: &str, session_id: &str, token: &
             "user_id": user_id,
             "session_id": session_id,
             "token": token,
-            "max_dave_protocol_version": 0
+            "max_dave_protocol_version": MAX_DAVE_PROTOCOL_VERSION
         }
     })
     .to_string()
@@ -332,6 +331,109 @@ pub fn voice_resume(server_id: &str, session_id: &str, token: &str, seq_ack: Opt
             "token": token,
             "seq_ack": seq_ack.unwrap_or(-1)
         }
+    })
+    .to_string()
+}
+
+/// Hello's `heartbeat_interval`, in milliseconds.
+///
+/// A zero value uses Discord's documented 41250ms example. The floor only stops
+/// a 0ms clock from spinning; it does not lift a short interval up to 3 seconds.
+/// Game Mode is not an input: slowing this clock drops the voice gateway.
+pub fn voice_heartbeat_interval_ms(hello_ms: u64) -> u64 {
+    if hello_ms == 0 {
+        return 41_250;
+    }
+    hello_ms.clamp(250, 120_000)
+}
+
+/// The interval from Opcode 8 Hello. Ready's `heartbeat_interval` is a legacy
+/// placeholder (often `1`) and must not replace Hello.
+pub fn voice_interval_from_hello(hello_ms: Option<u64>, ready_ms: Option<u64>) -> u64 {
+    let _ready_placeholder = ready_ms;
+    voice_heartbeat_interval_ms(hello_ms.unwrap_or(0))
+}
+
+/// Close codes that will not succeed on another attempt with the same client.
+pub fn voice_close_should_stop(code: u16) -> bool {
+    matches!(code, 4004 | 4011 | 4012 | 4014 | 4016 | 4017 | 4020 | 4021 | 4022)
+}
+
+pub fn voice_close_error(code: u16, reason: &str) -> String {
+    let reason = reason.trim();
+    let detail = if reason.is_empty() {
+        format!("Voice gateway closed ({code})")
+    } else {
+        format!("Voice gateway closed ({code}): {reason}")
+    };
+    if voice_close_should_stop(code) {
+        format!("fatal:{detail}")
+    } else {
+        detail
+    }
+}
+
+pub fn voice_error_should_stop(err: &str) -> bool {
+    err.starts_with("fatal:")
+}
+
+/// Opcode 9 is Resumed. Opcode 13 is another member leaving. Neither ends our session.
+pub fn voice_opcode_ends_session(op: i64) -> bool {
+    let _ = op;
+    false
+}
+
+pub fn dave_protocol_version(description: &serde_json::Value) -> u16 {
+    description
+        .get("dave_protocol_version")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0)
+        .min(u16::MAX as u64) as u16
+}
+
+/// Server binary DAVE frames are `[seq: u16be][opcode][payload]`.
+pub fn parse_dave_server_binary(bytes: &[u8]) -> Option<(u16, u8, &[u8])> {
+    if bytes.len() < 3 {
+        return None;
+    }
+    let seq = u16::from_be_bytes([bytes[0], bytes[1]]);
+    let opcode = bytes[2];
+    if !matches!(opcode, 25 | 27 | 29 | 30) {
+        return None;
+    }
+    Some((seq, opcode, &bytes[3..]))
+}
+
+pub fn dave_key_package_frame(package: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(1 + package.len());
+    frame.push(26);
+    frame.extend_from_slice(package);
+    frame
+}
+
+pub fn dave_commit_welcome_frame(commit: &[u8], welcome: Option<&[u8]>) -> Vec<u8> {
+    let extra = welcome.map(|bytes| bytes.len()).unwrap_or(0);
+    let mut frame = Vec::with_capacity(1 + commit.len() + extra);
+    frame.push(28);
+    frame.extend_from_slice(commit);
+    if let Some(welcome) = welcome {
+        frame.extend_from_slice(welcome);
+    }
+    frame
+}
+
+pub fn dave_transition_ready(transition_id: u16) -> String {
+    serde_json::json!({
+        "op": 23,
+        "d": { "transition_id": transition_id }
+    })
+    .to_string()
+}
+
+pub fn dave_invalid_commit(transition_id: u16) -> String {
+    serde_json::json!({
+        "op": 31,
+        "d": { "transition_id": transition_id }
     })
     .to_string()
 }
@@ -390,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn prefers_aes_then_xchacha_then_xsalsa() {
+    fn prefers_aes_then_xchacha_and_rejects_removed_xsalsa() {
         assert_eq!(
             choose_mode(&["aead_xchacha20_poly1305_rtpsize".into(), "xsalsa20_poly1305".into()]),
             Some(CipherMode::XChaCha20Poly1305RtpSize)
@@ -404,9 +506,10 @@ mod tests {
         );
         assert_eq!(
             choose_mode(&["xsalsa20_poly1305".into(), "xsalsa20_poly1305_lite".into()]),
-            Some(CipherMode::XSalsa20Poly1305Lite)
+            None
         );
-        assert_eq!(choose_mode(&["xsalsa20_poly1305".into()]), Some(CipherMode::XSalsa20Poly1305));
+        assert_eq!(choose_mode(&["xsalsa20_poly1305".into()]), None);
+        assert_eq!(choose_mode(&["xsalsa20_poly1305_suffix".into()]), None);
         assert_eq!(choose_mode(&["nope".into()]), None);
     }
 
@@ -463,6 +566,8 @@ mod tests {
         let identify = voice_identify("g", "u", "s", "tok");
         assert!(identify.contains("\"op\":0"));
         assert!(identify.contains("tok"));
+        assert!(identify.contains("\"max_dave_protocol_version\":1"));
+        assert!(!identify.contains("\"max_dave_protocol_version\":0"));
         let select = select_protocol("203.0.113.8", 50_000, CipherMode::Aes256GcmRtpSize);
         assert!(select.contains("aead_aes256_gcm_rtpsize"));
         assert!(select.contains("\"protocol\":\"udp\""));
@@ -487,6 +592,55 @@ mod tests {
         assert!(voice_active(&quiet, 100));
         assert_eq!(voice_reconnect_delay_ms(0), 1_000);
         assert_eq!(voice_reconnect_delay_ms(8), 20_000);
+    }
+
+    #[test]
+    fn hello_interval_is_not_slowed_or_replaced_by_the_ready_placeholder() {
+        assert_eq!(voice_interval_from_hello(Some(41_250), Some(1)), 41_250);
+        assert_eq!(voice_interval_from_hello(Some(1_000), Some(1)), 1_000);
+        assert_eq!(voice_interval_from_hello(None, Some(1)), 41_250);
+        assert_eq!(voice_heartbeat_interval_ms(1), 250);
+        assert_eq!(voice_heartbeat_interval_ms(0), 41_250);
+        assert_eq!(crate::discord::gateway::heartbeat_millis(41_250), 41_250);
+        assert_eq!(crate::discord::gateway::heartbeat_millis(1_000), 5_000);
+    }
+
+    #[test]
+    fn fatal_voice_closes_stop_and_member_opcodes_do_not() {
+        assert!(voice_close_should_stop(4017));
+        assert!(voice_close_should_stop(4016));
+        assert!(voice_close_should_stop(4014));
+        assert!(voice_close_should_stop(4021));
+        assert!(!voice_close_should_stop(4015));
+        assert!(!voice_close_should_stop(4009));
+        let dave = voice_close_error(4017, "E2EE/DAVE protocol required");
+        assert!(voice_error_should_stop(&dave));
+        assert!(dave.contains("4017"));
+        assert!(!voice_error_should_stop(&voice_close_error(4015, "crashed")));
+        assert!(!voice_opcode_ends_session(9));
+        assert!(!voice_opcode_ends_session(13));
+        assert!(!voice_opcode_ends_session(5));
+    }
+
+    #[test]
+    fn dave_frames_and_session_description_version() {
+        let description = serde_json::json!({"mode": "aead_aes256_gcm_rtpsize", "dave_protocol_version": 1});
+        assert_eq!(dave_protocol_version(&description), 1);
+        assert_eq!(dave_protocol_version(&serde_json::json!({})), 0);
+        let frame = dave_key_package_frame(&[0xAA, 0xBB]);
+        assert_eq!(frame, vec![26, 0xAA, 0xBB]);
+        let commit = dave_commit_welcome_frame(&[1, 2], Some(&[3]));
+        assert_eq!(commit, vec![28, 1, 2, 3]);
+        let ready = dave_transition_ready(0);
+        assert!(ready.contains("\"op\":23"));
+        assert!(ready.contains("\"transition_id\":0"));
+        let invalid = dave_invalid_commit(32);
+        assert!(invalid.contains("\"op\":31"));
+        let mut binary = vec![0x00, 0x0A, 25, 9, 8];
+        assert_eq!(parse_dave_server_binary(&binary), Some((10, 25, &[9, 8][..])));
+        binary[2] = 26;
+        assert!(parse_dave_server_binary(&binary).is_none());
+        assert!(parse_dave_server_binary(&[1, 2]).is_none());
     }
 
 }

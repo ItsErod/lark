@@ -38,7 +38,8 @@ export interface ResolvedGame {
   profile: boolean;
 }
 
-/** How often a repeating task should run. Game Mode stretches the existing clocks. */
+/** How often a repeating UI task should run. Game Mode stretches these clocks only.
+ *  Voice and Discord gateway heartbeats stay on the interval from Hello. */
 export function pollInterval(kind: PollKind, gameMode: boolean): number {
   return gameMode ? GAME_MS[kind] : BASE_MS[kind];
 }

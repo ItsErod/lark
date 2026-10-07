@@ -11,6 +11,7 @@ aes-gcm = "0.10"
 audiopus_sys = { version = "0.2", features = ["static"] }
 chacha20poly1305 = "0.10"
 cpal = "0.15"
+dave = "0.3"
 futures-util = "0.3"
 base64 = "0.22"
 jpeg-encoder = "0.6"

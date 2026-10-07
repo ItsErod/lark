@@ -141,6 +141,8 @@ pub struct DiscordMessage {
     pub thread: Option<DiscordThreadPreview>,
     #[serde(rename = "type", default)]
     pub kind: i32,
+    #[serde(default, deserialize_with = "de_optional_nonce")]
+    pub nonce: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -467,6 +469,8 @@ pub struct ClientMessage {
     pub stickers: Vec<ClientSticker>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread: Option<ClientThread>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -536,6 +540,22 @@ pub struct ClientProfile {
     pub mutual_friends: u32,
     pub bot: bool,
     pub joined_at: String,
+}
+
+fn de_optional_nonce<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value.unwrap_or(serde_json::Value::Null) {
+        serde_json::Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    })
 }
 
 fn de_bitfield<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
@@ -886,6 +906,7 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
                 .unwrap_or_else(|| "Thread".into()),
             count: thread.message_count,
         }),
+        nonce: message.nonce.clone().filter(|nonce| !nonce.is_empty()),
     }
 }
 
@@ -1556,6 +1577,18 @@ mod tests {
         let deleted = r#"{"id":"71","channel_id":"42","type":19,"message_reference":{"message_id":"1"},"referenced_message":null}"#;
         let gone = message_to_client(&serde_json::from_str(deleted).unwrap());
         assert_eq!(gone.reply.as_ref().unwrap().preview, "Message deleted");
+    }
+
+    #[test]
+    fn message_nonce_survives_as_text() {
+        let text = r#"{"id":"9","channel_id":"1","nonce":"local-abc","content":"test"}"#;
+        let client = message_to_client(&serde_json::from_str(text).unwrap());
+        assert_eq!(client.nonce.as_deref(), Some("local-abc"));
+        let number = r#"{"id":"9","channel_id":"1","nonce":42,"content":"test"}"#;
+        let numbered = message_to_client(&serde_json::from_str(number).unwrap());
+        assert_eq!(numbered.nonce.as_deref(), Some("42"));
+        let missing = r#"{"id":"9","channel_id":"1","content":"test"}"#;
+        assert!(message_to_client(&serde_json::from_str(missing).unwrap()).nonce.is_none());
     }
 
     #[test]

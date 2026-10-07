@@ -138,6 +138,8 @@ export interface RawReaction {
 
 export interface RawMessage {
   id: string;
+  /** Matches the optimistic row to MESSAGE_CREATE. Discord echoes this on the send. */
+  nonce?: string | null;
   channelId: string;
   authorId: string;
   authorName: string;
