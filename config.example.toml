@@ -75,7 +75,8 @@ overlay_click_through = true    # clicks pass through to the game
 
 [clips]
 # Main-display buffer for the clip hotkey. Screen share turns the same buffer on.
-# Both off discards it. Files stay in the clips folder until you attach one.
+# Both off discards it. The hotkey writes an MP4 (H.264 and AAC, faststart).
+# Files stay in the clips folder until you attach one.
 game_capture = false
 
 [privacy]

@@ -3,16 +3,18 @@
 
 pub mod cache;
 pub mod clip;
+mod clip_encode;
 pub mod config;
-pub mod soundboard;
 pub mod discord;
 pub mod hardware;
+mod mp4mux;
 pub mod platform;
 pub mod ratelimit;
 pub mod readstate;
 pub mod redact;
 pub mod screen;
 pub mod secretbox;
+pub mod soundboard;
 pub mod token;
 
 pub use config::{global_accelerator, parse_config, Config, ConfigError};

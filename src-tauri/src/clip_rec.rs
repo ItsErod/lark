@@ -193,7 +193,7 @@ impl ClipEngine {
         if let Some(recent) = self.recent_save() {
             return Ok(recent);
         }
-        let clip = {
+        let plan = {
             let buffer = self
                 .inner
                 .buffer
@@ -202,8 +202,9 @@ impl ClipEngine {
             if buffer.is_empty() {
                 return Err(self.empty_reason());
             }
-            buffer.export()?
+            buffer.plan()?
         };
+        let clip = lark_core::clip::encode_clip(&plan)?;
         let _ = std::fs::create_dir_all(&self.inner.dir);
         let name = unique_name(&self.inner.dir);
         let path = self.inner.dir.join(&name);
@@ -213,8 +214,8 @@ impl ClipEngine {
             name,
             path.display().to_string(),
             clip.bytes.len() as u64,
-            clip.frames,
-            clip.span_ms,
+            plan.frames.len() as u32,
+            plan.span_ms,
         );
         *self
             .inner
@@ -341,7 +342,7 @@ fn unique_name(dir: &Path) -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("lark-clip-{millis}.avi")
+    format!("lark-clip-{millis}.mp4")
 }
 
 fn resolve_clip(dir: &Path, name: &str) -> Result<PathBuf, String> {
