@@ -110,8 +110,11 @@ export function renderMessage(
     if (sticker.url) {
       const img = el("img");
       img.alt = sticker.name;
-      img.src = sticker.url;
+      img.decoding = "async";
       img.loading = "lazy";
+      img.width = 72;
+      img.height = 72;
+      img.src = sticker.url;
       chip.append(img);
     }
     chip.append(el("span", "", sticker.name));
@@ -212,6 +215,10 @@ function reactionFace(reaction: ViewMessage["reactions"][number], remoteEmoji: b
   if (!remote) return el("span", "reaction-emoji", reaction.emoji);
   const img = el("img", "emoji");
   img.alt = reaction.emoji;
+  img.decoding = "async";
+  img.loading = "lazy";
+  img.width = 22;
+  img.height = 22;
   img.src = remote;
   img.addEventListener("error", () => img.replaceWith(el("span", "reaction-emoji", reaction.emoji || "emoji")));
   return img;
@@ -292,6 +299,7 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
     video.preload = "metadata";
     video.playsInline = true;
     const loop = /tenor|giphy/i.test(embed.provider ?? "") || /tenor|giphy/i.test(embed.video);
+    reserveMedia(video, embed.videoWidth, embed.videoHeight);
     if (loop) {
       video.muted = true;
       video.loop = true;
@@ -303,7 +311,10 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
   } else if (embed.image || embed.thumbnail) {
     const img = el("img", "embed-image");
     img.alt = "";
-    reserveBox(img, undefined, undefined);
+    img.decoding = "async";
+    const width = embed.image ? embed.imageWidth : undefined;
+    const height = embed.image ? embed.imageHeight : undefined;
+    reserveBox(img, width, height);
     img.src = embed.image || embed.thumbnail || "";
     card.append(img);
   }
@@ -312,17 +323,23 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
   return card;
 }
 
-function reserveBox(img: HTMLImageElement, width?: number, height?: number) {
+function reserveMedia(node: HTMLElement, width?: number, height?: number) {
   if (width && height && width > 0 && height > 0) {
-    img.width = Math.round(width);
-    img.height = Math.round(height);
-    img.style.aspectRatio = `${Math.round(width)} / ${Math.round(height)}`;
-    img.dataset.reserved = "1";
-    img.loading = "lazy";
+    node.dataset.reserved = "1";
+    node.style.aspectRatio = `${Math.round(width)} / ${Math.round(height)}`;
     return;
   }
-  img.dataset.reserved = "0";
-  img.loading = "eager";
+  node.dataset.reserved = "0";
+}
+
+function reserveBox(img: HTMLImageElement, width?: number, height?: number) {
+  img.loading = "lazy";
+  img.decoding = "async";
+  reserveMedia(img, width, height);
+  if (img.dataset.reserved === "1" && width && height) {
+    img.width = Math.round(width);
+    img.height = Math.round(height);
+  }
 }
 
 function inlineNode(source: string, highlight: boolean): HTMLElement {
@@ -428,7 +445,10 @@ function renderInlines(parent: HTMLElement, nodes: Inline[], remoteEmoji: boolea
       if (remote) {
         const img = el("img", "emoji");
         img.alt = `:${node.name}:`;
+        img.decoding = "async";
         img.loading = "lazy";
+        img.width = 22;
+        img.height = 22;
         img.src = remote;
         img.addEventListener("error", () => img.replaceWith(el("span", "emoji-pill", `:${node.name}:`)));
         parent.append(img);

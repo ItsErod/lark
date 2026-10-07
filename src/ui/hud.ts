@@ -54,9 +54,12 @@ function avatar(name: string, id: string, avatarUrl: string | null): HTMLElement
     return node;
   }
   const img = document.createElement("img");
-  img.src = url;
   img.alt = "";
   img.draggable = false;
+  img.decoding = "async";
+  img.width = 22;
+  img.height = 22;
+  img.src = url;
   img.addEventListener("error", () => {
     img.remove();
     node.textContent = initials(name);

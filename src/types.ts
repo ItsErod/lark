@@ -82,6 +82,10 @@ export interface RawEmbed {
   thumbnail?: string | null;
   video?: string | null;
   provider?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  videoWidth?: number | null;
+  videoHeight?: number | null;
 }
 
 export interface RawMention {

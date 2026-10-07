@@ -74,9 +74,11 @@ export function portrait(name: string, id: string, avatarUrl?: string | null, sm
   }
   node.classList.add("has-image");
   const img = document.createElement("img");
-  img.src = url;
   img.alt = "";
   img.draggable = false;
+  img.decoding = "async";
+  img.loading = "lazy";
+  img.src = url;
   img.addEventListener("error", () => {
     img.remove();
     letters();
