@@ -36,6 +36,7 @@ import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
 import { FrameClock } from "../frame";
 import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
+import { prefetchChannelIds } from "../cache";
 import {
   HARDWARE_STORAGE_KEY,
   clampStatus,
@@ -72,12 +73,14 @@ import {
   emptyMemberList,
   groupMembers,
   highestIndex,
+  MEMBER_ROW,
   memberSubtitle,
   rangesForScroll,
   roleColor,
   sortDms,
   sortPeople,
   visibleRows,
+  type PaintedRow,
   type MemberListState,
   type MemberListWire,
   type RoleInfo,
@@ -89,14 +92,12 @@ import {
   capMessages,
   isNearBottom,
   messageListPlan,
-  nextScrollTop,
-  PANEL_SCROLL_SELECTOR,
-  pixelDelta,
   shouldLoadOlder,
 } from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
 import { applyVoiceState, participantsIn, replaceGuildVoice, setSpeaking, setVolume, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
+import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import { renderVoiceHud } from "./hud";
 import { renderMessage } from "./messages";
@@ -203,6 +204,20 @@ class LarkApp {
   private typingTimer = 0;
   private appliedTheme = "";
   private msgSig = "";
+  private messageHeights = new Map<string, number>();
+  private msgStart = 0;
+  private msgEnd = 0;
+  private messageFrame = 0;
+  private channelShape = "";
+  private railShape = "";
+  private railBadges = "";
+  private memberShape = "";
+  private memberPaint: PaintedRow[] | null = null;
+  private memberFrame = 0;
+  private prefetchToken = 0;
+  private pageLoads = new Map<string, Promise<{ messages: RawMessage[]; hasMore: boolean }>>();
+  private warm = new Set<string>();
+  private hudQueued = false;
   private openedAt = 0;
   private tokenNote = "";
   private signInBusy = "";
@@ -367,7 +382,9 @@ class LarkApp {
     this.build();
     await this.loadPlugins();
     await this.applyTheme();
-    window.setInterval(() => void this.applyTheme(), 1000);
+    window.setInterval(() => {
+      if (this.themeOpen || (this.settings && this.section === "appearance")) void this.applyTheme();
+    }, 1000);
     this.frames.setCap(this.config.desktop.frame_cap);
     const params = new URLSearchParams(location.search);
     if (!isTauri() && params.has("notice")) {
@@ -637,36 +654,12 @@ class LarkApp {
         hasMore: Boolean(this.channelId && this.more[this.channelId]),
         sinceOpenMs: performance.now() - this.openedAt,
       })) void this.loadOlder();
+      if (this.messageFrame) return;
+      this.messageFrame = requestAnimationFrame(() => {
+        this.messageFrame = 0;
+        this.syncMessageWindow();
+      });
     }, { passive: true });
-    this.root.addEventListener("wheel", (event) => this.onWheel(event), { passive: false, capture: true });
-  }
-
-  /** Keep the wheel inside the panel under the pointer. The window does not scroll. */
-  private onWheel(event: WheelEvent) {
-    const target = event.target;
-    if (!(target instanceof Element)) {
-      event.preventDefault();
-      return;
-    }
-    const field = target.closest("textarea");
-    if (field instanceof HTMLTextAreaElement && field.scrollHeight > field.clientHeight + 1) return;
-    const scroller = target.closest(PANEL_SCROLL_SELECTOR);
-    if (!(scroller instanceof HTMLElement)) {
-      event.preventDefault();
-      return;
-    }
-    const delta = pixelDelta(event.deltaY, event.deltaMode, scroller.clientHeight);
-    if (!delta) {
-      event.preventDefault();
-      return;
-    }
-    const next = nextScrollTop(scroller.scrollTop, scroller.scrollHeight, scroller.clientHeight, delta);
-    if (next === scroller.scrollTop && scroller.scrollHeight <= scroller.clientHeight + 1) {
-      event.preventDefault();
-      return;
-    }
-    scroller.scrollTop = next;
-    event.preventDefault();
   }
 
   private enterDemo() {
@@ -1173,10 +1166,77 @@ class LarkApp {
     return this.demo ? ME : this.me.id;
   }
 
+  private railShapeSig(): string {
+    const guilds = this.guilds().map((guild) => `${guild.id}:${guild.name}:${guild.iconUrl ?? ""}:${this.guildMuted(guild.id) ? "m" : ""}`).join(",");
+    const folders = this.folders.map((folder) => `${folder.id ?? ""}:${folder.name ?? ""}:${folder.id ? this.folderOpen[folder.id] !== false : true}:${folder.guildIds.join(".")}`).join(";");
+    return `${guilds}|${folders}`;
+  }
+
+  private railBadgeStamp(): string {
+    const homeMentions = this.dms().reduce((sum, dm) => sum + (this.mentions[dm.id] ?? 0), 0);
+    const homeUnread = this.dms().some((dm) => (this.unread[dm.id] ?? 0) > 0 || (this.mentions[dm.id] ?? 0) > 0);
+    const guilds = this.guilds().map((guild) => {
+      const badge = this.guildBadge(guild.id);
+      return `${guild.id}:${badge.mentions}:${badge.count}`;
+    }).join(",");
+    return `${this.guildId ?? ""}|${homeMentions}:${homeUnread ? 1 : 0}|${guilds}`;
+  }
+
+  private patchRail() {
+    const homeMentions = this.dms().reduce((sum, dm) => sum + (this.mentions[dm.id] ?? 0), 0);
+    const homeUnread = this.dms().some((dm) => (this.unread[dm.id] ?? 0) > 0 || (this.mentions[dm.id] ?? 0) > 0);
+    for (const button of this.rail.querySelectorAll<HTMLElement>("[data-guild]")) {
+      const id = button.dataset.guild ?? "";
+      if (id === "home") {
+        button.classList.toggle("is-selected", this.guildId === null);
+        const unread = homeMentions > 0 || (homeUnread && this.guildId !== null);
+        button.classList.toggle("has-unread", unread);
+        this.setBadge(button, homeMentions);
+        continue;
+      }
+      button.classList.toggle("is-selected", id === this.guildId);
+      const badge = this.guildBadge(id);
+      button.classList.toggle("has-unread", badge.mentions > 0 || badge.count > 0);
+      this.setBadge(button, badge.mentions);
+    }
+    for (const button of this.rail.querySelectorAll<HTMLElement>("[data-folder]")) {
+      const folder = this.folders.find((item) => item.id === button.dataset.folder);
+      if (!folder?.guildIds) continue;
+      const badge = folderBadge(folder.guildIds, (guildId) => {
+        const item = this.guildBadge(guildId);
+        return { mentions: item.mentions, unread: item.count };
+      });
+      button.classList.toggle("has-unread", badge.mentions > 0 || badge.unread);
+      this.setBadge(button, badge.mentions);
+    }
+  }
+
+  private setBadge(button: HTMLElement, mentions: number) {
+    const badge = button.querySelector(":scope > .badge");
+    if (mentions > 0) {
+      if (badge) badge.textContent = String(mentions);
+      else button.append(el("span", "badge", String(mentions)));
+      return;
+    }
+    badge?.remove();
+  }
+
   private paintRail() {
+    const shape = this.railShapeSig();
+    if (shape === this.railShape && this.rail.querySelector("[data-guild]")) {
+      const badges = this.railBadgeStamp();
+      if (badges !== this.railBadges) {
+        this.railBadges = badges;
+        this.patchRail();
+      }
+      return;
+    }
+    this.railShape = shape;
+    this.railBadges = this.railBadgeStamp();
     clear(this.rail);
     const home = el("button", `rail-button${this.guildId === null ? " is-selected" : ""}`);
     home.type = "button";
+    home.dataset.guild = "home";
     home.title = "Direct messages";
     home.setAttribute("aria-label", "Direct messages");
     const homeFace = el("span", "server-face");
@@ -1217,6 +1277,7 @@ class LarkApp {
     });
     const button = el("button", `server-button folder-button${open ? " is-open" : ""}`);
     button.type = "button";
+    button.dataset.folder = entry.id;
     button.title = entry.name;
     button.setAttribute("aria-label", `${entry.name} folder`);
     button.setAttribute("aria-expanded", open ? "true" : "false");
@@ -1247,6 +1308,7 @@ class LarkApp {
     const muted = this.guildMuted(guild.id);
     const button = el("button", `server-button${selected ? " is-selected" : ""}${muted ? " is-muted" : ""}`);
     button.type = "button";
+    button.dataset.guild = guild.id;
     button.title = muted ? `${guild.name} (muted)` : guild.name;
     button.setAttribute("aria-label", guild.name);
     const face = el("span", "server-face");
@@ -1254,9 +1316,11 @@ class LarkApp {
     if (iconUrl) {
       button.classList.add("has-icon");
       const img = document.createElement("img");
-      img.src = iconUrl;
       img.alt = "";
       img.draggable = false;
+      img.decoding = "async";
+      img.loading = "lazy";
+      img.src = iconUrl;
       img.addEventListener("error", () => {
         img.remove();
         button.classList.remove("has-icon");
@@ -1343,7 +1407,58 @@ class LarkApp {
     return this.channelsOf(guildId).filter((channel) => this.canSeeChannel(guildId, channel));
   }
 
+  private channelShapeSig(): string {
+    const list = this.guildId ? this.visibleChannels() : this.dms();
+    const bits = list.map((channel) => {
+      const voice = this.guildId && channel.kind === "voice"
+        ? participantsIn(this.voiceRoster, this.guildId, channel.id).map((person) => `${person.userId}${person.selfMute || person.serverMute ? "m" : ""}`).join(".")
+        : "";
+      const muted = this.levelFor(this.guildId && channel.kind !== "dm" && channel.kind !== "group" ? this.guildId : null, channel.id) === "mute" ? "m" : "";
+      const collapsed = this.collapsedCats.has(channel.id) ? "c" : "";
+      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}`;
+    });
+    const me = this.demo ? people[0] : this.me;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.voice?.detail ?? ""}|${bits.join(",")}`;
+  }
+
+  private patchChannelRows() {
+    const me = this.demo ? people[0] : this.me;
+    const dot = this.channelPane.querySelector(".profile-chip i.status");
+    if (dot) dot.className = `status ${me.status ?? "online"}`;
+    const line = this.channelPane.querySelector(".profile-chip .who span");
+    if (line) {
+      const next = me.custom || this.connection;
+      if (line.textContent !== next) line.textContent = next;
+    }
+    const friends = this.channelPane.querySelector<HTMLElement>("[data-friends]");
+    if (friends) {
+      friends.classList.toggle("is-selected", this.friendsOpen && !this.channelId);
+      const online = this.friends.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
+      this.setBadge(friends, online);
+    }
+    for (const node of this.channelPane.querySelectorAll<HTMLElement>("[data-channel]")) {
+      const id = node.dataset.channel ?? "";
+      const mentions = this.mentions[id] ?? 0;
+      const unread = (this.unread[id] ?? 0) > 0 || mentions > 0;
+      const quiet = !unread && Boolean(this.behind[id]);
+      node.classList.toggle("is-selected", id === this.channelId && !this.friendsOpen);
+      node.classList.toggle("is-unread", unread || quiet);
+      this.setBadge(node, mentions);
+      const userId = node.dataset.user;
+      if (!userId) continue;
+      const person = this.directory[userId];
+      const dot = node.querySelector("i.status");
+      if (dot && person) dot.className = `status ${person.status ?? "offline"}`;
+    }
+  }
+
   private paintChannels() {
+    const shape = this.channelShapeSig();
+    if (shape === this.channelShape && this.channelPane.querySelector(".channel-scroll")) {
+      this.patchChannelRows();
+      return;
+    }
+    this.channelShape = shape;
     const kept = this.channelPane.querySelector(".channel-scroll")?.scrollTop ?? 0;
     clear(this.channelPane);
     const head = el("div", "channel-head");
@@ -1353,6 +1468,7 @@ class LarkApp {
     if (!this.guildId) {
       const friends = el("button", `channel-row${this.friendsOpen ? " is-selected" : ""}`);
       friends.type = "button";
+      friends.dataset.friends = "1";
       friends.append(icon(paths.users), el("span", "row-label", "Friends"));
       const online = this.friends.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
       if (online) friends.append(el("span", "badge", String(online)));
@@ -1466,9 +1582,11 @@ class LarkApp {
     const quiet = !unread && Boolean(this.behind[channel.id]);
     const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.kind === "thread" ? " is-thread" : ""}${channel.id === this.channelId ? " is-selected" : ""}${unread || quiet ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}`);
     button.type = "button";
+    button.dataset.channel = channel.id;
     if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : channel.kind === "announcement" ? paths.bell : paths.hash));
     else {
       const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
+      if (recipient) button.dataset.user = recipient.id;
       const known = recipient ? this.directory[recipient.id] : undefined;
       const wrap = el("div", "avatar-wrap");
       wrap.append(
@@ -1497,6 +1615,7 @@ class LarkApp {
   }
 
   private async openChannel(id: string) {
+    this.prefetchToken += 1;
     const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
     if (perf) perf.lastSwitch = -1;
     const started = performance.now();
@@ -1571,7 +1690,18 @@ class LarkApp {
     if (perf) perf.lastSwitch = performance.now() - started;
   }
 
-  private async livePage(id: string, before?: string): Promise<{ messages: RawMessage[]; hasMore: boolean }> {
+  private livePage(id: string, before?: string): Promise<{ messages: RawMessage[]; hasMore: boolean }> {
+    const key = before ? `${id}:before:${before}` : id;
+    const pending = this.pageLoads.get(key);
+    if (pending) return pending;
+    const task = this.fetchLivePage(id, before).finally(() => {
+      if (this.pageLoads.get(key) === task) this.pageLoads.delete(key);
+    });
+    this.pageLoads.set(key, task);
+    return task;
+  }
+
+  private async fetchLivePage(id: string, before?: string): Promise<{ messages: RawMessage[]; hasMore: boolean }> {
     const batch = await invoke<RawMessage[]>("fetch_messages", { channelId: id, before });
     const messages = [...batch].reverse().map(normalizeMessage);
     for (const message of messages) this.absorbMessage(message);
@@ -1762,20 +1892,25 @@ class LarkApp {
     if (!(column instanceof HTMLElement)) return;
     const heights = new Map<Element, number>();
     const nodes = [column, ...column.querySelectorAll("img")].filter((node): node is HTMLElement => node instanceof HTMLElement);
-    for (const node of nodes) heights.set(node, node.offsetHeight);
     this.layoutObserver = new ResizeObserver((entries) => {
       if (this.scrollLock > 0) {
         for (const entry of entries) {
-          if (entry.target instanceof HTMLElement) heights.set(entry.target, entry.target.offsetHeight);
+          if (entry.target instanceof HTMLElement) heights.set(entry.target, entry.contentRect.height);
         }
         return;
       }
       for (const entry of entries) {
         const node = entry.target;
         if (!(node instanceof HTMLElement)) continue;
-        const next = node.offsetHeight;
-        const prev = heights.get(node) ?? next;
+        const next = entry.contentRect.height;
+        const prev = heights.get(node);
         heights.set(node, next);
+        if (prev === undefined) continue;
+        const wrap = node.closest(".message-wrap");
+        if (wrap instanceof HTMLElement && wrap.dataset.mid) {
+          const measured = wrap.offsetHeight;
+          if (measured > 0) this.messageHeights.set(wrap.dataset.mid, measured);
+        }
         const delta = next - prev;
         if (Math.abs(delta) < 1) continue;
         if (node === column || this.pinnedToBottom) {
@@ -1864,7 +1999,79 @@ class LarkApp {
       .join("~");
   }
 
-  private appendMessages(parent: HTMLElement, list: RawMessage[], from: number, channelId: string) {
+  private messageSpan(list: RawMessage[], scrollTop: number, pinned: boolean): SpanWindow {
+    const heights = new Array<number>(list.length);
+    for (let index = 0; index < list.length; index += 1) heights[index] = this.messageHeights.get(list[index].id) ?? 0;
+    const focus = this.jumpId ? list.findIndex((message) => message.id === this.jumpId) : -1;
+    return spanWindow(
+      list.length,
+      heights,
+      scrollTop,
+      this.messagesEl.clientHeight || 640,
+      rowEstimate(this.config.appearance.density),
+      6,
+      pinned,
+      focus,
+    );
+  }
+
+  private spacerBox(list: RawMessage[], start: number, end: number): { top: number; bottom: number } {
+    const row = rowEstimate(this.config.appearance.density);
+    let top = 0;
+    for (let index = 0; index < start; index += 1) top += this.messageHeights.get(list[index].id) || row;
+    let bottom = 0;
+    for (let index = end; index < list.length; index += 1) bottom += this.messageHeights.get(list[index].id) || row;
+    return { top, bottom };
+  }
+
+  private applySpacers(column: HTMLElement, box: { top: number; bottom: number }) {
+    const spacers = column.querySelectorAll(":scope > .virtual-spacer");
+    const top = spacers[0];
+    const bottom = spacers[1];
+    if (top instanceof HTMLElement) top.style.height = `${box.top}px`;
+    if (bottom instanceof HTMLElement) bottom.style.height = `${box.bottom}px`;
+  }
+
+  private measureHost(host: HTMLElement) {
+    for (const node of host.querySelectorAll<HTMLElement>(":scope > .message-wrap")) {
+      const mid = node.dataset.mid;
+      if (!mid) continue;
+      const height = node.offsetHeight;
+      if (height > 0) this.messageHeights.set(mid, height);
+    }
+  }
+
+  private syncMessageWindow() {
+    if (this.scrollLock > 0) return;
+    const id = this.channelId;
+    const list = id ? this.pages[id] ?? [] : [];
+    if (!id || list.length <= VIRTUAL_MIN) return;
+    const column = this.messagesEl.querySelector(":scope > .message-column");
+    const host = column?.querySelector(":scope > .virtual-host");
+    if (!(column instanceof HTMLElement) || !(host instanceof HTMLElement)) return;
+    const span = this.messageSpan(list, this.messagesEl.scrollTop, this.pinnedToBottom);
+    if (span.start === this.msgStart && span.end === this.msgEnd) return;
+    const anchor = host.querySelector<HTMLElement>(":scope > .message-wrap");
+    const anchorId = anchor?.dataset.mid ?? "";
+    const before = anchor ? anchor.getBoundingClientRect().top : 0;
+    const prevTop = Number.parseFloat((column.querySelector(":scope > .virtual-spacer") as HTMLElement | null)?.style.height || "0") || 0;
+    this.lockScroll(() => {
+      clear(host);
+      this.appendMessages(host, list, span.start, id, span.end);
+      this.msgStart = span.start;
+      this.msgEnd = span.end;
+      this.measureHost(host);
+      const box = this.spacerBox(list, span.start, span.end);
+      this.applySpacers(column, box);
+      const next = anchorId ? host.querySelector<HTMLElement>(`[data-mid="${anchorId}"]`) : null;
+      if (this.pinnedToBottom) this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      else if (next) this.messagesEl.scrollTop += next.getBoundingClientRect().top - before;
+      else this.messagesEl.scrollTop += box.top - prevTop;
+    });
+    this.watchMessageLayout();
+  }
+
+  private appendMessages(parent: HTMLElement, list: RawMessage[], from: number, channelId: string, to = list.length) {
     const ctx = this.renderContext();
     const plugins = this.enabledPlugins();
     const hidden = hiddenIds(this.pack.hiddenAuthors);
@@ -1876,7 +2083,7 @@ class LarkApp {
       lastDay = new Date(prior.timestamp).toDateString();
       previous = { authorId: prior.authorId, timestamp: prior.timestamp, kind: prior.kind };
     }
-    for (let index = from; index < list.length; index += 1) {
+    for (let index = from; index < to; index += 1) {
       const message = list[index];
       const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
         settings,
@@ -1932,6 +2139,7 @@ class LarkApp {
         ...this.messageChrome(message, view),
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
+      node.dataset.mid = message.id;
       parent.append(node);
       lastDay = day;
       previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
@@ -1981,7 +2189,26 @@ class LarkApp {
     const column = this.messagesEl.querySelector(":scope > .message-column");
     const previousBody = list.length > 1 ? this.messageBody(list.slice(0, -1)) : "";
     const plan = messageListPlan(this.msgSig, structural, previousBody, column instanceof HTMLElement);
-    if (plan === "append" && column instanceof HTMLElement && id && list.length) {
+    const host = column?.querySelector(":scope > .virtual-host");
+    if (plan === "append" && column instanceof HTMLElement && host instanceof HTMLElement && id && list.length) {
+      this.noteMessagePaint("append");
+      this.lockScroll(() => {
+        const span = this.messageSpan(list, metrics.top, intent === "bottom" || metrics.near);
+        if (span.start !== this.msgStart || span.end !== this.msgEnd) {
+          clear(host);
+          this.appendMessages(host, list, span.start, id, span.end);
+          this.msgStart = span.start;
+          this.msgEnd = span.end;
+          this.measureHost(host);
+        }
+        this.applySpacers(column, this.spacerBox(list, this.msgStart, this.msgEnd));
+        this.placeScroll(metrics, intent);
+      });
+      this.watchMessageLayout();
+      this.msgSig = sig;
+      return;
+    }
+    if (plan === "append" && column instanceof HTMLElement && id && list.length && list.length <= VIRTUAL_MIN) {
       this.noteMessagePaint("append");
       this.lockScroll(() => {
         this.appendMessages(column, list, list.length - 1, id);
@@ -2019,11 +2246,38 @@ class LarkApp {
       } else if (id) {
         const board = this.forumBoard(id);
         if (board) this.messagesEl.append(board);
-        const next = el("div", "message-column");
-        this.appendMessages(next, list, 0, id);
-        this.messagesEl.append(next);
+        const pinned = intent === "bottom" || (intent !== "preserve" && metrics.near);
+        const rough = this.messageSpan(list, 0, false);
+        const added = intent === "preserve" ? Math.max(0, rough.total - metrics.height) : 0;
+        const span = this.messageSpan(list, metrics.top + added, pinned);
+        const virtual = list.length > VIRTUAL_MIN;
+        const next = el("div", virtual ? "message-column is-virtual" : "message-column");
+        if (!virtual) {
+          this.appendMessages(next, list, 0, id);
+          this.msgStart = 0;
+          this.msgEnd = list.length;
+          this.messagesEl.append(next);
+        } else {
+          const top = el("div", "virtual-spacer");
+          const body = el("div", "virtual-host");
+          const bottom = el("div", "virtual-spacer");
+          top.style.height = `${span.top}px`;
+          bottom.style.height = `${span.bottom}px`;
+          this.appendMessages(body, list, span.start, id, span.end);
+          next.append(top, body, bottom);
+          this.messagesEl.append(next);
+          this.msgStart = span.start;
+          this.msgEnd = span.end;
+          this.measureHost(body);
+          const box = this.spacerBox(list, span.start, span.end);
+          top.style.height = `${box.top}px`;
+          bottom.style.height = `${box.bottom}px`;
+        }
       }
       this.placeScroll(metrics, intent);
+      if (intent === "bottom" || (intent !== "preserve" && metrics.near)) {
+        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      }
     });
     this.watchMessageLayout();
     this.msgSig = sig;
@@ -2084,13 +2338,148 @@ class LarkApp {
     this.messagesEl.append(board);
   }
 
+  private dmMemberShape(): string {
+    const channel = this.currentChannel();
+    const ids = channel?.recipients?.map((item) => item.id) ?? channel?.recipientIds ?? [];
+    return `dm:${this.channelId}:${channel?.name ?? ""}:${ids.join(",")}`;
+  }
+
+  private guildMemberBoard(): { rows: PaintedRow[]; online: number; total: number; note: string; more: boolean } {
+    const guildId = this.guildId ?? "";
+    const roles = this.rolesByGuild[guildId] ?? [];
+    const list = this.demo ? null : this.currentMemberList();
+    const wire = list && list.rows.size ? visibleRows(list, roles) : null;
+    const roster = this.demo ? people : this.liveMembers;
+    const sections = wire ? null : groupMembers(roster, roles);
+    const rows: PaintedRow[] = [];
+    if (wire) rows.push(...wire);
+    else if (sections) {
+      for (const section of sections) {
+        rows.push({ type: "group", id: section.id, label: section.label, count: section.count, color: section.color });
+        for (const person of section.people) {
+          rows.push({ type: "member", person, color: roleColor(person.roleIds, roles) || person.color || null });
+        }
+      }
+    }
+    const count = rows.filter((row) => row.type === "member").length;
+    const online = list?.onlineCount || roster.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
+    const total = list?.memberCount || roster.length;
+    const base = memberNote(true, count, this.memberPhase[guildId]);
+    const note = list && list.memberCount > 0 && rows.length === 0 ? "Loading members…" : (base ?? "");
+    const highest = highestIndex(list);
+    const more = Boolean(list && list.memberCount > count && highest >= 0 && highest + 1 < list.memberCount);
+    return { rows, online, total, note, more };
+  }
+
+  private memberShapeOf(rows: PaintedRow[], note: string, more: boolean): string {
+    const body = rows.map((row) => row.type === "group" ? `g:${row.id}:${row.count}:${row.color ?? ""}:${row.label}` : `m:${row.person.id}:${row.color ?? ""}:${row.person.name}`).join("|");
+    return `${this.guildId}|${note}|${more ? 1 : 0}|${body}`;
+  }
+
+  private patchMemberPresence() {
+    const board = this.guildId ? this.guildMemberBoard() : null;
+    const countEl = this.membersEl.querySelector(".member-count");
+    if (countEl && board?.total) countEl.textContent = `${board.online.toLocaleString()} online · ${board.total.toLocaleString()} members`;
+    for (const row of this.membersEl.querySelectorAll<HTMLElement>(".member-row")) {
+      const person = this.directory[row.dataset.user ?? ""];
+      if (!person) continue;
+      const dot = row.querySelector("i.status");
+      if (dot) dot.className = `status ${person.status ?? "offline"}`;
+      const copy = row.querySelector(".member-copy");
+      if (!copy) continue;
+      const line = memberSubtitle(person);
+      const sub = copy.querySelector(":scope > span");
+      if (!line) {
+        sub?.remove();
+        continue;
+      }
+      if (!sub) copy.append(el("span", "", line));
+      else if (sub.textContent !== line) sub.textContent = line;
+    }
+  }
+
+  private appendPaintedRow(parent: HTMLElement, row: PaintedRow) {
+    if (row.type === "group") {
+      const label = el("div", "member-group", `${row.label} — ${row.count}`);
+      if (row.color) label.style.color = row.color;
+      parent.append(label);
+      return;
+    }
+    parent.append(this.memberButton(row.person, row.color));
+  }
+
+  private syncMemberWindow(scroll: HTMLElement) {
+    const rows = this.memberPaint;
+    if (!rows || rows.length <= VIRTUAL_MIN) return;
+    const host = scroll.querySelector(":scope > .virtual-host");
+    if (!(host instanceof HTMLElement)) return;
+    const slice = sliceWindow(rows.length, scroll.scrollTop, scroll.clientHeight || 640, MEMBER_ROW, 8);
+    if (Number(host.dataset.start) === slice.start && Number(host.dataset.end) === slice.end) return;
+    const spacers = scroll.querySelectorAll(":scope > .virtual-spacer");
+    if (spacers[0] instanceof HTMLElement) spacers[0].style.height = `${slice.start * MEMBER_ROW}px`;
+    if (spacers[1] instanceof HTMLElement) spacers[1].style.height = `${(rows.length - slice.end) * MEMBER_ROW}px`;
+    clear(host);
+    for (let index = slice.start; index < slice.end; index += 1) this.appendPaintedRow(host, rows[index]);
+    host.dataset.start = String(slice.start);
+    host.dataset.end = String(slice.end);
+  }
+
+  private bindMemberScroll(scroll: HTMLElement) {
+    scroll.addEventListener("scroll", () => {
+      if (!this.memberFrame) {
+        this.memberFrame = requestAnimationFrame(() => {
+          this.memberFrame = 0;
+          const current = this.membersEl.querySelector(".member-scroll");
+          if (current instanceof HTMLElement) this.syncMemberWindow(current);
+        });
+      }
+      window.clearTimeout(this.memberScrollTimer);
+      this.memberScrollTimer = window.setTimeout(() => this.onMemberScroll(scroll), 120);
+    }, { passive: true });
+  }
+
+  private paintMemberRows(scroll: HTMLElement, rows: PaintedRow[], kept: number) {
+    const virtual = rows.length > VIRTUAL_MIN;
+    if (virtual) scroll.classList.add("is-virtual");
+    if (!virtual) {
+      for (const row of rows) this.appendPaintedRow(scroll, row);
+      this.memberPaint = null;
+      return;
+    }
+    const slice = sliceWindow(rows.length, kept, 640, MEMBER_ROW, 8);
+    const top = el("div", "virtual-spacer");
+    const host = el("div", "virtual-host");
+    const bottom = el("div", "virtual-spacer");
+    top.style.height = `${slice.start * MEMBER_ROW}px`;
+    bottom.style.height = `${(rows.length - slice.end) * MEMBER_ROW}px`;
+    host.dataset.start = String(slice.start);
+    host.dataset.end = String(slice.end);
+    for (let index = slice.start; index < slice.end; index += 1) this.appendPaintedRow(host, rows[index]);
+    scroll.append(top, host, bottom);
+    this.memberPaint = rows;
+  }
+
   private paintMembers() {
+    if (this.membersEl.hidden) {
+      if (this.memberShape) {
+        clear(this.membersEl);
+        this.memberShape = "";
+        this.memberPaint = null;
+      }
+      return;
+    }
     const kept = this.membersEl.querySelector(".member-scroll")?.scrollTop ?? 0;
-    clear(this.membersEl);
-    if (this.membersEl.hidden) return;
-    const head = el("div", "member-head");
-    const scroll = el("div", "member-scroll");
     if (!this.guildId) {
+      const shape = this.dmMemberShape();
+      if (shape === this.memberShape && this.membersEl.querySelector(".member-scroll")) {
+        this.patchMemberPresence();
+        return;
+      }
+      this.memberShape = shape;
+      this.memberPaint = null;
+      clear(this.membersEl);
+      const head = el("div", "member-head");
+      const scroll = el("div", "member-scroll");
       head.append(el("h2", "", "In this conversation"));
       const channel = this.currentChannel();
       const ids = channel?.recipients?.map((item) => item.id) ?? channel?.recipientIds ?? [];
@@ -2106,50 +2495,31 @@ class LarkApp {
       this.membersEl.append(head, scroll);
       return;
     }
-    const roles = this.rolesByGuild[this.guildId] ?? [];
-    const list = this.demo ? null : this.currentMemberList();
-    const rows = list && list.rows.size ? visibleRows(list, roles) : null;
-    const roster = this.demo ? people : this.liveMembers;
-    const sections = rows ? null : groupMembers(roster, roles);
-    const count = rows ? rows.filter((row) => row.type === "member").length : roster.length;
-    const online = list?.onlineCount || roster.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
-    const total = list?.memberCount || roster.length;
-    head.append(el("h2", "", "Members"));
-    if (total) head.append(el("p", "member-count", `${online.toLocaleString()} online · ${total.toLocaleString()} members`));
-    const waiting = Boolean(list && list.memberCount > 0 && !rows?.length);
-    const note = waiting ? "Loading members…" : memberNote(true, count, this.memberPhase[this.guildId]);
-    if (note && !rows?.length) scroll.append(el("p", "empty", note));
-    if (rows) {
-      for (const row of rows) {
-        if (row.type === "group") {
-          const label = el("div", "member-group", `${row.label} — ${row.count}`);
-          if (row.color) label.style.color = row.color;
-          scroll.append(label);
-        } else scroll.append(this.memberButton(row.person, row.color));
-      }
-      const highest = highestIndex(list);
-      if (list && list.memberCount > count && highest >= 0 && highest + 1 < list.memberCount) {
-        scroll.append(el("p", "empty", "Scroll for more."));
-      }
-    } else if (sections) {
-      for (const section of sections) {
-        const label = el("div", "member-group", `${section.label} — ${section.count}`);
-        if (section.color) label.style.color = section.color;
-        scroll.append(label);
-        for (const person of section.people) scroll.append(this.memberButton(person, roleColor(person.roleIds, roles) || person.color || null));
-      }
+    const board = this.guildMemberBoard();
+    const shape = this.memberShapeOf(board.rows, board.note, board.more);
+    if (shape === this.memberShape && this.membersEl.querySelector(".member-scroll")) {
+      this.patchMemberPresence();
+      return;
     }
-    scroll.addEventListener("scroll", () => {
-      window.clearTimeout(this.memberScrollTimer);
-      this.memberScrollTimer = window.setTimeout(() => this.onMemberScroll(scroll), 120);
-    }, { passive: true });
+    this.memberShape = shape;
+    clear(this.membersEl);
+    const head = el("div", "member-head");
+    const scroll = el("div", "member-scroll");
+    head.append(el("h2", "", "Members"));
+    if (board.total) head.append(el("p", "member-count", `${board.online.toLocaleString()} online · ${board.total.toLocaleString()} members`));
+    if (board.note && !board.rows.length) scroll.append(el("p", "empty", board.note));
+    this.paintMemberRows(scroll, board.rows, kept);
+    if (board.more) scroll.append(el("p", "empty", "Scroll for more."));
+    this.bindMemberScroll(scroll);
     this.membersEl.append(head, scroll);
     scroll.scrollTop = kept;
+    this.syncMemberWindow(scroll);
   }
 
   private memberButton(person: Person, color?: string | null): HTMLButtonElement {
     const row = el("button", "member-row");
     row.type = "button";
+    row.dataset.user = person.id;
     const wrap = el("div", "avatar-wrap");
     wrap.append(portrait(person.name, person.id, person.avatarUrl, true), el("i", `status ${person.status ?? "offline"}`));
     const copy = el("div", "member-copy");
@@ -2465,9 +2835,14 @@ class LarkApp {
       });
       this.switcherHitsCache = hits;
     };
+    let frame = 0;
     input.addEventListener("input", () => {
       this.switcherIndex = 0;
-      render();
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        render();
+      });
     });
     card.append(input, results, foot);
     this.switcherEl.append(card);
@@ -3378,14 +3753,21 @@ class LarkApp {
 
   private async ensureMembers(guildId: string) {
     if (this.memberPhase[guildId] !== "done") this.memberPhase[guildId] = "loading";
-    try {
-      const roles = await invoke<RoleInfo[]>("fetch_roles", { guildId });
-      this.rememberRoles(guildId, roles);
-    } catch {
-      /* GUILD_CREATE still delivers role colors. */
-    }
     const channelId = this.guildId === guildId ? this.channelId : "";
     if (channelId) this.queueMemberSubscribe(guildId, channelId, [[0, 99]]);
+    if (!(this.rolesByGuild[guildId]?.length)) {
+      const wait = channelRestDelay(Date.now(), this.gatewayReadyAt, CHANNEL_GATEWAY_GRACE_MS);
+      if (wait > 0) await delay(wait);
+      if (!this.rolesByGuild[guildId]?.length && this.guildId === guildId) {
+        try {
+          const roles = await invoke<RoleInfo[]>("fetch_roles", { guildId });
+          this.rememberRoles(guildId, roles);
+          if (this.guildId === guildId) this.paintMembers();
+        } catch {
+          /* GUILD_CREATE still delivers role colors. */
+        }
+      }
+    }
     window.setTimeout(() => {
       if (this.memberPhase[guildId] === "loading" && !this.guildHasMembers(guildId)) {
         this.memberPhase[guildId] = "done";
@@ -3460,17 +3842,24 @@ class LarkApp {
   }
 
   private async ensureHome() {
-    try {
-      const channels = await invoke<Channel[]>("fetch_dms");
-      this.mergeDms(channels.map(normalizeChannel));
-    } catch {
-      /* READY private channels still fill the list. */
+    if (this.liveDms.length && this.friends.length) return;
+    const wait = channelRestDelay(Date.now(), this.gatewayReadyAt, CHANNEL_GATEWAY_GRACE_MS);
+    if (wait > 0) await delay(wait);
+    if (!this.liveDms.length) {
+      try {
+        const channels = await invoke<Channel[]>("fetch_dms");
+        this.mergeDms(channels.map(normalizeChannel));
+      } catch {
+        /* READY private channels still fill the list. */
+      }
     }
-    try {
-      const friends = await invoke<RawMember[]>("fetch_friends");
-      this.storeFriends(friends.map(personFromMember).filter((person): person is Person => Boolean(person)));
-    } catch {
-      /* Relationships on READY still fill the friends list. */
+    if (!this.friends.length) {
+      try {
+        const friends = await invoke<RawMember[]>("fetch_friends");
+        this.storeFriends(friends.map(personFromMember).filter((person): person is Person => Boolean(person)));
+      } catch {
+        /* Relationships on READY still fill the friends list. */
+      }
     }
     if (!this.guildId) this.paint();
   }
@@ -4045,29 +4434,53 @@ class LarkApp {
   }
 
   private prefetchAround(id: string) {
-    const list = this.visibleChannels().filter((channel) => channel.kind === "text" || channel.kind === "thread" || channel.kind === "forum");
-    const index = list.findIndex((channel) => channel.id === id);
-    const neighbors = [list[index - 1], list[index + 1]].filter(Boolean);
-    const load = () => {
-      for (const channel of neighbors) {
-        if (this.pages[channel.id] || Object.keys(this.pages).length > 8) continue;
+    const order = this.visibleChannels()
+      .filter((channel) => channel.kind === "text" || channel.kind === "announcement" || channel.kind === "forum" || channel.kind === "thread" || channel.kind === "dm" || channel.kind === "group")
+      .map((channel) => channel.id);
+    const loaded = new Set(Object.keys(this.pages));
+    const targets = prefetchChannelIds(id, order, this.recent, loaded, 3).filter((channelId) => channelId !== ARCHIVE);
+    const token = ++this.prefetchToken;
+    const load = async () => {
+      for (const channelId of targets) {
+        if (token !== this.prefetchToken || this.pages[channelId]) continue;
         if (this.demo) {
-          if (channel.id === ARCHIVE) continue;
-          const page = pageMessages(history[channel.id] ?? [], undefined, 20);
-          this.pages[channel.id] = page.messages;
-          this.more[channel.id] = page.hasMore;
+          const page = pageMessages(history[channelId] ?? [], undefined, 20);
+          if (token !== this.prefetchToken || this.pages[channelId]) continue;
+          this.pages[channelId] = page.messages;
+          this.more[channelId] = page.hasMore;
+          this.warm.add(channelId);
+          continue;
+        }
+        try {
+          const page = await this.livePage(channelId);
+          if (!this.pages[channelId]) {
+            this.pages[channelId] = page.messages;
+            this.more[channelId] = page.hasMore;
+            this.warm.add(channelId);
+          }
+          if (token !== this.prefetchToken) return;
+        } catch {
+          return;
         }
       }
-      const keys = Object.keys(this.pages);
-      if (keys.length > 8) {
-        for (const key of keys) {
-          if (key !== this.channelId && key !== this.splitId && !this.recent.includes(key)) delete this.pages[key];
-        }
-      }
+      this.trimPages();
       this.rememberCache();
     };
-    const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 40));
-    idle(load);
+    const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 80));
+    idle(() => void load());
+  }
+
+  private trimPages() {
+    const keep = new Set<string>([this.channelId ?? "", this.splitId ?? "", ...this.recent, ...this.warm]);
+    const keys = Object.keys(this.pages);
+    if (keys.length <= 12) return;
+    for (const key of keys) {
+      if (!keep.has(key)) delete this.pages[key];
+    }
+    if (this.warm.size > 4) {
+      const extra = [...this.warm].filter((key) => key !== this.channelId && key !== this.splitId && !this.recent.includes(key));
+      for (const key of extra.slice(0, this.warm.size - 4)) this.warm.delete(key);
+    }
   }
 
   private joinVoice(channel: Channel) {
@@ -4401,6 +4814,16 @@ class LarkApp {
 
   private publishVoiceHud() {
     if (!this.hudEl) return;
+    if (this.hudQueued) return;
+    this.hudQueued = true;
+    requestAnimationFrame(() => {
+      this.hudQueued = false;
+      this.flushVoiceHud();
+    });
+  }
+
+  private flushVoiceHud() {
+    if (!this.hudEl) return;
     const view = this.voiceHudView();
     const sig = JSON.stringify(view);
     if (sig === this.hudSig) return;
@@ -4710,7 +5133,10 @@ class LarkApp {
         });
       }, 280);
     };
-    input.addEventListener("input", render);
+    input.addEventListener("input", () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(render, 48);
+    });
     card.append(input, results);
     overlay.append(card);
     overlay.onclick = (event) => {
@@ -5313,6 +5739,14 @@ class LarkApp {
       this.toast("Message", "That message isn't in the loaded history.");
       return;
     }
+    const loadedList = this.pages[channelId] ?? [];
+    const index = loadedList.findIndex((message) => message.id === messageId);
+    if (index >= 0) {
+      const row = rowEstimate(this.config.appearance.density);
+      let offset = 0;
+      for (let cursor = 0; cursor < index; cursor += 1) offset += this.messageHeights.get(loadedList[cursor].id) || row;
+      this.messagesEl.scrollTop = Math.max(0, offset - (this.messagesEl.clientHeight || 640) / 2);
+    }
     this.scroll = "none";
     this.msgSig = "";
     this.paintMessages();
@@ -5320,6 +5754,7 @@ class LarkApp {
     if (node instanceof HTMLElement) {
       this.lockScroll(() => node.scrollIntoView({ block: "center" }));
     }
+    this.syncMessageWindow();
     window.setTimeout(() => {
       if (this.jumpId === messageId) {
         this.jumpId = null;

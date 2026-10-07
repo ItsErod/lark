@@ -25,6 +25,10 @@ export interface ViewEmbed {
   thumbnail: string | null;
   video: string | null;
   provider: string | null;
+  imageWidth?: number;
+  imageHeight?: number;
+  videoWidth?: number;
+  videoHeight?: number;
 }
 
 export interface ViewReaction {
@@ -157,7 +161,15 @@ function toEmbed(embed: RawEmbed, ctx: RenderContext): ViewEmbed {
     thumbnail: embed.thumbnail ? safeMediaUrl(embed.thumbnail) : null,
     video: embed.video ? safeMediaUrl(embed.video) : null,
     provider: embed.provider ?? null,
+    imageWidth: positive(embed.imageWidth),
+    imageHeight: positive(embed.imageHeight),
+    videoWidth: positive(embed.videoWidth),
+    videoHeight: positive(embed.videoHeight),
   };
+}
+
+function positive(value: number | null | undefined): number | undefined {
+  return typeof value === "number" && value > 0 ? value : undefined;
 }
 
 function safeLink(url: string): boolean {

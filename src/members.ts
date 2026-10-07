@@ -212,9 +212,12 @@ export function visibleRows(state: MemberListState, roles: RoleInfo[], limit = 8
   return out;
 }
 
+/** Fixed slot for a virtualized member row. Matches the gateway scroll window. */
+export const MEMBER_ROW = 42;
+
 /** Ranges are the 100-wide windows the official client subscribes to, at most three. */
 export function rangesForScroll(scrollTop: number, viewHeight: number, totalHint: number): [number, number][] {
-  const row = 42;
+  const row = MEMBER_ROW;
   const viewEnd = Math.floor((Math.max(0, scrollTop) + Math.max(row, viewHeight)) / row) + 8;
   const block = Math.floor(viewEnd / 100) * 100;
   const first = Math.max(0, block - 100);

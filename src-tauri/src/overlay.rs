@@ -10,6 +10,25 @@ pub const LABEL: &str = "voice-overlay";
 static HOTKEY: Mutex<Option<Shortcut>> = Mutex::new(None);
 static FRAME: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
+#[derive(Clone, Copy)]
+struct OverlayChrome {
+    visible: bool,
+    click_through: bool,
+    applied: bool,
+}
+
+static CHROME: Mutex<OverlayChrome> = Mutex::new(OverlayChrome {
+    visible: false,
+    click_through: false,
+    applied: false,
+});
+
+/// Window chrome (`show`, always-on-top, click-through) is what hitches the main window.
+/// Speaking ticks only need a new frame.
+fn chrome_needs_apply(prev: OverlayChrome, visible: bool, click_through: bool) -> bool {
+    !prev.applied || prev.visible != visible || prev.click_through != click_through
+}
+
 pub fn hotkey_is(shortcut: &Shortcut) -> bool {
     HOTKEY.lock().map(|slot| slot.as_ref() == Some(shortcut)).unwrap_or(false)
 }
@@ -53,6 +72,7 @@ pub async fn sync_voice_overlay(
     if let Ok(mut slot) = FRAME.lock() {
         *slot = Some(frame.clone());
     }
+    let fresh = app.get_webview_window(LABEL).is_none();
     let window = if let Some(window) = app.get_webview_window(LABEL) {
         window
     } else if visible {
@@ -67,16 +87,29 @@ pub async fn sync_voice_overlay(
         return Ok(true);
     };
     let _ = app.emit_to(LABEL, "voice-hud", frame);
-    apply_chrome(&window, click_through);
-    if visible {
-        if let Err(err) = window.show() {
-            log::warn!("voice HUD show: {err}");
-            return Ok(false);
+    let prev = CHROME.lock().map(|guard| *guard).unwrap_or(OverlayChrome {
+        visible: false,
+        click_through: false,
+        applied: false,
+    });
+    if fresh || chrome_needs_apply(prev, visible, click_through) {
+        apply_chrome(&window, click_through);
+        if visible {
+            if let Err(err) = window.show() {
+                log::warn!("voice HUD show: {err}");
+                return Ok(false);
+            }
+        } else if let Err(err) = window.hide() {
+            log::warn!("voice HUD hide: {err}");
         }
-    } else if let Err(err) = window.hide() {
-        log::warn!("voice HUD hide: {err}");
+        if let Ok(mut slot) = CHROME.lock() {
+            *slot = OverlayChrome {
+                visible,
+                click_through,
+                applied: true,
+            };
+        }
     }
-    apply_chrome(&window, click_through);
     Ok(true)
 }
 

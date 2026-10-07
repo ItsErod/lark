@@ -245,6 +245,10 @@ pub struct DiscordEmbedMedia {
     pub url: String,
     #[serde(default)]
     pub proxy_url: Option<String>,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -372,6 +376,14 @@ pub struct ClientEmbed {
     pub video: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_height: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -917,6 +929,10 @@ fn embed_to_client(embed: &DiscordEmbed) -> ClientEmbed {
             .as_ref()
             .and_then(|provider| provider.name.clone())
             .filter(|name| !name.is_empty()),
+        image_width: embed.image.as_ref().and_then(|media| media.width),
+        image_height: embed.image.as_ref().and_then(|media| media.height),
+        video_width: embed.video.as_ref().and_then(|media| media.width),
+        video_height: embed.video.as_ref().and_then(|media| media.height),
     }
 }
 
@@ -1506,8 +1522,8 @@ mod tests {
             "embeds": [{
                 "title": "Clip",
                 "provider": {"name": "Tenor"},
-                "video": {"url": "https://media.tenor.com/clip.mp4", "proxy_url": "https://media.discordapp.net/external/clip.mp4"},
-                "image": {"url": "", "proxy_url": "https://media.discordapp.net/external/still.png"}
+                "video": {"url": "https://media.tenor.com/clip.mp4", "proxy_url": "https://media.discordapp.net/external/clip.mp4", "width": 320, "height": 180},
+                "image": {"url": "", "proxy_url": "https://media.discordapp.net/external/still.png", "width": 320, "height": 180}
             }],
             "message_reference": {"message_id": "70"}
         }"#;
@@ -1528,6 +1544,10 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("media.discordapp.net"));
+        assert_eq!(client.embeds[0].video_width, Some(320));
+        assert_eq!(client.embeds[0].video_height, Some(180));
+        assert_eq!(client.embeds[0].image_width, Some(320));
+        assert_eq!(client.embeds[0].image_height, Some(180));
         assert_eq!(
             client.reply.as_ref().unwrap().author_name,
             "Original message"
