@@ -3,7 +3,7 @@ import { createServer, type ViteDevServer } from "vite";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const port = 47323;
+const port = 47324;
 
 describe("go live share surfaces", () => {
   let server: ViteDevServer;

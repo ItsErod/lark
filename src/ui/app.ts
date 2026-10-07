@@ -1000,8 +1000,8 @@ class LarkApp {
       this.directory[person.id] = person;
       this.userNames[person.id] = person.name;
     }
-    this.seedDemoVoice();
     const shareMode = new URLSearchParams(location.search).get("share");
+    this.seedDemoVoice(shareMode === "live");
     const named = cleanGameName(new URLSearchParams(location.search).get("game") ?? "");
     if (named && this.config.desktop.detect_games) this.noteGame(named);
     this.paint();
@@ -1012,12 +1012,12 @@ class LarkApp {
     });
   }
 
-  private seedDemoVoice() {
+  private seedDemoVoice(sharing = false) {
     const channelId = demoChannels[NORTHWIND].find((channel) => channel.kind === "voice")?.id;
     if (!channelId) return;
     replaceGuildVoice(this.voiceRoster, NORTHWIND, [
       { guildId: NORTHWIND, channelId, userId: booth[0].id, name: booth[0].name },
-      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true, selfStream: true },
+      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true, ...(sharing ? { selfStream: true } : {}) },
     ]);
     setSpeaking(this.voiceRoster, booth[0].id, true);
     hydrateMix(this.voiceRoster, this.config.voice.levels);
