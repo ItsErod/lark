@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs";
 import { createServer, type ViteDevServer } from "vite";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -45,8 +44,7 @@ describe("irc message layout", () => {
         paragraph: rect(paragraph),
       };
     });
-    mkdirSync("/opt/cursor/artifacts", { recursive: true });
-    await page.screenshot({ path: "/opt/cursor/artifacts/irc-width.png" });
+    await page.screenshot({ path: "/tmp/irc-width.png" });
     await page.close();
     expect(box.column).toBeGreaterThan(500);
     expect(box.body.width).toBeGreaterThan(box.column * 0.8);
