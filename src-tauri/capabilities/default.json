@@ -65,6 +65,7 @@
     "allow-sync-voice-overlay",
     "allow-save-clip",
     "allow-clip-status",
+    "allow-set-clip-pace",
     "allow-read-clip",
     "allow-show-clip",
     "allow-open-clips-dir",

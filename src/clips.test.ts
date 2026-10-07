@@ -91,6 +91,8 @@ describe("clip library", () => {
     expect(sanitizeConfig({ clips: { game_capture: true, compress: "always" } }).clips).toEqual({
       game_capture: true,
       compress: "always",
+      fps: 60,
+      resolution: 1440,
     });
     expect(sanitizeConfig({ clips: { compress: "nope" } }).clips.compress).toBe("ask");
   });

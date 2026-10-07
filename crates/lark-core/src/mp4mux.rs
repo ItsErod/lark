@@ -63,6 +63,79 @@ pub fn aac_frame_count(video_frames: usize, fps: u32) -> u32 {
     ((samples + u64::from(AAC_FRAME_SAMPLES) - 1) / u64::from(AAC_FRAME_SAMPLES)).max(1) as u32
 }
 
+/// One encoded video track whose sample durations are already in `timescale` units.
+pub struct EncodedVideo<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub timescale: u32,
+    pub sample_entry: &'a [u8],
+    pub samples: &'a [&'a [u8]],
+    pub sync: &'a [bool],
+    pub durations: &'a [u32],
+    pub hevc: bool,
+}
+
+/// Remux encoded access units and silent AAC into a faststart MP4.
+pub fn mux_encoded(video: &EncodedVideo<'_>) -> Result<Vec<u8>, String> {
+    if video.samples.is_empty()
+        || video.timescale == 0
+        || video.width == 0
+        || video.height == 0
+        || video.sample_entry.is_empty()
+    {
+        return Err("There is nothing to mux.".into());
+    }
+    if video.sync.len() != video.samples.len() || video.durations.len() != video.samples.len() {
+        return Err("Encoder timing does not match the frames.".into());
+    }
+    let mut payload = Vec::new();
+    for sample in video.samples {
+        if sample.is_empty() {
+            return Err("The encoder wrote an empty frame.".into());
+        }
+        payload.extend_from_slice(sample);
+    }
+    let units: u64 = video
+        .durations
+        .iter()
+        .map(|duration| u64::from(*duration))
+        .sum();
+    let video_ms = ((units.saturating_mul(1000)) / u64::from(video.timescale.max(1))).max(1) as u32;
+    let audio_frames = aac_frame_count_ms(video_ms);
+    let audio_at = payload.len();
+    for _ in 0..audio_frames {
+        payload.extend_from_slice(&SILENT_AAC);
+    }
+    let audio_ms = (u64::from(audio_frames) * u64::from(AAC_FRAME_SAMPLES) * 1000
+        / u64::from(AAC_SAMPLE_RATE)) as u32;
+    let movie_ms = video_ms.max(audio_ms).max(1);
+    let ftyp = if video.hevc { ftyp_hevc() } else { ftyp() };
+    let mut moov = moov_timed(
+        video,
+        units.min(u64::from(u32::MAX)) as u32,
+        movie_ms,
+        video_ms,
+        audio_ms,
+        audio_frames,
+    );
+    let data_at = ftyp.len() + moov.len() + 8;
+    if data_at > u32::MAX as usize || data_at + audio_at > u32::MAX as usize {
+        return Err("The clip is too large to remux.".into());
+    }
+    assign_chunk_offsets(&mut moov, &[data_at as u32, (data_at + audio_at) as u32])?;
+    let mut out = Vec::with_capacity(data_at + payload.len());
+    out.extend_from_slice(&ftyp);
+    out.extend_from_slice(&moov);
+    out.extend_from_slice(&box_wrap(b"mdat", &payload));
+    require_clip_mp4(&out)?;
+    Ok(out)
+}
+
+fn aac_frame_count_ms(video_ms: u32) -> u32 {
+    let samples = (u64::from(video_ms.max(1)) * u64::from(AAC_SAMPLE_RATE) + 999) / 1000;
+    ((samples + u64::from(AAC_FRAME_SAMPLES) - 1) / u64::from(AAC_FRAME_SAMPLES)).max(1) as u32
+}
+
 /// Move `moov` ahead of `mdat` and patch sample offsets. A file that is already
 /// faststart is returned unchanged.
 pub fn ensure_faststart(input: &[u8]) -> Result<Vec<u8>, String> {
@@ -112,6 +185,15 @@ pub fn ensure_faststart(input: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 pub fn require_discord_mp4(bytes: &[u8]) -> Result<(), String> {
+    require_mp4(bytes, false)
+}
+
+/// Faststart H.264 or HEVC with AAC. The hardware ring uses HEVC when it is available.
+pub fn require_clip_mp4(bytes: &[u8]) -> Result<(), String> {
+    require_mp4(bytes, true)
+}
+
+fn require_mp4(bytes: &[u8], allow_hevc: bool) -> Result<(), String> {
     if bytes.len() < 16 || &bytes[4..8] != b"ftyp" {
         return Err("The clip is not an MP4.".into());
     }
@@ -128,19 +210,32 @@ pub fn require_discord_mp4(bytes: &[u8]) -> Result<(), String> {
         return Err("The moov atom is not at the front of the clip.".into());
     }
     let moov_bytes = &bytes[moov.range()];
-    if !sample_entry(moov_bytes, b"avc1") {
+    let hevc = sample_entry(moov_bytes, b"hvc1");
+    let avc = sample_entry(moov_bytes, b"avc1");
+    if hevc {
+        if !allow_hevc {
+            return Err("The clip video is not H.264.".into());
+        }
+        let hvcc =
+            find_box(moov_bytes, b"hvcC").ok_or("The clip is missing HEVC configuration.")?;
+        if hvcc.len() < 24 || hvcc[8] != 1 {
+            return Err("The clip uses an unsupported HEVC layout.".into());
+        }
+    } else if avc {
+        let avcc =
+            find_box(moov_bytes, b"avcC").ok_or("The clip is missing H.264 configuration.")?;
+        if avcc.len() < 13 || avcc[8] != 1 || avcc[12] & 0x03 != 0x03 {
+            return Err("The clip uses an unsupported H.264 layout.".into());
+        }
+        let profile = avcc[9];
+        if !matches!(profile, 66 | 77 | 100) {
+            return Err("The clip video profile will not play everywhere.".into());
+        }
+    } else {
         return Err("The clip video is not H.264.".into());
     }
     if !sample_entry(moov_bytes, b"mp4a") {
         return Err("The clip audio is not AAC.".into());
-    }
-    let avcc = find_box(moov_bytes, b"avcC").ok_or("The clip is missing H.264 configuration.")?;
-    if avcc.len() < 13 || avcc[8] != 1 || avcc[12] & 0x03 != 0x03 {
-        return Err("The clip uses an unsupported H.264 layout.".into());
-    }
-    let profile = avcc[9];
-    if !matches!(profile, 66 | 77 | 100) {
-        return Err("The clip video profile will not play everywhere.".into());
     }
     let esds = find_box(moov_bytes, b"esds").ok_or("The clip is missing AAC configuration.")?;
     if !esds.windows(2).any(|pair| pair == [0x12, 0x10]) || !esds.contains(&0x40) {
@@ -175,6 +270,157 @@ fn ftyp() -> Vec<u8> {
     push_u32(&mut payload, 0x200);
     payload.extend_from_slice(b"isomiso2avc1mp41");
     box_wrap(b"ftyp", &payload)
+}
+
+fn ftyp_hevc() -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(b"isom");
+    push_u32(&mut payload, 0x200);
+    payload.extend_from_slice(b"isomiso4hvc1mp41");
+    box_wrap(b"ftyp", &payload)
+}
+
+fn moov_timed(
+    video: &EncodedVideo<'_>,
+    duration_units: u32,
+    movie_ms: u32,
+    video_ms: u32,
+    audio_ms: u32,
+    audio_frames: u32,
+) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(mvhd(movie_ms));
+    body.extend(video_trak_timed(video, duration_units, video_ms, 0));
+    body.extend(audio_trak(audio_ms, audio_frames, 0));
+    box_wrap(b"moov", &body)
+}
+
+fn video_trak_timed(
+    video: &EncodedVideo<'_>,
+    duration_units: u32,
+    duration_ms: u32,
+    chunk_offset: u32,
+) -> Vec<u8> {
+    let count = video.samples.len() as u32;
+    let sizes: Vec<u32> = video
+        .samples
+        .iter()
+        .map(|sample| sample.len() as u32)
+        .collect();
+    let mut sync: Vec<u32> = video
+        .sync
+        .iter()
+        .enumerate()
+        .filter(|(_, key)| **key)
+        .map(|(index, _)| index as u32 + 1)
+        .collect();
+    if sync.is_empty() {
+        sync.push(1);
+    }
+    let stbl = concat(&[
+        stsd(video.sample_entry),
+        stts_runs(video.durations),
+        stss(&sync),
+        stsc(count),
+        stsz(&sizes),
+        stco(chunk_offset),
+    ]);
+    let minf = concat(&[vmhd(), dinf(), box_wrap(b"stbl", &stbl)]);
+    let mdia = concat(&[
+        mdhd(video.timescale, duration_units),
+        hdlr(b"vide", "VideoHandler"),
+        box_wrap(b"minf", &minf),
+    ]);
+    let trak = concat(&[
+        tkhd(1, duration_ms, video.width, video.height, false),
+        box_wrap(b"mdia", &mdia),
+    ]);
+    box_wrap(b"trak", &trak)
+}
+
+fn stts_runs(durations: &[u32]) -> Vec<u8> {
+    let mut runs: Vec<(u32, u32)> = Vec::new();
+    for duration in durations {
+        if let Some(last) = runs.last_mut() {
+            if last.1 == *duration {
+                last.0 = last.0.saturating_add(1);
+                continue;
+            }
+        }
+        runs.push((1, *duration));
+    }
+    let mut payload = Vec::new();
+    push_u32(&mut payload, runs.len() as u32);
+    for (count, delta) in runs {
+        push_u32(&mut payload, count);
+        push_u32(&mut payload, delta);
+    }
+    full_box(b"stts", 0, 0, &payload)
+}
+
+pub fn avc1_entry(width: u32, height: u32, sps: &[u8], pps: &[u8]) -> Vec<u8> {
+    avc1(width, height, sps, pps)
+}
+
+pub fn hvc1_entry(
+    width: u32,
+    height: u32,
+    vps: &[u8],
+    sps: &[u8],
+    pps: &[u8],
+    level_idc: u8,
+) -> Vec<u8> {
+    let mut payload = visual_sample_entry(width, height, b"Lark HEVC");
+    payload.extend(hvcc(vps, sps, pps, level_idc));
+    box_wrap(b"hvc1", &payload)
+}
+
+fn visual_sample_entry(width: u32, height: u32, compressor: &[u8]) -> Vec<u8> {
+    let mut payload = vec![0u8; 6];
+    push_u16(&mut payload, 1);
+    payload.extend_from_slice(&[0u8; 16]);
+    push_u16(&mut payload, width as u16);
+    push_u16(&mut payload, height as u16);
+    push_u32(&mut payload, 0x0048_0000);
+    push_u32(&mut payload, 0x0048_0000);
+    push_u32(&mut payload, 0);
+    push_u16(&mut payload, 1);
+    let mut name = [0u8; 32];
+    let text = &compressor[..compressor.len().min(31)];
+    name[0] = text.len() as u8;
+    name[1..1 + text.len()].copy_from_slice(text);
+    payload.extend_from_slice(&name);
+    push_u16(&mut payload, 0x0018);
+    push_i16(&mut payload, -1);
+    payload
+}
+
+fn hvcc(vps: &[u8], sps: &[u8], pps: &[u8], level_idc: u8) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.push(1);
+    payload.push(1);
+    payload.extend_from_slice(&0x4000_0000u32.to_be_bytes());
+    payload.extend_from_slice(&[0u8; 6]);
+    payload.push(level_idc);
+    payload.extend_from_slice(&0xF000u16.to_be_bytes());
+    payload.push(0xFC);
+    payload.push(0xFD);
+    payload.push(0xF8);
+    payload.push(0xF8);
+    payload.extend_from_slice(&0u16.to_be_bytes());
+    payload.push(0x0F);
+    payload.push(3);
+    push_nal_array(&mut payload, 32, vps);
+    push_nal_array(&mut payload, 33, sps);
+    push_nal_array(&mut payload, 34, pps);
+    box_wrap(b"hvcC", &payload)
+}
+
+fn push_nal_array(out: &mut Vec<u8>, nal_type: u8, nal: &[u8]) {
+    out.push(0x80 | (nal_type & 0x3f));
+    push_u16(out, 1);
+    push_u16(out, nal.len() as u16);
+    out.extend_from_slice(nal);
 }
 
 fn moov(
@@ -722,10 +968,14 @@ fn find_box<'a>(data: &'a [u8], kind: &[u8; 4]) -> Option<&'a [u8]> {
             if let Some(found) = find_box(&data[cursor + 8..cursor + total], kind) {
                 return Some(found);
             }
-        } else if box_kind == b"stsd" || box_kind == b"avc1" || box_kind == b"mp4a" {
+        } else if box_kind == b"stsd"
+            || box_kind == b"avc1"
+            || box_kind == b"hvc1"
+            || box_kind == b"mp4a"
+        {
             let child_at = if box_kind == b"stsd" {
                 16
-            } else if box_kind == b"avc1" {
+            } else if box_kind == b"avc1" || box_kind == b"hvc1" {
                 86
             } else {
                 36

@@ -2,9 +2,10 @@
 //!
 //! Lark does not ask the operating system for "the last 30 seconds." macOS has no
 //! replay-buffer API, and Windows Game Bar does not hand its buffer to other apps.
-//! While screen share or Game Mode capture is on, the desktop shell samples the main
-//! display into this ring as JPEG. The clip hotkey encodes that ring to a faststart
-//! H.264 + AAC MP4. Turning both off discards the ring. Nothing here uploads.
+//! While screen share or Game Mode capture is on, the desktop shell records the main
+//! display. The hardware path keeps encoded packets in [`crate::clip_rate`]. This
+//! JPEG ring is the fallback when that capture cannot start. The clip hotkey writes
+//! a faststart MP4. Turning both modes off discards the ring. Nothing here uploads.
 
 pub use crate::clip_encode::{encode_clip, EncodedClip};
 

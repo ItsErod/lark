@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { bytesFromBase64, clipBehaviorNote, CLIP_HOTKEY, clipsDirHint } from "./clip";
+import {
+  bytesFromBase64,
+  clipBehaviorNote,
+  CLIP_FPS_OPTIONS,
+  CLIP_HOTKEY,
+  CLIP_RESOLUTION_OPTIONS,
+  clipsDirHint,
+  DEFAULT_CLIP_FPS,
+  DEFAULT_CLIP_RESOLUTION,
+  sanitizeClipFps,
+  sanitizeClipResolution,
+} from "./clip";
 import { defaultConfig } from "./config";
 import { shortcutConflicts } from "./shortcuts";
 
@@ -15,18 +26,43 @@ describe("clips", () => {
       expect(note).toContain("H.264");
       expect(note).toContain("AAC");
       expect(note).toContain("moov");
+      expect(note).toContain("1440p");
+      expect(note).toContain("60 fps");
+      expect(note).toContain("720p");
+      expect(note).toContain("1080p");
+      expect(note).toContain("2160p");
+      expect(note).toContain("120");
+      expect(note).toContain("240");
+      expect(note).toContain("HEVC");
+      expect(note).toContain("caps");
       expect(note).toContain("5 frames");
       expect(note).toContain("960");
       expect(note).toContain("8 MB");
       expect(note).toContain("Nothing is uploaded");
       expect(note).toContain("no system replay");
-      expect(note).toContain("not while the rolling buffer");
+      expect(note).toContain("packet ring");
+      expect(note).not.toContain("not while the rolling buffer");
     }
     expect(clipBehaviorNote("macos")).toContain("Screen Recording");
     expect(clipBehaviorNote("macos")).toContain("VideoToolbox");
-    expect(clipBehaviorNote("windows")).toContain("GDI");
+    expect(clipBehaviorNote("macos")).toContain("ScreenCaptureKit");
+    expect(clipBehaviorNote("windows")).toContain("DXGI");
+    expect(clipBehaviorNote("windows")).toContain("Windows Graphics Capture");
     expect(clipBehaviorNote("windows")).toContain("Media Foundation");
     expect(clipBehaviorNote("windows")).not.toContain("Screen Recording");
+  });
+
+  it("defaults to 1440p at 60 fps and snaps other values", () => {
+    expect(DEFAULT_CLIP_FPS).toBe(60);
+    expect(DEFAULT_CLIP_RESOLUTION).toBe(1440);
+    expect(CLIP_FPS_OPTIONS).toEqual([60, 120, 240]);
+    expect(CLIP_RESOLUTION_OPTIONS).toEqual([720, 1080, 1440, 2160]);
+    expect(sanitizeClipFps(240)).toBe(240);
+    expect(sanitizeClipFps(90)).toBe(60);
+    expect(sanitizeClipResolution(2160)).toBe(2160);
+    expect(sanitizeClipResolution(480)).toBe(1440);
+    expect(defaultConfig().clips.fps).toBe(60);
+    expect(defaultConfig().clips.resolution).toBe(1440);
   });
 
   it("puts clips next to the config directory", () => {

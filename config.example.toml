@@ -75,12 +75,17 @@ overlay_click_through = true    # clicks pass through to the game
 
 [clips]
 # Main-display buffer for the clip hotkey. Screen share turns the same buffer on.
-# Both off discards it. The hotkey writes an MP4 (H.264 and AAC, faststart).
+# Both off discards it. The hotkey remuxes the encoded ring to an MP4.
 # Files stay in the clips folder until you attach one.
+# fps is 60, 120, or 240. resolution is 720, 1080, 1440, or 2160.
+# The default is 1440p at 60 fps. A combination the display or encoder cannot
+# hold is capped, and Settings says so.
 game_capture = false
 # When a clip is over the Discord upload limit: always, ask, or never.
 # Compression writes an H.264/AAC MP4 copy and leaves the original in place.
 compress = "ask"
+fps = 60
+resolution = 1440
 
 [privacy]
 # Hides emails, tokens, DM previews, and personal info. Off until you turn it on.

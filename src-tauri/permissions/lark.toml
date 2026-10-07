@@ -294,6 +294,11 @@ description = "Read whether the local clip buffer is recording."
 commands.allow = ["clip_status"]
 
 [[permission]]
+identifier = "allow-set-clip-pace"
+description = "Tell clip capture whether Game Mode is on."
+commands.allow = ["set_clip_pace"]
+
+[[permission]]
 identifier = "allow-read-clip"
 description = "Read a clip file from the Lark clips folder."
 commands.allow = ["read_clip"]

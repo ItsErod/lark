@@ -76,7 +76,7 @@ import {
   stepHardware,
   type HardwareState,
 } from "../hardware";
-import { bytesFromBase64, clipBehaviorNote } from "../clip";
+import { bytesFromBase64, clipBehaviorNote, CLIP_FPS_OPTIONS, CLIP_RESOLUTION_OPTIONS, sanitizeClipFps, sanitizeClipResolution } from "../clip";
 import {
   CLIP_DRAG,
   clipMime,
@@ -412,7 +412,19 @@ class LarkApp {
   private clipProgress: { name: string; percent: number } | null = null;
   private premiumType = 0;
   private clipDialog!: HTMLElement;
-  private clipStatus: { recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string } | null = null;
+  private clipStatus: {
+    recording: boolean;
+    spanMs: number;
+    dir: string;
+    backend: string;
+    error: string;
+    hotkeyError: string;
+    width?: number;
+    height?: number;
+    fps?: number;
+    codec?: string;
+    capNote?: string;
+  } | null = null;
   private pttHeld = false;
   private recent: string[] = [];
   private drafts: DraftMap = {};
@@ -3715,6 +3727,17 @@ class LarkApp {
       wrap.append(listDevices);
       wrap.append(el("h3", "", "Clips"), el("p", "lede", clipBehaviorNote(this.platform.os)));
       wrap.append(el("p", "hint", this.clipStatusLine()));
+      wrap.append(el("div", "hint", "Resolution"));
+      wrap.append(this.choice(CLIP_RESOLUTION_OPTIONS.map((value) => `${value}p`), `${sanitizeClipResolution(this.config.clips.resolution)}p`, (value) => {
+        this.config.clips.resolution = sanitizeClipResolution(Number.parseInt(value, 10));
+        return this.persist().then(() => this.pullClipStatus());
+      }));
+      wrap.append(el("div", "hint", "Frame rate"));
+      wrap.append(this.choice(CLIP_FPS_OPTIONS.map((value) => `${value} fps`), `${sanitizeClipFps(this.config.clips.fps)} fps`, (value) => {
+        this.config.clips.fps = sanitizeClipFps(Number.parseInt(value, 10));
+        return this.persist().then(() => this.pullClipStatus());
+      }));
+      if (this.clipStatus?.capNote) wrap.append(el("p", "warning", this.clipStatus.capNote));
       wrap.append(el("p", "hint", `Clips folder: ${this.clipStatus?.dir || this.platform.clipsDir}`));
       if (this.clipStatus?.hotkeyError) wrap.append(el("p", "warning", this.clipStatus.hotkeyError));
       wrap.append(this.toggle("Game Mode capture", this.config.clips.game_capture, (value) => {
@@ -4265,7 +4288,10 @@ class LarkApp {
     if (!status) return "Checking the clip buffer…";
     if (status.recording) {
       const seconds = Math.max(0, Math.round(status.spanMs / 1000));
-      return `Recording the main display · ${seconds}s in the buffer · ${status.backend}`;
+      const size = status.width && status.height ? `${status.width}×${status.height}` : "the main display";
+      const rate = status.fps ? ` at ${status.fps} fps` : "";
+      const codec = status.codec ? ` ${status.codec}` : "";
+      return `Recording ${size}${rate}${codec} · ${seconds}s in the buffer · ${status.backend}`;
     }
     return status.error
       ? `Buffer off. ${status.error}`
@@ -4275,7 +4301,19 @@ class LarkApp {
   private async pullClipStatus() {
     if (!isTauri()) return;
     try {
-      const status = await invoke<{ recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string }>("clip_status");
+      const status = await invoke<{
+        recording: boolean;
+        spanMs: number;
+        dir: string;
+        backend: string;
+        error: string;
+        hotkeyError: string;
+        width?: number;
+        height?: number;
+        fps?: number;
+        codec?: string;
+        capNote?: string;
+      }>("clip_status");
       const was = Boolean(this.clipStatus?.recording);
       this.clipStatus = status;
       if (was !== status.recording && this.config.privacy.streamer_auto) this.noteCapture();
@@ -6499,6 +6537,7 @@ class LarkApp {
       }
     }
     if (!next.perfOverlay) this.fpsLoop = false;
+    if (isTauri()) void invoke("set_clip_pace", { gameMode: next.gameMode }).catch(() => undefined);
     this.armFps();
     this.publishVoiceHud();
     if (modeChanged && this.view === "app") {

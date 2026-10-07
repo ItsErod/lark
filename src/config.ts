@@ -1,5 +1,6 @@
 import { parseCompressMode } from "./clips";
 import { sanitizeGames } from "./game";
+import { sanitizeClipFps, sanitizeClipResolution } from "./clip";
 import { sanitizeClips } from "./soundboard";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
 import { speakColor } from "./voice-stage";
@@ -67,7 +68,7 @@ export function defaultConfig(): AppConfig {
       detect_games: true,
       game_mode: false,
     },
-    clips: { game_capture: false, compress: "ask" },
+    clips: { game_capture: false, compress: "ask", fps: 60, resolution: 1440 },
     games: {},
     privacy: { streamer: false, streamer_auto: false },
     accents: {},
@@ -136,6 +137,8 @@ export function sanitizeConfig(input: unknown): AppConfig {
   base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
   if (typeof raw.clips?.game_capture === "boolean") base.clips.game_capture = raw.clips.game_capture;
   base.clips.compress = parseCompressMode(raw.clips?.compress);
+  if (raw.clips && "fps" in raw.clips) base.clips.fps = sanitizeClipFps(raw.clips.fps);
+  if (raw.clips && "resolution" in raw.clips) base.clips.resolution = sanitizeClipResolution(raw.clips.resolution);
   if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
   if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
   if (raw.desktop) {
