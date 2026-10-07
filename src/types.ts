@@ -91,7 +91,7 @@ export interface AppConfig {
     detect_games: boolean;
     game_mode: boolean;
   };
-  clips: { game_capture: boolean; compress: "always" | "ask" | "never" };
+  clips: { game_capture: boolean; compress: "always" | "ask" | "never"; fps: number; resolution: number };
   games: Record<string, GameProfile>;
   privacy: { streamer: boolean; streamer_auto: boolean };
   accents: Record<string, string>;

@@ -100,7 +100,13 @@ pub fn run() {
                 Config::default()
             });
             let save_clip = config.shortcuts.save_clip.clone();
-            let clips = clip_rec::ClipEngine::spawn(resolved.clips_dir.clone(), config.clips.game_capture);
+            let clips = clip_rec::ClipEngine::spawn(
+                resolved.clips_dir.clone(),
+                config.clips.game_capture,
+                config.clips.fps,
+                config.clips.resolution,
+                config.desktop.game_mode,
+            );
             let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
             let overlay_voice = config.shortcuts.toggle_voice_overlay.clone();
             let overlay_perf = config.shortcuts.toggle_perf_overlay.clone();
@@ -238,6 +244,7 @@ pub fn run() {
             overlay::current_voice_hud,
             save_clip,
             clip_status,
+            set_clip_pace,
             read_clip,
             show_clip,
             open_clips_dir,
@@ -1556,6 +1563,11 @@ fn clip_status(state: State<'_, Shared>) -> clip_rec::ClipStatus {
 }
 
 #[tauri::command]
+fn set_clip_pace(state: State<'_, Shared>, game_mode: bool) {
+    state.clips.set_pace(game_mode);
+}
+
+#[tauri::command]
 fn read_clip(state: State<'_, Shared>, name: String) -> Result<String, String> {
     state.clips.read_base64(&name)
 }
@@ -1697,6 +1709,7 @@ fn sync_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {
 
 fn apply_clip_config(app: &AppHandle, config: &Config) {
     let state = app.state::<Shared>();
+    state.clips.set_quality(config.clips.fps, config.clips.resolution);
     state.clips.set_game(config.clips.game_capture);
     apply_clip_hotkey(app, &config.shortcuts.save_clip);
 }

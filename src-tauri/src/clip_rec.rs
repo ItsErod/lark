@@ -5,13 +5,18 @@
 //! Capture stays in this file so it does not share a window or overlay with voice.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
+use lark_clip_hw::{LiveConfig, LiveSession};
 use lark_core::clip::{prepare_frame, ClipBuffer, CLIP_SAMPLE_INTERVAL_MS, CLIP_WINDOW_MS};
+use lark_core::clip_rate::{
+    frame_duration_ticks, resolve_capture, sample_is_key, take_access_unit, AccessUnit,
+    ClipRequest, DisplayCaps, EncoderCaps, EncoderKind, PacketRing, RateWatch, VideoCodec,
+};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,13 +81,50 @@ pub struct ClipStatus {
     pub backend: String,
     pub error: String,
     pub hotkey_error: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub codec: String,
+    pub cap_note: String,
+}
+
+#[derive(Clone)]
+struct CaptureView {
+    width: u32,
+    height: u32,
+    fps: u32,
+    codec: String,
+    cap_note: String,
+    backend: String,
+    hardware: bool,
+}
+
+impl CaptureView {
+    fn idle() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            fps: 0,
+            codec: String::new(),
+            cap_note: String::new(),
+            backend: String::new(),
+            hardware: false,
+        }
+    }
 }
 
 struct Inner {
     dir: PathBuf,
     buffer: Mutex<ClipBuffer>,
+    ring: Mutex<PacketRing>,
+    view: Mutex<CaptureView>,
     share: AtomicBool,
     game: AtomicBool,
+    fps: AtomicU32,
+    resolution: AtomicU32,
+    pace: AtomicBool,
+    runtime_cap: AtomicU32,
+    generation: AtomicU64,
     last_error: Mutex<String>,
     hotkey_error: Mutex<String>,
     registered: Mutex<String>,
@@ -98,12 +140,26 @@ pub struct ClipEngine {
 }
 
 impl ClipEngine {
-    pub fn spawn(dir: PathBuf, game_capture: bool) -> Self {
+    pub fn spawn(
+        dir: PathBuf,
+        game_capture: bool,
+        fps: u32,
+        resolution: u32,
+        game_mode: bool,
+    ) -> Self {
+        let request = ClipRequest::new(fps, resolution);
         let inner = Arc::new(Inner {
             dir,
             buffer: Mutex::new(ClipBuffer::new(CLIP_WINDOW_MS)),
+            ring: Mutex::new(PacketRing::new(VideoCodec::H264, 2560, 1440, request.fps)),
+            view: Mutex::new(CaptureView::idle()),
             share: AtomicBool::new(false),
             game: AtomicBool::new(game_capture),
+            fps: AtomicU32::new(request.fps),
+            resolution: AtomicU32::new(request.resolution),
+            pace: AtomicBool::new(game_mode),
+            runtime_cap: AtomicU32::new(0),
+            generation: AtomicU64::new(0),
             last_error: Mutex::new(String::new()),
             hotkey_error: Mutex::new(String::new()),
             registered: Mutex::new(String::new()),
@@ -140,6 +196,33 @@ impl ClipEngine {
         self.clear_if_idle();
     }
 
+    pub fn set_quality(&self, fps: u32, resolution: u32) {
+        let request = ClipRequest::new(fps, resolution);
+        let same = self.inner.fps.load(Ordering::Relaxed) == request.fps
+            && self.inner.resolution.load(Ordering::Relaxed) == request.resolution;
+        if same {
+            return;
+        }
+        self.inner.fps.store(request.fps, Ordering::Relaxed);
+        self.inner
+            .resolution
+            .store(request.resolution, Ordering::Relaxed);
+        self.inner.runtime_cap.store(0, Ordering::Relaxed);
+        self.inner.generation.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .ring
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .clear();
+    }
+
+    pub fn set_pace(&self, game_mode: bool) {
+        let previous = self.inner.pace.swap(game_mode, Ordering::Relaxed);
+        if previous != game_mode {
+            self.inner.generation.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     pub fn hotkey_lock(&self) -> Arc<Mutex<()>> {
         Arc::clone(&self.inner.hotkey_gate)
     }
@@ -169,21 +252,43 @@ impl ClipEngine {
     }
 
     pub fn status(&self) -> ClipStatus {
-        let buffer = self
+        let view = self
             .inner
-            .buffer
+            .view
             .lock()
-            .unwrap_or_else(|err| err.into_inner());
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
         let share = self.inner.share.load(Ordering::Relaxed);
         let game = self.inner.game.load(Ordering::Relaxed);
+        let recording = share || game;
+        let (frames, span_ms) = if view.hardware && recording {
+            let ring = self
+                .inner
+                .ring
+                .lock()
+                .unwrap_or_else(|err| err.into_inner());
+            (ring.len() as u32, ring.span_ms())
+        } else {
+            let buffer = self
+                .inner
+                .buffer
+                .lock()
+                .unwrap_or_else(|err| err.into_inner());
+            (buffer.len() as u32, buffer.span_ms())
+        };
+        let backend = if view.backend.is_empty() {
+            capture_backend().to_string()
+        } else {
+            view.backend
+        };
         ClipStatus {
-            recording: share || game,
+            recording,
             game_capture: game,
             screen_share: share,
-            frames: buffer.len() as u32,
-            span_ms: buffer.span_ms(),
+            frames,
+            span_ms,
             dir: self.inner.dir.display().to_string(),
-            backend: capture_backend().to_string(),
+            backend,
             error: self
                 .inner
                 .last_error
@@ -196,6 +301,11 @@ impl ClipEngine {
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .clone(),
+            width: view.width,
+            height: view.height,
+            fps: view.fps,
+            codec: view.codec,
+            cap_note: view.cap_note,
         }
     }
 
@@ -204,6 +314,28 @@ impl ClipEngine {
         let _held = gate.lock().unwrap_or_else(|err| err.into_inner());
         if let Some(recent) = self.recent_save() {
             return Ok(recent);
+        }
+        match self.save_packet_ring() {
+            Ok(Some(saved)) => {
+                *self
+                    .inner
+                    .last_save
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner()) = Some((Instant::now(), saved.clone()));
+                return Ok(saved);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                let jpeg_empty = self
+                    .inner
+                    .buffer
+                    .lock()
+                    .unwrap_or_else(|lock_err| lock_err.into_inner())
+                    .is_empty();
+                if jpeg_empty {
+                    return Err(err);
+                }
+            }
         }
         let plan = {
             let buffer = self
@@ -217,18 +349,7 @@ impl ClipEngine {
             buffer.plan()?
         };
         let clip = lark_core::clip::encode_clip(&plan)?;
-        let _ = std::fs::create_dir_all(&self.inner.dir);
-        let name = unique_name(&self.inner.dir);
-        let path = self.inner.dir.join(&name);
-        std::fs::write(&path, &clip.bytes)
-            .map_err(|err| format!("Couldn't write the clip: {err}"))?;
-        let saved = ClipSaved::ready(
-            name,
-            path.display().to_string(),
-            clip.bytes.len() as u64,
-            plan.frames.len() as u32,
-            plan.span_ms,
-        );
+        let saved = self.write_clip(&clip.bytes, plan.frames.len() as u32, plan.span_ms)?;
         *self
             .inner
             .last_save
@@ -477,14 +598,78 @@ impl ClipEngine {
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .clear();
+            self.inner
+                .ring
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .clear();
         }
+    }
+
+    fn save_packet_ring(&self) -> Result<Option<ClipSaved>, String> {
+        let ring = self
+            .inner
+            .ring
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        if ring.is_empty() {
+            return Ok(None);
+        }
+        let clip = ring.remux()?;
+        drop(ring);
+        self.write_clip(&clip.bytes, clip.frames, clip.span_ms)
+            .map(Some)
+    }
+
+    fn write_clip(&self, bytes: &[u8], frames: u32, span_ms: u64) -> Result<ClipSaved, String> {
+        let _ = std::fs::create_dir_all(&self.inner.dir);
+        let name = unique_name(&self.inner.dir);
+        let path = self.inner.dir.join(&name);
+        std::fs::write(&path, bytes).map_err(|err| format!("Couldn't write the clip: {err}"))?;
+        Ok(ClipSaved::ready(
+            name,
+            path.display().to_string(),
+            bytes.len() as u64,
+            frames,
+            span_ms,
+        ))
     }
 }
 
 fn sample_loop(inner: Arc<Inner>) {
     let started = Instant::now();
     let mut was_active = false;
+    let mut session: Option<LiveSession> = None;
+    let mut session_key = String::new();
+    let mut watch = RateWatch::new(60);
+    let mut fail_until = Instant::now();
+    let mut last_pts: Option<u64> = None;
+    let mut seen_gen = 0u64;
+    let mut next_probe = Instant::now();
+    let mut held = lark_clip_hw::probe();
+    let mut paced: Option<bool> = None;
+
     loop {
+        let generation = inner.generation.load(Ordering::Relaxed);
+        if generation != seen_gen {
+            seen_gen = generation;
+            session = None;
+            session_key.clear();
+            last_pts = None;
+            watch.reset(inner.fps.load(Ordering::Relaxed));
+        }
+        let pace = inner.pace.load(Ordering::Relaxed);
+        if paced != Some(pace) {
+            lark_clip_hw::set_capture_thread_pace(pace);
+            paced = Some(pace);
+        }
+        if Instant::now() >= next_probe {
+            held = lark_clip_hw::probe();
+            next_probe = Instant::now() + Duration::from_secs(2);
+            let resolved = plan_for(&inner, &held);
+            store_view(&inner, &resolved, None, "");
+        }
+
         let active = inner.share.load(Ordering::Relaxed) || inner.game.load(Ordering::Relaxed);
         if !active {
             if was_active {
@@ -493,39 +678,114 @@ fn sample_loop(inner: Arc<Inner>) {
                     .lock()
                     .unwrap_or_else(|err| err.into_inner())
                     .clear();
+                inner
+                    .ring
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .clear();
+                session = None;
+                session_key.clear();
                 was_active = false;
             }
             thread::sleep(Duration::from_millis(100));
             continue;
         }
         was_active = true;
-        let tick = Instant::now();
-        match grab_primary_rgba() {
-            Ok((rgba, width, height)) => {
-                if inner.share.load(Ordering::Relaxed) || inner.game.load(Ordering::Relaxed) {
-                    let at_ms = started.elapsed().as_millis() as u64;
-                    match prepare_frame(&rgba, width, height, at_ms) {
-                        Ok(frame) => {
-                            inner
-                                .buffer
-                                .lock()
-                                .unwrap_or_else(|err| err.into_inner())
-                                .push(frame);
-                            *inner
-                                .last_error
-                                .lock()
-                                .unwrap_or_else(|err| err.into_inner()) = String::new();
-                        }
-                        Err(err) => {
-                            *inner.last_error.lock().unwrap_or_else(|e| e.into_inner()) = err
-                        }
-                    }
+        let resolved = plan_for(&inner, &held);
+        store_view(&inner, &resolved, None, "");
+        if !resolved.hardware {
+            session = None;
+            session_key.clear();
+            sample_jpeg(&inner, started);
+            thread::sleep(Duration::from_millis(CLIP_SAMPLE_INTERVAL_MS));
+            continue;
+        }
+
+        let key = format!(
+            "{}x{}@{}:{:?}:{}:{}",
+            resolved.width, resolved.height, resolved.fps, resolved.codec, resolved.bitrate, pace
+        );
+        if session.is_none() {
+            if session_key == key && Instant::now() < fail_until {
+                sample_jpeg(&inner, started);
+                thread::sleep(Duration::from_millis(CLIP_SAMPLE_INTERVAL_MS));
+                continue;
+            }
+            let config = LiveConfig {
+                width: resolved.width,
+                height: resolved.height,
+                fps: resolved.fps,
+                bitrate: resolved.bitrate,
+                hevc: resolved.codec == VideoCodec::Hevc,
+                game_mode: pace,
+            };
+            match LiveSession::open(&config) {
+                Ok(opened) => {
+                    let mut extra = String::new();
+                    let codec = if resolved.codec == VideoCodec::Hevc && !opened.hevc() {
+                        extra = "HEVC isn't available, so this clip is H.264.".into();
+                        VideoCodec::H264
+                    } else {
+                        resolved.codec
+                    };
+                    let backend = opened.backend();
+                    store_view(&inner, &resolved, Some(backend), &extra);
+                    *inner.ring.lock().unwrap_or_else(|err| err.into_inner()) =
+                        PacketRing::new(codec, resolved.width, resolved.height, resolved.fps);
+                    watch.reset(resolved.fps);
+                    last_pts = None;
+                    session_key = key;
+                    session = Some(opened);
+                    set_error(&inner, String::new());
+                }
+                Err(err) => {
+                    fail_until = Instant::now() + Duration::from_secs(2);
+                    session_key = key;
+                    set_error(&inner, err);
+                    sample_jpeg(&inner, started);
+                    thread::sleep(Duration::from_millis(CLIP_SAMPLE_INTERVAL_MS));
+                    continue;
                 }
             }
-            Err(err) => *inner.last_error.lock().unwrap_or_else(|e| e.into_inner()) = err,
         }
-        let rest = Duration::from_millis(CLIP_SAMPLE_INTERVAL_MS).saturating_sub(tick.elapsed());
-        thread::sleep(rest);
+
+        let Some(live) = session.as_mut() else {
+            continue;
+        };
+        let codec = if live.hevc() {
+            VideoCodec::Hevc
+        } else {
+            VideoCodec::H264
+        };
+        match live.tick() {
+            Ok(packets) => {
+                let now_ms = started.elapsed().as_millis() as u64;
+                ingest_packets(&inner, codec, resolved.fps, &packets, &mut last_pts);
+                let stepped = if packets.is_empty() {
+                    watch.observe(now_ms, false)
+                } else {
+                    let mut stepped = None;
+                    for _ in &packets {
+                        if let Some(lower) = watch.observe(now_ms, true) {
+                            stepped = Some(lower);
+                        }
+                    }
+                    stepped
+                };
+                if let Some(lower) = stepped {
+                    inner.runtime_cap.store(lower, Ordering::Relaxed);
+                    session = None;
+                    session_key.clear();
+                }
+                set_error(&inner, String::new());
+            }
+            Err(err) => {
+                set_error(&inner, err);
+                session = None;
+                fail_until = Instant::now() + Duration::from_secs(2);
+            }
+        }
+        thread::sleep(Duration::from_millis(4));
     }
 }
 
@@ -542,6 +802,130 @@ fn unique_clip_name(dir: &Path, name: &str) -> String {
         }
     }
     name.to_string()
+}
+
+fn plan_for(
+    inner: &Inner,
+    probe: &lark_clip_hw::HardwareProbe,
+) -> lark_core::clip_rate::ResolvedCapture {
+    resolve_capture(
+        ClipRequest::new(
+            inner.fps.load(Ordering::Relaxed),
+            inner.resolution.load(Ordering::Relaxed),
+        ),
+        DisplayCaps {
+            width: probe.display_width,
+            height: probe.display_height,
+            refresh_hz: probe.refresh_hz,
+        },
+        EncoderCaps {
+            kind: EncoderKind::parse(probe.encoder_name),
+            hevc: probe.hevc,
+            h264: probe.h264,
+        },
+        inner.runtime_cap.load(Ordering::Relaxed),
+    )
+}
+
+fn store_view(
+    inner: &Inner,
+    resolved: &lark_core::clip_rate::ResolvedCapture,
+    backend: Option<&str>,
+    extra: &str,
+) {
+    let mut note = resolved.note.clone();
+    if !extra.is_empty() {
+        if !note.is_empty() {
+            note.push(' ');
+        }
+        note.push_str(extra);
+    }
+    let mut view = inner.view.lock().unwrap_or_else(|err| err.into_inner());
+    view.width = resolved.width;
+    view.height = resolved.height;
+    view.fps = resolved.fps;
+    view.cap_note = note;
+    if let Some(backend) = backend {
+        view.backend = backend.to_string();
+        view.hardware = true;
+        view.codec = if extra.contains("H.264") {
+            VideoCodec::H264.label().to_string()
+        } else {
+            resolved.codec.label().to_string()
+        };
+    } else if !resolved.hardware {
+        view.backend = capture_backend().to_string();
+        view.hardware = false;
+        view.codec = resolved.codec.label().to_string();
+    } else if !view.hardware {
+        view.codec = resolved.codec.label().to_string();
+    }
+}
+
+fn ingest_packets(
+    inner: &Inner,
+    codec: VideoCodec,
+    fps: u32,
+    packets: &[lark_clip_hw::LivePacket],
+    last_pts: &mut Option<u64>,
+) {
+    if packets.is_empty() {
+        return;
+    }
+    let mut ring = inner.ring.lock().unwrap_or_else(|err| err.into_inner());
+    for packet in packets {
+        let (vps, sps, pps, avcc) = take_access_unit(codec, &packet.bytes);
+        if !vps.is_empty() || !sps.is_empty() || !pps.is_empty() {
+            ring.set_parameter_sets(&vps, &sps, &pps);
+        }
+        if avcc.is_empty() {
+            continue;
+        }
+        let duration = packet.duration_ticks.max(match *last_pts {
+            Some(prev) if packet.pts_ms > prev => {
+                ((packet.pts_ms - prev) * u64::from(lark_core::clip_rate::CLIP_TIMESCALE) / 1000)
+                    .max(1) as u32
+            }
+            _ => frame_duration_ticks(fps),
+        });
+        *last_pts = Some(packet.pts_ms);
+        ring.push(AccessUnit {
+            pts_ms: packet.pts_ms,
+            duration_ticks: duration,
+            keyframe: sample_is_key(codec, &avcc),
+            data: avcc,
+        });
+    }
+}
+
+fn sample_jpeg(inner: &Inner, started: Instant) {
+    match grab_primary_rgba() {
+        Ok((rgba, width, height)) => {
+            if !(inner.share.load(Ordering::Relaxed) || inner.game.load(Ordering::Relaxed)) {
+                return;
+            }
+            let at_ms = started.elapsed().as_millis() as u64;
+            match prepare_frame(&rgba, width, height, at_ms) {
+                Ok(frame) => {
+                    inner
+                        .buffer
+                        .lock()
+                        .unwrap_or_else(|err| err.into_inner())
+                        .push(frame);
+                    set_error(inner, String::new());
+                }
+                Err(err) => set_error(inner, err),
+            }
+        }
+        Err(err) => set_error(inner, err),
+    }
+}
+
+fn set_error(inner: &Inner, error: String) {
+    *inner
+        .last_error
+        .lock()
+        .unwrap_or_else(|err| err.into_inner()) = error;
 }
 
 fn unique_name(dir: &Path) -> String {

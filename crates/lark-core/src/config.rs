@@ -67,6 +67,8 @@ impl Config {
             self.voice.levels.retain(|id, _| keep.iter().any(|saved| saved == id));
         }
         self.soundboard.clips = normalize_clips(self.soundboard.clips);
+        self.clips.fps = crate::clip_rate::snap_fps(self.clips.fps);
+        self.clips.resolution = crate::clip_rate::snap_resolution(self.clips.resolution);
         self.notifications.keywords = self
             .notifications
             .keywords
@@ -406,6 +408,20 @@ pub struct Clips {
     pub game_capture: bool,
     /// What to do when a clip is over the Discord upload limit: always, ask, or never.
     pub compress: CompressMode,
+    /// 60, 120, or 240. Anything else becomes 60.
+    #[serde(default = "default_clip_fps")]
+    pub fps: u32,
+    /// 720, 1080, 1440, or 2160. Anything else becomes 1440.
+    #[serde(default = "default_clip_resolution")]
+    pub resolution: u32,
+}
+
+fn default_clip_fps() -> u32 {
+    60
+}
+
+fn default_clip_resolution() -> u32 {
+    1440
 }
 
 impl Default for Clips {
@@ -413,6 +429,8 @@ impl Default for Clips {
         Self {
             game_capture: false,
             compress: CompressMode::Ask,
+            fps: default_clip_fps(),
+            resolution: default_clip_resolution(),
         }
     }
 }
@@ -1115,6 +1133,8 @@ mod tests {
         assert_eq!(cfg.shortcuts.save_clip, "mod+shift+c");
         assert!(!cfg.clips.game_capture);
         assert_eq!(cfg.clips.compress, CompressMode::Ask);
+        assert_eq!(cfg.clips.fps, 60);
+        assert_eq!(cfg.clips.resolution, 1440);
         assert!(!cfg.privacy.streamer);
         assert!(!cfg.privacy.streamer_auto);
     }
@@ -1126,6 +1146,19 @@ mod tests {
         let on = parse_config("[privacy]\nstreamer = true\nstreamer_auto = true\n").unwrap();
         assert!(on.privacy.streamer);
         assert!(on.privacy.streamer_auto);
+    }
+
+    #[test]
+    fn clip_quality_defaults_to_1440p_at_60_and_snaps() {
+        let cfg = parse_config("").unwrap();
+        assert_eq!(cfg.clips.fps, 60);
+        assert_eq!(cfg.clips.resolution, 1440);
+        let picked = parse_config("[clips]\nfps = 120\nresolution = 2160\n").unwrap();
+        assert_eq!(picked.clips.fps, 120);
+        assert_eq!(picked.clips.resolution, 2160);
+        let snapped = parse_config("[clips]\nfps = 90\nresolution = 480\n").unwrap();
+        assert_eq!(snapped.clips.fps, 60);
+        assert_eq!(snapped.clips.resolution, 1440);
     }
 
     #[test]

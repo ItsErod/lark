@@ -52,7 +52,7 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 - A voice HUD that can sit on top of a game. It stays off until you turn it on
 - A performance strip on that same HUD for RAM, CPU, and FPS
 - Game Mode, which eases resource use while a game is in front, with a profile per game
-- A clip hotkey saves up to 30 seconds of the main display as an MP4 (H.264 and AAC) while screen share or Game Mode capture is on. The file stays in the clips folder until you attach it
+- A clip hotkey saves up to 30 seconds of the main display as an MP4 while screen share or Game Mode capture is on. Capture is 720p, 1080p, 1440p, or 2160p at 60, 120, or 240 fps (1440p at 60 fps by default), capped when the display or encoder cannot hold it. The file stays in the clips folder until you attach it
 - Paints follow the display, up to 240 fps
 
 ## Voice HUD
