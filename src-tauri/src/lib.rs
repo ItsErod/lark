@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
 use lark_core::credential_not_saved_message;
@@ -42,6 +42,7 @@ struct Shared {
     screen_stop: Mutex<Option<watch::Sender<bool>>>,
     screen_dirty: Arc<AtomicBool>,
     clips: clip_rec::ClipEngine,
+    premium_type: Arc<AtomicI64>,
     hide_on_close: Arc<AtomicBool>,
     qr_stop: Mutex<Option<watch::Sender<bool>>>,
     browser_stop: Mutex<Option<watch::Sender<bool>>>,
@@ -134,6 +135,7 @@ pub fn run() {
                 screen_stop: Mutex::new(None),
                 screen_dirty: Arc::new(AtomicBool::new(false)),
                 clips,
+                premium_type: Arc::new(AtomicI64::new(0)),
                 hide_on_close: hide_on_close.clone(),
                 qr_stop: Mutex::new(None),
                 browser_stop: Mutex::new(None),
@@ -238,7 +240,12 @@ pub fn run() {
             clip_status,
             read_clip,
             show_clip,
-            open_clips_dir
+            open_clips_dir,
+            list_clips,
+            rename_clip,
+            delete_clip,
+            trim_clip,
+            compress_clip
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -445,6 +452,7 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     let rest = Arc::new(DiscordRest::new(token.clone()).map_err(|err| err.to_string())?);
     match rest.current_user().await {
         Ok(user) => {
+            state.premium_type.store(user.premium_type, Ordering::Relaxed);
             if let Ok(mut slot) = state.voice.lock() {
                 slot.user_id = user.id;
             }
@@ -458,10 +466,12 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     *state.gateway.lock().await = Some(gateway_tx);
     let app_handle = app.clone();
     let voice_slot = state.voice.clone();
+    let premium_type = Arc::clone(&state.premium_type);
     tauri::async_runtime::spawn(async move {
         lark_core::discord::run_gateway(token, rx, gateway_rx, move |event: ClientEvent| {
             let outbound = match &event {
                 ClientEvent::Ready { user, .. } => {
+                    premium_type.store(user.premium_type, Ordering::Relaxed);
                     if let Ok(mut slot) = voice_slot.lock() {
                         slot.user_id = user.id.clone();
                     }
@@ -690,9 +700,10 @@ async fn send_message(
             bytes: file.bytes,
         })
         .collect();
+    let limit = lark_core::clip_fit::upload_limit_bytes(state.premium_type.load(Ordering::Relaxed));
     rest(&state)
         .await?
-        .send_message(&channel_id, &content, reply_to.as_deref(), nonce.as_deref(), &files)
+        .send_message(&channel_id, &content, reply_to.as_deref(), nonce.as_deref(), &files, limit)
         .await
         .map_err(|err| err.to_string())
 }
@@ -1558,6 +1569,65 @@ fn show_clip(state: State<'_, Shared>, name: String) -> Result<(), String> {
 #[tauri::command]
 fn open_clips_dir(state: State<'_, Shared>) -> Result<(), String> {
     clip_rec::open_dir(state.clips.dir())
+}
+
+#[tauri::command]
+fn list_clips(state: State<'_, Shared>) -> Vec<clip_rec::ClipEntry> {
+    state.clips.list()
+}
+
+#[tauri::command]
+fn rename_clip(state: State<'_, Shared>, name: String, label: String) -> Result<String, String> {
+    state.clips.rename(&name, &label)
+}
+
+#[tauri::command]
+fn delete_clip(state: State<'_, Shared>, name: String) -> Result<(), String> {
+    state.clips.delete(&name)
+}
+
+fn ffmpeg_hints(app: &AppHandle) -> Vec<PathBuf> {
+    let mut hints = Vec::new();
+    if let Ok(dir) = app.path().resource_dir() {
+        hints.extend(lark_core::clip_fit::ffmpeg_candidates(Some(&dir), None));
+    }
+    hints
+}
+
+#[tauri::command]
+fn trim_clip(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    name: String,
+    start_ms: u64,
+    end_ms: u64,
+) -> Result<clip_rec::ClipSaved, String> {
+    state
+        .clips
+        .trim(&name, start_ms, end_ms, &ffmpeg_hints(&app))
+}
+
+#[tauri::command]
+async fn compress_clip(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    name: String,
+    limit_bytes: u64,
+) -> Result<clip_rec::ClipSaved, String> {
+    let hints = ffmpeg_hints(&app);
+    let engine = state.clips.clone();
+    let progress = app.clone();
+    let clip_name = name.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.compress(&name, limit_bytes, &hints, &mut |percent| {
+            let _ = progress.emit(
+                "clip-compress",
+                serde_json::json!({ "name": clip_name, "percent": percent }),
+            );
+        })
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 fn install_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {

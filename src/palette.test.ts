@@ -13,6 +13,8 @@ describe("command palette", () => {
     expect(ids).toContain("perf-overlay");
     expect(ids).toContain("game-mode");
     expect(matchCommands("voice", commandCatalog()).some((item) => item.id === "mute")).toBe(true);
+    expect(ids).toContain("clips");
+    expect(matchCommands("trim", commandCatalog()).some((item) => item.id === "clips")).toBe(true);
     expect(ids).toContain("saved");
     expect(ids).toContain("reminders");
     expect(ids).toContain("scheduled");

@@ -307,3 +307,28 @@ commands.allow = ["show_clip"]
 identifier = "allow-open-clips-dir"
 description = "Open the Lark clips folder."
 commands.allow = ["open_clips_dir"]
+
+[[permission]]
+identifier = "allow-list-clips"
+description = "List saved clips in the clips folder."
+commands.allow = ["list_clips"]
+
+[[permission]]
+identifier = "allow-rename-clip"
+description = "Rename a clip inside the clips folder."
+commands.allow = ["rename_clip"]
+
+[[permission]]
+identifier = "allow-delete-clip"
+description = "Delete a clip from the clips folder."
+commands.allow = ["delete_clip"]
+
+[[permission]]
+identifier = "allow-trim-clip"
+description = "Write a trimmed copy of a clip."
+commands.allow = ["trim_clip"]
+
+[[permission]]
+identifier = "allow-compress-clip"
+description = "Re-encode a copy of a clip under the upload limit."
+commands.allow = ["compress_clip"]

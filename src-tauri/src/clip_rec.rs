@@ -54,6 +54,18 @@ impl ClipSaved {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ClipEntry {
+    pub name: String,
+    pub bytes: u64,
+    pub modified_ms: u64,
+    pub duration_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    pub poster: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClipStatus {
     pub recording: bool,
     pub game_capture: bool,
@@ -228,10 +240,198 @@ impl ClipEngine {
     pub fn read_base64(&self, name: &str) -> Result<String, String> {
         let path = resolve_clip(&self.inner.dir, name)?;
         let bytes = std::fs::read(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
-        if bytes.len() > 8 * 1024 * 1024 {
-            return Err("That clip is over 8 MB, so Lark will not attach it.".into());
+        if bytes.len() as u64 > lark_core::clip_fit::NITRO_LIMIT {
+            return Err("That clip is over 500 MB, so Lark will not attach it.".into());
         }
         Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+
+    pub fn list(&self) -> Vec<ClipEntry> {
+        let mut items = Vec::new();
+        let entries = std::fs::read_dir(&self.inner.dir).ok();
+        let Some(entries) = entries else {
+            return items;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !lark_core::clip::is_clip_name(&name) {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            let modified_ms = meta
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|time| time.as_millis() as u64)
+                .unwrap_or(0);
+            let bytes = std::fs::read(entry.path()).unwrap_or_default();
+            let info = lark_core::clip::inspect_saved_clip(&bytes);
+            items.push(ClipEntry {
+                name,
+                bytes: meta.len(),
+                modified_ms,
+                duration_ms: info.duration_ms,
+                width: info.width,
+                height: info.height,
+                poster: if info.poster_jpeg.is_empty() {
+                    String::new()
+                } else {
+                    base64::engine::general_purpose::STANDARD.encode(info.poster_jpeg)
+                },
+            });
+            if items.len() >= 200 {
+                break;
+            }
+        }
+        items.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then(a.name.cmp(&b.name)));
+        items
+    }
+
+    pub fn rename(&self, name: &str, label: &str) -> Result<String, String> {
+        let from = resolve_clip(&self.inner.dir, name)?;
+        let next = lark_core::clip_fit::renamed_clip_name(name, label)?;
+        if next == name {
+            return Ok(next);
+        }
+        let dest = self.inner.dir.join(&next);
+        if dest.exists() {
+            return Err("A clip with that name is already in the folder.".into());
+        }
+        std::fs::rename(&from, &dest).map_err(|err| format!("Couldn't rename the clip: {err}"))?;
+        Ok(next)
+    }
+
+    pub fn delete(&self, name: &str) -> Result<(), String> {
+        let path = resolve_clip(&self.inner.dir, name)?;
+        std::fs::remove_file(&path).map_err(|err| format!("Couldn't delete the clip: {err}"))
+    }
+
+    pub fn trim(
+        &self,
+        name: &str,
+        start_ms: u64,
+        end_ms: u64,
+        ffmpeg_hints: &[PathBuf],
+    ) -> Result<ClipSaved, String> {
+        let path = resolve_clip(&self.inner.dir, name)?;
+        let bytes = std::fs::read(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
+        let next_name = unique_clip_name(&self.inner.dir, &lark_core::clip_fit::trimmed_clip_name(name));
+        let dest = self.inner.dir.join(&next_name);
+        if lark_core::clip::clip_extension(name) == "avi" {
+            let trimmed = lark_core::clip::trim_saved_clip(&bytes, start_ms, end_ms)?;
+            std::fs::write(&dest, &trimmed).map_err(|err| format!("Couldn't write the trim: {err}"))?;
+            let info = lark_core::clip::inspect_saved_clip(&trimmed);
+            return Ok(ClipSaved::ready(
+                next_name,
+                dest.display().to_string(),
+                trimmed.len() as u64,
+                0,
+                info.duration_ms,
+            ));
+        }
+        self.encode_copy(
+            &path,
+            &dest,
+            &next_name,
+            None,
+            Some(start_ms),
+            Some(end_ms),
+            ffmpeg_hints,
+            &mut |_| {},
+        )
+    }
+
+    pub fn compress(
+        &self,
+        name: &str,
+        limit_bytes: u64,
+        ffmpeg_hints: &[PathBuf],
+        on_progress: &mut dyn FnMut(u8),
+    ) -> Result<ClipSaved, String> {
+        let path = resolve_clip(&self.inner.dir, name)?;
+        let meta = std::fs::metadata(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
+        if meta.len() <= limit_bytes {
+            return Err("That clip is already under the upload limit.".into());
+        }
+        let next_name = unique_clip_name(&self.inner.dir, &lark_core::clip_fit::fitted_clip_name(name));
+        let dest = self.inner.dir.join(&next_name);
+        let bytes = std::fs::read(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
+        let info = lark_core::clip::inspect_saved_clip(&bytes);
+        let duration = info.duration_ms.max(1_000);
+        let saved = self.encode_copy(
+            &path,
+            &dest,
+            &next_name,
+            Some(lark_core::clip_fit::video_bitrate(duration, limit_bytes)),
+            None,
+            None,
+            ffmpeg_hints,
+            on_progress,
+        )?;
+        if saved.bytes > limit_bytes {
+            let _ = std::fs::remove_file(&dest);
+            return Err("The compressed copy is still over the upload limit.".into());
+        }
+        if !path.exists() {
+            return Err("The original clip was removed.".into());
+        }
+        Ok(saved)
+    }
+
+    fn encode_copy(
+        &self,
+        source: &Path,
+        dest: &Path,
+        name: &str,
+        video_bps: Option<u64>,
+        start_ms: Option<u64>,
+        end_ms: Option<u64>,
+        ffmpeg_hints: &[PathBuf],
+        on_progress: &mut dyn FnMut(u8),
+    ) -> Result<ClipSaved, String> {
+        let mut candidates = lark_core::clip_fit::ffmpeg_candidates(
+            None,
+            std::env::current_exe()
+                .ok()
+                .as_deref()
+                .and_then(|path| path.parent()),
+        );
+        candidates.extend(ffmpeg_hints.iter().cloned());
+        let ffmpeg = lark_core::clip_fit::resolve_ffmpeg(&candidates)
+        .ok_or_else(|| {
+            "Lark couldn't find ffmpeg. Add the ffmpeg sidecar next to the app, or install ffmpeg.".to_string()
+        })?;
+        let listing = std::process::Command::new(&ffmpeg)
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
+            .unwrap_or_default();
+        let available = lark_core::clip_fit::encoders_from_listing(&listing);
+        let encoder = lark_core::clip_fit::pick_h264_encoder(std::env::consts::OS, &available);
+        let bytes = std::fs::read(source).unwrap_or_default();
+        let info = lark_core::clip::inspect_saved_clip(&bytes);
+        let duration = info.duration_ms.max(1_000);
+        let rate = video_bps.unwrap_or_else(|| lark_core::clip_fit::video_bitrate(duration, lark_core::clip_fit::DEFAULT_UPLOAD_LIMIT));
+        let args = lark_core::clip_fit::encode_args(
+            &encoder,
+            &source.display().to_string(),
+            &dest.display().to_string(),
+            rate,
+            start_ms,
+            end_ms,
+        );
+        lark_core::clip_fit::run_ffmpeg(&ffmpeg, &args, duration, on_progress)?;
+        let meta = std::fs::metadata(dest).map_err(|err| format!("Couldn't read the new clip: {err}"))?;
+        Ok(ClipSaved::ready(
+            name.to_string(),
+            dest.display().to_string(),
+            meta.len(),
+            0,
+            duration,
+        ))
     }
 
     pub fn clip_path(&self, name: &str) -> Result<PathBuf, String> {
@@ -327,6 +527,21 @@ fn sample_loop(inner: Arc<Inner>) {
         let rest = Duration::from_millis(CLIP_SAMPLE_INTERVAL_MS).saturating_sub(tick.elapsed());
         thread::sleep(rest);
     }
+}
+
+fn unique_clip_name(dir: &Path, name: &str) -> String {
+    if !dir.join(name).exists() {
+        return name.to_string();
+    }
+    let ext = lark_core::clip::clip_extension(name);
+    let stem = name.trim_end_matches(&format!(".{ext}"));
+    for index in 2..50 {
+        let next = format!("{stem}-{index}.{ext}");
+        if lark_core::clip::is_clip_name(&next) && !dir.join(&next).exists() {
+            return next;
+        }
+    }
+    name.to_string()
 }
 
 fn unique_name(dir: &Path) -> String {

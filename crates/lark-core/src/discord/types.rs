@@ -14,6 +14,9 @@ pub struct DiscordUser {
     /// Present on mention users. Guild nickname wins over the global name.
     #[serde(default)]
     pub member: Option<DiscordNick>,
+    /// 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic. Missing on most user objects.
+    #[serde(default)]
+    pub premium_type: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -304,6 +307,9 @@ pub struct ClientUser {
     pub name: String,
     pub avatar_url: Option<String>,
     pub bot: bool,
+    /// Discord Nitro tier used for the upload limit. 0 when the account has none.
+    #[serde(default)]
+    pub premium_type: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -664,6 +670,7 @@ pub fn user_to_client(user: &DiscordUser) -> ClientUser {
         },
         avatar_url: avatar_url(&user.id, &user.avatar),
         bot: user.bot,
+        premium_type: user.premium_type.unwrap_or(0),
     }
 }
 
@@ -1444,18 +1451,20 @@ pub fn validate_outgoing(
     content: &str,
     file_count: usize,
     file_bytes: u64,
-) -> Result<(), &'static str> {
+    limit_bytes: u64,
+) -> Result<(), String> {
     if content.chars().count() > 2_000 {
-        return Err("Messages are limited to 2,000 characters.");
+        return Err("Messages are limited to 2,000 characters.".into());
     }
     if content.trim().is_empty() && file_count == 0 {
-        return Err("Write a message or attach a file.");
+        return Err("Write a message or attach a file.".into());
     }
     if file_count > 4 {
-        return Err("Lark sends up to 4 files at a time.");
+        return Err("Lark sends up to 4 files at a time.".into());
     }
-    if file_bytes > 8 * 1024 * 1024 {
-        return Err("Attachments are limited to 8 MB in this version.");
+    if file_bytes > limit_bytes {
+        let mb = (limit_bytes / (1024 * 1024)).max(1);
+        return Err(format!("Attachments are limited to {mb} MB on this account."));
     }
     Ok(())
 }
@@ -1593,11 +1602,14 @@ mod tests {
 
     #[test]
     fn outgoing_limits_and_file_names() {
-        assert!(validate_outgoing("hi", 0, 0).is_ok());
-        assert!(validate_outgoing("   ", 0, 0).is_err());
-        assert!(validate_outgoing(&"a".repeat(2001), 0, 0).is_err());
-        assert!(validate_outgoing("hi", 5, 10).is_err());
-        assert!(validate_outgoing("hi", 1, 9 * 1024 * 1024).is_err());
+        let limit = crate::clip_fit::DEFAULT_UPLOAD_LIMIT;
+        assert!(validate_outgoing("hi", 0, 0, limit).is_ok());
+        assert!(validate_outgoing("   ", 0, 0, limit).is_err());
+        assert!(validate_outgoing(&"a".repeat(2001), 0, 0, limit).is_err());
+        assert!(validate_outgoing("hi", 5, 10, limit).is_err());
+        assert!(validate_outgoing("hi", 1, 9 * 1024 * 1024, limit).is_ok());
+        assert!(validate_outgoing("hi", 1, 11 * 1024 * 1024, limit).is_err());
+        assert!(validate_outgoing("hi", 1, 40 * 1024 * 1024, crate::clip_fit::upload_limit_bytes(2)).is_ok());
         assert_eq!(safe_file_name("C:\\Users\\Ethan\\shot.png"), "shot.png");
         assert_eq!(safe_file_name("../../etc/passwd"), "passwd");
         assert_eq!(safe_file_name(""), "file");

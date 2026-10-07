@@ -360,13 +360,217 @@ pub fn clip_file_name(unix_secs: u64) -> String {
 
 /// New clips are `.mp4`. Older `.avi` names still attach.
 pub fn is_clip_name(name: &str) -> bool {
-    let extension = name.ends_with(".mp4") || name.ends_with(".avi");
-    name.starts_with("lark-clip-")
-        && extension
-        && name.len() < 80
+    let ext = clip_extension(name);
+    (ext == "avi" || ext == "mp4")
+        && name.starts_with("lark-clip-")
+        && name.len() < 120
+        && !name.contains("..")
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+}
+
+pub fn clip_extension(name: &str) -> &str {
+    name.rsplit('.').next().unwrap_or("")
+}
+
+/// A saved clip the library can show. Poster is the first JPEG inside an MJPEG AVI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedClipInfo {
+    pub duration_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    pub poster_jpeg: Vec<u8>,
+}
+
+pub fn inspect_saved_clip(bytes: &[u8]) -> SavedClipInfo {
+    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"AVI ") {
+        return inspect_avi(bytes);
+    }
+    if let Some(duration_ms) = mp4_duration_ms(bytes) {
+        return SavedClipInfo {
+            duration_ms,
+            width: 0,
+            height: 0,
+            poster_jpeg: Vec::new(),
+        };
+    }
+    SavedClipInfo {
+        duration_ms: 0,
+        width: 0,
+        height: 0,
+        poster_jpeg: Vec::new(),
+    }
+}
+
+/// Keep an MJPEG AVI's frames between `start_ms` and `end_ms`. MP4 trim uses ffmpeg.
+pub fn trim_saved_clip(bytes: &[u8], start_ms: u64, end_ms: u64) -> Result<Vec<u8>, String> {
+    if end_ms <= start_ms {
+        return Err("The trim end has to be after the start.".into());
+    }
+    if !(bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"AVI ")) {
+        return Err("This clip needs ffmpeg to trim.".into());
+    }
+    let info = inspect_avi(bytes);
+    let frames = avi_frames(bytes)?;
+    if frames.is_empty() {
+        return Err("That clip has no frames to trim.".into());
+    }
+    let frame_ms = if info.duration_ms == 0 {
+        CLIP_SAMPLE_INTERVAL_MS
+    } else {
+        (info.duration_ms / frames.len() as u64).max(1)
+    };
+    let picked: Vec<&EncodedFrame> = frames
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            let at = *index as u64 * frame_ms;
+            at >= start_ms && at < end_ms
+        })
+        .map(|(_, frame)| frame)
+        .collect();
+    let picked = if picked.is_empty() {
+        vec![frames.last().unwrap()]
+    } else {
+        picked
+    };
+    let width = info.width.max(picked[0].width).max(2);
+    let height = info.height.max(picked[0].height).max(2);
+    let span = (picked.len() as u64 * frame_ms).max(1);
+    let fps = playback_fps(picked.len(), span);
+    Ok(write_mjpeg_avi(&picked, fps, width, height))
+}
+
+fn inspect_avi(bytes: &[u8]) -> SavedClipInfo {
+    let mut duration_ms = 0u64;
+    let mut width = 0u32;
+    let mut height = 0u32;
+    let mut poster = Vec::new();
+    if let Some(at) = find_tag(bytes, b"avih") {
+        let base = at + 8;
+        if bytes.len() >= base + 40 {
+            let micro = u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap());
+            let frames = u32::from_le_bytes(bytes[base + 16..base + 20].try_into().unwrap());
+            width = u32::from_le_bytes(bytes[base + 32..base + 36].try_into().unwrap());
+            height = u32::from_le_bytes(bytes[base + 36..base + 40].try_into().unwrap());
+            duration_ms = (u64::from(micro) * u64::from(frames.max(1))) / 1000;
+        }
+    }
+    if let Ok(frames) = avi_frames(bytes) {
+        if let Some(first) = frames.first() {
+            if width == 0 {
+                width = first.width;
+            }
+            if height == 0 {
+                height = first.height;
+            }
+            poster = first.jpeg.clone();
+        }
+        if duration_ms == 0 && !frames.is_empty() {
+            duration_ms = frames.len() as u64 * CLIP_SAMPLE_INTERVAL_MS;
+        }
+    }
+    SavedClipInfo {
+        duration_ms,
+        width,
+        height,
+        poster_jpeg: poster,
+    }
+}
+
+fn avi_frames(bytes: &[u8]) -> Result<Vec<EncodedFrame>, String> {
+    let movi = find_tag(bytes, b"movi").ok_or_else(|| "That clip is not a readable AVI.".to_string())?;
+    let mut cursor = movi + 4;
+    let end = find_tag(bytes, b"idx1").unwrap_or(bytes.len());
+    let mut frames = Vec::new();
+    while cursor + 8 <= end && cursor + 8 <= bytes.len() {
+        let tag = &bytes[cursor..cursor + 4];
+        let size = u32::from_le_bytes(bytes[cursor + 4..cursor + 8].try_into().unwrap()) as usize;
+        let payload = cursor + 8;
+        let next = payload + size + (size % 2);
+        if next > bytes.len() {
+            break;
+        }
+        if tag == b"00dc" && size >= 2 && bytes.get(payload..payload + 2) == Some(&[0xff, 0xd8]) {
+            frames.push(EncodedFrame {
+                at_ms: frames.len() as u64 * CLIP_SAMPLE_INTERVAL_MS,
+                width: 0,
+                height: 0,
+                jpeg: bytes[payload..payload + size].to_vec(),
+            });
+        }
+        cursor = next;
+    }
+    Ok(frames)
+}
+
+fn find_tag(bytes: &[u8], tag: &[u8; 4]) -> Option<usize> {
+    bytes.windows(4).position(|window| window == tag)
+}
+
+/// Duration from an MP4 `mvhd` box, when the file has one.
+pub fn mp4_duration_ms(bytes: &[u8]) -> Option<u64> {
+    fn walk_range(bytes: &[u8], start: usize, end: usize) -> Option<u64> {
+        let mut cursor = start;
+        while cursor + 8 <= end && cursor + 8 <= bytes.len() {
+            let mut size = u32::from_be_bytes(bytes[cursor..cursor + 4].try_into().ok()?) as usize;
+            let kind = &bytes[cursor + 4..cursor + 8];
+            let mut header = 8usize;
+            if size == 1 {
+                if cursor + 16 > bytes.len() {
+                    return None;
+                }
+                size = u64::from_be_bytes(bytes[cursor + 8..cursor + 16].try_into().ok()?) as usize;
+                header = 16;
+            } else if size == 0 {
+                size = end.saturating_sub(cursor);
+            }
+            if size < header || cursor.saturating_add(size) > end {
+                return None;
+            }
+            let body = cursor + header;
+            let box_end = cursor + size;
+            if kind == b"mvhd" {
+                return mvhd_duration_ms(&bytes[body..box_end]);
+            }
+            if kind == b"moov" || kind == b"trak" || kind == b"mdia" {
+                if let Some(found) = walk_range(bytes, body, box_end) {
+                    return Some(found);
+                }
+            }
+            cursor = box_end;
+        }
+        None
+    }
+    if bytes.len() < 16 {
+        return None;
+    }
+    walk_range(bytes, 0, bytes.len())
+}
+
+fn mvhd_duration_ms(body: &[u8]) -> Option<u64> {
+    let version = *body.first()?;
+    if version == 0 {
+        if body.len() < 20 {
+            return None;
+        }
+        let timescale = u32::from_be_bytes(body[12..16].try_into().ok()?) as u64;
+        let duration = u32::from_be_bytes(body[16..20].try_into().ok()?) as u64;
+        if timescale == 0 {
+            return None;
+        }
+        return Some(duration.saturating_mul(1000) / timescale);
+    }
+    if body.len() < 32 {
+        return None;
+    }
+    let timescale = u32::from_be_bytes(body[20..24].try_into().ok()?) as u64;
+    let duration = u64::from_be_bytes(body[24..32].try_into().ok()?);
+    if timescale == 0 {
+        return None;
+    }
+    Some(duration.saturating_mul(1000) / timescale)
 }
 
 fn civil_utc(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
@@ -386,6 +590,141 @@ fn civil_utc(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
     let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
     let year = (if month <= 2 { y + 1 } else { y }) as i32;
     (year, month, day, hour, minute, second)
+}
+
+/// Rewrite a subset of MJPEG frames. New clips are MP4; this is only for older AVI trims.
+fn write_mjpeg_avi(frames: &[&EncodedFrame], fps: u32, width: u32, height: u32) -> Vec<u8> {
+    let fps = fps.max(1);
+    let count = frames.len() as u32;
+    let max_frame = frames
+        .iter()
+        .map(|frame| frame.jpeg.len())
+        .max()
+        .unwrap_or(0) as u32;
+    let mut out = Vec::with_capacity(
+        4096 + frames
+            .iter()
+            .map(|frame| frame.jpeg.len() + 8)
+            .sum::<usize>(),
+    );
+    out.extend_from_slice(b"RIFF");
+    let riff_size_at = out.len();
+    push_u32(&mut out, 0);
+    out.extend_from_slice(b"AVI ");
+
+    out.extend_from_slice(b"LIST");
+    let hdrl_size_at = out.len();
+    push_u32(&mut out, 0);
+    let hdrl_data = out.len();
+    out.extend_from_slice(b"hdrl");
+    out.extend_from_slice(b"avih");
+    push_u32(&mut out, 56);
+    push_u32(&mut out, 1_000_000 / fps);
+    push_u32(&mut out, max_frame.saturating_mul(fps));
+    push_u32(&mut out, 0);
+    push_u32(&mut out, 0x110);
+    push_u32(&mut out, count);
+    push_u32(&mut out, 0);
+    push_u32(&mut out, 1);
+    push_u32(&mut out, max_frame);
+    push_u32(&mut out, width);
+    push_u32(&mut out, height);
+    for _ in 0..4 {
+        push_u32(&mut out, 0);
+    }
+
+    out.extend_from_slice(b"LIST");
+    let strl_size_at = out.len();
+    push_u32(&mut out, 0);
+    let strl_data = out.len();
+    out.extend_from_slice(b"strl");
+    out.extend_from_slice(b"strh");
+    push_u32(&mut out, 56);
+    out.extend_from_slice(b"vids");
+    out.extend_from_slice(b"MJPG");
+    push_u32(&mut out, 0);
+    push_u16(&mut out, 0);
+    push_u16(&mut out, 0);
+    push_u32(&mut out, 0);
+    push_u32(&mut out, 1);
+    push_u32(&mut out, fps);
+    push_u32(&mut out, 0);
+    push_u32(&mut out, count);
+    push_u32(&mut out, max_frame);
+    push_u32(&mut out, u32::MAX);
+    push_u32(&mut out, 0);
+    push_i16(&mut out, 0);
+    push_i16(&mut out, 0);
+    push_i16(&mut out, width.min(i16::MAX as u32) as i16);
+    push_i16(&mut out, height.min(i16::MAX as u32) as i16);
+    out.extend_from_slice(b"strf");
+    push_u32(&mut out, 40);
+    push_u32(&mut out, 40);
+    push_i32(&mut out, width as i32);
+    push_i32(&mut out, height as i32);
+    push_u16(&mut out, 1);
+    push_u16(&mut out, 24);
+    out.extend_from_slice(b"MJPG");
+    push_u32(&mut out, max_frame);
+    push_i32(&mut out, 0);
+    push_i32(&mut out, 0);
+    push_u32(&mut out, 0);
+    push_u32(&mut out, 0);
+    let strl_size = (out.len() - strl_data) as u32;
+    let hdrl_size = (out.len() - hdrl_data) as u32;
+    patch_u32(&mut out, strl_size_at, strl_size);
+    patch_u32(&mut out, hdrl_size_at, hdrl_size);
+
+    out.extend_from_slice(b"LIST");
+    let movi_size_at = out.len();
+    push_u32(&mut out, 0);
+    let movi_tag = out.len();
+    out.extend_from_slice(b"movi");
+    let mut index = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let chunk_at = out.len();
+        index.push((chunk_at - (movi_tag + 4), frame.jpeg.len()));
+        out.extend_from_slice(b"00dc");
+        push_u32(&mut out, frame.jpeg.len() as u32);
+        out.extend_from_slice(&frame.jpeg);
+        if frame.jpeg.len() % 2 == 1 {
+            out.push(0);
+        }
+    }
+    let movi_size = (out.len() - (movi_size_at + 4)) as u32;
+    patch_u32(&mut out, movi_size_at, movi_size);
+
+    out.extend_from_slice(b"idx1");
+    push_u32(&mut out, (index.len() * 16) as u32);
+    for (offset, size) in index {
+        out.extend_from_slice(b"00dc");
+        push_u32(&mut out, 0x10);
+        push_u32(&mut out, offset as u32);
+        push_u32(&mut out, size as u32);
+    }
+    let riff_size = (out.len() - 8) as u32;
+    patch_u32(&mut out, riff_size_at, riff_size);
+    out
+}
+
+fn push_u16(out: &mut Vec<u8>, value: u16) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_i16(out: &mut Vec<u8>, value: i16) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_i32(out: &mut Vec<u8>, value: i32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn patch_u32(out: &mut [u8], at: usize, value: u32) {
+    out[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 #[cfg(test)]
@@ -508,8 +847,54 @@ mod tests {
         );
         assert!(is_clip_name(&clip_file_name(0)));
         assert!(is_clip_name("lark-clip-19700101-000000Z.avi"));
+        assert!(is_clip_name("lark-clip-19700101-000000Z.mp4"));
+        assert!(is_clip_name("lark-clip-19700101-000000Z-fit.mp4"));
         assert!(!is_clip_name("../lark-clip-19700101-000000Z.mp4"));
+        assert!(!is_clip_name("../lark-clip-19700101-000000Z.avi"));
         assert!(!is_clip_name("lark-clip-19700101-000000Z.mov"));
+        assert!(!is_clip_name("lark-clip-19700101-000000Z.webm"));
         assert!(!is_clip_name("notes.avi"));
+    }
+
+    #[test]
+    fn saved_avi_reports_duration_poster_and_trims_without_the_original_frames() {
+        let rgba = solid(4, 2, [20, 40, 80, 255]);
+        let frames: Vec<EncodedFrame> = (0..6)
+            .map(|index| prepare_frame(&rgba, 4, 2, index * CLIP_SAMPLE_INTERVAL_MS).unwrap())
+            .collect();
+        let refs: Vec<&EncodedFrame> = frames.iter().collect();
+        let bytes = write_mjpeg_avi(&refs, 5, 4, 2);
+        let info = inspect_saved_clip(&bytes);
+        assert_eq!(info.width, 4);
+        assert_eq!(info.height, 2);
+        assert!(info.duration_ms > 0);
+        assert!(info.poster_jpeg.starts_with(&[0xff, 0xd8]));
+        let trimmed = trim_saved_clip(&bytes, 400, 1_000).unwrap();
+        let again = inspect_saved_clip(&trimmed);
+        assert!(again.duration_ms < info.duration_ms);
+        assert!(again.poster_jpeg.starts_with(&[0xff, 0xd8]));
+        assert!(trim_saved_clip(&bytes, 5_000, 1_000).is_err());
+    }
+
+    #[test]
+    fn mp4_duration_reads_mvhd() {
+        let mut bytes = Vec::new();
+        // ftyp box, 16 bytes
+        bytes.extend_from_slice(&16u32.to_be_bytes());
+        bytes.extend_from_slice(b"ftyp");
+        bytes.extend_from_slice(b"isom");
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        // moov > mvhd version 0, timescale 1000, duration 12500
+        let mut mvhd = vec![0u8; 4 + 100];
+        mvhd[12..16].copy_from_slice(&1000u32.to_be_bytes());
+        mvhd[16..20].copy_from_slice(&12_500u32.to_be_bytes());
+        let mut moov = Vec::new();
+        moov.extend_from_slice(&((8 + mvhd.len()) as u32).to_be_bytes());
+        moov.extend_from_slice(b"mvhd");
+        moov.extend_from_slice(&mvhd);
+        bytes.extend_from_slice(&((8 + moov.len()) as u32).to_be_bytes());
+        bytes.extend_from_slice(b"moov");
+        bytes.extend_from_slice(&moov);
+        assert_eq!(mp4_duration_ms(&bytes), Some(12_500));
     }
 }
