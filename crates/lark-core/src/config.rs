@@ -404,11 +404,31 @@ fn valid_game_name(name: &str) -> bool {
 pub struct Clips {
     /// Record the main display even when screen share is off.
     pub game_capture: bool,
+    /// What to do when a clip is over the Discord upload limit: always, ask, or never.
+    pub compress: CompressMode,
 }
 
 impl Default for Clips {
     fn default() -> Self {
-        Self { game_capture: false }
+        Self {
+            game_capture: false,
+            compress: CompressMode::Ask,
+        }
+    }
+}
+
+/// Re-encode a copy on send. The original file stays in the clips folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressMode {
+    Always,
+    Ask,
+    Never,
+}
+
+impl Default for CompressMode {
+    fn default() -> Self {
+        Self::Ask
     }
 }
 
@@ -1094,6 +1114,7 @@ mod tests {
         assert!(cfg.games.is_empty());
         assert_eq!(cfg.shortcuts.save_clip, "mod+shift+c");
         assert!(!cfg.clips.game_capture);
+        assert_eq!(cfg.clips.compress, CompressMode::Ask);
         assert!(!cfg.privacy.streamer);
         assert!(!cfg.privacy.streamer_auto);
     }

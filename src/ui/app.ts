@@ -77,6 +77,24 @@ import {
   type HardwareState,
 } from "../hardware";
 import { bytesFromBase64, clipBehaviorNote } from "../clip";
+import {
+  CLIP_DRAG,
+  clipMime,
+  compressCopy,
+  demoClips,
+  fitAction,
+  formatClipBytes,
+  formatClipDate,
+  formatClipDuration,
+  isClipFileName,
+  limitSentence,
+  parseCompressMode,
+  posterFor,
+  renamedClipName,
+  trimRange,
+  uploadLimitBytes,
+  type ClipCard,
+} from "../clips";
 import { speakColor, speakingMotion, stageTiles, voiceBadges, type RingMotion, type StageMember } from "../voice-stage";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
@@ -168,13 +186,21 @@ interface PerfMarks {
 }
 
 type ScrollMode = "none" | "bottom" | "preserve";
-type Section = "account" | "privacy" | "messages" | "appearance" | "voice" | "notifications" | "shortcuts" | "lark";
+type Section = "account" | "privacy" | "messages" | "appearance" | "voice" | "notifications" | "shortcuts" | "lark" | "clips";
 
 interface LocalFile {
   name: string;
   mime: string;
   bytes: Uint8Array;
   url: string;
+  clipName?: string;
+  declaredBytes?: number;
+}
+
+interface ClipAsk {
+  name: string;
+  channelId: string;
+  mode: "send" | "attach";
 }
 
 export function mount(root: HTMLElement) {
@@ -375,6 +401,17 @@ class LarkApp {
   private shareOn = false;
   private pendingClip: { name: string; path: string; bytes: number; spanMs: number } | null = null;
   private clipNotice = "";
+  private clipsOpen = false;
+  private clipItems: ClipCard[] = [];
+  private clipStamp = "";
+  private clipAsk: ClipAsk | null = null;
+  private clipPlayer: string | null = null;
+  private clipTrim: string | null = null;
+  private clipSendFor: string | null = null;
+  private clipRename: string | null = null;
+  private clipProgress: { name: string; percent: number } | null = null;
+  private premiumType = 0;
+  private clipDialog!: HTMLElement;
   private clipStatus: { recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string } | null = null;
   private pttHeld = false;
   private recent: string[] = [];
@@ -558,6 +595,11 @@ class LarkApp {
       await listen<{ ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }>("clip-ready", (event) => {
         this.onClipReady(event.payload);
       });
+      await listen<{ name?: string; percent?: number }>("clip-compress", (event) => {
+        if (!event.payload?.name || typeof event.payload.percent !== "number") return;
+        this.clipProgress = { name: event.payload.name, percent: event.payload.percent };
+        if (this.clipsOpen || (this.settings && this.section === "clips")) this.paint();
+      });
       await listen<{ id?: string; error?: string }>("soundboard", (event) => {
         if (event.payload.error) this.toast("Soundboard", event.payload.error);
       });
@@ -643,6 +685,8 @@ class LarkApp {
     this.switcherEl.hidden = true;
     this.settingsEl = el("div", "overlay");
     this.settingsEl.hidden = true;
+    this.clipDialog = el("div", "overlay");
+    this.clipDialog.hidden = true;
     this.lightboxEl = el("div", "overlay lightbox");
     this.lightboxEl.hidden = true;
     this.lightboxEl.addEventListener("click", () => {
@@ -675,7 +719,7 @@ class LarkApp {
     this.splashTrack.append(this.splashBar);
     splashCard.append(el("div", "mark", "L"), el("h1", "", "Lark"), this.splashStatus, this.splashTrack);
     this.splashEl.append(splashCard);
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.inviteEl, this.hudEl, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.inviteEl, this.hudEl, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
     this.root.addEventListener("pointerdown", (event) => this.dismissVoiceFloats(event));
     this.stage.addEventListener("click", (event) => {
       const target = event.target;
@@ -742,6 +786,13 @@ class LarkApp {
     composerWrap.addEventListener("drop", (event) => {
       event.preventDefault();
       composerWrap.classList.remove("is-drop");
+      const dragged = event.dataTransfer?.getData(CLIP_DRAG) || "";
+      const plain = event.dataTransfer?.getData("text/plain") || "";
+      const name = dragged || (isClipFileName(plain) ? plain : "");
+      if (name) {
+        void this.attachClipByName(name);
+        return;
+      }
       void this.takeFiles(event.dataTransfer?.files ?? null);
     });
     window.addEventListener("keydown", (event) => {
@@ -800,7 +851,10 @@ class LarkApp {
     const named = cleanGameName(new URLSearchParams(location.search).get("game") ?? "");
     if (named && this.config.desktop.detect_games) this.noteGame(named);
     this.paint();
-    void this.openChannel(CRIT);
+    const openClips = new URLSearchParams(location.search).has("clips");
+    void this.openChannel(CRIT).then(() => {
+      if (openClips) this.openClips();
+    });
   }
 
   private seedDemoVoice() {
@@ -1124,6 +1178,7 @@ class LarkApp {
       this.paintComposer();
       this.syncBadge();
     }
+    this.paintClipDialog();
     this.paintLightbox();
     this.paintBookmarks();
     this.paintInvite();
@@ -1847,7 +1902,7 @@ class LarkApp {
       return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}`;
     });
     const me = this.demo ? people[0] : this.me;
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.voice?.detail ?? ""}|${bits.join(",")}`;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.voice?.detail ?? ""}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -1861,10 +1916,12 @@ class LarkApp {
     }
     const friends = this.channelPane.querySelector<HTMLElement>("[data-friends]");
     if (friends) {
-      friends.classList.toggle("is-selected", this.friendsOpen && !this.channelId);
+      friends.classList.toggle("is-selected", this.friendsOpen && !this.channelId && !this.clipsOpen);
       const online = this.friends.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
       this.setBadge(friends, online);
     }
+    const clips = this.channelPane.querySelector<HTMLElement>("[data-clips]");
+    if (clips) clips.classList.toggle("is-selected", this.clipsOpen);
     for (const node of this.channelPane.querySelectorAll<HTMLElement>("[data-channel]")) {
       const id = node.dataset.channel ?? "";
       const mentions = this.mentions[id] ?? 0;
@@ -1879,6 +1936,15 @@ class LarkApp {
       const dot = node.querySelector("i.status");
       if (dot && person) dot.className = `status ${person.status ?? "offline"}`;
     }
+  }
+
+  private clipsNavButton(): HTMLButtonElement {
+    const clips = el("button", `channel-row${this.clipsOpen ? " is-selected" : ""}`);
+    clips.type = "button";
+    clips.dataset.clips = "1";
+    clips.append(icon(paths.film), el("span", "row-label", "Clips"));
+    clips.addEventListener("click", () => this.openClips());
+    return clips;
   }
 
   private paintChannels() {
@@ -1910,11 +1976,12 @@ class LarkApp {
         this.msgSig = "";
         this.paint();
       });
-      scroll.append(friends, el("div", "category", "Direct messages"));
+      scroll.append(friends, this.clipsNavButton(), el("div", "category", "Direct messages"));
       const dms = [...this.dms()].sort((a, b) => a.position - b.position);
       if (!dms.length) scroll.append(el("p", "empty", "No direct messages yet."));
       for (const dm of dms) scroll.append(this.channelButton(dm, true));
     } else {
+      scroll.append(this.clipsNavButton());
       const list = [...this.visibleChannels()].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
       const threads = list.filter((channel) => channel.kind === "thread");
       const categories = list.filter((channel) => channel.kind === "category");
@@ -1975,7 +2042,7 @@ class LarkApp {
   }
 
   private channelSelected(id: string): boolean {
-    if (this.friendsOpen) return false;
+    if (this.friendsOpen || this.clipsOpen) return false;
     if (this.voiceStageOpen && this.voice) return id === this.voice.channelId;
     return id === this.channelId;
   }
@@ -2145,6 +2212,7 @@ class LarkApp {
     this.openedAt = performance.now();
     this.msgSig = "";
     this.friendsOpen = false;
+    this.clipsOpen = false;
     if (!this.demo && this.guildId) {
       const prefix = `${this.guildId}:${id}:`;
       if (!this.memberRanges.startsWith(prefix)) this.queueMemberSubscribe(this.guildId, id, [[0, 99]]);
@@ -2217,10 +2285,12 @@ class LarkApp {
       });
       row.append(menu);
     }
-    const inCall = Boolean(this.voiceStageOpen && this.voice);
-    const heading = inCall
-      ? this.voice?.name ?? "Voice"
-      : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : `# ${channel.name}`) : "Lark";
+    const inCall = Boolean(this.voiceStageOpen && this.voice) && !this.clipsOpen;
+    const heading = this.clipsOpen
+      ? "Clips"
+      : inCall
+        ? this.voice?.name ?? "Voice"
+        : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : `# ${channel.name}`) : "Lark";
     if (inCall) row.append(icon(paths.volume));
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
@@ -2628,6 +2698,10 @@ class LarkApp {
 
   private paintMessages() {
     if (this.holdShell) return;
+    if (this.clipsOpen) {
+      this.paintClipLibrary();
+      return;
+    }
     if (this.friendsOpen && !this.guildId) {
       this.paintFriends();
       return;
@@ -3027,9 +3101,13 @@ class LarkApp {
   private paintComposer() {
     if (this.holdShell) return;
     const wrap = this.composer.closest(".composer-wrap");
-    if (wrap instanceof HTMLElement) wrap.hidden = (this.friendsOpen && !this.guildId) || this.voiceStageOpen;
+    if (wrap instanceof HTMLElement) wrap.hidden = this.voiceStageOpen || (this.friendsOpen && !this.guildId && !this.clipsOpen);
     const channel = this.currentChannel();
-    this.composer.placeholder = channel ? `Message ${channel.kind === "text" ? "#" : ""}${channel.name}` : "Message";
+    this.composer.placeholder = this.clipsOpen
+      ? "Drop a clip here, or write a message"
+      : channel
+        ? `Message ${channel.kind === "text" ? "#" : ""}${channel.name}`
+        : "Message";
     this.paintClipBanner();
     clear(this.composerBanner);
     this.composerBanner.hidden = true;
@@ -3150,11 +3228,17 @@ class LarkApp {
     }, 400);
   }
 
+  private fileBytes(file: LocalFile): number {
+    return file.declaredBytes ?? file.bytes.byteLength;
+  }
+
   private async send() {
     const id = this.channelId;
     if (!id) return;
+    const ready = await this.prepareOutgoingFiles();
+    if (!ready) return;
     const content = this.composer.value;
-    const error = outgoingError(content, this.files.length, this.files.reduce((sum, file) => sum + file.bytes.byteLength, 0));
+    const error = outgoingError(content, this.files.length, this.files.reduce((sum, file) => sum + this.fileBytes(file), 0), uploadLimitBytes(this.premiumType));
     if (error) {
       this.toast("Can't send", error);
       return;
@@ -3207,7 +3291,7 @@ class LarkApp {
           name: file.name,
           url: file.url,
           contentType: file.mime,
-          size: file.bytes.byteLength,
+          size: this.fileBytes(file),
         })),
       };
       this.storeEcho(id, message);
@@ -3428,6 +3512,7 @@ class LarkApp {
       ["voice", "Voice & Video"],
       ["notifications", "Notifications"],
       ["shortcuts", "Keybinds"],
+      ["clips", "Clips"],
       ["lark", "Lark"],
     ];
     for (const [id, label] of sections) {
@@ -3439,6 +3524,9 @@ class LarkApp {
         if (id === "appearance") void this.refreshThemeIndex();
         if (id === "voice") void this.pullClipStatus().then(() => {
           if (this.settings && this.section === "voice") this.renderSettings();
+        });
+        if (id === "clips") void this.loadClips().then(() => {
+          if (this.settings && this.section === "clips") this.renderSettings();
         });
       });
       nav.append(button);
@@ -3634,6 +3722,10 @@ class LarkApp {
         return this.persist().then(() => this.pullClipStatus());
       }));
       wrap.append(el("p", "hint", `Hotkey: ${formatShortcut(this.config.shortcuts.save_clip, this.platform.os)}. Change it under Keybinds. It is global on macOS and Windows, works while another app is in front, and needs a modifier or a function key.`));
+      const openLibrary = el("button", "text-button", "Open Clips");
+      openLibrary.type = "button";
+      openLibrary.addEventListener("click", () => this.openClips());
+      wrap.append(openLibrary);
       if (isTauri()) {
         const openClips = el("button", "text-button", "Open clips folder");
         openClips.type = "button";
@@ -3714,6 +3806,20 @@ class LarkApp {
       clear(grid);
       grid.append(this.platformCard("macOS", "Banners and Notification Center", "⌘"));
       grid.append(this.platformCard("Windows", "Toasts in Action Center", "Ctrl"));
+    } else if (this.section === "clips") {
+      wrap.append(el("h2", "", "Clips"), el("p", "lede", "Saved clips stay on this computer until you send one."));
+      wrap.append(el("p", "hint", limitSentence(this.platform.os, this.premiumType)));
+      wrap.append(el("div", "hint", "When a clip is over the upload limit"));
+      wrap.append(this.choice(["always", "ask", "never"], this.config.clips.compress, (value) => {
+        this.config.clips.compress = parseCompressMode(value);
+        this.persist();
+        if (this.settings && this.section === "clips") this.renderSettings();
+      }));
+      const browse = el("button", "text-button", "Open the Clips view");
+      browse.type = "button";
+      browse.addEventListener("click", () => this.openClips());
+      wrap.append(browse);
+      this.appendClipLibrary(wrap);
     } else if (this.section === "lark") {
       wrap.append(el("h2", "", "Lark"), el("p", "lede", "Frame cap, tray, and plugins. Plugins stay off until you turn them on."));
       wrap.append(this.toggle("Minimise to tray", this.config.desktop.minimize_to_tray, (value) => {
@@ -4279,6 +4385,564 @@ class LarkApp {
     }
   }
 
+  private openClips() {
+    this.clipsOpen = true;
+    this.voiceStageOpen = false;
+    this.friendsOpen = false;
+    this.settings = false;
+    this.settingsEl.hidden = true;
+    this.switcher = false;
+    this.switcherEl.hidden = true;
+    this.msgSig = "";
+    void this.loadClips().then(() => {
+      if (this.clipsOpen) {
+        this.msgSig = "";
+        this.paint();
+      }
+    });
+    this.paint();
+  }
+
+  private async loadClips() {
+    let next: ClipCard[] = [];
+    if (this.demo || !isTauri()) next = demoClips();
+    else {
+      try {
+        const listed = await invoke<ClipCard[]>("list_clips");
+        next = listed.map((clip) => ({
+          ...clip,
+          poster: clip.poster ? `data:image/jpeg;base64,${clip.poster}` : posterFor(clip.name, clip.name),
+        }));
+      } catch (err) {
+        this.toast("Clips", commandError(err, "Couldn't list clips."));
+      }
+    }
+    const stamp = next.map((clip) => `${clip.name}:${clip.bytes}:${clip.modifiedMs}`).join("|");
+    if (stamp === this.clipStamp) return;
+    this.clipStamp = stamp;
+    this.clipItems = next;
+  }
+
+  private paintClipLibrary() {
+    const stamp = `${this.clipStamp}|${this.clipSendFor ?? ""}|${this.clipRename ?? ""}|${this.clipProgress?.name ?? ""}:${this.clipProgress?.percent ?? ""}|${this.premiumType}|${this.config.clips.compress}`;
+    if (stamp === this.msgSig && this.messagesEl.querySelector(".clip-library")) return;
+    this.msgSig = stamp;
+    clear(this.messagesEl);
+    this.typingEl.textContent = "";
+    this.appendClipLibrary(this.messagesEl);
+  }
+
+  private appendClipLibrary(parent: HTMLElement) {
+    const board = el("div", "clip-library");
+    const limit = uploadLimitBytes(this.premiumType);
+    board.append(el("p", "lede", limitSentence(this.platform.os, this.premiumType)));
+    if (this.clipProgress) {
+      const progress = el("div", "clip-progress");
+      progress.append(el("span", "", `Compressing ${this.clipProgress.name} · ${this.clipProgress.percent}%`));
+      const bar = el("div", "clip-progress-bar");
+      const fill = el("span");
+      fill.style.width = `${this.clipProgress.percent}%`;
+      bar.append(fill);
+      progress.append(bar);
+      board.append(progress);
+    }
+    if (!this.clipItems.length) {
+      board.append(el("p", "empty", "No clips yet. The hotkey saves one while screen share or Game Mode capture is on."));
+      parent.append(board);
+      return;
+    }
+    const grid = el("div", "clip-grid");
+    for (const clip of this.clipItems) grid.append(this.clipCard(clip, limit));
+    board.append(grid);
+    parent.append(board);
+  }
+
+  private clipCard(clip: ClipCard, limit: number): HTMLElement {
+    const card = el("article", "clip-card");
+    card.draggable = true;
+    card.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData(CLIP_DRAG, clip.name);
+      event.dataTransfer?.setData("text/plain", clip.name);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+    });
+    const thumb = el("div", "clip-thumb");
+    const image = document.createElement("img");
+    image.alt = "";
+    image.src = clip.poster || posterFor(clip.name, clip.name);
+    thumb.append(image, el("span", "clip-duration", formatClipDuration(clip.durationMs)));
+    const meta = el("div", "clip-meta");
+    const title = this.clipRename === clip.name ? el("input") : el("strong", "", clip.name.replace(/^lark-clip-/, ""));
+    if (title instanceof HTMLInputElement) {
+      title.value = clip.name.replace(/^lark-clip-/, "").replace(/\.(mp4|avi)$/, "");
+      title.setAttribute("aria-label", "Clip name");
+      queueMicrotask(() => title.focus());
+      title.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void this.renameClip(clip.name, title.value);
+        }
+        if (event.key === "Escape") {
+          this.clipRename = null;
+          this.msgSig = "";
+          this.paint();
+        }
+      });
+      title.addEventListener("blur", () => {
+        if (this.clipRename === clip.name) void this.renameClip(clip.name, title.value);
+      });
+    }
+    meta.append(title);
+    const facts = el("span", "clip-facts", `${formatClipDuration(clip.durationMs)} · ${formatClipBytes(clip.bytes)} · ${formatClipDate(clip.modifiedMs)}`);
+    meta.append(facts);
+    if (clip.bytes > limit) meta.append(el("span", "clip-over", `Over the ${formatClipBytes(limit)} upload limit`));
+    const actions = el("div", "clip-actions");
+    actions.append(this.clipAction("Play", () => void this.playClip(clip.name)));
+    actions.append(this.clipAction("Rename", () => {
+      this.clipRename = clip.name;
+      this.msgSig = "";
+      this.paint();
+    }));
+    actions.append(this.clipAction("Delete", () => void this.deleteClip(clip.name)));
+    actions.append(this.clipAction("Reveal", () => void this.revealClip(clip.name)));
+    actions.append(this.clipAction("Trim", () => {
+      this.clipTrim = clip.name;
+      this.paintClipDialog();
+    }));
+    actions.append(this.clipAction("Send", () => {
+      this.clipSendFor = this.clipSendFor === clip.name ? null : clip.name;
+      this.msgSig = "";
+      this.paint();
+    }));
+    meta.append(actions);
+    if (this.clipSendFor === clip.name) meta.append(this.clipSendMenu(clip.name));
+    card.append(thumb, meta);
+    return card;
+  }
+
+  private clipAction(label: string, onClick: () => void): HTMLButtonElement {
+    const button = el("button", "text-button", label);
+    button.type = "button";
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onClick();
+    });
+    return button;
+  }
+
+  private clipSendMenu(name: string): HTMLElement {
+    const menu = el("div", "clip-send");
+    const current = this.currentChannel();
+    const sendable = current && current.kind !== "voice" && current.kind !== "category" ? current : undefined;
+    if (sendable) {
+      const label = sendable.kind === "dm" || sendable.kind === "group" ? sendable.name : `#${sendable.name}`;
+      menu.append(this.clipAction(`Send to ${label}`, () => void this.deliverClip(name, sendable.id)));
+    }
+    for (const dm of this.dms().slice(0, 6)) {
+      if (dm.id === sendable?.id) continue;
+      menu.append(this.clipAction(`DM ${dm.name}`, () => void this.deliverClip(name, dm.id)));
+    }
+    if (!menu.childElementCount) menu.append(el("span", "hint", "Open a channel or a DM first."));
+    return menu;
+  }
+
+  private async deliverClip(name: string, channelId: string) {
+    const clip = this.clipItems.find((item) => item.name === name);
+    if (!clip) return;
+    const limit = uploadLimitBytes(this.premiumType);
+    const action = fitAction(clip.bytes, limit, this.config.clips.compress);
+    this.clipSendFor = null;
+    if (action === "block") {
+      this.toast("Clip", `This clip is over your ${formatClipBytes(limit)} upload limit. Compression is set to never.`);
+      return;
+    }
+    if (action === "ask") {
+      this.clipAsk = { name, channelId, mode: "send" };
+      this.paintClipDialog();
+      return;
+    }
+    const sending = action === "compress" ? await this.compressClip(name, limit) : name;
+    if (!sending) return;
+    await this.sendClipFile(sending, channelId);
+  }
+
+  private async prepareOutgoingFiles(): Promise<boolean> {
+    const limit = uploadLimitBytes(this.premiumType);
+    for (const file of [...this.files]) {
+      if (!file.clipName) continue;
+      const action = fitAction(this.fileBytes(file), limit, this.config.clips.compress);
+      if (action === "send") {
+        await this.materializeClip(file);
+        continue;
+      }
+      if (action === "block") {
+        this.toast("Clip", `This clip is over your ${formatClipBytes(limit)} upload limit. Compression is set to never.`);
+        return false;
+      }
+      if (action === "ask") {
+        this.clipAsk = { name: file.clipName, channelId: this.channelId || "", mode: "attach" };
+        this.paintClipDialog();
+        return false;
+      }
+      const fitted = await this.compressClip(file.clipName, limit);
+      if (!fitted) return false;
+      await this.replaceClipFile(file, fitted);
+    }
+    return true;
+  }
+
+  private async confirmClipCompress() {
+    const ask = this.clipAsk;
+    if (!ask) return;
+    this.clipAsk = null;
+    this.paintClipDialog();
+    const limit = uploadLimitBytes(this.premiumType);
+    const fitted = await this.compressClip(ask.name, limit);
+    if (!fitted) return;
+    if (ask.mode === "send") {
+      await this.sendClipFile(fitted, ask.channelId);
+      return;
+    }
+    const file = this.files.find((item) => item.clipName === ask.name);
+    if (file) await this.replaceClipFile(file, fitted);
+    this.paintComposer();
+    void this.send();
+  }
+
+  private async compressClip(name: string, limit: number): Promise<string | null> {
+    const clip = this.clipItems.find((item) => item.name === name);
+    if (this.demo || !isTauri()) {
+      if (!clip) return null;
+      for (const percent of [20, 55, 100]) {
+        this.clipProgress = { name, percent };
+        this.msgSig = "";
+        this.paint();
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
+      }
+      const fitted = compressCopy(clip, limit);
+      if (!this.clipItems.some((item) => item.name === fitted.name)) this.clipItems = [fitted, ...this.clipItems];
+      this.clipStamp = "";
+      this.clipProgress = null;
+      this.msgSig = "";
+      this.paint();
+      this.toast("Clip compressed", "The original is still in the clips folder.");
+      return fitted.name;
+    }
+    try {
+      const saved = await invoke<{ name?: string; bytes?: number }>("compress_clip", { name, limitBytes: limit });
+      this.clipProgress = null;
+      this.clipStamp = "";
+      await this.loadClips();
+      this.toast("Clip compressed", "The original is still in the clips folder.");
+      return saved.name || null;
+    } catch (err) {
+      this.clipProgress = null;
+      this.toast("Clip", commandError(err, "Couldn't compress the clip."));
+      return null;
+    }
+  }
+
+  private async sendClipFile(name: string, channelId: string) {
+    const clip = this.clipItems.find((item) => item.name === name);
+    const localId = outgoingNonce();
+    if (this.demo || !isTauri()) {
+      const message: RawMessage = {
+        id: localId,
+        nonce: localId,
+        channelId,
+        authorId: this.meId(),
+        authorName: "Ethan Park",
+        content: "",
+        timestamp: new Date().toISOString(),
+        kind: "default",
+        attachments: [{
+          id: "clip",
+          name,
+          url: clip?.poster || "",
+          contentType: clipMime(name),
+          size: clip?.bytes ?? 0,
+        }],
+      };
+      this.storeEcho(channelId, message);
+      this.toast("Clip sent", `${name} was sent from this computer.`);
+      this.clipsOpen = false;
+      this.msgSig = "";
+      void this.openChannel(channelId);
+      return;
+    }
+    try {
+      const encoded = await invoke<string>("read_clip", { name });
+      const bytes = bytesFromBase64(encoded);
+      const sent = await invoke<RawMessage>("send_message", {
+        channelId,
+        content: "",
+        replyTo: null,
+        nonce: localId,
+        files: [{ name, mime: clipMime(name), bytes: Array.from(bytes) }],
+      });
+      this.toast("Clip sent", "Discord has the file. The original is still in the clips folder.");
+      this.absorbMessage(normalizeMessage(sent));
+      this.clipsOpen = false;
+      this.msgSig = "";
+      void this.openChannel(channelId);
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't send the clip."));
+    }
+  }
+
+  private async attachClipByName(name: string) {
+    const clip = this.clipItems.find((item) => item.name === name) ?? {
+      name,
+      bytes: 0,
+      modifiedMs: 0,
+      durationMs: 0,
+      width: 0,
+      height: 0,
+      poster: "",
+    };
+    if (!this.channelId && !this.clipsOpen) {
+      this.toast("Clip", "Open a channel, then drop the clip on the composer.");
+      return;
+    }
+    const limit = uploadLimitBytes(this.premiumType);
+    if (this.demo || !isTauri() || clip.bytes > limit) {
+      this.files.push({
+        name: clip.name,
+        mime: clipMime(clip.name),
+        bytes: new Uint8Array(),
+        url: clip.poster,
+        clipName: clip.name,
+        declaredBytes: clip.bytes,
+      });
+      this.clipsOpen = false;
+      this.paint();
+      if (clip.bytes > limit) this.toast("Clip", "This clip is over the upload limit. Lark will offer to compress it when you send.");
+      return;
+    }
+    try {
+      const encoded = await invoke<string>("read_clip", { name: clip.name });
+      const bytes = bytesFromBase64(encoded);
+      const blob = new Blob([bytes], { type: clipMime(clip.name) });
+      this.files.push({
+        name: clip.name,
+        mime: clipMime(clip.name),
+        bytes,
+        url: URL.createObjectURL(blob),
+        clipName: clip.name,
+      });
+      this.clipsOpen = false;
+      this.paintComposer();
+      this.paint();
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't read the clip."));
+    }
+  }
+
+  private async materializeClip(file: LocalFile) {
+    if (file.bytes.byteLength > 0 || !file.clipName || this.demo || !isTauri()) return;
+    const encoded = await invoke<string>("read_clip", { name: file.clipName });
+    const bytes = bytesFromBase64(encoded);
+    file.bytes = bytes;
+    file.declaredBytes = bytes.byteLength;
+    file.mime = clipMime(file.clipName);
+    file.url = URL.createObjectURL(new Blob([bytes], { type: file.mime }));
+  }
+
+  private async replaceClipFile(file: LocalFile, name: string) {
+    const clip = this.clipItems.find((item) => item.name === name);
+    file.name = name;
+    file.clipName = name;
+    file.mime = clipMime(name);
+    file.declaredBytes = clip?.bytes;
+    file.bytes = new Uint8Array();
+    file.url = clip?.poster || file.url;
+    if (!this.demo && isTauri()) await this.materializeClip(file);
+  }
+
+  private async playClip(name: string) {
+    this.clipPlayer = name;
+    const clip = this.clipItems.find((item) => item.name === name);
+    if (!this.demo && isTauri() && clip && !clip.poster.startsWith("blob:")) {
+      try {
+        const encoded = await invoke<string>("read_clip", { name });
+        const bytes = bytesFromBase64(encoded);
+        clip.poster = URL.createObjectURL(new Blob([bytes], { type: clipMime(name) }));
+      } catch (err) {
+        this.toast("Clip", commandError(err, "Couldn't play the clip."));
+      }
+    }
+    this.paintClipDialog();
+  }
+
+  private async revealClip(name: string) {
+    if (this.demo || !isTauri()) {
+      this.toast("Clips", `This preview keeps ${name} in the sample library.`);
+      return;
+    }
+    try {
+      await invoke("show_clip", { name });
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't show the clip."));
+    }
+  }
+
+  private async renameClip(name: string, label: string) {
+    const next = renamedClipName(name, label);
+    this.clipRename = null;
+    if (!next || next === name) {
+      this.msgSig = "";
+      this.paint();
+      return;
+    }
+    if (this.demo || !isTauri()) {
+      this.clipItems = this.clipItems.map((clip) => clip.name === name ? { ...clip, name: next, poster: posterFor(next, label) } : clip);
+      this.clipStamp = "";
+      this.msgSig = "";
+      this.paint();
+      return;
+    }
+    try {
+      await invoke("rename_clip", { name, label });
+      this.clipStamp = "";
+      await this.loadClips();
+      this.msgSig = "";
+      this.paint();
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't rename the clip."));
+    }
+  }
+
+  private async deleteClip(name: string) {
+    if (this.demo || !isTauri()) {
+      this.clipItems = this.clipItems.filter((clip) => clip.name !== name);
+      this.clipStamp = "";
+      this.msgSig = "";
+      this.paint();
+      return;
+    }
+    try {
+      await invoke("delete_clip", { name });
+      this.clipStamp = "";
+      await this.loadClips();
+      this.msgSig = "";
+      this.paint();
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't delete the clip."));
+    }
+  }
+
+  private async applyTrim(name: string, startSec: number, endSec: number) {
+    const clip = this.clipItems.find((item) => item.name === name);
+    const range = trimRange(clip?.durationMs ?? 0, startSec, endSec);
+    if (typeof range === "string") {
+      this.toast("Trim", range);
+      return;
+    }
+    this.clipTrim = null;
+    this.paintClipDialog();
+    if (this.demo || !isTauri()) {
+      if (!clip) return;
+      const copy: ClipCard = {
+        ...clip,
+        name: clip.name.replace(/\.(mp4|avi)$/, "-trim.$1"),
+        durationMs: range.endMs - range.startMs,
+        bytes: Math.max(1, Math.round(clip.bytes * ((range.endMs - range.startMs) / Math.max(1, clip.durationMs)))),
+      };
+      copy.poster = posterFor(copy.name, "trim");
+      this.clipItems = [copy, ...this.clipItems];
+      this.clipStamp = "";
+      this.msgSig = "";
+      this.paint();
+      this.toast("Clip trimmed", "The original is still in the clips folder.");
+      return;
+    }
+    try {
+      await invoke("trim_clip", { name, startMs: range.startMs, endMs: range.endMs });
+      this.clipStamp = "";
+      await this.loadClips();
+      this.msgSig = "";
+      this.paint();
+      this.toast("Clip trimmed", "The original is still in the clips folder.");
+    } catch (err) {
+      this.toast("Clip", commandError(err, "Couldn't trim the clip."));
+    }
+  }
+
+  private paintClipDialog() {
+    clear(this.clipDialog);
+    const ask = this.clipAsk;
+    const playing = this.clipPlayer ? this.clipItems.find((clip) => clip.name === this.clipPlayer) : undefined;
+    const trimming = this.clipTrim ? this.clipItems.find((clip) => clip.name === this.clipTrim) : undefined;
+    if (!ask && !playing && !trimming) {
+      this.clipDialog.hidden = true;
+      return;
+    }
+    this.clipDialog.hidden = false;
+    const card = el("div", "clip-dialog");
+    if (ask) {
+      const clip = this.clipItems.find((item) => item.name === ask.name);
+      const limit = uploadLimitBytes(this.premiumType);
+      card.append(el("h2", "", "Compress this clip?"));
+      card.append(el("p", "", `${ask.name} is ${formatClipBytes(clip?.bytes ?? 0)}. The upload limit is ${formatClipBytes(limit)}. Lark can re-encode a copy to H.264/AAC MP4 and leave the original in the clips folder.`));
+      const actions = el("div", "clip-actions");
+      actions.append(this.clipAction("Compress and send", () => void this.confirmClipCompress()));
+      actions.append(this.clipAction("Cancel", () => {
+        this.clipAsk = null;
+        this.paintClipDialog();
+      }));
+      card.append(actions);
+    } else if (playing) {
+      card.append(el("h2", "", playing.name));
+      if (playing.poster.startsWith("blob:") && playing.name.endsWith(".mp4")) {
+        const video = el("video", "clip-video");
+        video.controls = true;
+        video.src = playing.poster;
+        card.append(video);
+      } else {
+        const image = document.createElement("img");
+        image.className = "clip-video";
+        image.alt = "";
+        image.src = playing.poster || posterFor(playing.name, playing.name);
+        card.append(image, el("p", "hint", `${formatClipDuration(playing.durationMs)} · ${formatClipBytes(playing.bytes)}`));
+      }
+      card.append(this.clipAction("Close", () => {
+        this.clipPlayer = null;
+        this.paintClipDialog();
+      }));
+    } else if (trimming) {
+      card.append(el("h2", "", "Trim clip"), el("p", "hint", "This writes a new file. The original stays."));
+      const start = el("input");
+      start.type = "number";
+      start.min = "0";
+      start.step = "0.1";
+      start.value = "0";
+      start.setAttribute("aria-label", "Trim start seconds");
+      const end = el("input");
+      end.type = "number";
+      end.min = "0";
+      end.step = "0.1";
+      end.value = String(Math.max(0.1, trimming.durationMs / 1000));
+      end.setAttribute("aria-label", "Trim end seconds");
+      const row = el("div", "clip-actions");
+      row.append(start, end);
+      card.append(row);
+      const actions = el("div", "clip-actions");
+      actions.append(this.clipAction("Save trim", () => void this.applyTrim(trimming.name, Number(start.value), Number(end.value))));
+      actions.append(this.clipAction("Cancel", () => {
+        this.clipTrim = null;
+        this.paintClipDialog();
+      }));
+      card.append(actions);
+    }
+    this.clipDialog.append(card);
+    this.clipDialog.onclick = (event) => {
+      if (event.target !== this.clipDialog) return;
+      this.clipAsk = null;
+      this.clipPlayer = null;
+      this.clipTrim = null;
+      this.paintClipDialog();
+    };
+  }
+
   private async ensureGuild(guildId: string) {
     await this.ensureChannels(guildId);
     await this.ensureMembers(guildId);
@@ -4716,6 +5380,8 @@ class LarkApp {
         status: "online",
         avatarUrl: event.user.avatarUrl,
       };
+      const premium = (event.user as { premiumType?: number }).premiumType;
+      if (typeof premium === "number" && Number.isFinite(premium)) this.premiumType = premium;
       this.userNames[this.me.id] = this.me.name;
       this.directory[this.me.id] = this.me;
       this.liveGuilds = mergeGuilds(event.guilds ?? [], this.liveGuilds);
@@ -5408,6 +6074,7 @@ class LarkApp {
 
   private openVoiceStage(channel: Channel) {
     this.friendsOpen = false;
+    this.clipsOpen = false;
     this.voiceStageOpen = true;
     this.gearOpen = false;
     this.activitiesOpen = false;
@@ -5743,7 +6410,8 @@ class LarkApp {
     }     else if (id === "pins") {
       this.pinsOpen = true;
       this.paintPins();
-    } else if (id === "saved") {
+    } else if (id === "clips") this.openClips();
+    else if (id === "saved") {
       this.bookmarksOpen = true;
       this.paintBookmarks();
     } else if (id === "reminders" || id === "scheduled") {

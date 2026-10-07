@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod clip;
 mod clip_encode;
+pub mod clip_fit;
 pub mod config;
 pub mod discord;
 pub mod hardware;

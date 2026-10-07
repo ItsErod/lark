@@ -44,6 +44,7 @@ export const paths = {
   close: "M6 6l12 12M18 6 6 18",
   bell: "M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 19a2 2 0 0 0 4 0",
   paperclip: "M8 12.5 14.5 6a3 3 0 0 1 4.2 4.2l-8 8a4.5 4.5 0 0 1-6.4-6.4l7.5-7.5",
+  film: "M4 4h16v16H4zM8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4",
   panels: "M4 5h16v14H4zM9 5v14M15 5v14",
   message: "M5 6h14v9H8l-3 3V6z",
   mic: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6",

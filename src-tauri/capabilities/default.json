@@ -67,6 +67,11 @@
     "allow-clip-status",
     "allow-read-clip",
     "allow-show-clip",
-    "allow-open-clips-dir"
+    "allow-open-clips-dir",
+    "allow-list-clips",
+    "allow-rename-clip",
+    "allow-delete-clip",
+    "allow-trim-clip",
+    "allow-compress-clip"
   ]
 }

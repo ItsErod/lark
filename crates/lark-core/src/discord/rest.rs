@@ -542,13 +542,15 @@ impl DiscordRest {
         reply_to: Option<&str>,
         nonce: Option<&str>,
         files: &[OutFile],
+        limit_bytes: u64,
     ) -> Result<ClientMessage, RestError> {
         self.ensure_snowflake(channel_id)?;
         if let Some(reply_to) = reply_to {
             self.ensure_snowflake(reply_to)?;
         }
         let total: u64 = files.iter().map(|f| f.bytes.len() as u64).sum();
-        validate_outgoing(content, files.len(), total).map_err(|m| RestError::Message(m.into()))?;
+        validate_outgoing(content, files.len(), total, limit_bytes)
+            .map_err(RestError::Message)?;
         let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
         let path = format!("/channels/{channel_id}/messages");
         let payload = outgoing_payload(content, channel_id, reply_to, nonce);
@@ -569,7 +571,7 @@ impl DiscordRest {
     ) -> Result<ClientMessage, RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
-        validate_outgoing(content, 0, 0).map_err(|m| RestError::Message(m.into()))?;
+        validate_outgoing(content, 0, 0, crate::clip_fit::NITRO_LIMIT).map_err(RestError::Message)?;
         let route = route_key(
             "PATCH",
             "/channels/{channel.id}/messages/{message.id}",

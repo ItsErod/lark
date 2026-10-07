@@ -1,3 +1,4 @@
+import { parseCompressMode } from "./clips";
 import { sanitizeGames } from "./game";
 import { sanitizeClips } from "./soundboard";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
@@ -66,7 +67,7 @@ export function defaultConfig(): AppConfig {
       detect_games: true,
       game_mode: false,
     },
-    clips: { game_capture: false },
+    clips: { game_capture: false, compress: "ask" },
     games: {},
     privacy: { streamer: false, streamer_auto: false },
     accents: {},
@@ -134,6 +135,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
   }
   base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
   if (typeof raw.clips?.game_capture === "boolean") base.clips.game_capture = raw.clips.game_capture;
+  base.clips.compress = parseCompressMode(raw.clips?.compress);
   if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
   if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
   if (raw.desktop) {
