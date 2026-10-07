@@ -52,12 +52,26 @@ enabled = ["highlight-mentions", "code-badge"]
 [voice]
 mode = "vad"                   # vad | ptt
 sensitivity = 45               # 0–100
-noise_suppression = true
+noise_suppression = true       # RNNoise on the microphone. Echo cancellation stays off.
 input_device = ""
 output_device = ""
 overlay = false                 # always-on-top speaking HUD; hotkey is toggle_voice_overlay
 overlay_opacity = 70            # 35–100
 overlay_click_through = true    # clicks pass through to the game
+
+# Per-person playback. Volume is 0–200. muted is local and is not sent to Discord.
+# [voice.levels.100000000000000002]
+# volume = 80
+# muted = false
+
+[soundboard]
+# WAV clips mixed into a voice channel. A hotkey with a modifier is global.
+# [[soundboard.clips]]
+# id = "horn"
+# name = "Horn"
+# path = ""
+# hotkey = "mod+shift+1"
+# volume = 100
 
 [clips]
 # Main-display buffer for the clip hotkey. Screen share turns the same buffer on.

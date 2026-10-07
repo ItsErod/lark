@@ -22,6 +22,8 @@ export interface VoiceParticipant {
   serverDeaf: boolean;
   speaking: boolean;
   volume: number;
+  /** Silences this person on this computer. Discord is not told. */
+  localMuted: boolean;
 }
 
 export type VoiceRoster = Record<string, VoiceParticipant>;
@@ -58,17 +60,24 @@ export function applyVoiceState(roster: VoiceRoster, state: VoiceStateInput): Vo
     serverDeaf: Boolean(state.serverDeaf),
     speaking: previous?.speaking ?? false,
     volume: previous?.volume ?? 100,
+    localMuted: previous?.localMuted ?? false,
   };
   roster[key] = participant;
   return participant;
 }
 
 export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: VoiceStateInput[]): void {
-  const kept = new Map<string, Pick<VoiceParticipant, "speaking" | "volume" | "name" | "avatarUrl">>();
+  const kept = new Map<string, Pick<VoiceParticipant, "speaking" | "volume" | "localMuted" | "name" | "avatarUrl">>();
   for (const key of Object.keys(roster)) {
     const person = roster[key];
     if (person.guildId !== guildId) continue;
-    kept.set(person.userId, { speaking: person.speaking, volume: person.volume, name: person.name, avatarUrl: person.avatarUrl });
+    kept.set(person.userId, {
+      speaking: person.speaking,
+      volume: person.volume,
+      localMuted: person.localMuted,
+      name: person.name,
+      avatarUrl: person.avatarUrl,
+    });
     delete roster[key];
   }
   for (const state of states) {
@@ -78,6 +87,7 @@ export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: 
     if (participant && prior) {
       participant.speaking = prior.speaking;
       participant.volume = prior.volume;
+      participant.localMuted = prior.localMuted;
       if (!state.name || state.name === "Someone") participant.name = prior.name;
       if (!state.avatarUrl) participant.avatarUrl = prior.avatarUrl;
     }
@@ -103,4 +113,28 @@ export function setVolume(roster: VoiceRoster, userId: string, volume: number): 
   for (const person of Object.values(roster)) {
     if (person.userId === userId) person.volume = next;
   }
+}
+
+export interface UserMix {
+  volume: number;
+  muted: boolean;
+}
+
+/** What the playback mix should use. Local mute forces silence and keeps the slider. */
+export function playbackVolume(volume: number, muted: boolean): number {
+  if (muted) return 0;
+  return Math.min(200, Math.max(0, Math.round(volume)));
+}
+
+export function applyUserMix(roster: VoiceRoster, userId: string, mix: UserMix): void {
+  const volume = playbackVolume(mix.volume, false);
+  for (const person of Object.values(roster)) {
+    if (person.userId !== userId) continue;
+    person.volume = volume;
+    person.localMuted = mix.muted;
+  }
+}
+
+export function hydrateMix(roster: VoiceRoster, levels: Record<string, UserMix>): void {
+  for (const [userId, mix] of Object.entries(levels)) applyUserMix(roster, userId, mix);
 }

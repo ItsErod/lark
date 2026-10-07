@@ -20,6 +20,8 @@ use super::voice::{
     select_protocol, speaking_payload, voice_gateway_url, voice_heartbeat, voice_identify,
     voice_reconnect_delay_ms, CipherMode, OPUS_SILENCE,
 };
+use crate::soundboard::SoundMix;
+
 use super::voice_media::{start_media, VoiceAudio};
 
 pub struct VoiceHello {
@@ -47,6 +49,7 @@ pub async fn maintain_voice<F>(
     mut speaking: watch::Receiver<bool>,
     audio: watch::Receiver<VoiceAudio>,
     volumes: Arc<Mutex<HashMap<String, f32>>>,
+    board: Arc<Mutex<SoundMix>>,
     mut emit: F,
 ) where
     F: FnMut(VoiceLinkEvent) + Send,
@@ -59,7 +62,7 @@ pub async fn maintain_voice<F>(
         }
         let state = if attempt == 0 { "connecting" } else { "reconnecting" };
         emit(VoiceLinkEvent::Status { state: state.into(), detail: String::new(), epoch: hello.epoch });
-        match voice_once(&hello, &mut cancel, &mut speaking, &audio, &volumes, &mut emit).await {
+        match voice_once(&hello, &mut cancel, &mut speaking, &audio, &volumes, &board, &mut emit).await {
             Ok(()) => {
                 emit(VoiceLinkEvent::Status { state: "left".into(), detail: String::new(), epoch: hello.epoch });
                 return;
@@ -92,6 +95,7 @@ async fn voice_once<F>(
     speaking: &mut watch::Receiver<bool>,
     audio: &watch::Receiver<VoiceAudio>,
     volumes: &Arc<Mutex<HashMap<String, f32>>>,
+    board: &Arc<Mutex<SoundMix>>,
     emit: &mut F,
 ) -> Result<(), String>
 where
@@ -146,7 +150,7 @@ where
     let _ = write.send(Message::Text(speaking_payload(ssrc, false, false))).await;
 
     let ssrc_users = Arc::new(Mutex::new(HashMap::new()));
-    let pipe = start_media(mode, key, ssrc, audio.clone(), speaking.clone(), volumes.clone(), ssrc_users.clone()).ok();
+    let pipe = start_media(mode, key, ssrc, audio.clone(), speaking.clone(), volumes.clone(), ssrc_users.clone(), board.clone()).ok();
     let detail = if pipe.is_some() { mode.name().to_string() } else { "Voice audio did not start".into() };
     let (mut outbound_rx, mut inbound_tx, mut speaking_rx, _media) = match pipe {
         Some(mut pipe) => {

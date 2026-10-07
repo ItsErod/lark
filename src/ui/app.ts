@@ -77,7 +77,7 @@ import { bytesFromBase64, clipBehaviorNote } from "../clip";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
-import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
+import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts, SoundClip } from "../types";
 import {
   applyRootOverrides,
   filterThemes,
@@ -120,7 +120,9 @@ import {
   shouldLoadOlder,
 } from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
-import { applyVoiceState, participantsIn, replaceGuildVoice, setSpeaking, setVolume, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { activeFriends, clampNote, friendGlance } from "../social";
+import { clipForHotkey, soundHotkeyIsGlobal } from "../soundboard";
+import { applyUserMix, applyVoiceState, hydrateMix, participantsIn, playbackVolume, replaceGuildVoice, setSpeaking, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
@@ -134,6 +136,7 @@ interface VoiceMember {
   name: string;
   speaking: boolean;
   volume: number;
+  localMuted?: boolean;
   avatarUrl?: string | null;
   selfMute?: boolean;
   selfDeaf?: boolean;
@@ -199,6 +202,10 @@ class LarkApp {
   private settings = false;
   private section: Section = "appearance";
   private rebinding: keyof Shortcuts | null = null;
+  private soundBind: string | null = null;
+  private notes: Record<string, string> = {};
+  private clipBlobs = new Map<string, string>();
+  private sentMix = new Map<string, number>();
   private narrow = false;
   private drawer = false;
   private lightbox: string | null = null;
@@ -529,6 +536,9 @@ class LarkApp {
       await listen<{ ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }>("clip-ready", (event) => {
         this.onClipReady(event.payload);
       });
+      await listen<{ id?: string; error?: string }>("soundboard", (event) => {
+        if (event.payload.error) this.toast("Soundboard", event.payload.error);
+      });
       await listen<{ phase?: string; detail?: string; svg?: string; username?: string }>("login-status", (event) => {
         this.onLoginStatus(event.payload);
       });
@@ -754,6 +764,11 @@ class LarkApp {
       roles: [{ id: NORTHWIND, permissions: "1024" }],
       myRoles: [],
     };
+    this.notes["100000000000000002"] = "Prefers the booth quiet.";
+    for (const person of people) {
+      this.directory[person.id] = person;
+      this.userNames[person.id] = person.name;
+    }
     this.seedDemoVoice();
     const named = cleanGameName(new URLSearchParams(location.search).get("game") ?? "");
     if (named && this.config.desktop.detect_games) this.noteGame(named);
@@ -769,6 +784,7 @@ class LarkApp {
       { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true },
     ]);
     setSpeaking(this.voiceRoster, booth[0].id, true);
+    hydrateMix(this.voiceRoster, this.config.voice.levels);
   }
 
   /** Cold connect (no shell yet) covers the window immediately. A live shell waits out a short reconnect. */
@@ -1930,7 +1946,8 @@ class LarkApp {
     row.append(el("span", "voice-user-name", person.name));
     const flags = el("span", "voice-flags");
     if (person.selfDeaf || person.serverDeaf) flags.append(icon(paths.headphonesOff));
-    if (person.selfMute || person.serverMute || person.selfDeaf || person.serverDeaf) flags.append(icon(paths.micOff));
+    if (person.localMuted || person.selfMute || person.serverMute || person.selfDeaf || person.serverDeaf) flags.append(icon(paths.micOff));
+    if (person.localMuted) flags.title = "Muted for you";
     if (flags.childElementCount) row.append(flags);
     return row;
   }
@@ -1963,11 +1980,12 @@ class LarkApp {
     const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.kind === "thread" ? " is-thread" : ""}${channel.id === this.channelId ? " is-selected" : ""}${unread || quiet ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}`);
     button.type = "button";
     button.dataset.channel = channel.id;
+    let known: Person | undefined;
     if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : channel.kind === "announcement" ? paths.bell : paths.hash));
     else {
       const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
       if (recipient) button.dataset.user = recipient.id;
-      const known = recipient ? this.directory[recipient.id] : undefined;
+      known = recipient ? this.directory[recipient.id] : undefined;
       const wrap = el("div", "avatar-wrap");
       wrap.append(
         portrait(known?.name || recipient?.name || channel.name, recipient?.id || channel.id, known?.avatarUrl || recipient?.avatarUrl, true),
@@ -1975,7 +1993,13 @@ class LarkApp {
       );
       button.append(wrap);
     }
-    button.append(el("span", "row-label", channel.name));
+    const label = el("span", "row-copy");
+    label.append(el("span", "row-label", channel.name));
+    if (dm && known) {
+      const activity = friendGlance(known).activity;
+      if (activity) label.append(el("span", "dm-activity", activity));
+    }
+    button.append(label);
     if (muted) button.append(el("span", "faint", "muted"));
     else if (mentions > 0) button.append(el("span", "badge", String(mentions)));
     button.addEventListener("click", () => {
@@ -2684,7 +2708,8 @@ class LarkApp {
   }
 
   private paintFriends() {
-    const sig = `friends|${this.friends.map((person) => `${person.id}:${person.status}:${person.custom}:${person.activity}`).join(",")}`;
+    const noteSig = Object.entries(this.notes).map(([id, note]) => `${id}:${note}`).join(",");
+    const sig = `friends|${this.friends.map((person) => `${person.id}:${person.status}:${person.custom}:${person.activity}`).join(",")}|${noteSig}`;
     if (sig === this.msgSig) return;
     this.msgSig = sig;
     clear(this.messagesEl);
@@ -2693,6 +2718,21 @@ class LarkApp {
     const roster = sortPeople(this.demo ? people.filter((person) => person.id !== this.meId()) : this.friends);
     if (!roster.length) {
       board.append(el("p", "empty", "Friends show up here once Discord sends them. Direct messages stay in the list on the left."));
+    }
+    const active = activeFriends(roster);
+    if (active.length) {
+      const strip = el("section", "friend-glance");
+      strip.append(el("h3", "member-group", "Active now"));
+      const row = el("div", "friend-glance-row");
+      for (const person of active) {
+        const chip = el("button", "friend-chip");
+        chip.type = "button";
+        chip.append(el("strong", "", person.name), el("span", "", friendGlance(person).activity));
+        chip.addEventListener("click", () => this.openProfile(person));
+        row.append(chip);
+      }
+      strip.append(row);
+      board.append(strip);
     }
     const sections: [string, Person[]][] = [
       ["Online", roster.filter((person) => person.status === "online")],
@@ -2709,8 +2749,10 @@ class LarkApp {
         const wrap = el("div", "avatar-wrap");
         wrap.append(portrait(person.name, person.id, person.avatarUrl, false), el("i", `status ${person.status ?? "offline"}`));
         const copy = el("div", "member-copy");
-        const line = memberSubtitle(person) || statusLabel(person.status);
+        const line = friendGlance(person).line || memberSubtitle(person) || statusLabel(person.status);
         copy.append(el("strong", "", person.name), el("span", "", line));
+        const note = this.notes[person.id];
+        if (note) copy.append(el("span", "friend-note", note));
         row.append(wrap, copy);
         row.addEventListener("click", () => {
           this.openProfile(person);
@@ -3425,7 +3467,7 @@ class LarkApp {
         this.paint();
       }));
     } else if (this.section === "voice") {
-      wrap.append(el("h2", "", "Voice & Video"), el("p", "lede", "Push to talk, voice activity, and a cheap noise gate. Echo cancellation stays off; it needs a heavy audio processor."));
+      wrap.append(el("h2", "", "Voice & Video"), el("p", "lede", "Push to talk, voice activity, and RNNoise on the microphone. Echo cancellation stays off."));
       void this.loadAudioDevices();
       wrap.append(this.choice(["vad", "ptt"], this.voiceMode(), (value) => {
         this.setVoiceMode(value === "ptt" ? "ptt" : "vad");
@@ -3451,7 +3493,10 @@ class LarkApp {
         this.config.voice.noise_suppression = value;
         this.persist();
         this.pushVoiceAudio();
+        this.paintVoice();
       }));
+      wrap.append(el("p", "hint", "RNNoise runs on the microphone when this is on. It does not cancel echo."));
+      this.appendSoundboard(wrap);
       wrap.append(el("h3", "", "In-game voice HUD"));
       const hudKey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
       wrap.append(el("p", "lede", "A small always-on-top window on macOS and Windows. It uses the same voice roster as the channel list. It stays off until you turn it on."));
@@ -3794,6 +3839,22 @@ class LarkApp {
   }
 
   private onKey(event: KeyboardEvent) {
+    if (this.soundBind) {
+      event.preventDefault();
+      if (event.key === "Escape") {
+        this.soundBind = null;
+        this.renderSettings();
+        return;
+      }
+      const shortcut = shortcutFromEvent(event, this.platform.os);
+      if (!shortcut) return;
+      const clip = this.config.soundboard.clips.find((item) => item.id === this.soundBind);
+      if (clip) clip.hotkey = shortcut;
+      this.soundBind = null;
+      void this.persist();
+      this.renderSettings();
+      return;
+    }
     if (this.rebinding || this.rebindingGame) {
       event.preventDefault();
       const shortcut = shortcutFromEvent(event, this.platform.os);
@@ -3909,6 +3970,8 @@ class LarkApp {
       this.pttHeld = true;
       this.refreshSpeaking();
       this.pushTransmit();
+    } else if (this.matchSound(event, typing)) {
+      event.preventDefault();
     }
     else if (target === this.composer && matchShortcut(event, shortcuts.edit_last, os) && !this.composer.value) {
       event.preventDefault();
@@ -4410,6 +4473,15 @@ class LarkApp {
       if (profile.nick) person.name = profile.nick;
       this.paintPopout();
     }).catch(() => undefined);
+    if (person.id !== this.meId()) {
+      void invoke<string>("fetch_user_note", { userId }).then((note) => {
+        if (this.popout?.id !== userId) return;
+        const clean = clampNote(note);
+        if (clean) this.notes[userId] = clean;
+        else delete this.notes[userId];
+        this.paintPopout();
+      }).catch(() => undefined);
+    }
   }
 
   private profileRoles(person: Person): ProfileRole[] {
@@ -4483,6 +4555,7 @@ class LarkApp {
       edited?: boolean;
       userId?: string;
       username?: string;
+      note?: string;
       emoji?: string;
       added?: boolean;
     };
@@ -4779,6 +4852,15 @@ class LarkApp {
         message.reactions = reactions.filter((item) => item.count > 0);
         if (event.channelId === this.channelId) this.paintMessages();
       }
+    } else if (event.kind === "userNote" && event.userId) {
+      const note = clampNote(String(event.note ?? ""));
+      if (note) this.notes[event.userId] = note;
+      else delete this.notes[event.userId];
+      if (this.popout?.id === event.userId) this.paintPopout();
+      if (this.friendsOpen) {
+        this.msgSig = "";
+        this.paintMessages();
+      }
     } else if (event.kind === "presence" && event.userId) {
       const status = asStatus(String((event as { status?: string }).status ?? "offline"));
       const custom = String((event as { custom?: string }).custom ?? "");
@@ -5064,19 +5146,28 @@ class LarkApp {
 
   private syncCallMembers() {
     if (!this.voice) return;
+    hydrateMix(this.voiceRoster, this.config.voice.levels);
     const people = participantsIn(this.voiceRoster, this.voice.guildId ?? "", this.voice.channelId);
-    const volumes = new Map(this.voice.members.map((member) => [member.id, member.volume]));
     this.voice.members = people.map((person) => ({
       id: person.userId,
       name: person.name,
       speaking: person.speaking,
-      volume: volumes.get(person.userId) ?? person.volume,
+      volume: person.volume,
+      localMuted: person.localMuted,
       avatarUrl: person.avatarUrl,
       selfMute: person.selfMute,
       selfDeaf: person.selfDeaf,
       serverMute: person.serverMute,
       serverDeaf: person.serverDeaf,
     }));
+    if (this.demo) return;
+    for (const member of this.voice.members) {
+      if (member.id === this.meId()) continue;
+      const gain = playbackVolume(member.volume, Boolean(member.localMuted));
+      if (this.sentMix.get(member.id) === gain) continue;
+      this.sentMix.set(member.id, gain);
+      void invoke("set_voice_volume", { userId: member.id, volume: gain }).catch(() => undefined);
+    }
   }
 
   private markSpeaking(userId: string, speaking: boolean) {
@@ -5625,26 +5716,43 @@ class LarkApp {
       row.dataset.voiceUser = member.id;
       row.append(portrait(member.name, member.id, member.avatarUrl, true), el("strong", "", member.name));
       const flags = el("span", "voice-flags");
+      if (member.localMuted) row.classList.add("is-local-muted");
       if (member.selfDeaf || member.serverDeaf) flags.append(icon(paths.headphonesOff));
-      if (member.selfMute || member.serverMute || member.selfDeaf || member.serverDeaf) flags.append(icon(paths.micOff));
+      if (member.localMuted || member.selfMute || member.serverMute || member.selfDeaf || member.serverDeaf) flags.append(icon(paths.micOff));
       if (flags.childElementCount) row.append(flags);
       if (member.id !== this.meId()) {
+        const mix = el("div", "voice-mix");
+        const muted = Boolean(member.localMuted);
+        const mute = el("button", muted ? "text-button is-on" : "text-button", muted ? "Muted" : "Mute");
+        mute.type = "button";
+        mute.title = muted ? "Unmute for you" : "Mute for you";
+        mute.setAttribute("aria-label", muted ? `Unmute ${member.name} for you` : `Mute ${member.name} for you`);
+        mute.addEventListener("click", () => this.setUserMix(member.id, member.volume, !muted));
         const vol = el("input");
         vol.type = "range";
         vol.min = "0";
         vol.max = "200";
         vol.value = String(member.volume);
         vol.setAttribute("aria-label", `Volume for ${member.name}`);
-        vol.addEventListener("input", () => {
-          member.volume = Number(vol.value);
-          setVolume(this.voiceRoster, member.id, member.volume);
-          if (!this.demo) void invoke("set_voice_volume", { userId: member.id, volume: member.volume }).catch(() => undefined);
-        });
-        row.append(vol);
+        vol.addEventListener("input", () => this.previewMix(member.id, Number(vol.value), muted));
+        vol.addEventListener("change", () => void this.persist());
+        mix.append(mute, vol);
+        row.append(mix);
       }
       peopleEl.append(row);
     }
     dock.append(peopleEl);
+    if (this.config.soundboard.clips.length) {
+      const sounds = el("div", "sound-dock");
+      for (const clip of this.config.soundboard.clips) {
+        const button = el("button", "text-button", clip.name);
+        button.type = "button";
+        button.title = clip.hotkey ? formatShortcut(clip.hotkey, this.platform.os) : "Play into the call";
+        button.addEventListener("click", () => this.playSound(clip.id));
+        sounds.append(button);
+      }
+      dock.append(sounds);
+    }
     const share = el("div", "share-row");
     const toggle = el("button", this.shareOn ? "text-button is-on" : "text-button", this.shareOn ? "Stop sharing" : "Share screen");
     toggle.type = "button";
@@ -5678,8 +5786,174 @@ class LarkApp {
         : `Idle · 0 packets · ${captureBackend(this.platform.os)}`);
       share.append(motion, stats);
     }
-    dock.append(share, el("p", "hint", this.config.voice.noise_suppression ? "Noise gate on. Echo cancellation is not running." : "Noise gate off."));
+    dock.append(share, el("p", "hint", this.config.voice.noise_suppression ? "RNNoise is on. Echo cancellation is not running." : "Noise suppression is off."));
     this.publishVoiceHud();
+  }
+
+  private setUserMix(userId: string, volume: number, muted: boolean) {
+    const mix = { volume: playbackVolume(volume, false), muted };
+    this.config.voice.levels[userId] = mix;
+    applyUserMix(this.voiceRoster, userId, mix);
+    void this.persist();
+    this.syncCallMembers();
+    this.paintVoice();
+    this.paintChannels();
+  }
+
+  private previewMix(userId: string, volume: number, muted: boolean) {
+    const mix = { volume: playbackVolume(volume, false), muted };
+    this.config.voice.levels[userId] = mix;
+    applyUserMix(this.voiceRoster, userId, mix);
+    const member = this.voice?.members.find((item) => item.id === userId);
+    if (member) {
+      member.volume = mix.volume;
+      member.localMuted = muted;
+    }
+    if (this.demo) return;
+    const gain = playbackVolume(mix.volume, muted);
+    if (this.sentMix.get(userId) === gain) return;
+    this.sentMix.set(userId, gain);
+    void invoke("set_voice_volume", { userId, volume: gain }).catch(() => undefined);
+  }
+
+  private matchSound(event: KeyboardEvent, typing: boolean): boolean {
+    const clip = clipForHotkey(this.config.soundboard.clips, event, this.platform.os);
+    if (!clip) return false;
+    if (typing && !soundHotkeyIsGlobal(clip.hotkey)) return false;
+    this.playSound(clip.id);
+    return true;
+  }
+
+  private playSound(id: string) {
+    const clip = this.config.soundboard.clips.find((item) => item.id === id);
+    if (!clip) return;
+    if (!this.voice) {
+      this.toast("Soundboard", "Join a voice channel to play a sound.");
+      return;
+    }
+    if (!isTauri()) {
+      const url = this.clipBlobs.get(id);
+      if (!url) {
+        this.toast("Soundboard", "Add the wav again in this preview. The desktop app plays it into the call.");
+        return;
+      }
+      const audio = new Audio(url);
+      audio.volume = Math.min(1, clip.volume / 100);
+      void audio.play().catch(() => this.toast("Soundboard", "Couldn't play that clip."));
+      return;
+    }
+    void invoke("play_soundboard", { id }).catch((err) => {
+      this.toast("Soundboard", err instanceof Error ? err.message : "Couldn't play that clip.");
+    });
+  }
+
+  private saveNote(userId: string, note: string) {
+    const clean = clampNote(note);
+    if (clean) this.notes[userId] = clean;
+    else delete this.notes[userId];
+    if (this.friendsOpen) {
+      this.msgSig = "";
+      this.paintMessages();
+    }
+    if (this.demo) return;
+    void invoke("save_user_note", { userId, note: clean }).catch((err) => {
+      this.toast("Note", err instanceof Error ? err.message : "Couldn't save that note.");
+    });
+  }
+
+  private appendSoundboard(wrap: HTMLElement) {
+    wrap.append(el("h3", "", "Soundboard"));
+    wrap.append(el("p", "lede", "WAV clips mixed into the call. A hotkey with a modifier also works while another app is in front."));
+    const file = el("input");
+    file.type = "file";
+    file.accept = ".wav,audio/wav,audio/x-wav";
+    file.hidden = true;
+    file.addEventListener("change", () => {
+      const picked = file.files?.[0];
+      file.value = "";
+      if (picked) void this.addSoundFile(picked);
+    });
+    const add = el("button", "text-button", "Add wav");
+    add.type = "button";
+    add.addEventListener("click", () => file.click());
+    wrap.append(add, file);
+    if (!this.config.soundboard.clips.length) {
+      wrap.append(el("p", "hint", "No clips yet. 16-bit WAV, up to 15 seconds."));
+      return;
+    }
+    for (const clip of this.config.soundboard.clips) {
+      const row = el("div", "shortcut-row");
+      row.append(el("span", "", clip.name));
+      const hotkey = el("button", "kbd", this.soundBind === clip.id ? "Press keys" : clip.hotkey ? formatShortcut(clip.hotkey, this.platform.os) : "Hotkey");
+      hotkey.type = "button";
+      hotkey.addEventListener("click", () => {
+        this.soundBind = clip.id;
+        this.renderSettings();
+      });
+      const volume = el("input");
+      volume.type = "range";
+      volume.min = "0";
+      volume.max = "200";
+      volume.value = String(clip.volume);
+      volume.title = "Clip volume";
+      volume.setAttribute("aria-label", `${clip.name} volume`);
+      volume.addEventListener("input", () => {
+        clip.volume = Math.min(200, Math.max(0, Math.round(Number(volume.value))));
+      });
+      volume.addEventListener("change", () => {
+        void this.persist();
+      });
+      const play = el("button", "text-button", "Play");
+      play.type = "button";
+      play.addEventListener("click", () => this.playSound(clip.id));
+      const remove = el("button", "ghost", "Remove");
+      remove.type = "button";
+      remove.addEventListener("click", () => void this.removeSound(clip));
+      row.append(hotkey, volume, play, remove);
+      wrap.append(row);
+    }
+  }
+
+  private async addSoundFile(file: File) {
+    if (this.config.soundboard.clips.length >= 24) {
+      this.toast("Soundboard", "The board already has 24 clips.");
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".wav")) {
+      this.toast("Soundboard", "Use a WAV file.");
+      return;
+    }
+    if (!isTauri()) {
+      const id = `preview${Date.now().toString(16)}`;
+      this.clipBlobs.set(id, URL.createObjectURL(file));
+      const name = file.name.replace(/\.wav$/i, "").slice(0, 40) || "Sound";
+      this.config.soundboard.clips.push({ id, name, path: file.name, hotkey: "", volume: 100 });
+      await this.persist();
+      this.renderSettings();
+      this.paintVoice();
+      return;
+    }
+    try {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+      const clip = await invoke<SoundClip>("import_sound_clip", { name: file.name, bytes });
+      this.config.soundboard.clips.push(clip);
+      await this.persist();
+      this.renderSettings();
+      this.paintVoice();
+    } catch (err) {
+      this.toast("Soundboard", err instanceof Error ? err.message : "Couldn't add that clip.");
+    }
+  }
+
+  private async removeSound(clip: SoundClip) {
+    const url = this.clipBlobs.get(clip.id);
+    if (url) URL.revokeObjectURL(url);
+    this.clipBlobs.delete(clip.id);
+    if (isTauri()) await invoke("delete_sound_clip", { path: clip.path }).catch(() => undefined);
+    this.config.soundboard.clips = this.config.soundboard.clips.filter((item) => item.id !== clip.id);
+    await this.persist();
+    this.renderSettings();
+    this.paintVoice();
   }
 
   private voiceButton(label: string, onClick: () => void): HTMLButtonElement {
@@ -6024,6 +6298,8 @@ class LarkApp {
         void this.openDm(person.id);
       },
       onStatus: (status, custom) => this.setStatus(status, custom),
+      note: this.notes[person.id] ?? "",
+      onNote: person.id === this.meId() ? undefined : (note) => this.saveNote(person.id, note),
     });
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyVoiceState, participantsIn, replaceGuildVoice, setSpeaking, setVolume, type VoiceRoster } from "./voice";
+import { applyVoiceState, applyUserMix, hydrateMix, participantsIn, playbackVolume, replaceGuildVoice, setSpeaking, setVolume, type VoiceRoster } from "./voice";
 
 const guild = "100000000000000010";
 const booth = "100000000000000026";
@@ -40,5 +40,22 @@ describe("voice roster", () => {
     expect(kept.speaking).toBe(true);
     expect(kept.volume).toBe(80);
     expect(participantsIn(roster, guild, other)).toHaveLength(0);
+  });
+
+  it("keeps a local mute separate from the volume slider", () => {
+    const roster: VoiceRoster = {};
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "2", name: "Maya" });
+    applyUserMix(roster, "2", { volume: 80, muted: true });
+    expect(playbackVolume(80, true)).toBe(0);
+    expect(playbackVolume(80, false)).toBe(80);
+    const person = participantsIn(roster, guild, booth)[0];
+    expect(person.volume).toBe(80);
+    expect(person.localMuted).toBe(true);
+    replaceGuildVoice(roster, guild, [{ guildId: guild, channelId: other, userId: "2", name: "Someone" }]);
+    const moved = participantsIn(roster, guild, other)[0];
+    expect(moved.volume).toBe(80);
+    expect(moved.localMuted).toBe(true);
+    hydrateMix(roster, { "2": { volume: 40, muted: false } });
+    expect(participantsIn(roster, guild, other)[0]).toMatchObject({ volume: 40, localMuted: false });
   });
 });
