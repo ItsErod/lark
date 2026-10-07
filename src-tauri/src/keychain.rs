@@ -33,7 +33,9 @@ pub fn mark_main_thread() {
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 const SERVICE: &str = "Lark";
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-const ACCOUNT: &str = "discord-user-token";
+const TOKEN_ACCOUNT: &str = "discord-user-token";
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const DRAFT_ACCOUNT: &str = "draft-key";
 
 pub fn store_label() -> String {
     credential_store_label(std::env::consts::OS)
@@ -80,7 +82,111 @@ pub fn clear_token() -> Result<(), String> {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT).map_err(|err| store_error(&err))
+    keyring::Entry::new(SERVICE, TOKEN_ACCOUNT).map_err(|err| store_error(&err))
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn draft_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICE, DRAFT_ACCOUNT).map_err(|err| store_error(&err))
+}
+
+/// 32-byte AES key for local drafts. Stored under its own credential-store
+/// account so it cannot replace the Discord token.
+pub fn load_or_create_draft_key() -> Result<[u8; 32], String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        native_draft_key()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err(
+            "Lark encrypts drafts with a key in the macOS Keychain or Windows Credential Manager. This operating system has no supported store, so drafts stay in memory for this session."
+                .into(),
+        )
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_draft_key() -> Result<[u8; 32], String> {
+    use base64::Engine;
+    match draft_entry()?.get_password() {
+        Ok(mut value) => {
+            let decoded = decode_draft_key(&value);
+            value.zeroize();
+            decoded
+        }
+        Err(keyring::Error::NoEntry) => {
+            let mut key = lark_core::secretbox::random_key();
+            let mut encoded = base64::engine::general_purpose::STANDARD.encode(key);
+            let saved = draft_entry().and_then(|entry| entry.set_password(&encoded).map_err(|err| store_error(&err)));
+            encoded.zeroize();
+            if let Err(err) = saved {
+                key.zeroize();
+                return Err(err);
+            }
+            let mut loaded = match draft_entry()?.get_password() {
+                Ok(value) => value,
+                Err(keyring::Error::NoEntry) => {
+                    key.zeroize();
+                    return Err(credential_unreadable_after_save_message(&store_label()));
+                }
+                Err(err) => {
+                    key.zeroize();
+                    return Err(format!(
+                        "Couldn't read the draft key back after saving it. {}",
+                        store_error(&err)
+                    ));
+                }
+            };
+            let decoded = decode_draft_key(&loaded);
+            loaded.zeroize();
+            let decoded = match decoded {
+                Ok(value) => value,
+                Err(err) => {
+                    key.zeroize();
+                    return Err(err);
+                }
+            };
+            let matches = decoded == key;
+            key.zeroize();
+            if matches {
+                Ok(decoded)
+            } else {
+                Err(credential_mismatch_after_save_message(&store_label()))
+            }
+        }
+        Err(err) => Err(store_error(&err)),
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn decode_draft_key(encoded: &str) -> Result<[u8; 32], String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|_| "The draft key in the credential store was not readable.".to_string())?;
+    if bytes.len() != 32 {
+        return Err("The draft key in the credential store was the wrong size.".into());
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&bytes);
+    Ok(key)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn draft_key_account_is_not_the_discord_token() {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            assert_ne!(super::TOKEN_ACCOUNT, super::DRAFT_ACCOUNT);
+            assert!(!super::DRAFT_ACCOUNT.contains("token"));
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            assert_ne!("discord-user-token", "draft-key");
+        }
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

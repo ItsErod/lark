@@ -184,7 +184,8 @@ button.category:hover { color: var(--text); }
 .row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .row-copy .row-label { flex: none; }
-.dm-activity, .friend-note { font-size: 12px; font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-activity, .friend-note, .dm-preview { font-size: 12px; font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-row.is-unread .dm-preview { font-weight: 400; }
 .channel-row.is-muted { color: var(--faint); font-style: italic; font-weight: 500; }
 .channel-row.is-voice { opacity: 0.72; }
 .voice-block.has-people .channel-row.is-voice { opacity: 1; }

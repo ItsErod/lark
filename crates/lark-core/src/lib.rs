@@ -12,6 +12,7 @@ pub mod ratelimit;
 pub mod readstate;
 pub mod redact;
 pub mod screen;
+pub mod secretbox;
 pub mod token;
 
 pub use config::{global_accelerator, parse_config, Config, ConfigError};

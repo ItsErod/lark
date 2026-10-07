@@ -25,7 +25,9 @@ This is the link-preview toggle and compact media together.
 
 ## Send later
 
-**Later** in the composer queues the draft. The soonest time is 15 seconds from now, the latest is 7 days, and the queue stops at 20. A timer sends the oldest due message, then waits before it looks again, so a stack of due messages cannot go out in one burst. A failed send is retried twice, 30 seconds apart, and then dropped. Turning the plugin off pauses the queue. The queue lives on this device; if Lark is closed, a due message waits until the next time the app is open and the plugin is on.
+Scheduled send is built in. **Later** in the composer uses the same queue as this plugin, whether or not the plugin is on.
+
+**Later** in the composer queues the draft. The soonest time is 15 seconds from now, the latest is 7 days, and the queue stops at 20. A timer sends the oldest due message, then waits before it looks again, so a stack of due messages cannot go out in one burst. A failed send is retried twice, 30 seconds apart, and then dropped. The queue lives on this device. If Lark is closed, a due message waits until the next time the app is open.
 
 ## Quick reactions
 
@@ -44,6 +46,8 @@ After 5, 15, or 30 quiet minutes, Lark sets you to idle once. A key or a click s
 Type a track and an artist, then **Show on my status**. The custom status becomes `Listening to …`. If you already have a custom status, it stays until you turn on **Replace a custom status**. When the system media session exposes a title, Lark can use that instead, and only when the line changed, at most every 30 seconds. Lark does not sign in to Spotify and does not read a token to do this.
 
 ## Bookmarks
+
+Saved messages are built in. **Save** on a message and **Saved** in the header use the same list as this plugin.
 
 **Save** on a message keeps it in a list on this device. **Saved** in the header opens the list. Opening one jumps to that channel. Discord pins are not changed.
 

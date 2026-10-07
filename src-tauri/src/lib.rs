@@ -174,6 +174,8 @@ pub fn run() {
             has_token,
             set_token,
             clear_token,
+            seal_drafts,
+            open_drafts,
             open_discord_login,
             open_browser_login,
             cancel_browser_login,
@@ -394,6 +396,34 @@ async fn clear_token(app: AppHandle, state: State<'_, Shared>) -> Result<(), Str
         let _ = tx.send(true);
     }
     keychain::on_main(&app, keychain::clear_token)?
+}
+
+#[tauri::command]
+fn seal_drafts(app: AppHandle, plain: String) -> Result<String, String> {
+    if plain.len() > 200_000 {
+        return Err("Drafts are too large to store.".into());
+    }
+    keychain::on_main(&app, move || {
+        let mut key = keychain::load_or_create_draft_key()?;
+        let sealed = lark_core::secretbox::seal(&key, &plain);
+        key.zeroize();
+        let mut plain = plain;
+        plain.zeroize();
+        sealed
+    })?
+}
+
+#[tauri::command]
+fn open_drafts(app: AppHandle, sealed: String) -> Result<String, String> {
+    if sealed.len() > 400_000 {
+        return Err("Saved drafts are too large to open.".into());
+    }
+    keychain::on_main(&app, move || {
+        let mut key = keychain::load_or_create_draft_key()?;
+        let opened = lark_core::secretbox::open(&key, &sealed);
+        key.zeroize();
+        opened
+    })?
 }
 
 #[tauri::command]

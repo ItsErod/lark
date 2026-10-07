@@ -22,14 +22,17 @@ import {
   type ReadMarker,
 } from "../shell";
 import { noteActivity, stepAway, type AwayClock } from "../pack/away";
-import { isBookmarked, toggleBookmark } from "../pack/bookmarks";
+import { isBookmarked, toggleBookmark, type Bookmark } from "../pack/bookmarks";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
 import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
-import { backoff, cancelSend, queueSend, takeDue } from "../pack/schedule";
+import { backoff, cancelSend, queueSend, takeDue, type ScheduledSend } from "../pack/schedule";
 import { defaultPack, PACK_IDS, sanitizePack, settingsFor, type PackState } from "../pack/state";
 import { commandCatalog, matchCommands } from "../palette";
+import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
+import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
+import { addReminder, cancelReminder, reminderFor, reminderPresets, sanitizeReminders, takeDueReminders, type Reminder } from "../reminders";
 import { browserPlatform, fontStack, type PlatformInfo } from "../platform";
 import { describePlugin, enabledSources, parseCatalog, validPluginId, type PluginCatalogItem, type PluginHooks, type PluginSource } from "../plugins";
 import { emojiCdnUrl } from "../render/content";
@@ -164,7 +167,7 @@ interface PerfMarks {
 }
 
 type ScrollMode = "none" | "bottom" | "preserve";
-type Section = "account" | "appearance" | "voice" | "notifications" | "shortcuts" | "lark";
+type Section = "account" | "privacy" | "messages" | "appearance" | "voice" | "notifications" | "shortcuts" | "lark";
 
 interface LocalFile {
   name: string;
@@ -238,6 +241,8 @@ class LarkApp {
   private sendingScheduled = false;
   private scheduling = false;
   private bookmarksOpen = false;
+  private reminders: Reminder[] = [];
+  private reminding: RawMessage | null = null;
   private clock = Date.now();
   private scroll: ScrollMode = "none";
   private scrollLock = 0;
@@ -366,7 +371,9 @@ class LarkApp {
   private clipStatus: { recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string } | null = null;
   private pttHeld = false;
   private recent: string[] = [];
-  private drafts: Record<string, string> = {};
+  private drafts: DraftMap = {};
+  private draftTicket = 0;
+  private draftsReady = false;
   private emojiUses: EmojiUse[] = [];
   private searchOpen = false;
   private pinsOpen = false;
@@ -431,7 +438,12 @@ class LarkApp {
     } catch {
       this.collapsedCats = new Set();
     }
-    this.drafts = readJson("lark.drafts.v1") as Record<string, string>;
+    try {
+      this.reminders = sanitizeReminders(JSON.parse(localStorage.getItem("lark.reminders.v1") ?? "[]"));
+    } catch {
+      this.reminders = [];
+    }
+    void this.hydrateDrafts();
     try {
       const parsed = JSON.parse(localStorage.getItem("lark.emoji.v1") ?? "[]");
       if (Array.isArray(parsed)) this.emojiUses = parsed;
@@ -459,7 +471,10 @@ class LarkApp {
       this.tokenNote = "Discord rejected the token (HTTP 401). Lark sent it only to discord.com. It may be expired, revoked, or still wrapped in quotes.";
     }
     if (!isTauri() && params.has("splash")) this.showPreviewSplash();
-    else if (params.has("demo")) this.enterDemo();
+    else if (params.has("demo")) {
+      if (params.has("streamer")) this.config.privacy.streamer = true;
+      this.enterDemo();
+    }
     else {
       const initial = gateQr(isTauri());
       this.qrSvg = initial.svg;
@@ -1810,10 +1825,13 @@ class LarkApp {
         : "";
       const muted = this.levelFor(this.guildId && channel.kind !== "dm" && channel.kind !== "group" ? this.guildId : null, channel.id) === "mute" ? "m" : "";
       const collapsed = this.collapsedCats.has(channel.id) ? "c" : "";
-      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}`;
+      const direct = !this.guildId && (channel.kind === "dm" || channel.kind === "group");
+      const preview = direct ? this.dmPreviewLabel(channel.id) : "";
+      const activity = direct ? this.dmActivityLabel(channel) : "";
+      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}`;
     });
     const me = this.demo ? people[0] : this.me;
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.voice?.detail ?? ""}|${bits.join(",")}`;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.voice?.detail ?? ""}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -1822,7 +1840,7 @@ class LarkApp {
     if (dot) dot.className = `status ${me.status ?? "online"}`;
     const line = this.channelPane.querySelector(".profile-chip .who span");
     if (line) {
-      const next = me.custom || this.connection;
+      const next = this.maskText(me.custom || this.connection);
       if (line.textContent !== next) line.textContent = next;
     }
     const friends = this.channelPane.querySelector<HTMLElement>("[data-friends]");
@@ -1909,7 +1927,7 @@ class LarkApp {
     const wrap = el("div", "avatar-wrap");
     wrap.append(portrait(me.name, me.id, me.avatarUrl, true), el("i", `status ${me.status ?? "online"}`));
     const who = el("div", "who");
-    who.append(el("strong", "", me.name), el("span", "", me.custom || this.connection));
+    who.append(el("strong", "", this.maskText(me.name)), el("span", "", this.maskText(me.custom || this.connection)));
     profile.append(wrap, who);
     profile.addEventListener("click", () => {
       if (this.statusOpen && this.popout?.id === me.id) {
@@ -1994,10 +2012,14 @@ class LarkApp {
       button.append(wrap);
     }
     const label = el("span", "row-copy");
-    label.append(el("span", "row-label", channel.name));
+    label.append(el("span", "row-label", dm ? this.maskText(channel.name) : channel.name));
     if (dm && known) {
       const activity = friendGlance(known).activity;
-      if (activity) label.append(el("span", "dm-activity", activity));
+      if (activity) label.append(el("span", "dm-activity", this.maskText(activity)));
+    }
+    if (dm) {
+      const preview = this.dmPreviewLabel(channel.id);
+      if (preview) label.append(el("span", "dm-preview", preview));
     }
     button.append(label);
     if (muted) button.append(el("span", "faint", "muted"));
@@ -2158,11 +2180,12 @@ class LarkApp {
       });
       row.append(menu);
     }
-    const heading = this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? channel.name : `# ${channel.name}`) : "Lark";
+    const heading = this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : `# ${channel.name}`) : "Lark";
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
+    if (this.streamerOn()) row.append(el("span", "demo-pill", "Streamer"));
     title.append(row);
-    if (channel?.topic) title.append(el("div", "topic", channel.topic));
+    if (channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
     const actions = el("div", "head-actions");
     const search = el("button", "icon-button");
     search.type = "button";
@@ -2213,19 +2236,15 @@ class LarkApp {
     bell.setAttribute("aria-label", "Notification level");
     bell.append(icon(paths.bell));
     bell.addEventListener("click", () => this.cycleNotify());
-    const headerButtons = [search, find, pin];
-    if (this.hookOn("bookmarks")) {
-      const saved = el("button", "text-button");
-      saved.type = "button";
-      saved.textContent = "Saved";
-      saved.setAttribute("aria-label", "Bookmarks");
-      saved.addEventListener("click", () => {
-        this.bookmarksOpen = !this.bookmarksOpen;
-        this.paintBookmarks();
-      });
-      headerButtons.push(saved);
-    }
-    headerButtons.push(split, theme, members, bell);
+    const saved = el("button", "text-button");
+    saved.type = "button";
+    saved.textContent = "Saved";
+    saved.setAttribute("aria-label", "Saved messages");
+    saved.addEventListener("click", () => {
+      this.bookmarksOpen = !this.bookmarksOpen;
+      this.paintBookmarks();
+    });
+    const headerButtons = [search, find, pin, saved, split, theme, members, bell];
     actions.append(...headerButtons);
     this.chatHead.append(title, actions);
   }
@@ -2498,9 +2517,10 @@ class LarkApp {
         displayContent: this.translated[message.id],
       });
       if (!view) continue;
+      const shown = this.presentView(view);
       const day = new Date(message.timestamp).toDateString();
       const grouped = shouldGroup(previous, message, day === lastDay);
-      const node = renderMessage(view, {
+      const node = renderMessage(shown, {
         density: this.config.appearance.density,
         grouped,
         showDay: day !== lastDay,
@@ -2543,7 +2563,7 @@ class LarkApp {
           this.lightbox = url;
           this.paintLightbox();
         },
-        ...this.messageChrome(message, view),
+        ...this.messageChrome(message, shown),
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
@@ -2575,7 +2595,7 @@ class LarkApp {
     const id = this.channelId;
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}`;
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -2709,7 +2729,7 @@ class LarkApp {
 
   private paintFriends() {
     const noteSig = Object.entries(this.notes).map(([id, note]) => `${id}:${note}`).join(",");
-    const sig = `friends|${this.friends.map((person) => `${person.id}:${person.status}:${person.custom}:${person.activity}`).join(",")}|${noteSig}`;
+    const sig = `friends|${this.streamerOn() ? 1 : 0}|${this.friends.map((person) => `${person.id}:${person.status}:${person.custom}:${person.activity}`).join(",")}|${noteSig}`;
     if (sig === this.msgSig) return;
     this.msgSig = sig;
     clear(this.messagesEl);
@@ -2727,7 +2747,7 @@ class LarkApp {
       for (const person of active) {
         const chip = el("button", "friend-chip");
         chip.type = "button";
-        chip.append(el("strong", "", person.name), el("span", "", friendGlance(person).activity));
+        chip.append(el("strong", "", this.maskText(person.name)), el("span", "", this.maskText(friendGlance(person).activity)));
         chip.addEventListener("click", () => this.openProfile(person));
         row.append(chip);
       }
@@ -2749,10 +2769,10 @@ class LarkApp {
         const wrap = el("div", "avatar-wrap");
         wrap.append(portrait(person.name, person.id, person.avatarUrl, false), el("i", `status ${person.status ?? "offline"}`));
         const copy = el("div", "member-copy");
-        const line = friendGlance(person).line || memberSubtitle(person) || statusLabel(person.status);
-        copy.append(el("strong", "", person.name), el("span", "", line));
+        const line = this.maskText(friendGlance(person).line || memberSubtitle(person) || statusLabel(person.status));
+        copy.append(el("strong", "", this.maskText(person.name)), el("span", "", line));
         const note = this.notes[person.id];
-        if (note) copy.append(el("span", "friend-note", note));
+        if (note) copy.append(el("span", "friend-note", this.maskText(note)));
         row.append(wrap, copy);
         row.addEventListener("click", () => {
           this.openProfile(person);
@@ -2813,7 +2833,7 @@ class LarkApp {
       if (dot) dot.className = `status ${person.status ?? "offline"}`;
       const copy = row.querySelector(".member-copy");
       if (!copy) continue;
-      const line = memberSubtitle(person);
+      const line = this.maskText(memberSubtitle(person));
       const sub = copy.querySelector(":scope > span");
       if (!line) {
         sub?.remove();
@@ -2955,7 +2975,7 @@ class LarkApp {
     const title = el("div", "member-name");
     title.append(name);
     if (person.bot) title.append(el("span", "bot-tag", "BOT"));
-    const line = memberSubtitle(person);
+    const line = this.maskText(memberSubtitle(person));
     copy.append(title);
     if (line) copy.append(el("span", "", line));
     row.append(wrap, copy);
@@ -2996,10 +3016,13 @@ class LarkApp {
         this.paintComposer();
       });
       this.composerBanner.append(cancel);
+    } else if (this.reminding) {
+      this.paintReminderBanner();
     } else if (this.reply) {
       this.composerBanner.hidden = false;
-      const preview = plainPreview(this.reply.content, this.renderContext(), 80);
-      this.composerBanner.append(el("span", "", preview ? `Replying to ${this.reply.authorName}: ${preview}` : `Replying to ${this.reply.authorName}`));
+      const preview = this.maskText(plainPreview(this.reply.content, this.renderContext(), 80));
+      const author = this.maskText(this.reply.authorName);
+      this.composerBanner.append(el("span", "", preview ? `Replying to ${author}: ${preview}` : `Replying to ${author}`));
       const cancel = el("button", "ghost", "Cancel");
       cancel.type = "button";
       cancel.addEventListener("click", () => {
@@ -3008,7 +3031,7 @@ class LarkApp {
       });
       this.composerBanner.append(cancel);
     }
-    if (!this.pendingDelete && !this.editing && this.hookOn("schedule")) {
+    if (!this.pendingDelete && !this.editing && !this.reminding) {
       this.paintScheduleBanner();
     }
     clear(this.composerMeta);
@@ -3036,16 +3059,15 @@ class LarkApp {
       this.paintComposer();
     });
     tools.append(attach, file, emoji);
-    if (this.hookOn("schedule")) {
-      const later = el("button", "text-button", "Later");
-      later.type = "button";
-      later.setAttribute("aria-label", "Send later");
-      later.addEventListener("click", () => {
-        this.scheduling = !this.scheduling;
-        this.paintComposer();
-      });
-      tools.append(later);
-    }
+    const later = el("button", "text-button", "Later");
+    later.type = "button";
+    later.setAttribute("aria-label", "Send later");
+    later.addEventListener("click", () => {
+      this.scheduling = !this.scheduling;
+      this.reminding = null;
+      this.paintComposer();
+    });
+    tools.append(later);
     for (const item of this.files) {
       const chip = el("button", "text-button", item.name);
       chip.type = "button";
@@ -3178,7 +3200,7 @@ class LarkApp {
     }
     this.composer.value = "";
     if (id) delete this.drafts[id];
-    localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
+    void this.writeDrafts();
     this.files = [];
     this.pinnedToBottom = true;
     this.scroll = "bottom";
@@ -3358,6 +3380,8 @@ class LarkApp {
     const nav = el("nav", "settings-nav");
     const sections: [Section, string][] = [
       ["account", "My Account"],
+      ["privacy", "Privacy"],
+      ["messages", "Messages"],
       ["appearance", "Appearance"],
       ["voice", "Voice & Video"],
       ["notifications", "Notifications"],
@@ -3582,6 +3606,35 @@ class LarkApp {
         row.append(button);
         wrap.append(row);
       }
+    } else if (this.section === "privacy") {
+      wrap.append(el("h2", "", "Privacy"), el("p", "lede", "Streamer mode hides emails, tokens, DM previews, and personal info on this screen. Discord still has the real messages."));
+      wrap.append(this.toggle("Streamer mode", this.config.privacy.streamer, (value) => {
+        this.config.privacy.streamer = value;
+        this.persist();
+        this.noteCapture();
+      }));
+      wrap.append(this.toggle("Turn on while sharing or recording", this.config.privacy.streamer_auto, (value) => {
+        this.config.privacy.streamer_auto = value;
+        this.persist();
+        this.noteCapture();
+      }));
+      const active = this.streamerOn();
+      const hotkey = formatShortcut(this.config.shortcuts.quick_switcher, this.platform.os);
+      wrap.append(el("p", "hint", active
+        ? "Streamer mode is on. Emails and tokens in messages read as hidden, DM previews are dropped, and your account id is hidden."
+        : `Off. ${hotkey} can toggle it from the command palette.`));
+      wrap.append(el("p", "hint", "The auto option follows screen share and the clip buffer. It does not look for other apps."));
+    } else if (this.section === "messages") {
+      wrap.append(el("h2", "", "Messages"), el("p", "lede", "Saved messages, reminders, and scheduled sends stay on this device. Discord pins are unchanged."));
+      wrap.append(el("h3", "", "Saved"));
+      if (!this.pack.bookmarks.length) wrap.append(el("p", "hint", "Save on a message keeps it here. Saved in the header opens the same list."));
+      for (const bookmark of this.pack.bookmarks) wrap.append(this.savedRow(bookmark));
+      wrap.append(el("h3", "", "Reminders"));
+      if (!this.reminders.length) wrap.append(el("p", "hint", "Remind on a message. Lark notifies you once, at the time you picked."));
+      for (const reminder of this.reminders) wrap.append(this.reminderRow(reminder));
+      wrap.append(el("h3", "", "Scheduled"));
+      if (!this.pack.schedule.length) wrap.append(el("p", "hint", "Later in the composer queues a send. The soonest time is 15 seconds from now, and one message goes out at a time."));
+      for (const item of this.pack.schedule) wrap.append(this.scheduledRow(item));
     } else if (this.section === "notifications") {
       wrap.append(el("h2", "", "Notifications"), el("p", "lede", this.platform.notificationNote));
       wrap.append(el("div", "hint", "Default"));
@@ -3709,7 +3762,7 @@ class LarkApp {
       const who = el("div", "settings-account");
       who.append(portrait(me.name, me.id, me.avatarUrl));
       const copy = el("div");
-      copy.append(el("strong", "", me.name), el("div", "hint", me.custom || statusLabel(me.status)), el("div", "hint", me.id));
+      copy.append(el("strong", "", this.maskText(me.name)), el("div", "hint", this.maskText(me.custom || statusLabel(me.status))), el("div", "hint", personalLine(me.id, this.streamerOn())));
       who.append(copy);
       wrap.append(who, el("p", "lede", "Name, avatar, and id come from Discord. Lark does not edit them. The token never goes in the config file, logs, or a plugin."));
       const grid = el("div", "platform-grid");
@@ -4056,7 +4109,9 @@ class LarkApp {
     if (!isTauri()) return;
     try {
       const status = await invoke<{ recording: boolean; spanMs: number; dir: string; backend: string; error: string; hotkeyError: string }>("clip_status");
+      const was = Boolean(this.clipStatus?.recording);
       this.clipStatus = status;
+      if (was !== status.recording && this.config.privacy.streamer_auto) this.noteCapture();
     } catch {
       this.clipStatus = null;
     }
@@ -4784,8 +4839,8 @@ class LarkApp {
         activeChannelId: this.channelId,
         direct,
       });
-      const body = plainPreview(message.content, this.renderContext()) || (message.attachments?.length ? "Sent an attachment" : message.stickers?.length ? "Sent a sticker" : "New message");
-      if (alreadyNotified) void this.notify(message.authorName, body);
+      const body = this.notifyBody(message, direct);
+      if (alreadyNotified) void this.notify(this.streamerOn() && direct ? "Direct message" : this.maskText(message.authorName), body);
       this.considerKeyword(message, level, mentionsMe, alreadyNotified);
       if (viewing) {
         if (follow) this.pinnedToBottom = true;
@@ -4940,9 +4995,291 @@ class LarkApp {
     if (!id) return;
     window.clearTimeout(this.draftTimer);
     this.draftTimer = window.setTimeout(() => {
-      this.drafts[id] = this.composer.value;
-      localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
+      if (!this.composer.value) delete this.drafts[id];
+      else this.drafts[id] = this.composer.value.slice(0, 2000);
+      if (this.draftsReady) void this.writeDrafts();
     }, 120);
+  }
+
+  private streamerOn(): boolean {
+    return streamerActive(
+      this.config.privacy.streamer,
+      this.config.privacy.streamer_auto,
+      this.shareOn || Boolean(this.clipStatus?.recording),
+    );
+  }
+
+  private maskText(value: string): string {
+    return this.streamerOn() ? redactSensitive(value) : value;
+  }
+
+  private noteCapture() {
+    this.msgSig = "";
+    this.channelShape = "";
+    this.memberShape = "";
+    if (this.view === "app") this.paint();
+    else if (this.settings && (this.section === "privacy" || this.section === "messages")) this.renderSettings();
+  }
+
+  private toggleStreamer() {
+    this.config.privacy.streamer = !this.config.privacy.streamer;
+    this.persist();
+    this.noteCapture();
+    this.toast("Streamer mode", this.streamerOn() ? "On. Emails, tokens, DM previews, and personal info are hidden." : "Off.");
+  }
+
+  private dmActivityLabel(channel: Channel): string {
+    const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
+    const known = recipient ? this.directory[recipient.id] : undefined;
+    if (!known) return "";
+    return this.maskText(friendGlance(known).activity);
+  }
+
+  private dmPreviewLabel(channelId: string): string {
+    const loaded = this.pages[channelId];
+    const source = loaded?.length ? loaded : this.demo ? history[channelId] : undefined;
+    const last = [...(source ?? [])].reverse().find((message) => message.content.trim());
+    if (!last) return "";
+    return dmPreview(plainPreview(last.content, this.renderContext(), 80), this.streamerOn(), 80);
+  }
+
+  private previewLine(message: RawMessage, limit: number): string {
+    const channel = this.channelById(message.channelId);
+    const direct = channel?.kind === "dm" || channel?.kind === "group";
+    if (this.streamerOn() && direct) return "Message hidden";
+    const text = plainPreview(message.content, this.renderContext(), limit) || (message.attachments?.length ? "Attachment" : "Empty message");
+    return this.maskText(text);
+  }
+
+  private notifyBody(message: RawMessage, direct: boolean): string {
+    if (this.streamerOn() && direct) return "New direct message";
+    const body = plainPreview(message.content, this.renderContext()) || (message.attachments?.length ? "Sent an attachment" : message.stickers?.length ? "Sent a sticker" : "New message");
+    return this.maskText(body);
+  }
+
+  private bookmarkExcerpt(bookmark: { channelId: string; excerpt: string }): string {
+    const channel = this.channelById(bookmark.channelId);
+    if (this.streamerOn() && (channel?.kind === "dm" || channel?.kind === "group")) return "Direct message";
+    return this.maskText(bookmark.excerpt || "Empty message");
+  }
+
+  private presentView(view: ViewMessage): ViewMessage {
+    if (!this.streamerOn()) return view;
+    return {
+      ...view,
+      authorName: redactSensitive(view.authorName),
+      blocks: redactBlocks(view.blocks),
+      raw: redactSensitive(view.raw),
+      reply: view.reply
+        ? { ...view.reply, authorName: redactSensitive(view.reply.authorName), preview: redactSensitive(view.reply.preview) }
+        : null,
+      embeds: view.embeds.map((embed) => ({
+        ...embed,
+        author: embed.author ? redactSensitive(embed.author) : null,
+        title: embed.title ? redactSensitive(embed.title) : null,
+        footer: embed.footer ? redactSensitive(embed.footer) : null,
+        description: redactBlocks(embed.description),
+        fields: embed.fields.map((field) => ({
+          ...field,
+          name: redactSensitive(field.name),
+          value: redactBlocks(field.value),
+        })),
+      })),
+    };
+  }
+
+  private async hydrateDrafts() {
+    const plan = planDraftLoad(localStorage.getItem(DRAFTS_SEALED_KEY), localStorage.getItem(DRAFTS_PLAIN_KEY));
+    let shouldSeal = false;
+    if (plan.kind === "migrate") {
+      localStorage.removeItem(DRAFTS_PLAIN_KEY);
+      this.drafts = { ...plan.plain, ...this.drafts };
+      shouldSeal = true;
+    } else if (plan.kind === "sealed" && isTauri()) {
+      try {
+        const plain = await invoke<string>("open_drafts", { sealed: plan.sealed });
+        const loaded = parseDraftMap(JSON.parse(plain));
+        localStorage.removeItem(DRAFTS_PLAIN_KEY);
+        this.drafts = { ...loaded, ...this.drafts };
+        shouldSeal = true;
+      } catch {
+        this.toast("Drafts", "Drafts stay in memory for this session. The credential store could not unlock them.");
+      }
+    }
+    this.draftsReady = true;
+    this.applyOpenDraft();
+    if (isTauri() && shouldSeal) await this.writeDrafts();
+  }
+
+  private applyOpenDraft() {
+    const id = this.channelId;
+    if (!id || this.editing || !this.composer) return;
+    const draft = this.drafts[id];
+    if (draft !== undefined && !this.composer.value) {
+      this.composer.value = draft;
+      this.paintComposer();
+    }
+  }
+
+  private async writeDrafts() {
+    if (!isTauri()) return;
+    const ticket = ++this.draftTicket;
+    const plain = JSON.stringify(parseDraftMap(this.drafts));
+    try {
+      const sealed = await invoke<string>("seal_drafts", { plain });
+      if (ticket !== this.draftTicket) return;
+      localStorage.setItem(DRAFTS_SEALED_KEY, sealed);
+      localStorage.removeItem(DRAFTS_PLAIN_KEY);
+    } catch {
+      // Leave the previous seal. Do not write the plaintext back.
+    }
+  }
+
+  private saveReminders() {
+    localStorage.setItem("lark.reminders.v1", JSON.stringify(this.reminders));
+  }
+
+  private beginReminder(message: RawMessage) {
+    const existing = reminderFor(this.reminders, message.channelId, message.id);
+    if (existing) {
+      this.reminders = cancelReminder(this.reminders, existing.id);
+      this.saveReminders();
+      this.toast("Reminder", "Removed.");
+      this.msgSig = "";
+      this.paintMessages();
+      if (this.settings && this.section === "messages") this.renderSettings();
+      return;
+    }
+    this.reminding = message;
+    this.scheduling = false;
+    this.paintComposer();
+  }
+
+  private queueReminder(at: number) {
+    const message = this.reminding;
+    if (!message) return;
+    const result = addReminder(this.reminders, {
+      messageId: message.id,
+      channelId: message.channelId,
+      authorName: message.authorName,
+      excerpt: message.content,
+      remindAt: at,
+    }, Date.now());
+    if (!result.ok) {
+      this.toast("Reminder", result.error);
+      return;
+    }
+    this.reminders = result.list;
+    this.reminding = null;
+    this.saveReminders();
+    this.msgSig = "";
+    this.paintMessages();
+    this.paintComposer();
+    this.toast("Reminder", "Lark will notify you once.");
+  }
+
+  private paintReminderBanner() {
+    const message = this.reminding;
+    if (!message) return;
+    clear(this.composerBanner);
+    this.composerBanner.hidden = false;
+    this.composerBanner.append(el("span", "", `Remind about ${this.maskText(message.authorName)}`));
+    for (const preset of reminderPresets(Date.now())) {
+      const button = el("button", "text-button", preset.label);
+      button.type = "button";
+      button.addEventListener("click", () => this.queueReminder(preset.at));
+      this.composerBanner.append(button);
+    }
+    const when = el("input");
+    when.type = "datetime-local";
+    when.setAttribute("aria-label", "Remind at");
+    when.value = localInputValue(Date.now() + 60 * 60_000);
+    const custom = el("button", "primary", "Set");
+    custom.type = "button";
+    custom.addEventListener("click", () => this.queueReminder(Date.parse(when.value)));
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      this.reminding = null;
+      this.paintComposer();
+    });
+    this.composerBanner.append(when, custom, cancel);
+  }
+
+  private tickReminders() {
+    const picked = takeDueReminders(this.reminders, Date.now());
+    if (!picked.due.length) return;
+    this.reminders = picked.pending;
+    this.saveReminders();
+    for (const item of picked.due) {
+      const channel = this.channelById(item.channelId);
+      const direct = channel?.kind === "dm" || channel?.kind === "group";
+      const body = this.streamerOn() && direct
+        ? "A direct message you asked to be reminded about."
+        : this.streamerOn()
+          ? "A message you asked to be reminded about."
+          : (item.excerpt || "Saved reminder");
+      void this.notify("Reminder", body);
+    }
+    this.msgSig = "";
+    if (this.view === "app") this.paintMessages();
+    if (this.settings && this.section === "messages") this.renderSettings();
+  }
+
+  private savedRow(bookmark: Bookmark): HTMLElement {
+    const row = el("div", "shortcut-row");
+    row.append(el("span", "", `${this.maskText(bookmark.authorName)} — ${this.bookmarkExcerpt(bookmark)}`));
+    const open = el("button", "text-button", "Open");
+    open.type = "button";
+    open.addEventListener("click", () => {
+      this.closeSettings();
+      void this.openChannel(bookmark.channelId);
+    });
+    const remove = el("button", "ghost", "Remove");
+    remove.type = "button";
+    remove.addEventListener("click", () => {
+      this.pack.bookmarks = this.pack.bookmarks.filter((item) => item.messageId !== bookmark.messageId || item.channelId !== bookmark.channelId);
+      this.savePack();
+      this.msgSig = "";
+      this.renderSettings();
+    });
+    row.append(open, remove);
+    return row;
+  }
+
+  private reminderRow(reminder: Reminder): HTMLElement {
+    const row = el("div", "shortcut-row");
+    const when = formatRelative(new Date(reminder.remindAt).toISOString(), Date.now());
+    const channel = this.channelById(reminder.channelId);
+    const direct = this.streamerOn() && (channel?.kind === "dm" || channel?.kind === "group");
+    const excerpt = direct ? "Direct message" : this.maskText(reminder.excerpt || "Empty message");
+    row.append(el("span", "", `${this.maskText(reminder.authorName)} · ${when} · ${excerpt}`));
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      this.reminders = cancelReminder(this.reminders, reminder.id);
+      this.saveReminders();
+      this.msgSig = "";
+      this.renderSettings();
+    });
+    row.append(cancel);
+    return row;
+  }
+
+  private scheduledRow(item: ScheduledSend): HTMLElement {
+    const row = el("div", "shortcut-row");
+    const when = formatRelative(new Date(item.sendAt).toISOString(), Date.now());
+    row.append(el("span", "", `${when} · ${this.maskText(item.content.slice(0, 80))}`));
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      this.pack.schedule = cancelSend(this.pack.schedule, item.id);
+      this.savePack();
+      this.renderSettings();
+      this.paintComposer();
+    });
+    row.append(cancel);
+    return row;
   }
 
   private rememberCache() {
@@ -5290,10 +5627,17 @@ class LarkApp {
       this.persist();
       this.msgSig = "";
       this.paint();
-    } else if (id === "pins") {
+    }     else if (id === "pins") {
       this.pinsOpen = true;
       this.paintPins();
-    } else if (id === "status") {
+    } else if (id === "saved") {
+      this.bookmarksOpen = true;
+      this.paintBookmarks();
+    } else if (id === "reminders" || id === "scheduled") {
+      this.section = "messages";
+      this.openSettings();
+    } else if (id === "streamer") this.toggleStreamer();
+    else if (id === "status") {
       this.statusOpen = true;
       this.popout = this.demo ? people[0] : this.me;
       this.paintPopout();
@@ -5761,7 +6105,7 @@ class LarkApp {
       this.shareOn = !this.shareOn;
       this.shareMotion = false;
       if (!this.demo) void invoke(this.shareOn ? "start_screen_share" : "stop_screen_share").catch(() => undefined);
-      this.paintVoice();
+      this.noteCapture();
     });
     const game = el("button", this.config.clips.game_capture ? "text-button is-on" : "text-button", this.config.clips.game_capture ? "Game capture on" : "Game capture");
     game.type = "button";
@@ -6037,7 +6381,8 @@ class LarkApp {
           displayContent: this.translated[message.id],
         });
         if (!view) continue;
-        body.append(renderMessage(view, {
+        const shown = this.presentView(view);
+        body.append(renderMessage(shown, {
           density: this.config.appearance.density,
           grouped: false,
           showDay: false,
@@ -6052,7 +6397,7 @@ class LarkApp {
             this.lightbox = url;
             this.paintLightbox();
           },
-          ...this.messageChrome(message, view),
+          ...this.messageChrome(message, shown),
         }));
       }
     }
@@ -6094,7 +6439,7 @@ class LarkApp {
       for (const hit of hits) {
         const button = el("button", "switcher-hit");
         button.type = "button";
-        button.append(el("strong", "", hit.authorName), el("span", "faint", plainPreview(hit.content, this.renderContext(), 120) || "Attachment"));
+        button.append(el("strong", "", this.maskText(hit.authorName)), el("span", "faint", this.previewLine(hit, 120)));
         button.addEventListener("click", () => {
           this.searchOpen = false;
           this.paintSearch();
@@ -6182,8 +6527,7 @@ class LarkApp {
   private pinRow(message: RawMessage): HTMLButtonElement {
     const button = el("button", "bookmark-row");
     button.type = "button";
-    const preview = plainPreview(message.content, this.renderContext(), 140) || "Attachment";
-    button.append(el("strong", "", message.authorName), el("span", "", preview));
+    button.append(el("strong", "", this.maskText(message.authorName)), el("span", "", this.previewLine(message, 140)));
     button.addEventListener("click", () => {
       this.pinsOpen = false;
       this.paintPins();
@@ -6265,21 +6609,24 @@ class LarkApp {
       .map((guild) => this.guilds().find((item) => item.id === guild.id)?.name)
       .filter((name): name is string => Boolean(name))
       .slice(0, 8);
+    const personView = this.streamerOn()
+      ? { ...person, name: this.maskText(person.name), custom: this.maskText(person.custom ?? ""), activity: person.activity ? this.maskText(person.activity) : person.activity }
+      : person;
     renderProfileCard(pop, {
-      person,
+      person: personView,
       self: person.id === this.meId(),
       statusPicker: this.statusOpen && person.id === this.meId(),
       roles: this.profileRoles(person),
       details: details ? {
-        id: details.id,
-        name: details.name,
-        username: details.username,
+        id: personalLine(details.id, this.streamerOn()),
+        name: this.maskText(details.name),
+        username: this.maskText(details.username),
         avatarUrl: details.avatarUrl,
         bannerUrl: details.bannerUrl,
         accent: details.accent,
-        bio: details.bio ?? "",
-        pronouns: details.pronouns ?? "",
-        nick: details.nick,
+        bio: this.maskText(details.bio ?? ""),
+        pronouns: this.maskText(details.pronouns ?? ""),
+        nick: details.nick ? this.maskText(details.nick) : details.nick,
         mutualNames,
         mutualGuilds: details.mutualGuilds?.length ?? 0,
         mutualFriends: details.mutualFriends ?? 0,
@@ -6298,8 +6645,8 @@ class LarkApp {
         void this.openDm(person.id);
       },
       onStatus: (status, custom) => this.setStatus(status, custom),
-      note: this.notes[person.id] ?? "",
-      onNote: person.id === this.meId() ? undefined : (note) => this.saveNote(person.id, note),
+      note: this.streamerOn() ? "" : (this.notes[person.id] ?? ""),
+      onNote: this.streamerOn() || person.id === this.meId() ? undefined : (note) => this.saveNote(person.id, note),
     });
   }
 
@@ -6333,8 +6680,10 @@ class LarkApp {
       quickReactions: this.quickReactionEmoji(),
       bookmarked: isBookmarked(this.pack.bookmarks, message.channelId, message.id),
       quiet: this.gameMode,
+      reminded: Boolean(reminderFor(this.reminders, message.channelId, message.id)),
       translated: Boolean(this.translated[message.id]),
-      onBookmark: view.effects.includes("bookmark") ? () => this.onBookmark(message) : undefined,
+      onBookmark: () => this.onBookmark(message),
+      onRemind: () => this.beginReminder(message),
       onTranslate: view.effects.includes("translate") ? () => void this.onTranslate(message) : undefined,
       onHideAuthor: this.hookOn("hideUsers") ? () => this.onHideAuthor(message) : undefined,
     };
@@ -6548,7 +6897,7 @@ class LarkApp {
         this.pack.schedule = result.list;
         this.composer.value = "";
         if (this.channelId) delete this.drafts[this.channelId];
-        localStorage.setItem("lark.drafts.v1", JSON.stringify(this.drafts));
+        void this.writeDrafts();
         this.scheduling = false;
         this.savePack();
         this.paintComposer();
@@ -6569,7 +6918,7 @@ class LarkApp {
     if (!next) return;
     this.composerBanner.hidden = false;
     const when = formatRelative(new Date(next.sendAt).toISOString(), Date.now());
-    this.composerBanner.append(el("span", "", `Sends ${when} · ${next.content.slice(0, 80)}`));
+    this.composerBanner.append(el("span", "", `Sends ${when} · ${this.maskText(next.content.slice(0, 80))}`));
     const cancel = el("button", "ghost", "Cancel");
     cancel.type = "button";
     cancel.setAttribute("aria-label", "Cancel scheduled message");
@@ -6583,7 +6932,7 @@ class LarkApp {
 
   private paintBookmarks() {
     let overlay = document.getElementById("lark-bookmarks");
-    if (!this.bookmarksOpen || !this.hookOn("bookmarks")) {
+    if (!this.bookmarksOpen) {
       overlay?.remove();
       return;
     }
@@ -6601,7 +6950,7 @@ class LarkApp {
     clear(overlay);
     const card = el("div", "switcher-card");
     const head = el("div", "switcher-head");
-    head.append(el("strong", "", "Bookmarks"));
+    head.append(el("strong", "", "Saved messages"));
     const close = el("button", "ghost", "Close");
     close.type = "button";
     close.addEventListener("click", () => {
@@ -6614,7 +6963,7 @@ class LarkApp {
     for (const bookmark of this.pack.bookmarks) {
       const row = el("button", "bookmark-row");
       row.type = "button";
-      row.append(el("strong", "", bookmark.authorName), el("span", "", bookmark.excerpt || "Empty message"));
+      row.append(el("strong", "", this.maskText(bookmark.authorName)), el("span", "", this.bookmarkExcerpt(bookmark)));
       row.addEventListener("click", () => {
         this.bookmarksOpen = false;
         this.paintBookmarks();
@@ -6960,7 +7309,7 @@ class LarkApp {
     const gate = allowKeywordNotify(`${message.channelId}:${hit}`, Date.now(), this.keywordLast);
     this.keywordLast = gate.last;
     if (!gate.ok || !hit) return;
-    void this.notify(message.authorName, plainPreview(message.content, this.renderContext()) || hit);
+    void this.notify(this.maskText(message.authorName), this.maskText(plainPreview(message.content, this.renderContext()) || hit));
   }
 
   private tickClock() {
@@ -6971,6 +7320,7 @@ class LarkApp {
   }
 
   private tickPlugins() {
+    this.tickReminders();
     if (this.view !== "app") return;
     this.tickAway();
     this.tickPlaying();
@@ -7090,7 +7440,7 @@ class LarkApp {
   }
 
   private async tickSchedule() {
-    if (this.sendingScheduled || !this.hookOn("schedule")) return;
+    if (this.sendingScheduled) return;
     const picked = takeDue(this.pack.schedule, Date.now());
     if (!picked.due) return;
     this.sendingScheduled = true;

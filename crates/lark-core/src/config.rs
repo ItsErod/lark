@@ -27,6 +27,7 @@ pub struct Config {
     pub clips: Clips,
     pub games: BTreeMap<String, GameProfile>,
     pub soundboard: Soundboard,
+    pub privacy: Privacy,
     pub accents: BTreeMap<String, String>,
 }
 
@@ -42,6 +43,7 @@ impl Default for Config {
             clips: Clips::default(),
             games: BTreeMap::new(),
             soundboard: Soundboard::default(),
+            privacy: Privacy::default(),
             accents: BTreeMap::new(),
         }
     }
@@ -426,6 +428,24 @@ impl Default for SoundClip {
             path: String::new(),
             hotkey: String::new(),
             volume: 100,
+        }
+    }
+}
+
+/// Streamer mode hides emails, tokens, DM previews, and personal info.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Privacy {
+    pub streamer: bool,
+    /// Turn streamer mode on while screen share or the clip buffer is recording.
+    pub streamer_auto: bool,
+}
+
+impl Default for Privacy {
+    fn default() -> Self {
+        Self {
+            streamer: false,
+            streamer_auto: false,
         }
     }
 }
@@ -1057,6 +1077,17 @@ mod tests {
         assert!(cfg.games.is_empty());
         assert_eq!(cfg.shortcuts.save_clip, "mod+shift+c");
         assert!(!cfg.clips.game_capture);
+        assert!(!cfg.privacy.streamer);
+        assert!(!cfg.privacy.streamer_auto);
+    }
+
+    #[test]
+    fn streamer_mode_stays_off_until_the_config_turns_it_on() {
+        assert!(!parse_config("").unwrap().privacy.streamer);
+        assert!(!parse_config("[privacy]\nstreamer_auto = true\n").unwrap().privacy.streamer);
+        let on = parse_config("[privacy]\nstreamer = true\nstreamer_auto = true\n").unwrap();
+        assert!(on.privacy.streamer);
+        assert!(on.privacy.streamer_auto);
     }
 
     #[test]

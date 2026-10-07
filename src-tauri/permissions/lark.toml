@@ -29,6 +29,16 @@ description = "Remove the stored Discord token."
 commands.allow = ["clear_token"]
 
 [[permission]]
+identifier = "allow-seal-drafts"
+description = "Encrypt composer drafts with the keychain-backed draft key."
+commands.allow = ["seal_drafts"]
+
+[[permission]]
+identifier = "allow-open-drafts"
+description = "Decrypt composer drafts with the keychain-backed draft key."
+commands.allow = ["open_drafts"]
+
+[[permission]]
 identifier = "allow-open-discord-login"
 description = "Open Discord's own login page in a separate window."
 commands.allow = ["open_discord_login"]

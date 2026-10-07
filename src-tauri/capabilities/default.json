@@ -13,6 +13,8 @@
     "allow-has-token",
     "allow-set-token",
     "allow-clear-token",
+    "allow-seal-drafts",
+    "allow-open-drafts",
     "allow-open-discord-login",
     "allow-open-browser-login",
     "allow-cancel-browser-login",
