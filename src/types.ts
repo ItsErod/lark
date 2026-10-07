@@ -77,6 +77,8 @@ export interface AppConfig {
     overlay: boolean;
     overlay_opacity: number;
     overlay_click_through: boolean;
+    /** Hex color for the speaking ring. Discord green when unset. */
+    speak_color: string;
     levels: Record<string, UserMix>;
   };
   soundboard: { clips: SoundClip[] };

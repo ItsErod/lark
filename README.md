@@ -45,7 +45,7 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 - Notifications, a tray icon, and shortcuts (`mod` is Command on macOS and Ctrl on Windows)
 - A theme gallery in Settings. The shipped themes are in [THEMES.md](THEMES.md)
 - Plugins that stay off until you turn them on. The pack is in [PLUGINS.md](PLUGINS.md)
-- Voice controls: mute, deafen, push to talk, voice activity, per-person volume, and a local mute
+- Voice: a call view with participant tiles, a control bar, and sidebar speaking rings. Right-click someone for their volume and a local mute. The ring color is in Settings → Voice & Video
 - RNNoise on the microphone, with a switch in Settings → Voice & Video
 - A soundboard for short WAV clips, with hotkeys, mixed into the voice channel
 - Notes on profiles, saved to the Discord account, and friend activity on the friends list
