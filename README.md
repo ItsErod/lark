@@ -42,7 +42,10 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 - Notifications, a tray icon, and shortcuts (`mod` is Command on macOS and Ctrl on Windows)
 - A theme gallery in Settings. The shipped themes are in [THEMES.md](THEMES.md)
 - Plugins that stay off until you turn them on. The pack is in [PLUGINS.md](PLUGINS.md)
-- Voice controls: mute, deafen, push to talk, and voice activity
+- Voice controls: mute, deafen, push to talk, voice activity, per-person volume, and a local mute
+- RNNoise on the microphone, with a switch in Settings → Voice & Video
+- A soundboard for short WAV clips, with hotkeys, mixed into the voice channel
+- Notes on profiles, saved to the Discord account, and friend activity on the friends list
 - A voice HUD that can sit on top of a game. It stays off until you turn it on
 - A clip hotkey saves up to 30 seconds of the main display while screen share or Game Mode capture is on. The file stays in the clips folder until you attach it
 - Paints follow the display, up to 240 fps

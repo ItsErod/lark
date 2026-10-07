@@ -185,6 +185,11 @@ pub enum ClientEvent {
     FriendRemoved {
         user_id: String,
     },
+    /// A note stored on the signed-in account. Other people cannot read it.
+    UserNote {
+        user_id: String,
+        note: String,
+    },
     Folders {
         folders: Vec<ClientFolder>,
     },
@@ -1149,6 +1154,14 @@ fn handle_dispatch(
             emit_reaction(name, data, emit);
             false
         }
+        "USER_NOTE_UPDATE" => {
+            let user_id = json_str(data, "id");
+            if !user_id.is_empty() {
+                let note = super::rest::clamp_note(data.get("note").and_then(|value| value.as_str()).unwrap_or(""));
+                emit(ClientEvent::UserNote { user_id, note });
+            }
+            false
+        }
         "PRESENCE_UPDATE" => {
             let user_id = data
                 .pointer("/user/id")
@@ -1430,6 +1443,23 @@ fn emit_reaction(name: &str, data: &Value, emit: &mut impl FnMut(ClientEvent)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_note_update_keeps_the_text() {
+        let data = json!({"id": "100000000000000002", "note": "booth quiet"});
+        let mut events = Vec::new();
+        handle_dispatch("USER_NOTE_UPDATE", &data, None, &mut None, &mut |event| events.push(event));
+        match &events[0] {
+            ClientEvent::UserNote { user_id, note } => {
+                assert_eq!(user_id, "100000000000000002");
+                assert_eq!(note, "booth quiet");
+            }
+            other => panic!("expected a note, got {other:?}"),
+        }
+        let value = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(value["kind"], "userNote");
+        assert_eq!(value["userId"], "100000000000000002");
+    }
 
     #[test]
     fn gateway_url_has_no_token() {

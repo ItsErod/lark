@@ -4,6 +4,10 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [2.4.0] — unreleased
+
+Per-person volume and a local mute in a voice channel, RNNoise on the microphone, and a soundboard that plays local WAV clips into the call. Notes on a profile are saved to the Discord account, and friends who are in a game or listening to something show that activity on the friends list and under direct messages.
+
 ## [2.3.1](https://github.com/ItsErod/lark/releases/tag/v2.3.1) — 2026-10-07
 
 Adds an in-game voice HUD, a 30-second clip hotkey, and optional GPU, CPU temperature, and game text on a custom status. The HUD is a small always-on-top window that shows who is speaking and who is muted; it stays off until Ctrl+Shift+O (⌘⇧O on macOS) or Settings → Voice & Video, and the clip hotkey saves the last 30 seconds of a screen share or game capture. Guild channel loads no longer stampede Discord’s REST limit, and the login window skips WebView2 script while the page is still busy. Switching channels, scrolling a long history, and the voice HUD update only what changed, so those views paint from cache instead of rebuilding the window.

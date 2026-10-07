@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod clip;
 pub mod config;
+pub mod soundboard;
 pub mod discord;
 pub mod hardware;
 pub mod platform;

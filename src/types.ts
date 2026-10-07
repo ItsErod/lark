@@ -26,6 +26,19 @@ export interface Shortcuts {
   save_clip: string;
 }
 
+export interface UserMix {
+  volume: number;
+  muted: boolean;
+}
+
+export interface SoundClip {
+  id: string;
+  name: string;
+  path: string;
+  hotkey: string;
+  volume: number;
+}
+
 export interface AppConfig {
   appearance: {
     theme: string;
@@ -54,7 +67,9 @@ export interface AppConfig {
     overlay: boolean;
     overlay_opacity: number;
     overlay_click_through: boolean;
+    levels: Record<string, UserMix>;
   };
+  soundboard: { clips: SoundClip[] };
   desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number; hardware_status: boolean };
   clips: { game_capture: boolean };
   accents: Record<string, string>;

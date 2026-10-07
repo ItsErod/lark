@@ -4,8 +4,8 @@ export const ME = "100000000000000001";
 
 export const people: Person[] = [
   { id: ME, name: "Ethan Park", status: "online", custom: "In the booth" },
-  { id: "100000000000000002", name: "Maya Chen", status: "online", custom: "At the desk" },
-  { id: "100000000000000003", name: "Jonah Adler", status: "idle", custom: "Walking the dog" },
+  { id: "100000000000000002", name: "Maya Chen", status: "online", custom: "At the desk", activity: "Playing Lark" },
+  { id: "100000000000000003", name: "Jonah Adler", status: "idle", custom: "Walking the dog", activity: "Listening to Noon" },
   { id: "100000000000000004", name: "Priya Shah", status: "dnd" },
   { id: "100000000000000005", name: "Leo Martins", status: "offline" },
 ];

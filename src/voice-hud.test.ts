@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyVoiceState, replaceGuildVoice, setSpeaking, type VoiceRoster } from "./voice";
+import { applyVoiceState, applyUserMix, replaceGuildVoice, setSpeaking, type VoiceRoster } from "./voice";
 import { voiceHudFrame } from "./voice-hud";
 
 const guild = "100000000000000010";
@@ -60,5 +60,14 @@ describe("voice HUD", () => {
     expect(frame.people[0]).toMatchObject({ userId: "1", muted: true, deafened: true, speaking: false });
     expect(frame.people.some((person) => person.userId === "4" && person.speaking)).toBe(true);
     expect(frame.selfDeafened).toBe(true);
+  });
+
+  it("treats a local mute as silence on the HUD", () => {
+    const roster: VoiceRoster = {};
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "3", name: "Jonah" });
+    setSpeaking(roster, "3", true);
+    applyUserMix(roster, "3", { volume: 100, muted: true });
+    const frame = voiceHudFrame(roster, session());
+    expect(frame.people.find((person) => person.userId === "3")).toMatchObject({ muted: true, speaking: false });
   });
 });

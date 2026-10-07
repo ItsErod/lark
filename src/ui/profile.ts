@@ -52,6 +52,8 @@ export interface ProfileActions {
   onClose: () => void;
   onMessage?: () => void;
   onStatus?: (status: "online" | "idle" | "dnd" | "invisible", custom: string) => void;
+  note?: string;
+  onNote?: (note: string) => void;
 }
 
 function statusLabel(status: Person["status"]): string {
@@ -160,6 +162,18 @@ export function renderProfileCard(host: HTMLElement, view: ProfileView, actions:
   }
   if (details && details.mutualFriends > 0) {
     body.append(el("p", "profile-since", details.mutualFriends === 1 ? "1 mutual friend" : `${details.mutualFriends} mutual friends`));
+  }
+  if (!view.self && actions.onNote) {
+    const notes = el("section", "profile-section");
+    notes.append(el("h3", "", "Note"));
+    const field = el("textarea", "profile-note");
+    field.maxLength = 256;
+    field.value = actions.note ?? "";
+    field.placeholder = "Only you can see this";
+    field.setAttribute("aria-label", `Note for ${view.person.name}`);
+    field.addEventListener("change", () => actions.onNote?.(field.value));
+    notes.append(field, el("p", "hint", "Saved on your Discord account. Other people cannot read it."));
+    body.append(notes);
   }
 
   const actionsRow = el("div", "profile-actions");
