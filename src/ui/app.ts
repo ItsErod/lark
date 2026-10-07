@@ -109,7 +109,32 @@ import {
   uploadLimitBytes,
   type ClipCard,
 } from "../clips";
-import { speakColor, speakingMotion, stageTiles, voiceBadges, type RingMotion, type StageMember } from "../voice-stage";
+import {
+  CALL_PIP_KEY,
+  CALL_SPLIT_KEY,
+  CALL_STRIP_KEY,
+  PIP_HEIGHT,
+  PIP_WIDTH,
+  callChrome,
+  clampPip,
+  clampSplitRatio,
+  dismissCallSurface,
+  leadMedia,
+  nearestPipCorner,
+  pipAnchors,
+  pipPoint,
+  readPipCorner,
+  readSplitRatio,
+  readStripOpen,
+  stripPeople,
+  stripWindow,
+  toggleCallHotkey,
+  voiceChannelAction,
+  type CallSurface,
+  type PipCorner,
+} from "../call-layout";
+import { callBus, openCallPopout, type CallCommand, type CallFrame } from "../call-window";
+import { speakColor, speakingMotion, stageTiles, voiceBadges, type RingMotion, type StageMember, type StageTile } from "../voice-stage";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts, SoundClip } from "../types";
@@ -182,7 +207,7 @@ import {
   type SettingEntry,
 } from "./settings";
 import { renderVoiceHud } from "./hud";
-import { renderCallStage, signalMeter, speakWrap } from "./voice-view";
+import { renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
 import { renderMessage } from "./messages";
 import { renderProfileCard, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
@@ -198,6 +223,9 @@ interface VoiceMember {
   selfDeaf?: boolean;
   serverMute?: boolean;
   serverDeaf?: boolean;
+  video?: boolean;
+  sharing?: boolean;
+  streamLabel?: string;
 }
 
 interface VoiceSession {
@@ -416,6 +444,11 @@ class LarkApp {
   private stage!: HTMLElement;
   private splitPane!: HTMLElement;
   private voiceDock!: HTMLElement;
+  private callStrip!: HTMLElement;
+  private callSplit!: HTMLElement;
+  private callSplitBar!: HTMLElement;
+  private callHandle!: HTMLElement;
+  private callPip!: HTMLElement;
   private voiceMenuEl!: HTMLElement;
   private voiceGearEl!: HTMLElement;
   private hudEl!: HTMLElement;
@@ -427,7 +460,13 @@ class LarkApp {
   private voice: VoiceSession | null = null;
   private voiceRoster: VoiceRoster = {};
   private voiceEpoch = 0;
-  private voiceStageOpen = false;
+  private callSurface: CallSurface = "chat";
+  private stripOpen = false;
+  private pipCorner: PipCorner = "bottom-right";
+  private splitRatio = 0.42;
+  private pipDrag = false;
+  private callPopout: Window | null = null;
+  private callBus: BroadcastChannel | null = null;
   private cameraOn = false;
   private gearOpen = false;
   private activitiesOpen = false;
@@ -562,6 +601,13 @@ class LarkApp {
       this.savedPlace = parsePlace(JSON.parse(localStorage.getItem(PLACE_KEY) ?? "null"));
     } catch {
       this.savedPlace = { guildId: null, channelId: null };
+    }
+    try {
+      this.stripOpen = readStripOpen(localStorage.getItem(CALL_STRIP_KEY));
+      this.pipCorner = readPipCorner(localStorage.getItem(CALL_PIP_KEY));
+      this.splitRatio = readSplitRatio(localStorage.getItem(CALL_SPLIT_KEY));
+    } catch {
+      this.stripOpen = false;
     }
     this.build();
     await this.loadPlugins();
@@ -734,13 +780,26 @@ class LarkApp {
       void this.send();
     });
     composerWrap.append(composer);
+    this.callStrip = el("div", "call-strip");
+    this.callStrip.hidden = true;
+    this.callSplit = el("section", "call-split");
+    this.callSplit.hidden = true;
+    this.callSplitBar = el("div", "call-split-bar");
     this.voiceDock = el("section", "voice-stage");
-    this.voiceDock.hidden = true;
+    this.callSplit.append(this.callSplitBar, this.voiceDock);
+    this.callHandle = el("div", "call-handle");
+    this.callHandle.hidden = true;
+    this.callHandle.setAttribute("role", "separator");
+    this.callHandle.setAttribute("aria-orientation", "horizontal");
+    this.callHandle.setAttribute("aria-label", "Resize call view");
+    this.callPip = el("div", "call-pip");
+    this.callPip.hidden = true;
+    this.callPip.setAttribute("aria-label", "Call preview");
     this.newBar = el("button", "new-bar", "New messages");
     this.newBar.type = "button";
     this.newBar.hidden = true;
     this.newBar.addEventListener("click", () => this.jumpToBottom());
-    chat.append(this.chatHead, this.messagesEl, this.typingEl, this.voiceDock, composerWrap, this.newBar);
+    chat.append(this.chatHead, this.callStrip, this.callSplit, this.callHandle, this.messagesEl, this.typingEl, composerWrap, this.newBar);
     this.splitPane = el("section", "split");
     this.splitPane.hidden = true;
     this.stage = el("div", "stage");
@@ -788,7 +847,8 @@ class LarkApp {
     this.splashTrack.append(this.splashBar);
     splashCard.append(el("div", "mark", "L"), el("h1", "", "Lark"), this.splashStatus, this.splashTrack);
     this.splashEl.append(splashCard);
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.inviteEl, this.hudEl, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.inviteEl, this.hudEl, this.callPip, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
+    this.bindCallChrome();
     this.root.addEventListener("pointerdown", (event) => this.dismissVoiceFloats(event));
     this.stage.addEventListener("click", (event) => {
       const target = event.target;
@@ -1272,13 +1332,14 @@ class LarkApp {
     const rail = appearance.show_server_rail ? "72px" : "0px";
     const channelW = appearance.channel_list === "hidden" ? "0px" : "240px";
     const dmSidebar = !this.guildId && !this.friendsOpen && this.currentChannelIsDm();
-    const members = appearance.show_member_list && !this.narrow && !this.voiceStageOpen && (this.guildId || dmSidebar) ? "240px" : "0px";
+    const members = appearance.show_member_list && !this.narrow && (this.guildId || dmSidebar) ? "240px" : "0px";
     this.rail.hidden = !appearance.show_server_rail;
     this.channelPane.hidden = appearance.channel_list === "hidden" && !this.drawer;
     this.membersEl.hidden = members === "0px";
+    const callSplit = this.callSurface === "split";
     if (this.stage) {
-      this.stage.classList.toggle("is-split", Boolean(this.splitId) && !this.narrow && !this.voiceStageOpen);
-      this.splitPane.hidden = !this.splitId || this.narrow || this.voiceStageOpen;
+      this.stage.classList.toggle("is-split", Boolean(this.splitId) && !this.narrow && !callSplit);
+      this.splitPane.hidden = !this.splitId || this.narrow || callSplit;
     }
     if (this.narrow) {
       this.shell.style.gridTemplateColumns = `${rail} minmax(0, 1fr)`;
@@ -2221,7 +2282,7 @@ class LarkApp {
       return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}`;
     });
     const me = this.demo ? people[0] : this.me;
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.voice?.detail ?? ""}|${bits.join(",")}`;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -2289,7 +2350,7 @@ class LarkApp {
       if (online) friends.append(el("span", "badge", String(online)));
       friends.addEventListener("click", () => {
         this.friendsOpen = true;
-        this.voiceStageOpen = false;
+        this.returnToChat();
         this.channelId = "";
         this.drawer = false;
         this.msgSig = "";
@@ -2362,7 +2423,6 @@ class LarkApp {
 
   private channelSelected(id: string): boolean {
     if (this.friendsOpen || this.clipsOpen) return false;
-    if (this.voiceStageOpen && this.voice) return id === this.voice.channelId;
     return id === this.channelId;
   }
 
@@ -2391,22 +2451,30 @@ class LarkApp {
     const session = this.voice;
     const status = session?.status ?? "connecting";
     const panel = el("section", "voice-panel");
-    panel.setAttribute("aria-label", "Voice controls");
+    const audible = status === "connected" ? "Voice connected" : status === "reconnecting" ? "Reconnecting" : "Connecting";
+    panel.setAttribute("aria-label", `${audible}, ${session?.name ?? "Voice"}`);
+    const line = el("div", "voice-panel-line");
+    line.append(signalMeter(status), el("strong", "voice-panel-name", session?.name ?? "Voice"));
     const actions = el("div", "voice-panel-actions");
+    const share = this.iconButton(this.shareOn ? "Stop sharing" : "Share your screen", paths.monitor, () => this.toggleShare(), false);
+    if (this.shareOn) share.classList.add("is-live");
     const hangup = this.iconButton("Disconnect", paths.hangup, () => this.leaveVoice(), false);
     hangup.classList.add("is-disconnect");
-    const gear = this.iconButton("Voice settings", paths.settings, () => {
-      this.gearOpen = !this.gearOpen;
-      gear.classList.toggle("is-on", this.gearOpen);
-      this.voiceMenu = null;
-      this.activitiesOpen = false;
-      this.paintVoice();
-    }, false);
-    gear.dataset.voiceGear = "1";
-    if (this.gearOpen) gear.classList.add("is-on");
-    actions.append(hangup, gear, el("span", "spacer"), this.iconButton(session?.muted ? "Unmute" : "Mute", session?.muted ? paths.micOff : paths.mic, () => this.toggleMute(), Boolean(session?.muted)));
-    actions.append(this.iconButton(session?.deafened ? "Undeafen" : "Deafen", session?.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session?.deafened)));
-    panel.append(el("span", `voice-state is-${status}`, voiceStatusLabel(status)), signalMeter(status), el("strong", "voice-panel-name", session?.name ?? "Voice"), actions);
+    const strip = this.iconButton(
+      this.stripOpen ? "Hide call strip" : "Show call strip",
+      this.stripOpen ? paths.chevronUp : paths.chevronDown,
+      () => this.setStripOpen(!this.stripOpen),
+      false,
+    );
+    actions.append(
+      share,
+      this.iconButton(session?.muted ? "Unmute" : "Mute", session?.muted ? paths.micOff : paths.mic, () => this.toggleMute(), Boolean(session?.muted)),
+      this.iconButton(session?.deafened ? "Undeafen" : "Deafen", session?.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session?.deafened)),
+      hangup,
+      el("span", "spacer"),
+      strip,
+    );
+    panel.append(line, actions);
     return panel;
   }
 
@@ -2416,7 +2484,8 @@ class LarkApp {
     const mentions = this.mentions[channel.id] ?? 0;
     const unread = unreadCount > 0 || mentions > 0;
     const quiet = !unread && Boolean(this.behind[channel.id]);
-    const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.kind === "thread" ? " is-thread" : ""}${this.channelSelected(channel.id) ? " is-selected" : ""}${unread || quiet ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}`);
+    const joined = channel.kind === "voice" && this.voice?.channelId === channel.id;
+    const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.kind === "thread" ? " is-thread" : ""}${this.channelSelected(channel.id) ? " is-selected" : ""}${unread || quiet ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}${joined ? " is-joined" : ""}`);
     button.type = "button";
     button.dataset.channel = channel.id;
     let known: Person | undefined;
@@ -2448,10 +2517,9 @@ class LarkApp {
     button.addEventListener("click", () => {
       this.drawer = false;
       if (channel.kind === "voice") {
-        this.openVoiceStage(channel);
+        this.onVoiceChannel(channel);
         return;
       }
-      this.voiceStageOpen = false;
       void this.openChannel(channel.id);
     });
     return button;
@@ -2464,7 +2532,6 @@ class LarkApp {
 
   private async openChannel(id: string) {
     if (this.holdShell) return;
-    this.voiceStageOpen = false;
     this.prefetchToken += 1;
     const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
     if (perf) perf.lastSwitch = -1;
@@ -2604,18 +2671,14 @@ class LarkApp {
       });
       row.append(menu);
     }
-    const inCall = Boolean(this.voiceStageOpen && this.voice) && !this.clipsOpen;
     const heading = this.clipsOpen
       ? "Clips"
-      : inCall
-        ? this.voice?.name ?? "Voice"
-        : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : `# ${channel.name}`) : "Lark";
-    if (inCall) row.append(icon(paths.volume));
+      : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : `# ${channel.name}`) : "Lark";
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
     if (this.streamerOn()) row.append(el("span", "demo-pill", "Streamer"));
     title.append(row);
-    if (!inCall && channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
+    if (channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
     const actions = el("div", "head-actions");
     const search = el("button", "icon-button");
     search.type = "button";
@@ -3420,7 +3483,7 @@ class LarkApp {
   private paintComposer() {
     if (this.holdShell) return;
     const wrap = this.composer.closest(".composer-wrap");
-    if (wrap instanceof HTMLElement) wrap.hidden = this.voiceStageOpen || (this.friendsOpen && !this.guildId && !this.clipsOpen);
+    if (wrap instanceof HTMLElement) wrap.hidden = this.friendsOpen && !this.guildId && !this.clipsOpen;
     const channel = this.currentChannel();
     this.composer.placeholder = this.clipsOpen
       ? "Drop a clip here, or write a message"
@@ -4737,6 +4800,8 @@ class LarkApp {
         this.editing = null;
         this.pendingDelete = null;
         this.paintComposer();
+      } else if (this.callSurface !== "chat") {
+        this.dismissCallView();
       } else {
         const field = event.target as HTMLElement | null;
         const typingField = field === this.composer || field?.tagName === "INPUT" || field?.tagName === "TEXTAREA";
@@ -4785,6 +4850,9 @@ class LarkApp {
     } else if (matchShortcut(event, shortcuts.toggle_game_mode, os)) {
       event.preventDefault();
       this.toggleGameMode();
+    } else if (matchShortcut(event, shortcuts.toggle_call, os)) {
+      event.preventDefault();
+      this.toggleCallView();
     } else if (matchShortcut(event, shortcuts.save_clip, os)) {
       event.preventDefault();
       void this.saveClip();
@@ -5007,7 +5075,7 @@ class LarkApp {
 
   private openClips() {
     this.clipsOpen = true;
-    this.voiceStageOpen = false;
+    this.returnToChat();
     this.friendsOpen = false;
     this.settings = false;
     this.settingsEl.hidden = true;
@@ -6701,18 +6769,23 @@ class LarkApp {
     }
   }
 
-  private openVoiceStage(channel: Channel) {
-    this.friendsOpen = false;
-    this.clipsOpen = false;
-    this.voiceStageOpen = true;
+  private onVoiceChannel(channel: Channel) {
+    const action = voiceChannelAction({
+      joinedThisChannel: this.voice?.channelId === channel.id,
+      surface: this.callSurface,
+    });
+    if (this.callSurface === "popout" && action.surface !== "popout") this.closeCallPopout();
+    this.callSurface = action.surface;
     this.gearOpen = false;
     this.activitiesOpen = false;
     this.voiceMenu = null;
-    if (this.voice?.channelId === channel.id) {
-      this.paint();
+    if (action.join) {
+      this.friendsOpen = false;
+      this.clipsOpen = false;
+      this.joinVoice(channel);
       return;
     }
-    this.joinVoice(channel);
+    this.paint();
   }
 
   private ringMotion(): RingMotion {
@@ -6735,8 +6808,9 @@ class LarkApp {
       localMuted: Boolean(member.localMuted),
       volume: member.volume,
       self: member.id === selfId,
-      video: member.id === selfId && this.cameraOn,
-      sharing: member.id === selfId && this.shareOn,
+      video: Boolean(member.video) || (member.id === selfId && this.cameraOn),
+      sharing: Boolean(member.sharing) || (member.id === selfId && this.shareOn),
+      streamLabel: member.streamLabel,
     }));
   }
 
@@ -6796,7 +6870,8 @@ class LarkApp {
     this.voice = null;
     this.shareOn = false;
     this.cameraOn = false;
-    this.voiceStageOpen = false;
+    this.callSurface = dismissCallSurface();
+    this.closeCallPopout();
     this.gearOpen = false;
     this.activitiesOpen = false;
     this.voiceMenu = null;
@@ -6898,6 +6973,9 @@ class LarkApp {
       selfDeaf: person.selfDeaf,
       serverMute: person.serverMute,
       serverDeaf: person.serverDeaf,
+      video: person.video,
+      sharing: person.sharing,
+      streamLabel: person.streamLabel,
     }));
     if (this.demo) return;
     for (const member of this.voice.members) {
@@ -7028,6 +7106,7 @@ class LarkApp {
     } else if (id === "mute") this.toggleMute();
     else if (id === "deafen") this.toggleDeafen();
     else if (id === "leave-voice") this.leaveVoice();
+    else if (id === "call") this.toggleCallView();
     else if (id === "voice-hud") this.toggleVoiceOverlay();
     else if (id === "perf-overlay") this.togglePerfOverlay();
     else if (id === "game-mode") this.toggleGameMode();
@@ -7418,30 +7497,74 @@ class LarkApp {
   private paintVoice() {
     if (this.holdShell) return;
     const dock = this.voiceDock;
-    if (!dock) return;
-    const chat = dock.parentElement;
-    const show = Boolean(this.voice && this.voiceStageOpen);
-    chat?.classList.toggle("is-call", show);
-    this.messagesEl.hidden = show;
-    this.typingEl.hidden = show || this.typingEl.textContent === "";
-    if (show) this.newBar.hidden = true;
-    const composer = this.composer.closest(".composer-wrap");
-    if (composer instanceof HTMLElement) {
-      if (show) composer.hidden = true;
-      else if (!(this.friendsOpen && !this.guildId)) composer.hidden = false;
+    if (!dock || !this.callStrip || !this.callSplit) return;
+    const textChat = Boolean(this.voice) && !this.clipsOpen && !(this.friendsOpen && !this.guildId);
+    const tiles = textChat ? stageTiles(this.stageMembers()) : [];
+    const media = leadMedia(tiles);
+    const chrome = callChrome({
+      inCall: textChat,
+      surface: textChat ? this.callSurface : "chat",
+      stripOpen: this.stripOpen,
+      hasMedia: Boolean(media),
+    });
+    const chat = this.messagesEl.parentElement;
+    if (chat) {
+      chat.dataset.call = this.voice ? this.callSurface : "off";
+      chat.dataset.strip = chrome.stripPx > 0 ? "open" : "closed";
     }
-    dock.hidden = !show;
+    this.messagesEl.hidden = false;
+    this.callStrip.hidden = chrome.stripPx === 0;
+    clear(this.callStrip);
+    if (chrome.stripPx > 0) {
+      const people = stripPeople(this.stageMembers().map((member) => ({
+        id: member.id,
+        name: member.name,
+        avatarUrl: member.avatarUrl,
+        speaking: voiceBadges(member).speaking,
+        self: member.self,
+      })));
+      renderCallStrip(this.callStrip, stripWindow(people), this.ringMotion(), {
+        onOpen: () => this.openCallSplit(),
+        onHide: () => this.setStripOpen(false),
+      });
+    }
+    const showGrid = chrome.grid === "split";
+    this.callSplit.hidden = !showGrid;
+    this.callHandle.hidden = !showGrid;
+    clear(this.callSplitBar);
     clear(dock);
-    if (!show || !this.voice) {
-      this.paintVoiceFloats();
-      this.publishVoiceHud();
-      return;
+    if (showGrid && this.voice) {
+      this.callSplitBar.append(el("strong", "call-split-name", this.voice.name));
+      const pop = el("button", "text-button", "Pop out");
+      pop.type = "button";
+      pop.addEventListener("click", () => this.popCallOut());
+      const close = el("button", "icon-button");
+      close.type = "button";
+      close.setAttribute("aria-label", "Close call view");
+      close.title = "Close call view (Esc)";
+      close.append(icon(paths.close));
+      close.addEventListener("click", () => this.dismissCallView());
+      const actions = el("div", "call-split-actions");
+      actions.append(pop, close);
+      this.callSplitBar.append(actions);
+      renderCallStage(dock, tiles, this.ringMotion(), this.callStageHandlers());
     }
-    renderCallStage(dock, stageTiles(this.stageMembers()), this.ringMotion(), {
+    this.paintPip(chrome.pip ? media : null);
+    this.paintVoiceFloats();
+    this.publishVoiceHud();
+    this.publishCallFrame();
+    requestAnimationFrame(() => {
+      this.placeCallSplit();
+      this.placePip();
+    });
+  }
+
+  private callStageHandlers() {
+    return {
       cameraOn: this.cameraOn,
       shareOn: this.shareOn,
-      muted: this.voice.muted,
-      deafened: this.voice.deafened,
+      muted: Boolean(this.voice?.muted),
+      deafened: Boolean(this.voice?.deafened),
       activitiesOpen: this.activitiesOpen,
       clips: this.config.soundboard.clips.map((clip) => ({ id: clip.id, name: clip.name })),
       onCamera: () => this.toggleCamera(),
@@ -7455,11 +7578,260 @@ class LarkApp {
       onMute: () => this.toggleMute(),
       onDeafen: () => this.toggleDeafen(),
       onLeave: () => this.leaveVoice(),
-      onPlay: (id) => this.playSound(id),
-      onMenu: (userId, x, y) => this.openVoiceMenu(userId, x, y),
+      onPlay: (id: string) => this.playSound(id),
+      onMenu: (userId: string, x: number, y: number) => this.openVoiceMenu(userId, x, y),
+    };
+  }
+
+  private returnToChat() {
+    if (this.callSurface === "popout") this.closeCallPopout();
+    this.callSurface = dismissCallSurface();
+  }
+
+  private dismissCallView() {
+    this.returnToChat();
+    this.paint();
+  }
+
+  private setStripOpen(open: boolean) {
+    this.stripOpen = open;
+    try {
+      localStorage.setItem(CALL_STRIP_KEY, open ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
+    this.channelShape = "";
+    this.paint();
+  }
+
+  private openCallSplit() {
+    if (!this.voice) return;
+    if (this.callSurface === "popout") this.closeCallPopout();
+    this.callSurface = "split";
+    this.paint();
+  }
+
+  private toggleCallView() {
+    if (!this.voice) return;
+    const next = toggleCallHotkey(true, this.callSurface);
+    if (this.callSurface === "popout") this.closeCallPopout();
+    this.callSurface = next;
+    this.paint();
+  }
+
+  private popCallOut() {
+    if (!this.voice) return;
+    if (this.callPopout && !this.callPopout.closed) {
+      this.callPopout.focus();
+      this.callSurface = "popout";
+      this.ensureCallBus();
+      this.paint();
+      return;
+    }
+    const child = openCallPopout();
+    if (!child) {
+      this.toast("Call", "Couldn't open a call window. The call stays above the text channel.");
+      this.callSurface = "split";
+      this.paint();
+      return;
+    }
+    this.callPopout = child;
+    this.callSurface = "popout";
+    this.ensureCallBus();
+    this.paint();
+  }
+
+  private closeCallPopout() {
+    const child = this.callPopout;
+    this.callPopout = null;
+    try {
+      this.callBus?.postMessage({ type: "bye" });
+    } catch {
+      /* already closed */
+    }
+    if (child && !child.closed) child.close();
+  }
+
+  private ensureCallBus() {
+    if (this.callBus) return;
+    this.callBus = callBus();
+    if (!this.callBus) return;
+    this.callBus.onmessage = (event) => {
+      const data = event.data as { type?: string; command?: CallCommand; frame?: CallFrame } | null;
+      if (!data || typeof data !== "object") return;
+      if (data.type === "hello") this.publishCallFrame();
+      else if (data.type === "command" && data.command) this.onCallCommand(data.command);
+    };
+  }
+
+  private publishCallFrame() {
+    if (!this.callBus || this.callSurface !== "popout" || !this.voice) return;
+    const frame: CallFrame = {
+      channel: this.voice.name,
+      tiles: stageTiles(this.stageMembers()),
+      motion: this.ringMotion(),
+      speakColor: speakColor(this.config.voice.speak_color),
+      cameraOn: this.cameraOn,
+      shareOn: this.shareOn,
+      muted: this.voice.muted,
+      deafened: this.voice.deafened,
+      activitiesOpen: this.activitiesOpen,
+      clips: this.config.soundboard.clips.map((clip) => ({ id: clip.id, name: clip.name })),
+    };
+    this.callBus.postMessage({ type: "frame", frame });
+  }
+
+  private onCallCommand(command: CallCommand) {
+    if (command.type === "close") {
+      if (this.callSurface !== "popout") return;
+      this.callSurface = "chat";
+      this.closeCallPopout();
+      this.paint();
+      return;
+    }
+    if (command.type === "dock") {
+      this.closeCallPopout();
+      this.callSurface = "split";
+      this.paint();
+      return;
+    }
+    if (!this.voice) return;
+    if (command.type === "mute") this.toggleMute();
+    else if (command.type === "deafen") this.toggleDeafen();
+    else if (command.type === "leave") this.leaveVoice();
+    else if (command.type === "camera") this.toggleCamera();
+    else if (command.type === "share") this.toggleShare();
+    else if (command.type === "activities") {
+      this.activitiesOpen = !this.activitiesOpen;
+      this.paintVoice();
+    } else if (command.type === "play") this.playSound(command.id);
+  }
+
+  private paintPip(tile: StageTile | null) {
+    if (!this.callPip) return;
+    if (!tile) {
+      this.callPip.hidden = true;
+      clear(this.callPip);
+      return;
+    }
+    this.callPip.hidden = false;
+    renderPipTile(this.callPip, tile, this.ringMotion());
+  }
+
+  private callAvailable(): number {
+    const chat = this.callSplit.parentElement;
+    if (!chat) return 0;
+    const composer = this.composer.closest(".composer-wrap");
+    const composerH = composer instanceof HTMLElement && !composer.hidden ? composer.offsetHeight : 0;
+    const used = this.chatHead.offsetHeight + (this.callStrip.hidden ? 0 : this.callStrip.offsetHeight) + composerH + this.typingEl.offsetHeight + this.callHandle.offsetHeight;
+    return Math.max(0, chat.clientHeight - used);
+  }
+
+  private placeCallSplit() {
+    if (!this.callSplit || this.callSplit.hidden) return;
+    const available = this.callAvailable();
+    if (available <= 0) return;
+    this.callSplit.style.height = `${Math.round(available * this.splitRatio)}px`;
+    this.callHandle.setAttribute("aria-valuemin", "28");
+    this.callHandle.setAttribute("aria-valuemax", "62");
+    this.callHandle.setAttribute("aria-valuenow", String(Math.round(this.splitRatio * 100)));
+  }
+
+  private placePip() {
+    if (!this.callPip || this.callPip.hidden || this.pipDrag) return;
+    const frame = this.messagesEl.getBoundingClientRect();
+    if (frame.width < 80 || frame.height < 80) return;
+    const composer = this.composer.closest(".composer-wrap");
+    const blocker = composer instanceof HTMLElement && !composer.hidden ? composer.getBoundingClientRect() : null;
+    const size = { width: PIP_WIDTH, height: PIP_HEIGHT };
+    const point = pipPoint(this.pipCorner, rectBox(frame), blocker ? rectBox(blocker) : null, size);
+    this.callPip.style.width = `${size.width}px`;
+    this.callPip.style.height = `${size.height}px`;
+    this.callPip.style.left = `${point.x}px`;
+    this.callPip.style.top = `${point.y}px`;
+  }
+
+  private bindCallChrome() {
+    this.callHandle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || this.callSurface !== "split") return;
+      event.preventDefault();
+      const startY = event.clientY;
+      const start = this.splitRatio;
+      const available = this.callAvailable();
+      const move = (ev: PointerEvent) => {
+        if (available <= 0) return;
+        this.splitRatio = clampSplitRatio(start + (ev.clientY - startY) / available);
+        this.placeCallSplit();
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        try {
+          localStorage.setItem(CALL_SPLIT_KEY, String(this.splitRatio));
+        } catch {
+          /* ignore */
+        }
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
     });
-    this.paintVoiceFloats();
-    this.publishVoiceHud();
+    this.callPip.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || this.callPip.hidden) return;
+      event.preventDefault();
+      const rect = this.callPip.getBoundingClientRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const originX = rect.left;
+      const originY = rect.top;
+      let moved = false;
+      this.pipDrag = true;
+      const move = (ev: PointerEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (Math.hypot(dx, dy) > 4) moved = true;
+        const frame = this.messagesEl.getBoundingClientRect();
+        const composer = this.composer.closest(".composer-wrap");
+        const blocker = composer instanceof HTMLElement && !composer.hidden ? composer.getBoundingClientRect() : null;
+        const next = clampPip(
+          { x: originX + dx, y: originY + dy },
+          { width: PIP_WIDTH, height: PIP_HEIGHT },
+          rectBox(frame),
+          blocker ? rectBox(blocker) : null,
+        );
+        this.callPip.style.left = `${next.x}px`;
+        this.callPip.style.top = `${next.y}px`;
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        this.pipDrag = false;
+        if (!moved) {
+          this.openCallSplit();
+          return;
+        }
+        const pip = this.callPip.getBoundingClientRect();
+        const frame = this.messagesEl.getBoundingClientRect();
+        const composer = this.composer.closest(".composer-wrap");
+        const blocker = composer instanceof HTMLElement && !composer.hidden ? composer.getBoundingClientRect() : null;
+        const size = { width: PIP_WIDTH, height: PIP_HEIGHT };
+        this.pipCorner = nearestPipCorner(
+          { x: pip.left, y: pip.top },
+          pipAnchors(rectBox(frame), blocker ? rectBox(blocker) : null, size),
+        );
+        try {
+          localStorage.setItem(CALL_PIP_KEY, this.pipCorner);
+        } catch {
+          /* ignore */
+        }
+        this.placePip();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+    window.addEventListener("resize", () => {
+      this.placeCallSplit();
+      this.placePip();
+    });
   }
 
   private toggleCamera() {
@@ -7491,7 +7863,7 @@ class LarkApp {
     this.gearOpen = false;
     this.activitiesOpen = false;
     this.paintVoiceFloats();
-    if (this.voiceStageOpen) this.paintVoice();
+    if (this.callSurface === "split") this.paintVoice();
   }
 
   private paintVoiceFloats() {
@@ -9272,10 +9644,8 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function voiceStatusLabel(status: VoiceSession["status"]): string {
-  if (status === "connected") return "Voice Connected";
-  if (status === "reconnecting") return "Reconnecting…";
-  return "Connecting…";
+function rectBox(rect: DOMRect): { x: number; y: number; width: number; height: number } {
+  return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 }
 
 function friendlyVoiceDetail(detail: string): string {

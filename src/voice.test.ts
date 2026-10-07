@@ -55,7 +55,13 @@ describe("voice roster", () => {
     const moved = participantsIn(roster, guild, other)[0];
     expect(moved.volume).toBe(80);
     expect(moved.localMuted).toBe(true);
+    applyVoiceState(roster, { guildId: guild, channelId: other, userId: "2", sharing: true, streamLabel: "LIVE" });
+    expect(participantsIn(roster, guild, other)[0]).toMatchObject({ sharing: true, video: false, streamLabel: "LIVE" });
+    replaceGuildVoice(roster, guild, [{ guildId: guild, channelId: booth, userId: "2", name: "Maya" }]);
+    expect(participantsIn(roster, guild, booth)[0]).toMatchObject({ sharing: true, streamLabel: "LIVE", localMuted: true });
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "2", streamLabel: "" });
+    expect(participantsIn(roster, guild, booth)[0].streamLabel).toBeUndefined();
     hydrateMix(roster, { "2": { volume: 40, muted: false } });
-    expect(participantsIn(roster, guild, other)[0]).toMatchObject({ volume: 40, localMuted: false });
+    expect(participantsIn(roster, guild, booth)[0]).toMatchObject({ volume: 40, localMuted: false, sharing: true });
   });
 });

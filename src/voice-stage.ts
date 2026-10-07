@@ -19,6 +19,8 @@ export interface StageMember {
   self: boolean;
   video: boolean;
   sharing: boolean;
+  /** Drawn on a screen tile when a caller supplies one. Layout does not invent it. */
+  streamLabel?: string;
 }
 
 export interface VoiceBadges {
@@ -41,6 +43,8 @@ export interface StageTile {
   volume: number;
   /** Other people get a volume slider and a local mute. You do not. */
   mixable: boolean;
+  /** Optional corner label. Screen tiles carry a stream label when one was supplied. */
+  badge?: string;
 }
 
 export function speakColor(value: unknown): string {
@@ -94,11 +98,14 @@ function tileFrom(member: StageMember, kind: TileKind, label: string): StageTile
     self: member.self,
     volume: member.volume,
     mixable: !member.self,
+    badge: kind === "screen" ? member.streamLabel : undefined,
   };
 }
 
 /**
  * Screen and camera tiles lead. Avatar tiles follow, you first, then names.
+ * A screen tile is the stream slot (Go Live or a camera share) and drops into
+ * the same grid and picture-in-picture containers as a camera tile.
  * A muted person does not get a speaking ring.
  */
 export function stageTiles(members: StageMember[]): StageTile[] {

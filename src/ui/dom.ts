@@ -56,6 +56,8 @@ export const paths = {
   cameraOff: "M3 8h7M14 12l6-3.5v7L16 13M3 18h11V12M2 2l20 20",
   monitor: "M4 5h16v11H4zM8 20h8M12 16v4",
   activity: "M4 10v4M8 6v12M12 3v18M16 6v12M20 10v4",
+  chevronUp: "M6 14l6-6 6 6",
+  chevronDown: "M6 10l6 6 6-6",
 };
 
 export function colorFor(id: string): string {

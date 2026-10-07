@@ -33,7 +33,7 @@ describe("voice stage", () => {
     const tiles = stageTiles([
       member({ id: "3", name: "Jonah", speaking: true }),
       member({ id: "2", name: "Maya", selfMute: true, speaking: true, volume: 80, localMuted: false }),
-      member({ id: "1", name: "Ethan", self: true, video: true, sharing: true }),
+      member({ id: "1", name: "Ethan", self: true, video: true, sharing: true, streamLabel: "LIVE" }),
     ]);
     expect(tiles.map((tile) => `${tile.kind}:${tile.name}`)).toEqual([
       "screen:Ethan's screen",
@@ -41,7 +41,8 @@ describe("voice stage", () => {
       "avatar:Jonah",
       "avatar:Maya",
     ]);
-    expect(tiles[0]).toMatchObject({ userId: "1", speaking: false, mixable: false });
+    expect(tiles[0]).toMatchObject({ userId: "1", speaking: false, mixable: false, badge: "LIVE" });
+    expect(tiles[1].badge).toBeUndefined();
     expect(tiles[2]).toMatchObject({ speaking: true, muted: false, mixable: true, volume: 100 });
     expect(tiles[3]).toMatchObject({ speaking: false, muted: true, volume: 80, mixable: true });
   });
