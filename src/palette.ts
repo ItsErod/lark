@@ -16,6 +16,8 @@ export function commandCatalog(): CommandItem[] {
     { id: "deafen", label: "Toggle deafen", hint: "Speakers", keywords: "deafen headset voice" },
     { id: "leave-voice", label: "Leave voice", hint: "Disconnect the call", keywords: "voice hangup leave" },
     { id: "voice-hud", label: "Toggle voice HUD", hint: "Who is talking, on top of a game", keywords: "voice hud overlay speaking mute game" },
+    { id: "perf-overlay", label: "Toggle performance overlay", hint: "RAM, CPU, and FPS on the voice HUD", keywords: "performance overlay fps cpu ram stats game" },
+    { id: "game-mode", label: "Toggle Game Mode", hint: "Pause animations and ease polling", keywords: "game mode performance battery overlay" },
     { id: "members", label: "Toggle member list", hint: "People in this server", keywords: "members users" },
     { id: "irc", label: "Toggle IRC layout", hint: "One line per message", keywords: "irc compact density" },
     { id: "pins", label: "Pinned messages", hint: "This channel", keywords: "pins saved" },

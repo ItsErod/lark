@@ -34,7 +34,16 @@ import { browserPlatform, fontStack, type PlatformInfo } from "../platform";
 import { describePlugin, enabledSources, parseCatalog, validPluginId, type PluginCatalogItem, type PluginHooks, type PluginSource } from "../plugins";
 import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
-import { FrameClock } from "../frame";
+import { fpsFromMarks, FrameClock, noteFpsMark } from "../frame";
+import {
+  cleanGameName,
+  pollInterval,
+  profileFromBase,
+  resolveGame,
+  shouldPreload,
+  type GameBase,
+} from "../game";
+import { emptyPerfSample, fpsWatch, type PerfSample } from "../perf";
 import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
 import { prefetchChannelIds } from "../cache";
 import {
@@ -68,7 +77,7 @@ import { bytesFromBase64, clipBehaviorNote } from "../clip";
 import { captureBackend, encoderName, formatBitrate, planShare } from "../share";
 import { fuzzyScore } from "../search";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
-import type { AppConfig, Channel, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
+import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts } from "../types";
 import {
   applyRootOverrides,
   filterThemes,
@@ -207,6 +216,17 @@ class LarkApp {
   private hardwareLine: string | null = null;
   private hardwarePushFailed = false;
   private hardwarePushAt = 0;
+  private detectedGame: string | null = null;
+  private gameMode = false;
+  private perfSample: PerfSample = emptyPerfSample();
+  private fpsMarks: number[] = [];
+  private fpsLoop = false;
+  private pollTimers: number[] = [];
+  private detectBusy = false;
+  private appliedVoiceKey = "";
+  private perfToggleAt = 0;
+  private gameToggleAt = 0;
+  private rebindingGame: string | null = null;
   private keywordLast: Record<string, number> = {};
   private sendingScheduled = false;
   private scheduling = false;
@@ -383,6 +403,7 @@ class LarkApp {
       }
     }
     this.hardware = loadHardwareState(this.config.desktop.hardware_status, localStorage.getItem(HARDWARE_STORAGE_KEY));
+    this.gameMode = this.config.desktop.game_mode;
     try {
       this.pack = sanitizePack(JSON.parse(localStorage.getItem("lark.pack.v1") ?? "{}"));
     } catch {
@@ -424,9 +445,7 @@ class LarkApp {
     this.build();
     await this.loadPlugins();
     await this.applyTheme();
-    window.setInterval(() => {
-      if (this.themeOpen || (this.settings && this.section === "appearance")) void this.applyTheme();
-    }, 1000);
+    this.syncGameEffects();
     this.frames.setCap(this.config.desktop.frame_cap);
     const params = new URLSearchParams(location.search);
     if (!isTauri() && params.has("notice")) {
@@ -492,6 +511,7 @@ class LarkApp {
         notificationNote: info.notificationNote,
       };
       this.config = sanitizeConfig(await invoke("get_config"));
+      this.syncGameEffects();
       const { listen } = await import("@tauri-apps/api/event");
       await listen("theme-changed", () => {
         this.themeCache.clear();
@@ -503,6 +523,8 @@ class LarkApp {
       });
       await listen("discord", (event) => this.onDiscord(event.payload));
       await listen("voice-overlay-hotkey", () => this.toggleVoiceOverlay());
+      await listen("perf-overlay-hotkey", () => this.togglePerfOverlay());
+      await listen("game-mode-hotkey", () => this.toggleGameMode());
       await listen("voice-overlay-dismissed", () => this.setVoiceOverlay(false, true));
       await listen<{ ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }>("clip-ready", (event) => {
         this.onClipReady(event.payload);
@@ -538,6 +560,7 @@ class LarkApp {
 
   private async reloadConfig() {
     this.config = sanitizeConfig(await invoke("get_config"));
+    this.syncGameEffects();
     this.paint();
   }
 
@@ -692,8 +715,7 @@ class LarkApp {
     window.addEventListener("pointerdown", () => {
       this.away = noteActivity(this.away, Date.now());
     }, { passive: true });
-    window.setInterval(() => this.tickPlugins(), 5000);
-    window.setInterval(() => this.tickClock(), 30_000);
+    this.bindPolls();
     this.messagesEl.addEventListener("scroll", () => {
       if (this.scrollLock > 0) return;
       const top = this.messagesEl.scrollTop;
@@ -733,6 +755,8 @@ class LarkApp {
       myRoles: [],
     };
     this.seedDemoVoice();
+    const named = cleanGameName(new URLSearchParams(location.search).get("game") ?? "");
+    if (named && this.config.desktop.detect_games) this.noteGame(named);
     this.paint();
     void this.openChannel(CRIT);
   }
@@ -1066,6 +1090,7 @@ class LarkApp {
 
   private applyAppearance() {
     const appearance = this.config.appearance;
+    document.documentElement.classList.toggle("is-game-mode", this.gameMode);
     this.root.dataset.density = appearance.density;
     this.root.dataset.narrow = this.narrow ? "on" : "off";
     const guild = this.guilds().find((item) => item.id === this.guildId);
@@ -3402,12 +3427,15 @@ class LarkApp {
     } else if (this.section === "voice") {
       wrap.append(el("h2", "", "Voice & Video"), el("p", "lede", "Push to talk, voice activity, and a cheap noise gate. Echo cancellation stays off; it needs a heavy audio processor."));
       void this.loadAudioDevices();
-      wrap.append(this.choice(["vad", "ptt"], this.config.voice.mode, (value) => {
-        this.config.voice.mode = value === "ptt" ? "ptt" : "vad";
-        this.persist();
-        this.refreshSpeaking();
-        this.pushTransmit();
+      wrap.append(this.choice(["vad", "ptt"], this.voiceMode(), (value) => {
+        this.setVoiceMode(value === "ptt" ? "ptt" : "vad");
+        if (this.settings) this.renderSettings();
       }));
+      if (this.detectedGame) {
+        wrap.append(el("p", "hint", this.resolvedGame().profile
+          ? `Push to talk for ${this.detectedGame} is saved on that game. It steps back when the game closes.`
+          : `${this.detectedGame} is using your usual voice setting. A change here is remembered for this game.`));
+      }
       const sense = el("input");
       sense.type = "range";
       sense.min = "0";
@@ -3427,7 +3455,7 @@ class LarkApp {
       wrap.append(el("h3", "", "In-game voice HUD"));
       const hudKey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
       wrap.append(el("p", "lede", "A small always-on-top window on macOS and Windows. It uses the same voice roster as the channel list. It stays off until you turn it on."));
-      wrap.append(this.toggle("Show voice HUD", this.config.voice.overlay, (value) => {
+      wrap.append(this.toggle("Show voice HUD", this.overlayOn(), (value) => {
         this.setVoiceOverlay(value, false);
       }));
       const opacity = el("input");
@@ -3448,6 +3476,12 @@ class LarkApp {
         this.publishVoiceHud();
       }));
       wrap.append(el("p", "hint", `${hudKey} shows and hides the HUD, including while a game is focused. Click-through lets the game take the mouse. Turn it off to drag the HUD.`));
+      const perfKey = formatShortcut(this.config.shortcuts.toggle_perf_overlay, this.platform.os);
+      wrap.append(this.toggle("Show performance", this.perfOn(), (value) => {
+        this.setPerfOverlay(value, false);
+      }));
+      wrap.append(el("p", "hint", `${perfKey} adds RAM, CPU, and FPS to the same window. Opacity and click-through above apply to both.`));
+      this.appendGameProfiles(wrap);
       wrap.append(el("h3", "", "Devices"));
       wrap.append(el("p", "lede", "Lark stores the device you pick. Voice uses these ids when it opens the microphone."));
       wrap.append(this.devicePicker("Input", this.config.voice.input_device, this.captureDevices(), (value) => {
@@ -3567,6 +3601,21 @@ class LarkApp {
       wrap.append(el("p", "hint", hz
         ? `This display is about ${hz} Hz. The hard cap is 240.`
         : "Measuring the display. The hard cap is 240."));
+      wrap.append(el("h3", "", "Game Mode"));
+      const gameKey = formatShortcut(this.config.shortcuts.toggle_game_mode, this.platform.os);
+      wrap.append(this.toggle("Game Mode", this.gameMode, (value) => {
+        this.setGameMode(value, false);
+      }));
+      wrap.append(this.toggle("Detect games", this.config.desktop.detect_games, (value) => {
+        this.config.desktop.detect_games = value;
+        this.persist();
+        if (!value) this.noteGame(null);
+        void this.detectLoad();
+      }));
+      wrap.append(el("p", "hint", `${gameKey} toggles it, including while a game is focused. Animations pause, channels you have not opened are not prefetched, and the existing polls slow down. A detected game turns it on unless that game's profile says otherwise.`));
+      wrap.append(el("p", "hint", this.detectedGame
+        ? `Detected: ${this.detectedGame}.`
+        : "No game detected. The check looks at the front app a few times a minute and does not read GPU sensors."));
       wrap.append(el("h3", "", "Status"));
       wrap.append(this.toggle("Hardware in status", this.config.desktop.hardware_status, (value) => {
         this.config.desktop.hardware_status = value;
@@ -3745,13 +3794,19 @@ class LarkApp {
   }
 
   private onKey(event: KeyboardEvent) {
-    if (this.rebinding) {
+    if (this.rebinding || this.rebindingGame) {
       event.preventDefault();
       const shortcut = shortcutFromEvent(event, this.platform.os);
       if (!shortcut) return;
-      this.config.shortcuts[this.rebinding] = shortcut;
-      this.rebinding = null;
-      this.persist();
+      if (this.rebindingGame) {
+        const name = this.rebindingGame;
+        this.rebindingGame = null;
+        this.patchProfile(name, { ptt_key: shortcut });
+      } else if (this.rebinding) {
+        this.config.shortcuts[this.rebinding] = shortcut;
+        this.rebinding = null;
+        this.persist();
+      }
       this.renderSettings();
       return;
     }
@@ -3840,10 +3895,16 @@ class LarkApp {
     } else if (matchShortcut(event, shortcuts.toggle_voice_overlay, os)) {
       event.preventDefault();
       this.toggleVoiceOverlay();
+    } else if (matchShortcut(event, shortcuts.toggle_perf_overlay, os)) {
+      event.preventDefault();
+      this.togglePerfOverlay();
+    } else if (matchShortcut(event, shortcuts.toggle_game_mode, os)) {
+      event.preventDefault();
+      this.toggleGameMode();
     } else if (matchShortcut(event, shortcuts.save_clip, os)) {
       event.preventDefault();
       void this.saveClip();
-    } else if (this.voice && this.config.voice.mode === "ptt" && matchShortcut(event, shortcuts.push_to_talk, os)) {
+    } else if (this.voice && this.voiceMode() === "ptt" && matchShortcut(event, this.pttShortcut(), os)) {
       event.preventDefault();
       this.pttHeld = true;
       this.refreshSpeaking();
@@ -4784,8 +4845,8 @@ class LarkApp {
   }
 
   private onKeyUp(event: KeyboardEvent) {
-    if (!this.voice || this.config.voice.mode !== "ptt") return;
-    if (matchShortcut(event, this.config.shortcuts.push_to_talk, this.platform.os)) {
+    if (!this.voice || this.voiceMode() !== "ptt") return;
+    if (matchShortcut(event, this.pttShortcut(), this.platform.os)) {
       this.pttHeld = false;
       this.refreshSpeaking();
       this.pushTransmit();
@@ -4812,6 +4873,7 @@ class LarkApp {
   }
 
   private prefetchAround(id: string) {
+    if (!shouldPreload(this.gameMode)) return;
     const order = this.visibleChannels()
       .filter((channel) => channel.kind === "text" || channel.kind === "announcement" || channel.kind === "forum" || channel.kind === "thread" || channel.kind === "dm" || channel.kind === "group")
       .map((channel) => channel.id);
@@ -4820,7 +4882,7 @@ class LarkApp {
     const token = ++this.prefetchToken;
     const load = async () => {
       for (const channelId of targets) {
-        if (token !== this.prefetchToken || this.pages[channelId]) continue;
+        if (!shouldPreload(this.gameMode) || token !== this.prefetchToken || this.pages[channelId]) continue;
         if (this.demo) {
           const page = pageMessages(history[channelId] ?? [], undefined, 20);
           if (token !== this.prefetchToken || this.pages[channelId]) continue;
@@ -4899,7 +4961,7 @@ class LarkApp {
       mute: false,
       deaf: false,
       epoch,
-      vad: this.config.voice.mode === "vad",
+      vad: this.voiceMode() === "vad",
       sensitivity: this.config.voice.sensitivity,
       noiseSuppression: this.config.voice.noise_suppression,
       inputDevice: this.config.voice.input_device,
@@ -4954,7 +5016,7 @@ class LarkApp {
 
   private pushTransmit() {
     if (!this.voice || this.demo) return;
-    const transmit = !this.voice.muted && (this.config.voice.mode === "ptt" ? this.pttHeld : true);
+    const transmit = !this.voice.muted && (this.voiceMode() === "ptt" ? this.pttHeld : true);
     void invoke("set_voice_transmit", { transmit }).catch(() => undefined);
   }
 
@@ -4962,7 +5024,7 @@ class LarkApp {
     if (!this.voice || this.demo) return;
     void invoke("set_voice_audio", {
       deafened: this.voice.deafened,
-      vad: this.config.voice.mode === "vad",
+      vad: this.voiceMode() === "vad",
       sensitivity: this.config.voice.sensitivity,
       noiseSuppression: this.config.voice.noise_suppression,
       inputDevice: this.config.voice.input_device,
@@ -4975,13 +5037,13 @@ class LarkApp {
     const self = this.voice.members.find((member) => member.id === this.meId());
     if (!self) return;
     if (this.demo) {
-      const vad = this.config.voice.mode === "vad" && this.config.voice.sensitivity > 5;
-      const speaking = !this.voice.muted && (this.config.voice.mode === "ptt" ? this.pttHeld : vad);
+      const vad = this.voiceMode() === "vad" && this.config.voice.sensitivity > 5;
+      const speaking = !this.voice.muted && (this.voiceMode() === "ptt" ? this.pttHeld : vad);
       self.speaking = speaking;
       setSpeaking(this.voiceRoster, self.id, speaking);
       return;
     }
-    if (this.voice.muted || (this.config.voice.mode === "ptt" && !this.pttHeld)) {
+    if (this.voice.muted || (this.voiceMode() === "ptt" && !this.pttHeld)) {
       self.speaking = false;
       setSpeaking(this.voiceRoster, self.id, false);
     }
@@ -5092,13 +5154,13 @@ class LarkApp {
     } else {
       const next = this.visibleChannels().find((channel) => channel.kind !== "voice" && channel.kind !== "category" && channel.id !== this.channelId);
       this.splitId = next?.id ?? null;
-      if (this.splitId && !this.pages[this.splitId]) void this.preload(this.splitId);
+      if (this.splitId && !this.pages[this.splitId] && shouldPreload(this.gameMode)) void this.preload(this.splitId);
     }
     this.paint();
   }
 
   private async preload(id: string) {
-    if (this.pages[id] || id === ARCHIVE) return;
+    if (!shouldPreload(this.gameMode) || this.pages[id] || id === ARCHIVE) return;
     if (this.demo) {
       const page = pageMessages(history[id] ?? [], undefined, 20);
       this.pages[id] = page.messages;
@@ -5126,6 +5188,8 @@ class LarkApp {
     else if (id === "deafen") this.toggleDeafen();
     else if (id === "leave-voice") this.leaveVoice();
     else if (id === "voice-hud") this.toggleVoiceOverlay();
+    else if (id === "perf-overlay") this.togglePerfOverlay();
+    else if (id === "game-mode") this.toggleGameMode();
     else if (id === "members") {
       this.config.appearance.show_member_list = !this.config.appearance.show_member_list;
       this.persist();
@@ -5145,6 +5209,272 @@ class LarkApp {
     }
   }
 
+  private gameBase(): GameBase {
+    return {
+      voiceMode: this.config.voice.mode,
+      pttKey: this.config.shortcuts.push_to_talk,
+      voiceOverlay: this.config.voice.overlay,
+      perfOverlay: this.config.desktop.perf_overlay,
+      gameMode: this.config.desktop.game_mode,
+    };
+  }
+
+  private resolvedGame() {
+    return resolveGame(this.detectedGame, this.config.games, this.gameBase());
+  }
+
+  private voiceMode(): "vad" | "ptt" {
+    return this.resolvedGame().voiceMode;
+  }
+
+  private pttShortcut(): string {
+    return this.resolvedGame().pttKey;
+  }
+
+  private overlayOn(): boolean {
+    return this.resolvedGame().voiceOverlay;
+  }
+
+  private perfOn(): boolean {
+    return this.resolvedGame().perfOverlay;
+  }
+
+  private setVoiceMode(mode: "vad" | "ptt") {
+    if (this.detectedGame) {
+      this.patchProfile(this.detectedGame, { ptt: mode === "ptt" });
+      return;
+    }
+    this.config.voice.mode = mode;
+    this.persist();
+    this.syncGameEffects();
+  }
+
+  private patchProfile(name: string, patch: Partial<GameProfile>) {
+    const clean = cleanGameName(name);
+    if (!clean) return;
+    const current = this.config.games[clean] ?? profileFromBase(this.gameBase());
+    this.config.games = { ...this.config.games, [clean]: { ...current, ...patch } };
+    this.persist();
+    this.syncGameEffects();
+  }
+
+  private noteGame(name: string | null) {
+    const clean = name ? cleanGameName(name) : null;
+    if (clean === this.detectedGame) return;
+    this.detectedGame = clean;
+    this.syncGameEffects();
+    if (this.settings && (this.section === "voice" || this.section === "lark")) this.renderSettings();
+  }
+
+  private syncGameEffects() {
+    const next = this.resolvedGame();
+    const modeChanged = next.gameMode !== this.gameMode;
+    this.gameMode = next.gameMode;
+    document.documentElement.classList.toggle("is-game-mode", next.gameMode);
+    if (modeChanged) this.bindPolls();
+    const voiceKey = `${next.voiceMode}|${next.pttKey}`;
+    if (voiceKey !== this.appliedVoiceKey) {
+      this.appliedVoiceKey = voiceKey;
+      this.pttHeld = false;
+      if (this.voice) {
+        this.refreshSpeaking();
+        this.pushTransmit();
+        this.pushVoiceAudio();
+      }
+    }
+    if (!next.perfOverlay) this.fpsLoop = false;
+    this.armFps();
+    this.publishVoiceHud();
+    if (modeChanged && this.view === "app") {
+      this.msgSig = "";
+      this.paintMessages();
+    }
+  }
+
+  private bindPolls() {
+    for (const id of this.pollTimers) window.clearInterval(id);
+    const mode = this.gameMode;
+    this.pollTimers = [
+      window.setInterval(() => {
+        if (this.themeOpen || (this.settings && this.section === "appearance")) void this.applyTheme();
+      }, pollInterval("theme", mode)),
+      window.setInterval(() => this.tickPlugins(), pollInterval("plugins", mode)),
+      window.setInterval(() => this.tickClock(), pollInterval("clock", mode)),
+      window.setInterval(() => void this.detectLoad(), pollInterval("detect", mode)),
+    ];
+  }
+
+  private async detectLoad() {
+    if (this.demo) {
+      if (this.perfOn()) this.armFps();
+      return;
+    }
+    const detect = this.config.desktop.detect_games;
+    if (!detect && this.detectedGame) this.noteGame(null);
+    const watch = detect || this.perfOn() || this.config.desktop.hardware_status;
+    if (!watch) return;
+    if (this.perfOn()) this.armFps();
+    if (!isTauri() || this.detectBusy) return;
+    this.detectBusy = true;
+    try {
+      const snap = await invoke<{
+        game?: string | null;
+        cpuPercent?: number | null;
+        ramUsedMb?: number | null;
+        ramTotalMb?: number | null;
+      }>("hardware_snapshot", { full: false });
+      if (detect) this.noteGame(typeof snap.game === "string" ? snap.game : null);
+      if (this.perfOn()) {
+        this.perfSample = {
+          ...this.perfSample,
+          cpu: typeof snap.cpuPercent === "number" ? snap.cpuPercent : null,
+          ramUsedMb: typeof snap.ramUsedMb === "number" ? snap.ramUsedMb : null,
+          ramTotalMb: typeof snap.ramTotalMb === "number" ? snap.ramTotalMb : null,
+        };
+        this.publishVoiceHud();
+        this.armFps();
+      }
+    } catch {
+      // The shell refuses the read when detection, the overlay, and hardware status are all off.
+    } finally {
+      this.detectBusy = false;
+    }
+  }
+
+  private shownPerf(): PerfSample {
+    if (!this.demo) return this.perfSample;
+    return {
+      cpu: this.perfSample.cpu ?? 18,
+      ramUsedMb: this.perfSample.ramUsedMb ?? 6_400,
+      ramTotalMb: this.perfSample.ramTotalMb ?? 16_384,
+      fps: this.perfSample.fps,
+    };
+  }
+
+  private armFps() {
+    const mode = fpsWatch(this.perfOn(), this.gameMode);
+    if (mode === "off") {
+      this.fpsLoop = false;
+      return;
+    }
+    if (this.fpsLoop) return;
+    this.fpsLoop = true;
+    const started = performance.now();
+    const step = (now: number) => {
+      const next = fpsWatch(this.perfOn(), this.gameMode);
+      if (next === "off") {
+        this.fpsLoop = false;
+        return;
+      }
+      this.fpsMarks = noteFpsMark(this.fpsMarks, now);
+      const fps = fpsFromMarks(this.fpsMarks, now);
+      if (fps !== this.perfSample.fps) {
+        this.perfSample = { ...this.perfSample, fps };
+        this.publishVoiceHud();
+      }
+      // Game Mode keeps the number, then drops the frame loop until the next poll.
+      if (next === "burst" && now - started >= 1000) {
+        this.fpsLoop = false;
+        return;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  private togglePerfOverlay() {
+    const now = Date.now();
+    if (now - this.perfToggleAt < 300) return;
+    this.perfToggleAt = now;
+    this.setPerfOverlay(!this.perfOn(), true);
+  }
+
+  private setPerfOverlay(enabled: boolean, announce: boolean) {
+    if (this.perfOn() === enabled) {
+      this.publishVoiceHud();
+      return;
+    }
+    if (this.detectedGame) this.patchProfile(this.detectedGame, { perf_overlay: enabled });
+    else {
+      this.config.desktop.perf_overlay = enabled;
+      this.persist();
+      this.syncGameEffects();
+    }
+    if (this.settings && (this.section === "voice" || this.section === "lark")) this.renderSettings();
+    if (!announce) return;
+    const hotkey = formatShortcut(this.config.shortcuts.toggle_perf_overlay, this.platform.os);
+    this.toast("Performance", enabled ? `On. ${hotkey} hides it.` : "Hidden.");
+  }
+
+  private toggleGameMode() {
+    const now = Date.now();
+    if (now - this.gameToggleAt < 300) return;
+    this.gameToggleAt = now;
+    this.setGameMode(!this.gameMode, true);
+  }
+
+  private setGameMode(enabled: boolean, announce: boolean) {
+    if (this.detectedGame) this.patchProfile(this.detectedGame, { game_mode: enabled });
+    else {
+      this.config.desktop.game_mode = enabled;
+      this.persist();
+      this.syncGameEffects();
+    }
+    if (this.settings && (this.section === "lark" || this.section === "voice")) this.renderSettings();
+    if (!announce) return;
+    const hotkey = formatShortcut(this.config.shortcuts.toggle_game_mode, this.platform.os);
+    this.toast("Game Mode", enabled ? `On. ${hotkey} turns it off.` : "Off.");
+  }
+
+  private appendGameProfiles(wrap: HTMLElement) {
+    wrap.append(el("h3", "", "Game profiles"));
+    wrap.append(el("p", "lede", "Each game keeps its own push-to-talk key and the defaults for Game Mode, the voice HUD, and the performance strip. They apply while that game is detected."));
+    const names = Object.keys(this.config.games).sort((a, b) => a.localeCompare(b));
+    if (this.detectedGame && !names.includes(this.detectedGame)) {
+      wrap.append(el("p", "hint", `${this.detectedGame} is in front. Change a switch below, or here, and Lark remembers it.`));
+      wrap.append(this.profileCard(this.detectedGame, profileFromBase(this.gameBase())));
+    }
+    if (!names.length && !this.detectedGame) {
+      wrap.append(el("p", "hint", "No saved games yet. Start one, or turn on Detect games under Lark."));
+    }
+    for (const name of names) {
+      const profile = this.config.games[name];
+      if (profile) wrap.append(this.profileCard(name, profile));
+    }
+  }
+
+  private profileCard(name: string, profile: GameProfile): HTMLElement {
+    const card = el("div", "plugin-card");
+    card.append(el("strong", "", name));
+    card.append(this.toggle("Push to talk", profile.ptt, (value) => this.patchProfile(name, { ptt: value })));
+    const row = el("div", "shortcut-row");
+    row.append(el("span", "", "Push to talk key"));
+    const button = el("button", "kbd", this.rebindingGame === name ? "Press keys" : formatShortcut(profile.ptt_key, this.platform.os));
+    button.type = "button";
+    button.addEventListener("click", () => {
+      this.rebinding = null;
+      this.rebindingGame = name;
+      this.renderSettings();
+    });
+    row.append(button);
+    card.append(row);
+    card.append(this.toggle("Game Mode", profile.game_mode, (value) => this.patchProfile(name, { game_mode: value })));
+    card.append(this.toggle("Voice HUD", profile.voice_overlay, (value) => this.patchProfile(name, { voice_overlay: value })));
+    card.append(this.toggle("Performance overlay", profile.perf_overlay, (value) => this.patchProfile(name, { perf_overlay: value })));
+    const remove = el("button", "text-button", "Forget this game");
+    remove.type = "button";
+    remove.addEventListener("click", () => {
+      const games = { ...this.config.games };
+      delete games[name];
+      this.config.games = games;
+      this.persist();
+      this.syncGameEffects();
+      this.renderSettings();
+    });
+    card.append(remove);
+    return card;
+  }
+
   private voiceHudView(): VoiceHudView {
     const frame = voiceHudFrame(
       this.voiceRoster,
@@ -5160,9 +5490,12 @@ class LarkApp {
           }
         : null,
     );
+    const resolved = this.resolvedGame();
     return {
       ...frame,
-      enabled: this.config.voice.overlay && this.view === "app",
+      enabled: resolved.voiceOverlay && this.view === "app",
+      perf: resolved.perfOverlay && this.view === "app",
+      stats: this.shownPerf(),
       opacity: this.config.voice.overlay_opacity,
       clickThrough: this.config.voice.overlay_click_through,
     };
@@ -5172,18 +5505,21 @@ class LarkApp {
     const now = Date.now();
     if (now - this.hudToggleAt < 300) return;
     this.hudToggleAt = now;
-    this.setVoiceOverlay(!this.config.voice.overlay, true);
+    this.setVoiceOverlay(!this.overlayOn(), true);
   }
 
   private setVoiceOverlay(enabled: boolean, announce: boolean) {
-    if (this.config.voice.overlay === enabled) {
+    if (this.overlayOn() === enabled) {
       this.publishVoiceHud();
       return;
     }
-    this.config.voice.overlay = enabled;
-    this.persist();
+    if (this.detectedGame) this.patchProfile(this.detectedGame, { voice_overlay: enabled });
+    else {
+      this.config.voice.overlay = enabled;
+      this.persist();
+      this.syncGameEffects();
+    }
     if (this.voice) this.paintVoice();
-    else this.publishVoiceHud();
     if (this.settings && this.section === "voice") this.renderSettings();
     if (!announce) return;
     const hotkey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
@@ -5212,7 +5548,7 @@ class LarkApp {
     }
     const ticket = ++this.hudTicket;
     void invoke<boolean>("sync_voice_overlay", {
-      visible: view.enabled,
+      visible: view.enabled || view.perf,
       clickThrough: view.clickThrough,
       frame: view,
     }).then((native) => {
@@ -5225,7 +5561,7 @@ class LarkApp {
   }
 
   private paintHudHost(view: VoiceHudView, native: boolean) {
-    const show = view.enabled && !native;
+    const show = (view.enabled || view.perf) && !native;
     this.hudEl.hidden = !show;
     if (show) renderVoiceHud(this.hudEl, view);
   }
@@ -5250,11 +5586,10 @@ class LarkApp {
     const controls = el("div", "voice-controls");
     controls.append(this.voiceButton(this.voice.muted ? "Unmute" : "Mute", () => this.toggleMute()));
     controls.append(this.voiceButton(this.voice.deafened ? "Undeafen" : "Deafen", () => this.toggleDeafen()));
-    controls.append(this.voiceButton(this.config.voice.overlay ? "Hide HUD" : "Voice HUD", () => this.toggleVoiceOverlay()));
-    controls.append(this.voiceButton(this.config.voice.mode === "ptt" ? "Push to talk" : "Voice activity", () => {
-      this.config.voice.mode = this.config.voice.mode === "ptt" ? "vad" : "ptt";
-      this.persist();
-      this.refreshSpeaking();
+    controls.append(this.voiceButton(this.overlayOn() ? "Hide HUD" : "Voice HUD", () => this.toggleVoiceOverlay()));
+    controls.append(this.voiceButton(this.perfOn() ? "Hide performance" : "Performance", () => this.togglePerfOverlay()));
+    controls.append(this.voiceButton(this.voiceMode() === "ptt" ? "Push to talk" : "Voice activity", () => {
+      this.setVoiceMode(this.voiceMode() === "ptt" ? "vad" : "ptt");
       this.paintVoice();
     }));
     dock.append(controls);
@@ -5721,6 +6056,7 @@ class LarkApp {
       now: this.clock,
       quickReactions: this.quickReactionEmoji(),
       bookmarked: isBookmarked(this.pack.bookmarks, message.channelId, message.id),
+      quiet: this.gameMode,
       translated: Boolean(this.translated[message.id]),
       onBookmark: view.effects.includes("bookmark") ? () => this.onBookmark(message) : undefined,
       onTranslate: view.effects.includes("translate") ? () => void this.onTranslate(message) : undefined,
@@ -6388,7 +6724,7 @@ class LarkApp {
     }
     this.retryHardwarePush();
     if (!isTauri() || this.demo || this.hardwareBusy || this.hardware.paused) return;
-    if (!hardwareSampleDue(this.hardwareSampleAt, Date.now())) return;
+    if (!hardwareSampleDue(this.hardwareSampleAt, Date.now(), pollInterval("hardware", this.gameMode))) return;
     void this.sampleHardware(false);
   }
 
@@ -6413,7 +6749,7 @@ class LarkApp {
   private async sampleHardware(force: boolean) {
     if (!this.config.desktop.hardware_status || !isTauri() || this.demo) return;
     if (this.hardwareBusy) return;
-    if (!force && !hardwareSampleDue(this.hardwareSampleAt, Date.now())) return;
+    if (!force && !hardwareSampleDue(this.hardwareSampleAt, Date.now(), pollInterval("hardware", this.gameMode))) return;
     this.hardwareSampleAt = Date.now();
     this.hardwareBusy = true;
     this.hardwareChecking = true;

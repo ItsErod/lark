@@ -1,12 +1,14 @@
-//! Best-effort PC hardware and game line for a Discord custom status.
+//! Best-effort PC hardware and game line for a Discord custom status,
+//! plus the CPU, RAM, and foreground game the performance overlay reads.
 //!
-//! Sampling runs only when the desktop shell asks for it. The shell asks only
-//! after Settings → Lark → Hardware in status is on. macOS and Windows each
-//! try the local sensors; a missing reading is omitted. Other systems return
-//! an empty reading and do not spawn anything.
+//! The desktop shell asks for a full sample only after Settings → Lark →
+//! Hardware in status is on. A lighter sample (CPU, RAM, and the current
+//! game, no GPU sensors) runs when the performance overlay or game detection
+//! is on. macOS and Windows each try the local sources; a missing reading is
+//! omitted. Other systems return an empty reading and do not spawn anything.
 //!
-//! This is status text, not an overlay. Callers should publish at
-//! [`HARDWARE_STATUS_INTERVAL_MS`], not on a frame tick.
+//! Callers should publish the status line at [`HARDWARE_STATUS_INTERVAL_MS`],
+//! not on a frame tick. The overlay reuses this reading instead of a second probe.
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -27,6 +29,16 @@ pub struct HardwareReading {
     pub gpu: Option<String>,
     pub cpu_temp_c: Option<u16>,
     pub game: Option<String>,
+    /// 0–100. Omitted when the OS did not answer.
+    pub cpu_percent: Option<u8>,
+    pub ram_used_mb: Option<u32>,
+    pub ram_total_mb: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemorySample {
+    pub used_mb: u32,
+    pub total_mb: u32,
 }
 
 impl HardwareReading {
@@ -125,31 +137,49 @@ fn clean_part(value: &str, max: usize) -> Option<String> {
 
 /// Read this machine. `os` is `std::env::consts::OS` (`macos`, `windows`, …).
 pub fn sample_hardware(os: &str) -> HardwareReading {
+    sample_machine(os, true)
+}
+
+/// CPU, RAM, and the current game. Skips the GPU name and temperature probes.
+pub fn sample_load(os: &str) -> HardwareReading {
+    sample_machine(os, false)
+}
+
+fn sample_machine(os: &str, full: bool) -> HardwareReading {
     match os {
-        "macos" => sample_macos(),
-        "windows" => sample_windows(),
+        "macos" => sample_macos(full),
+        "windows" => sample_windows(full),
         _ => HardwareReading::default(),
     }
 }
 
-fn sample_macos() -> HardwareReading {
-    let gpu = cached_gpu("macos", macos_gpu);
-    let cpu_temp_c = capture(
-        "/usr/bin/sudo",
-        &[
-            "-n",
-            "/usr/bin/powermetrics",
-            "--samplers",
-            "smc",
-            "-n",
-            "1",
-            "-i",
-            "200",
-        ],
-        Duration::from_secs(3),
-    )
-    .as_deref()
-    .and_then(parse_cpu_temp_c);
+fn sample_macos(full: bool) -> HardwareReading {
+    let gpu = if full {
+        cached_gpu("macos", macos_gpu)
+    } else {
+        None
+    };
+    let cpu_temp_c = if full {
+        capture(
+            "/usr/bin/sudo",
+            &[
+                "-n",
+                "/usr/bin/powermetrics",
+                "--samplers",
+                "smc",
+                "-n",
+                "1",
+                "-i",
+                "200",
+            ],
+            Duration::from_secs(3),
+        )
+        .as_deref()
+        .and_then(parse_cpu_temp_c)
+    } else {
+        None
+    };
+    let memory = macos_memory();
     let foreground = macos_foreground();
     let processes = process_lines(&capture(
         "/bin/ps",
@@ -160,7 +190,28 @@ fn sample_macos() -> HardwareReading {
         gpu,
         cpu_temp_c,
         game: pick_game(foreground.as_deref(), &processes),
+        cpu_percent: macos_cpu(),
+        ram_used_mb: memory.map(|item| item.used_mb),
+        ram_total_mb: memory.map(|item| item.total_mb),
     }
+}
+
+fn macos_cpu() -> Option<u8> {
+    capture(
+        "/usr/bin/top",
+        &["-l", "1", "-n", "0"],
+        Duration::from_secs(2),
+    )
+    .as_deref()
+    .and_then(parse_cpu_percent)
+}
+
+fn macos_memory() -> Option<MemorySample> {
+    let total = capture("/usr/sbin/sysctl", &["-n", "hw.memsize"], Duration::from_secs(1))
+        .as_deref()
+        .and_then(parse_memsize_bytes)?;
+    let stat = capture("/usr/bin/vm_stat", &[], Duration::from_secs(2))?;
+    parse_vm_stat(&stat, total)
 }
 
 fn macos_gpu() -> Option<String> {
@@ -197,23 +248,38 @@ fn macos_foreground() -> Option<String> {
     .and_then(parse_foreground_name)
 }
 
-fn sample_windows() -> HardwareReading {
-    let gpu = cached_gpu("windows", || {
+fn sample_windows(full: bool) -> HardwareReading {
+    let gpu = if full {
+        cached_gpu("windows", || {
+            capture(
+                "powershell.exe",
+                &windows_args(WINDOWS_GPU),
+                Duration::from_secs(6),
+            )
+            .as_deref()
+            .and_then(parse_windows_gpu)
+        })
+    } else {
+        None
+    };
+    let cpu_temp_c = if full {
         capture(
             "powershell.exe",
-            &windows_args(WINDOWS_GPU),
-            Duration::from_secs(6),
+            &windows_args(WINDOWS_TEMP),
+            Duration::from_secs(4),
         )
         .as_deref()
-        .and_then(parse_windows_gpu)
-    });
-    let cpu_temp_c = capture(
+        .and_then(parse_cpu_temp_c)
+    } else {
+        None
+    };
+    let memory = capture(
         "powershell.exe",
-        &windows_args(WINDOWS_TEMP),
+        &windows_args(WINDOWS_MEMORY),
         Duration::from_secs(4),
     )
     .as_deref()
-    .and_then(parse_cpu_temp_c);
+    .and_then(parse_windows_memory);
     let foreground = capture(
         "powershell.exe",
         &windows_args(WINDOWS_FOREGROUND),
@@ -226,10 +292,20 @@ fn sample_windows() -> HardwareReading {
         &windows_args(WINDOWS_PROCESSES),
         Duration::from_secs(4),
     ));
+    let cpu_percent = capture(
+        "powershell.exe",
+        &windows_args(WINDOWS_CPU),
+        Duration::from_secs(4),
+    )
+    .as_deref()
+    .and_then(parse_cpu_percent);
     HardwareReading {
         gpu,
         cpu_temp_c,
         game: pick_game(foreground.as_deref(), &processes),
+        cpu_percent,
+        ram_used_mb: memory.map(|item| item.used_mb),
+        ram_total_mb: memory.map(|item| item.total_mb),
     }
 }
 
@@ -290,6 +366,21 @@ if ($proc -ne 0) {
 "#;
 
 const WINDOWS_PROCESSES: &str = "Get-Process | Select-Object -ExpandProperty ProcessName";
+
+const WINDOWS_CPU: &str = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average
+if ($null -ne $cpu.Average) { [int][math]::Round($cpu.Average) }
+"#;
+
+const WINDOWS_MEMORY: &str = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$os = Get-CimInstance Win32_OperatingSystem
+if ($os) {
+  "total_kb=$([uint64]$os.TotalVisibleMemorySize)"
+  "free_kb=$([uint64]$os.FreePhysicalMemory)"
+}
+"#;
 
 fn process_lines(text: &Option<String>) -> Vec<String> {
     text.as_deref()
@@ -504,6 +595,166 @@ fn plausible_temp(value: f64) -> Option<u16> {
     } else {
         None
     }
+}
+
+/// 0–100 from `top`'s `CPU usage:` line, or a single percentage.
+pub fn parse_cpu_percent(text: &str) -> Option<u8> {
+    for line in text.lines() {
+        let lower = line.to_lowercase();
+        if !lower.contains("cpu usage") {
+            continue;
+        }
+        if let (Some(user), Some(sys)) = (percent_before(&lower, "user"), percent_before(&lower, "sys")) {
+            return Some(clamp_percent(user + sys));
+        }
+        if let Some(idle) = percent_before(&lower, "idle") {
+            return Some(clamp_percent(100.0 - idle));
+        }
+    }
+    let trimmed = text.trim();
+    if !trimmed.is_empty() && trimmed.lines().count() == 1 {
+        if let Some(value) = first_number(trimmed) {
+            if (0.0..=100.0).contains(&value) {
+                return Some(clamp_percent(value));
+            }
+        }
+    }
+    let mut numbers = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.to_lowercase().contains("load") {
+            continue;
+        }
+        if let Ok(value) = line.parse::<f64>() {
+            if (0.0..=100.0).contains(&value) {
+                numbers.push(value);
+            }
+        }
+    }
+    if numbers.len() == 1 {
+        return Some(clamp_percent(numbers[0]));
+    }
+    None
+}
+
+fn percent_before(lower: &str, label: &str) -> Option<f64> {
+    let pattern = format!("% {label}");
+    let index = lower.find(&pattern)?;
+    let prefix = lower[..index].trim_end();
+    let bytes = prefix.as_bytes();
+    let mut start = bytes.len();
+    while start > 0 && (bytes[start - 1].is_ascii_digit() || bytes[start - 1] == b'.') {
+        start -= 1;
+    }
+    if start == bytes.len() {
+        return None;
+    }
+    prefix[start..].parse().ok()
+}
+
+fn clamp_percent(value: f64) -> u8 {
+    value.round().clamp(0.0, 100.0) as u8
+}
+
+/// Byte count from `sysctl -n hw.memsize`.
+pub fn parse_memsize_bytes(text: &str) -> Option<u64> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.lines().count() != 1 {
+        return None;
+    }
+    let value = first_number(trimmed)?;
+    if value < 1024.0 * 1024.0 || value > 1024.0 * 1024.0 * 1024.0 * 1024.0 * 4.0 {
+        return None;
+    }
+    Some(value.round() as u64)
+}
+
+/// Used and total memory from `vm_stat` plus the machine's total byte count.
+pub fn parse_vm_stat(text: &str, total_bytes: u64) -> Option<MemorySample> {
+    if total_bytes < 1024 * 1024 {
+        return None;
+    }
+    let page = page_size(text).unwrap_or(4096);
+    if page == 0 {
+        return None;
+    }
+    let free = page_count(text, "pages free")?;
+    let speculative = page_count(text, "pages speculative").unwrap_or(0);
+    let total_pages = total_bytes / page;
+    if total_pages == 0 {
+        return None;
+    }
+    let unused = free.saturating_add(speculative).min(total_pages);
+    let used_pages = total_pages - unused;
+    let total_mb = (total_bytes / (1024 * 1024)) as u32;
+    let used_mb = ((used_pages.saturating_mul(page)) / (1024 * 1024)) as u32;
+    if total_mb == 0 {
+        return None;
+    }
+    Some(MemorySample {
+        used_mb: used_mb.min(total_mb),
+        total_mb,
+    })
+}
+
+fn page_size(text: &str) -> Option<u64> {
+    let lower = text.to_lowercase();
+    let marker = "page size of ";
+    let start = lower.find(marker)? + marker.len();
+    let value = first_number(&lower[start..])?;
+    if value < 256.0 || value > 1024.0 * 1024.0 {
+        return None;
+    }
+    Some(value.round() as u64)
+}
+
+fn page_count(text: &str, label: &str) -> Option<u64> {
+    for line in text.lines() {
+        let lower = line.to_lowercase();
+        let Some(rest) = lower.strip_prefix(label) else {
+            continue;
+        };
+        let rest = rest.trim().trim_start_matches(':').trim();
+        return first_number(rest).map(|value| value.round() as u64);
+    }
+    None
+}
+
+/// Used and total from `total_kb=` / `free_kb=` or the CIM property names. Values are kilobytes.
+pub fn parse_windows_memory(text: &str) -> Option<MemorySample> {
+    let total_kb = labeled_u64(text, "total_kb")
+        .or_else(|| labeled_u64(text, "totalvisiblememorysize"))?;
+    let free_kb = labeled_u64(text, "free_kb")
+        .or_else(|| labeled_u64(text, "freephysicalmemory"))?;
+    if total_kb == 0 || free_kb > total_kb {
+        return None;
+    }
+    let total_mb = (total_kb / 1024) as u32;
+    let used_mb = ((total_kb - free_kb) / 1024) as u32;
+    if total_mb == 0 {
+        return None;
+    }
+    Some(MemorySample {
+        used_mb: used_mb.min(total_mb),
+        total_mb,
+    })
+}
+
+fn labeled_u64(text: &str, key: &str) -> Option<u64> {
+    let key = key.to_lowercase();
+    for line in text.lines() {
+        let flat: String = line
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .flat_map(|ch| ch.to_lowercase())
+            .collect();
+        let Some(rest) = flat.strip_prefix(&key) else {
+            continue;
+        };
+        let rest = rest.trim_start_matches([':', '=']);
+        return first_number(rest).map(|value| value.round() as u64);
+    }
+    None
 }
 
 fn first_number(text: &str) -> Option<f64> {
@@ -1008,6 +1259,7 @@ mod tests {
             gpu: Some("NVIDIA GeForce RTX 4070".into()),
             cpu_temp_c: Some(61),
             game: Some("Hades".into()),
+            ..HardwareReading::default()
         };
         assert_eq!(
             status_line(&full).as_deref(),
@@ -1025,6 +1277,7 @@ mod tests {
             gpu: None,
             cpu_temp_c: None,
             game: Some("  Celeste ™ ".into()),
+            ..HardwareReading::default()
         };
         assert_eq!(status_line(&game_only).as_deref(), Some("Celeste"));
     }
@@ -1035,6 +1288,7 @@ mod tests {
             gpu: Some("N".repeat(110)),
             cpu_temp_c: Some(77),
             game: Some("Clair Obscur: Expedition 33 — the long title".into()),
+            ..HardwareReading::default()
         };
         let line = status_line(&reading).unwrap();
         assert!(line.chars().count() <= DISCORD_CUSTOM_STATUS_MAX, "{line}");
@@ -1045,6 +1299,7 @@ mod tests {
             gpu: None,
             cpu_temp_c: None,
             game: Some("G".repeat(200)),
+            ..HardwareReading::default()
         };
         let trimmed = status_line(&huge).unwrap();
         assert_eq!(trimmed.chars().count(), DISCORD_CUSTOM_STATUS_MAX);
@@ -1058,6 +1313,9 @@ mod tests {
                 gpu: Some("Apple M2".into()),
                 cpu_temp_c: Some(0),
                 game: None,
+                cpu_percent: Some(40),
+                ram_used_mb: Some(8000),
+                ram_total_mb: Some(16000),
             })
             .as_deref(),
             Some("Apple M2")
@@ -1145,6 +1403,48 @@ mod tests {
     #[test]
     fn other_systems_are_not_probed() {
         assert_eq!(sample_hardware("linux"), HardwareReading::default());
+        assert_eq!(sample_load("linux"), HardwareReading::default());
         assert_eq!(HARDWARE_STATUS_INTERVAL_MS, 60_000);
+    }
+
+    #[test]
+    fn load_parsers_read_cpu_and_memory_without_touching_the_status_line() {
+        assert_eq!(
+            parse_cpu_percent("CPU usage: 8.49% user, 10.16% sys, 81.33% idle"),
+            Some(19)
+        );
+        assert_eq!(parse_cpu_percent("CPU usage: 90% idle"), Some(10));
+        assert_eq!(parse_cpu_percent("23"), Some(23));
+        assert_eq!(parse_cpu_percent("LoadPercentage\n12\n"), Some(12));
+        assert_eq!(parse_cpu_percent("250"), None);
+        assert_eq!(parse_cpu_percent(""), None);
+        let total = parse_memsize_bytes("17179869184\n").unwrap();
+        let stat = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 100000.\nPages speculative: 50000.\n";
+        let memory = parse_vm_stat(stat, total).unwrap();
+        assert_eq!(memory.total_mb, 16384);
+        assert!(memory.used_mb < memory.total_mb);
+        assert!(memory.used_mb > 0);
+        assert_eq!(
+            parse_windows_memory("total_kb=16777216\nfree_kb=4194304\n"),
+            Some(MemorySample {
+                used_mb: 12288,
+                total_mb: 16384
+            })
+        );
+        assert_eq!(
+            parse_windows_memory("TotalVisibleMemorySize : 16777216\nFreePhysicalMemory : 4194304\n"),
+            Some(MemorySample {
+                used_mb: 12288,
+                total_mb: 16384
+            })
+        );
+        let with_load = HardwareReading {
+            gpu: Some("Apple M2".into()),
+            cpu_percent: Some(12),
+            ram_used_mb: Some(6400),
+            ram_total_mb: Some(16384),
+            ..HardwareReading::default()
+        };
+        assert_eq!(status_line(&with_load).as_deref(), Some("Apple M2"));
     }
 }

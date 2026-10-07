@@ -23,7 +23,17 @@ export interface Shortcuts {
   toggle_deafen: string;
   push_to_talk: string;
   toggle_voice_overlay: string;
+  toggle_perf_overlay: string;
+  toggle_game_mode: string;
   save_clip: string;
+}
+
+export interface GameProfile {
+  ptt: boolean;
+  ptt_key: string;
+  game_mode: boolean;
+  voice_overlay: boolean;
+  perf_overlay: boolean;
 }
 
 export interface AppConfig {
@@ -55,8 +65,17 @@ export interface AppConfig {
     overlay_opacity: number;
     overlay_click_through: boolean;
   };
-  desktop: { minimize_to_tray: boolean; autostart: boolean; frame_cap: number; hardware_status: boolean };
+  desktop: {
+    minimize_to_tray: boolean;
+    autostart: boolean;
+    frame_cap: number;
+    hardware_status: boolean;
+    perf_overlay: boolean;
+    detect_games: boolean;
+    game_mode: boolean;
+  };
   clips: { game_capture: boolean };
+  games: Record<string, GameProfile>;
   accents: Record<string, string>;
 }
 

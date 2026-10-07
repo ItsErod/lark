@@ -16,7 +16,7 @@ function isView(value: unknown): value is VoiceHudView {
 
 async function show(view: VoiceHudView) {
   if (!(host instanceof HTMLElement)) return;
-  if (!view.enabled) {
+  if (!view.enabled && !view.perf) {
     host.replaceChildren();
     return;
   }

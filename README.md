@@ -44,6 +44,8 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 - Plugins that stay off until you turn them on. The pack is in [PLUGINS.md](PLUGINS.md)
 - Voice controls: mute, deafen, push to talk, and voice activity
 - A voice HUD that can sit on top of a game. It stays off until you turn it on
+- A performance strip on that same HUD for RAM, CPU, and FPS
+- Game Mode, which eases resource use while a game is in front, with a profile per game
 - A clip hotkey saves up to 30 seconds of the main display while screen share or Game Mode capture is on. The file stays in the clips folder until you attach it
 - Paints follow the display, up to 240 fps
 
@@ -54,6 +56,14 @@ The HUD is a small always-on-top window that shows who is talking and who is mut
 Turn it on with **Ctrl+Shift+O** on Windows or **⌘⇧O** on macOS. The same keys hide it, including while a game is focused. Settings → Voice & Video has the switch, the opacity, and click-through. Click-through is on by default so the game keeps the mouse. Turn click-through off to drag the HUD. The shortcut is `toggle voice overlay` under Settings → Keybinds.
 
 The window is for macOS and Windows. Exclusive fullscreen can cover it. Borderless and windowed games show it. In the browser preview it stays in the corner of Lark instead of a separate window.
+
+**Ctrl+Shift+P** (⌘⇧P on macOS) adds RAM, CPU, and FPS to that window. The shortcut is `toggle perf overlay` under Settings → Keybinds. Opacity and click-through are the same controls as the voice HUD.
+
+## Game Mode
+
+Game Mode pauses interface animations, stops prefetching channels you have not opened, and slows the polls Lark already runs (plugins, relative timestamps, theme refresh, and hardware status). It turns on when a game is in front, or when you toggle it with **Ctrl+Shift+G** (⌘⇧G) or Settings → Lark. Turning off game detection stops the foreground check. GPU sensors still stay off unless Hardware in status is on. While Game Mode is on, the performance strip still shows RAM, CPU, and FPS; the FPS number is a one-second sample on that slower poll, so the frame loop does not stay armed.
+
+Settings → Voice & Video keeps a profile for each game you adjust: push-to-talk on or off, that game's key, and the Game Mode, voice HUD, and performance defaults. Those apply while that game is detected and step back when it closes.
 
 ## Limitations
 

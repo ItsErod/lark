@@ -77,6 +77,18 @@
       .voice-hud-person.is-muted .voice-hud-name { color: #949ba4; }
       .voice-hud-flags { margin-left: auto; display: flex; gap: 4px; color: #f23f43; flex: none; }
       .voice-hud-flags svg { width: 14px; height: 14px; }
+      .perf-hud {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 2px 10px;
+        margin: 6px 4px 2px;
+        padding-top: 6px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 12px;
+      }
+      .voice-hud-bar + .perf-hud { border-top: 0; padding-top: 0; }
+      .perf-hud dt { color: #949ba4; font-weight: 600; }
+      .perf-hud dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; }
     </style>
   </head>
   <body>

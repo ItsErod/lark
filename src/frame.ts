@@ -13,6 +13,27 @@ export function scheduleHz(cap: number): number {
   return Math.min(FRAME_CAP_MAX, Math.max(FRAME_CAP_MIN, Math.round(cap)));
 }
 
+/** Keep stamps that still fall inside the FPS window, then record `now`. */
+export function noteFpsMark(marks: readonly number[], now: number, windowMs = 1000): number[] {
+  const cutoff = now - windowMs;
+  const next = marks.filter((stamp) => stamp > cutoff && stamp <= now);
+  next.push(now);
+  return next;
+}
+
+/**
+ * Paints per second across the stamps in the window.
+ * Null until two stamps span at least a quarter of a second, so a fresh
+ * counter does not flash a huge number.
+ */
+export function fpsFromMarks(marks: readonly number[], now: number, windowMs = 1000): number | null {
+  const recent = marks.filter((stamp) => stamp <= now && now - stamp <= windowMs).sort((a, b) => a - b);
+  if (recent.length < 2) return null;
+  const span = recent[recent.length - 1] - recent[0];
+  if (span < 250) return null;
+  return Math.max(1, Math.round(((recent.length - 1) * 1000) / span));
+}
+
 /** Median refresh from vsync deltas, in Hz. 0 when the sample is empty. */
 export function hzFromDeltas(deltas: number[]): number {
   const usable = deltas.filter((delta) => delta >= 1 && delta <= 100);

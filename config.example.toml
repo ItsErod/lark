@@ -27,6 +27,10 @@ toggle_mute = "mod+shift+alt+m"
 toggle_deafen = "mod+shift+d"
 push_to_talk = "backquote"
 toggle_voice_overlay = "mod+shift+o"
+# Same HUD window. Shows RAM, CPU, and FPS. Global on macOS and Windows.
+toggle_perf_overlay = "mod+shift+p"
+# Pause animations and channel prefetch, and slow the existing polls.
+toggle_game_mode = "mod+shift+g"
 # Global on macOS and Windows. Needs a modifier (or a function key). Writes a local clip; it does not upload.
 save_clip = "mod+shift+c"
 
@@ -67,3 +71,18 @@ autostart = false
 frame_cap = 240
 # Off until Settings → Lark turns it on. GPU, CPU temperature, and the current game.
 hardware_status = false
+# Performance strip in the voice HUD. Off until Settings or the hotkey.
+perf_overlay = false
+# Foreground game check so Game Mode can start. This does not read GPU sensors.
+detect_games = true
+# Game Mode while no game is in front. A detected game uses its own profile.
+game_mode = false
+
+# One block per detected game. The name is the one Lark shows (for example Hades).
+# Uncomment to keep push-to-talk, Game Mode, and the overlays for that game.
+# [games.Hades]
+# ptt = true
+# ptt_key = "backquote"
+# game_mode = true
+# voice_overlay = true
+# perf_overlay = false
