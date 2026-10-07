@@ -37,7 +37,13 @@ describe("clips", () => {
       expect(note).toContain("caps");
       expect(note).toContain("5 frames");
       expect(note).toContain("960");
-      expect(note).toContain("8 MB");
+      expect(note).toContain("10 MB");
+      expect(note).toContain("50 MB");
+      expect(note).toContain("500 MB");
+      expect(note).toContain("always");
+      expect(note).toContain("ask");
+      expect(note).toContain("never");
+      expect(note).not.toContain("refuses a file over 8 MB");
       expect(note).toContain("Nothing is uploaded");
       expect(note).toContain("no system replay");
       expect(note).toContain("packet ring");

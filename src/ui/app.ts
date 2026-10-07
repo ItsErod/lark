@@ -80,6 +80,7 @@ import { bytesFromBase64, clipBehaviorNote, CLIP_FPS_OPTIONS, CLIP_RESOLUTION_OP
 import {
   CLIP_DRAG,
   clipMime,
+  clipAttachAction,
   compressCopy,
   demoClips,
   fitAction,
@@ -4390,18 +4391,20 @@ class LarkApp {
       this.toast("Clip", "Open a channel, then attach the clip.");
       return;
     }
-    try {
-      const encoded = await invoke<string>("read_clip", { name: clip.name });
-      const bytes = bytesFromBase64(encoded);
-      const mime = clip.name.toLowerCase().endsWith(".avi") ? "video/x-msvideo" : "video/mp4";
-      const blob = new Blob([bytes], { type: mime });
-      this.files.push({ name: clip.name, mime, bytes, url: URL.createObjectURL(blob) });
-      this.pendingClip = null;
-      this.paintComposer();
-      this.toast("Clip attached", "Press Enter to send it. Lark has not uploaded the file.");
-    } catch (err) {
-      this.toast("Clip", commandError(err, "Couldn't read the clip."));
+    if (!this.clipItems.some((item) => item.name === clip.name)) {
+      this.clipItems = [{
+        name: clip.name,
+        bytes: clip.bytes,
+        modifiedMs: Date.now(),
+        durationMs: clip.spanMs,
+        width: 0,
+        height: 0,
+        poster: "",
+      }, ...this.clipItems];
     }
+    this.pendingClip = null;
+    this.paintClipBanner();
+    await this.attachClipByName(clip.name);
   }
 
   private async showPendingClip() {
@@ -4741,8 +4744,13 @@ class LarkApp {
       this.toast("Clip", "Open a channel, then drop the clip on the composer.");
       return;
     }
+    const action = clipAttachAction(clip.bytes, this.premiumType, this.config.clips.compress);
     const limit = uploadLimitBytes(this.premiumType);
-    if (this.demo || !isTauri() || clip.bytes > limit) {
+    if (action === "block") {
+      this.toast("Clip", `This clip is over your ${formatClipBytes(limit)} upload limit. Compression is set to never.`);
+      return;
+    }
+    if (this.demo || !isTauri() || action !== "send") {
       this.files.push({
         name: clip.name,
         mime: clipMime(clip.name),
@@ -4753,7 +4761,8 @@ class LarkApp {
       });
       this.clipsOpen = false;
       this.paint();
-      if (clip.bytes > limit) this.toast("Clip", "This clip is over the upload limit. Lark will offer to compress it when you send.");
+      if (action === "compress") this.toast("Clip", `This clip is over your ${formatClipBytes(limit)} upload limit. Lark will compress a copy when you send.`);
+      else if (action === "ask") this.toast("Clip", `This clip is over your ${formatClipBytes(limit)} upload limit. Lark will ask before compressing it.`);
       return;
     }
     try {

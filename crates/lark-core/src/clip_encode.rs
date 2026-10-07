@@ -12,8 +12,6 @@ use jpeg_decoder::Decoder;
 use crate::clip::ClipPlan;
 use crate::mp4mux::{self, VideoTrack, AAC_SAMPLE_RATE};
 
-const MAX_CLIP_FILE: usize = 8 * 1024 * 1024;
-
 pub struct EncodedClip {
     pub bytes: Vec<u8>,
     pub width: u32,
@@ -91,8 +89,7 @@ fn encode_software(plan: &ClipPlan) -> Result<EncodedClip, String> {
             _ => (36, 51),
         };
         match encode_software_pass(plan, width, height, qp_min, qp_max, attempt) {
-            Ok(bytes) if bytes.len() <= MAX_CLIP_FILE => return finish(bytes, width, height),
-            Ok(_) => last = "The clip is too large to save.".into(),
+            Ok(bytes) => return finish(bytes, width, height),
             Err(err) => last = err,
         }
     }
@@ -165,9 +162,6 @@ fn mux_samples(
 fn finish(bytes: Vec<u8>, width: u32, height: u32) -> Result<EncodedClip, String> {
     let bytes = mp4mux::ensure_faststart(&bytes)?;
     mp4mux::require_discord_mp4(&bytes)?;
-    if bytes.len() > MAX_CLIP_FILE {
-        return Err("The clip is too large to save.".into());
-    }
     Ok(EncodedClip {
         bytes,
         width,
@@ -704,7 +698,7 @@ mod tests {
         assert!(mp4mux::moov_before_mdat(&encoded.bytes));
         mp4mux::require_discord_mp4(&encoded.bytes).unwrap();
         assert!(encoded.width % 16 == 0 && encoded.height % 16 == 0);
-        assert!(encoded.bytes.len() < MAX_CLIP_FILE);
+        assert!(!encoded.bytes.is_empty());
         assert_eq!(&encoded.bytes[4..8], b"ftyp");
         let ffmpeg = PathBuf::from("/usr/bin/ffmpeg");
         if !ffmpeg.is_file() {

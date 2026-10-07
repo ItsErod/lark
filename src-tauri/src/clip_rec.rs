@@ -361,9 +361,6 @@ impl ClipEngine {
     pub fn read_base64(&self, name: &str) -> Result<String, String> {
         let path = resolve_clip(&self.inner.dir, name)?;
         let bytes = std::fs::read(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
-        if bytes.len() as u64 > lark_core::clip_fit::NITRO_LIMIT {
-            return Err("That clip is over 500 MB, so Lark will not attach it.".into());
-        }
         Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
     }
 
