@@ -7,6 +7,7 @@ pub mod shell;
 pub mod types;
 pub mod noise;
 pub mod voice;
+pub mod voice_dave;
 pub mod voice_io;
 pub mod voice_link;
 pub mod voice_media;

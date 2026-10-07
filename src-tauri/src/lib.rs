@@ -679,6 +679,7 @@ async fn send_message(
     channel_id: String,
     content: String,
     reply_to: Option<String>,
+    nonce: Option<String>,
     files: Vec<FileIn>,
 ) -> Result<lark_core::discord::ClientMessage, String> {
     let files: Vec<lark_core::discord::rest::OutFile> = files
@@ -691,7 +692,7 @@ async fn send_message(
         .collect();
     rest(&state)
         .await?
-        .send_message(&channel_id, &content, reply_to.as_deref(), &files)
+        .send_message(&channel_id, &content, reply_to.as_deref(), nonce.as_deref(), &files)
         .await
         .map_err(|err| err.to_string())
 }
@@ -1051,6 +1052,7 @@ async fn wait_for_voice(
                 return Ok(lark_core::discord::voice_link::VoiceHello {
                     endpoint: guard.endpoint.clone(),
                     server_id: if guard.guild_id.is_empty() { server_id.to_string() } else { guard.guild_id.clone() },
+                    channel_id: guard.channel_id.clone(),
                     user_id: guard.user_id.clone(),
                     session_id: guard.session_id.clone(),
                     token: guard.token.clone(),

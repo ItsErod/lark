@@ -54,6 +54,51 @@ export function channelIsBehind(lastMessageId?: string | null, lastReadId?: stri
   return snowflakeAfter(lastMessageId, lastReadId);
 }
 
+export interface EchoMessage {
+  id: string;
+  nonce?: string | null;
+}
+
+let echoSerial = 0;
+
+/** Local id shared with Discord as the message nonce. The API keeps 25 characters. */
+export function outgoingNonce(now = Date.now()): string {
+  echoSerial = (echoSerial + 1) % 1296;
+  return `local-${now.toString(36)}-${echoSerial.toString(36)}`.slice(0, 25);
+}
+
+/** Same send: snowflake id, or the nonce echoed back onto the gateway copy. */
+export function sameOutgoing(a: EchoMessage, b: EchoMessage): boolean {
+  if (a.id && b.id && a.id === b.id) return true;
+  const left = (a.nonce ?? "").trim();
+  const right = (b.nonce ?? "").trim();
+  if (left && (left === right || left === b.id)) return true;
+  if (right && (right === left || right === a.id)) return true;
+  return false;
+}
+
+/**
+ * Replace the optimistic row when the gateway event or the REST response arrives.
+ * A list that already holds both copies collapses to the server message.
+ */
+export function mergeIncoming<T extends EchoMessage>(list: readonly T[], incoming: T): T[] {
+  let placed = false;
+  const next: T[] = [];
+  for (const item of list) {
+    if (!sameOutgoing(item, incoming)) {
+      next.push(item);
+      continue;
+    }
+    if (!placed) {
+      const nonce = (incoming.nonce ?? "").trim() || (item.nonce ?? "").trim();
+      next.push(nonce ? { ...incoming, nonce } : incoming);
+      placed = true;
+    }
+  }
+  if (!placed) next.push(incoming);
+  return next;
+}
+
 export function sameReaction(
   reaction: { emoji: string; emojiId?: string | null },
   emoji: string,

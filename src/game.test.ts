@@ -32,6 +32,14 @@ describe("game mode", () => {
     expect(shouldPreload(true)).toBe(false);
   });
 
+  it("only stretches UI polls, so voice and gateway heartbeats stay off this clock", () => {
+    const kinds = ["theme", "plugins", "clock", "hardware", "detect"] as const;
+    expect(kinds).toHaveLength(5);
+    for (const kind of kinds) {
+      expect(pollInterval(kind, true)).toBeGreaterThan(pollInterval(kind, false));
+    }
+  });
+
   it("turns game mode on for a detected game and leaves voice on the usual settings", () => {
     const resolved = resolveGame("Hades", {}, base());
     expect(resolved).toMatchObject({
