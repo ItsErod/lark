@@ -206,7 +206,10 @@ import {
   switchControl,
   type SettingEntry,
 } from "./settings";
+import { installShareSettings } from "../share-settings";
+import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKeyFor, type ShareSource } from "../share";
 import { renderVoiceHud } from "./hud";
+import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
 import { renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
 import { renderMessage } from "./messages";
 import { renderProfileCard, type ProfileRole, type WireProfile } from "./profile";
@@ -474,6 +477,19 @@ class LarkApp {
   private cpalInputs: string[] = [];
   private cpalOutputs: string[] = [];
   private shareOn = false;
+  private sharePaused = false;
+  private shareUserPaused = false;
+  private shareHeld = false;
+  private shareNote = "";
+  private shareDialogOpen = false;
+  private shareQualityOpen = false;
+  private shareSources: ShareSource[] = [];
+  private sharePick = "screen:0";
+  private shareWatching = "";
+  private pipUser = "";
+  private shareLiveHeight = 1080;
+  private shareLiveFps = 30;
+  private shareLayer!: HTMLElement;
   private pendingClip: { name: string; path: string; bytes: number; spanMs: number } | null = null;
   private clipNotice = "";
   private clipsOpen = false;
@@ -543,6 +559,7 @@ class LarkApp {
   constructor(private root: HTMLElement) {}
 
   async start() {
+    installShareSettings();
     this.narrow = this.root.clientWidth < 880;
     const saved = localStorage.getItem("lark.config.v1");
     if (saved) {
@@ -718,6 +735,9 @@ class LarkApp {
       await win.onFocusChanged(({ payload }) => {
         this.focused = payload;
       });
+      await win.onResized(() => {
+        void win.isMinimized().then((minimized) => this.noteShareVisibility(minimized || document.hidden));
+      });
       if (await invoke<boolean>("has_token")) {
         this.connection = "Connecting";
         this.beginStartup(true);
@@ -793,8 +813,11 @@ class LarkApp {
     this.callHandle.setAttribute("aria-orientation", "horizontal");
     this.callHandle.setAttribute("aria-label", "Resize call view");
     this.callPip = el("div", "call-pip");
+    this.callPip.dataset.callPip = "";
     this.callPip.hidden = true;
     this.callPip.setAttribute("aria-label", "Call preview");
+    this.shareLayer = el("div", "share-layer");
+    this.shareLayer.hidden = true;
     this.newBar = el("button", "new-bar", "New messages");
     this.newBar.type = "button";
     this.newBar.hidden = true;
@@ -847,8 +870,9 @@ class LarkApp {
     this.splashTrack.append(this.splashBar);
     splashCard.append(el("div", "mark", "L"), el("h1", "", "Lark"), this.splashStatus, this.splashTrack);
     this.splashEl.append(splashCard);
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.inviteEl, this.hudEl, this.callPip, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.inviteEl, this.hudEl, this.callPip, this.shareLayer, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
     this.bindCallChrome();
+    document.addEventListener("visibilitychange", () => this.noteShareVisibility(document.hidden));
     this.root.addEventListener("pointerdown", (event) => this.dismissVoiceFloats(event));
     this.stage.addEventListener("click", (event) => {
       const target = event.target;
@@ -976,22 +1000,24 @@ class LarkApp {
       this.directory[person.id] = person;
       this.userNames[person.id] = person.name;
     }
-    this.seedDemoVoice();
+    const shareMode = new URLSearchParams(location.search).get("share");
+    this.seedDemoVoice(shareMode === "live");
     const named = cleanGameName(new URLSearchParams(location.search).get("game") ?? "");
     if (named && this.config.desktop.detect_games) this.noteGame(named);
     this.paint();
     const openClips = new URLSearchParams(location.search).has("clips");
     void this.openChannel(CRIT).then(() => {
       if (openClips) this.openClips();
+      if (shareMode === "dialog" || shareMode === "live") this.openDemoShare(shareMode);
     });
   }
 
-  private seedDemoVoice() {
+  private seedDemoVoice(sharing = false) {
     const channelId = demoChannels[NORTHWIND].find((channel) => channel.kind === "voice")?.id;
     if (!channelId) return;
     replaceGuildVoice(this.voiceRoster, NORTHWIND, [
       { guildId: NORTHWIND, channelId, userId: booth[0].id, name: booth[0].name },
-      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true },
+      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true, ...(sharing ? { selfStream: true } : {}) },
     ]);
     setSpeaking(this.voiceRoster, booth[0].id, true);
     hydrateMix(this.voiceRoster, this.config.voice.levels);
@@ -2436,6 +2462,7 @@ class LarkApp {
     if (badges.deafened) flags.append(icon(paths.headphonesOff));
     if (badges.muted) flags.append(icon(paths.micOff));
     if (person.localMuted) flags.title = "Muted for you";
+    if (person.sharing || (person.userId === this.meId() && this.shareOn)) flags.append(liveBadge(person.userId === this.meId() && this.sharePaused));
     if (flags.childElementCount) row.append(flags);
     if (person.userId !== this.meId()) {
       row.addEventListener("contextmenu", (event) => {
@@ -2455,6 +2482,7 @@ class LarkApp {
     panel.setAttribute("aria-label", `${audible}, ${session?.name ?? "Voice"}`);
     const line = el("div", "voice-panel-line");
     line.append(signalMeter(status), el("strong", "voice-panel-name", session?.name ?? "Voice"));
+    if (this.shareOn) line.append(liveBadge(this.sharePaused));
     const actions = el("div", "voice-panel-actions");
     const share = this.iconButton(this.shareOn ? "Stop sharing" : "Share your screen", paths.monitor, () => this.toggleShare(), false);
     if (this.shareOn) share.classList.add("is-live");
@@ -4398,7 +4426,49 @@ class LarkApp {
     devices.append(deviceActions);
     const ring = settingCard("Speaking ring");
     ring.append(this.speakRingRow());
-    wrap.append(input, hud, devices, ring);
+    const share = settingCard("Screen share");
+    share.append(el("p", "setting-help", "Go Live uses these defaults. The picker in a call can still change them, and every resolution is available."));
+    share.append(this.segmentRow(
+      "voice.share.quality",
+      "Default quality",
+      "Resolution for a new stream. Source keeps the window's own size.",
+      ["720", "1080", "1440", "2160", "source"],
+      { "720": "720p", "1080": "1080p", "1440": "1440p", "2160": "4K", source: "Source" },
+      this.config.voice.share_resolution,
+      (value) => {
+        this.config.voice.share_resolution = value;
+        this.persist();
+      },
+    ));
+    share.append(this.segmentRow(
+      "voice.share.quality",
+      "Default frame rate",
+      "15, 30, or 60. The stream drops a step if the encoder or the uplink cannot hold it.",
+      ["15", "30", "60"],
+      { "15": "15", "30": "30", "60": "60" },
+      String(this.config.voice.share_fps),
+      (value) => {
+        this.config.voice.share_fps = snapShareFps(Number(value));
+        this.persist();
+      },
+    ));
+    share.append(this.switchRow("voice.share.audio", "Share application audio", "Send the shared app's audio when this computer can capture it.", this.config.voice.share_app_audio, (value) => {
+      this.config.voice.share_app_audio = value;
+      this.persist();
+    }));
+    share.append(this.segmentRow(
+      "voice.share.encoder",
+      "Hardware encoder",
+      "Auto uses NVENC, AMF, Quick Sync, VideoToolbox, or Media Foundation when that one matches this computer.",
+      ["auto", "nvenc", "amf", "qsv", "videotoolbox", "media-foundation"],
+      { auto: "Auto", nvenc: "NVENC", amf: "AMF", qsv: "QSV", videotoolbox: "VideoToolbox", "media-foundation": "MF" },
+      this.config.voice.share_encoder,
+      (value) => {
+        this.config.voice.share_encoder = value;
+        this.persist();
+      },
+    ));
+    wrap.append(input, hud, devices, ring, share);
     this.appendSoundboard(wrap);
     return wrap;
   }
@@ -4760,6 +4830,13 @@ class LarkApp {
       return;
     }
     if (event.key === "Escape") {
+      if (this.shareDialogOpen || this.shareQualityOpen) {
+        this.shareDialogOpen = false;
+        this.shareQualityOpen = false;
+        this.paintShareDialog();
+        this.paintVoice();
+        return;
+      }
       if (this.voiceMenu || this.gearOpen || this.activitiesOpen) {
         this.voiceMenu = null;
         this.gearOpen = false;
@@ -6364,6 +6441,10 @@ class LarkApp {
       this.syncBadge();
       this.paintChannels();
       this.paintRail();
+    } else if (event.kind === "screenShare") {
+      this.onScreenShare(event as { state?: string; note?: string; detail?: string; fps?: number; height?: number });
+    } else if (event.kind === "streamFrame") {
+      this.onStreamFrame(event as { annexB?: string; streamKey?: string; preview?: boolean });
     } else if (event.kind === "voiceStates" && event.guildId) {
       const states = ((event as { states?: VoiceStateInput[] }).states ?? []).map((state) => this.hydrateVoice(state, event.guildId ?? ""));
       replaceGuildVoice(this.voiceRoster, event.guildId, states);
@@ -6869,6 +6950,15 @@ class LarkApp {
     if (this.voice) applyVoiceState(this.voiceRoster, { guildId, channelId: "", userId: this.meId() });
     this.voice = null;
     this.shareOn = false;
+    this.sharePaused = false;
+    this.shareUserPaused = false;
+    this.shareHeld = false;
+    this.shareDialogOpen = false;
+    this.shareQualityOpen = false;
+    this.shareWatching = "";
+    this.pipUser = "";
+    this.shareNote = "";
+    clearStreamFrames();
     this.cameraOn = false;
     this.callSurface = dismissCallSurface();
     this.closeCallPopout();
@@ -7029,6 +7119,7 @@ class LarkApp {
       selfDeaf: Boolean(state.selfDeaf),
       serverMute: Boolean(state.serverMute),
       serverDeaf: Boolean(state.serverDeaf),
+      ...(state.selfStream === undefined ? {} : { selfStream: Boolean(state.selfStream) }),
     };
   }
 
@@ -7550,6 +7641,8 @@ class LarkApp {
       renderCallStage(dock, tiles, this.ringMotion(), this.callStageHandlers());
     }
     this.paintPip(chrome.pip ? media : null);
+    this.mountShareSurfaces();
+    this.paintShareDialog();
     this.paintVoiceFloats();
     this.publishVoiceHud();
     this.publishCallFrame();
@@ -7840,9 +7933,263 @@ class LarkApp {
   }
 
   private toggleShare() {
-    this.shareOn = !this.shareOn;
-    if (!this.demo) void invoke(this.shareOn ? "start_screen_share" : "stop_screen_share").catch(() => undefined);
+    if (this.shareOn) {
+      this.stopShare();
+      return;
+    }
+    this.shareDialogOpen = true;
+    this.shareQualityOpen = false;
+    void this.loadShareSources();
+    this.paint();
+  }
+
+  private openDemoShare(mode: "dialog" | "live") {
+    const channel = demoChannels[NORTHWIND].find((item) => item.kind === "voice");
+    if (!channel) return;
+    if (mode === "live") {
+      this.shareOn = true;
+      this.shareLiveHeight = snapShareHeight(this.config.voice.share_resolution);
+      this.shareLiveFps = snapShareFps(this.config.voice.share_fps);
+      this.shareSources = demoShareSources();
+    } else {
+      this.shareDialogOpen = true;
+      this.shareSources = demoShareSources();
+      this.sharePick = this.shareSources[0]?.id ?? "screen:0";
+    }
+    if (mode === "live") this.callSurface = "split";
+    this.joinVoice(channel);
+    this.paintShareDialog();
+  }
+
+  private async loadShareSources() {
+    if (this.demo) {
+      this.shareSources = demoShareSources();
+    } else {
+      try {
+        const listed = await invoke<ShareSource[]>("list_share_sources");
+        this.shareSources = listed.length ? listed : [{ id: "screen:0", kind: "screen", name: "Entire screen", width: 0, height: 0, thumbnail: "" }];
+      } catch {
+        this.shareSources = [{ id: "screen:0", kind: "screen", name: "Entire screen", width: 0, height: 0, thumbnail: "" }];
+      }
+    }
+    if (!this.shareSources.some((source) => source.id === this.sharePick)) this.sharePick = this.shareSources[0]?.id ?? "";
+    this.paintShareDialog();
+  }
+
+  private goLive() {
+    const source = this.shareSources.find((item) => item.id === this.sharePick) ?? this.shareSources[0];
+    if (!source || !this.voice) return;
+    this.shareDialogOpen = false;
+    this.shareOn = true;
+    this.sharePaused = false;
+    this.shareUserPaused = false;
+    this.shareHeld = false;
+    this.shareNote = "";
+    this.shareLiveHeight = snapShareHeight(this.config.voice.share_resolution);
+    this.shareLiveFps = snapShareFps(this.config.voice.share_fps);
+    this.persist();
+    if (!this.demo) {
+      void invoke("start_screen_share", {
+        sourceId: source.id,
+        resolution: this.config.voice.share_resolution,
+        fps: this.shareLiveFps,
+        appAudio: this.config.voice.share_app_audio,
+        encoder: this.config.voice.share_encoder,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+      }).catch((err) => {
+        this.shareOn = false;
+        this.toast("Screen share", err instanceof Error ? err.message : "Couldn't start the stream.");
+        this.paintVoice();
+        this.paintChannels();
+      });
+    }
     this.noteCapture();
+  }
+
+  private stopShare() {
+    this.shareOn = false;
+    this.sharePaused = false;
+    this.shareUserPaused = false;
+    this.shareHeld = false;
+    this.shareQualityOpen = false;
+    this.shareDialogOpen = false;
+    this.shareNote = "";
+    if (this.pipUser === this.meId()) this.pipUser = "";
+    if (!this.demo) void invoke("stop_screen_share").catch(() => undefined);
+    this.noteCapture();
+  }
+
+  private setShareQuality(resolution: string, fps: number) {
+    const height = resolution === "0" || resolution === "source" ? "source" : resolution;
+    this.config.voice.share_resolution = height;
+    this.config.voice.share_fps = snapShareFps(fps);
+    this.shareLiveHeight = snapShareHeight(height);
+    this.shareLiveFps = this.config.voice.share_fps;
+    this.persist();
+    const source = this.shareSources.find((item) => item.id === this.sharePick);
+    if (this.shareOn && !this.demo) {
+      void invoke("set_share_quality", {
+        resolution: height,
+        fps: this.shareLiveFps,
+        sourceWidth: source?.width ?? 0,
+        sourceHeight: source?.height ?? 0,
+      }).catch(() => undefined);
+    }
+    this.paintVoice();
+    this.paintShareDialog();
+  }
+
+  private toggleSharePause() {
+    this.shareUserPaused = !this.shareUserPaused;
+    this.sharePaused = this.shareUserPaused;
+    this.shareHeld = false;
+    if (!this.demo) void invoke("set_share_paused", { paused: this.sharePaused }).catch(() => undefined);
+    this.paintVoice();
+    this.paintChannels();
+  }
+
+  private noteShareVisibility(hidden: boolean) {
+    if (!this.shareOn || this.demo || this.shareUserPaused) return;
+    if (hidden && !this.sharePaused) {
+      this.shareHeld = true;
+      this.sharePaused = true;
+      void invoke("set_share_paused", { paused: true }).catch(() => undefined);
+      this.paintVoice();
+      this.paintChannels();
+    } else if (!hidden && this.shareHeld) {
+      this.shareHeld = false;
+      this.sharePaused = false;
+      void invoke("set_share_paused", { paused: false }).catch(() => undefined);
+      this.paintVoice();
+      this.paintChannels();
+    }
+  }
+
+  private watchMember(userId: string) {
+    if (!this.voice) return;
+    this.shareWatching = userId;
+    if (!this.demo) {
+      const key = streamKeyFor(this.voice.guildId ?? "", this.voice.channelId, userId);
+      void invoke("watch_stream", { streamKey: key }).catch((err) => {
+        this.shareWatching = "";
+        this.toast("Screen share", err instanceof Error ? err.message : "Couldn't watch that stream.");
+        this.paintVoice();
+      });
+    }
+    this.paintVoice();
+  }
+
+  private stopWatching() {
+    this.shareWatching = "";
+    if (!this.demo) void invoke("stop_watch_stream").catch(() => undefined);
+    this.paintVoice();
+  }
+
+  private streamHandlers() {
+    return {
+      onWatch: (userId: string) => this.watchMember(userId),
+      onStopWatch: () => this.stopWatching(),
+      onStop: () => this.stopShare(),
+      onPause: () => this.toggleSharePause(),
+      onQuality: () => {
+        this.shareQualityOpen = !this.shareQualityOpen;
+        this.paintVoice();
+      },
+      onResolution: (value: string) => this.setShareQuality(value, this.config.voice.share_fps),
+      onFps: (fps: number) => this.setShareQuality(this.config.voice.share_resolution, fps),
+      onPip: (userId: string) => {
+        this.pipUser = this.pipUser === userId ? "" : userId;
+        this.paintVoice();
+      },
+      resolution: this.config.voice.share_resolution,
+      fps: this.config.voice.share_fps,
+    };
+  }
+
+  private mountShareSurfaces() {
+    if (!this.callPip) return;
+    mountStreamTiles(this.root, this.streamModels(), this.streamHandlers(), this.pipUser);
+  }
+
+  private streamModels() {
+    if (!this.voice) return [];
+    const selfId = this.meId();
+    return this.voice.members.flatMap((member) => {
+      const self = member.id === selfId;
+      const sharing = (self && this.shareOn) || Boolean(member.sharing);
+      if (!sharing) return [];
+      return [{
+        userId: member.id,
+        name: member.name,
+        self,
+        paused: self && this.sharePaused,
+        watching: !self && this.shareWatching === member.id,
+        label: self ? qualityLabel(this.shareLiveHeight, this.shareLiveFps) : member.sharing ? "Go Live" : "",
+        note: self ? this.shareNote : "",
+        qualityOpen: self && this.shareQualityOpen,
+      }];
+    });
+  }
+
+  private paintShareDialog() {
+    if (!this.shareLayer) return;
+    this.shareLayer.replaceChildren();
+    if (!this.shareDialogOpen) {
+      this.shareLayer.hidden = true;
+      return;
+    }
+    this.shareLayer.hidden = false;
+    this.shareLayer.append(shareDialog({
+      sources: this.shareSources.length ? this.shareSources : demoShareSources(),
+      selectedId: this.sharePick,
+      resolution: this.config.voice.share_resolution,
+      fps: this.config.voice.share_fps,
+      appAudio: this.config.voice.share_app_audio,
+      onSelect: (id) => {
+        this.sharePick = id;
+        this.paintShareDialog();
+      },
+      onResolution: (value) => this.setShareQuality(value, this.config.voice.share_fps),
+      onFps: (fps) => this.setShareQuality(this.config.voice.share_resolution, fps),
+      onAppAudio: (on) => {
+        this.config.voice.share_app_audio = on;
+        this.persist();
+        this.paintShareDialog();
+      },
+      onGo: () => this.goLive(),
+      onClose: () => {
+        this.shareDialogOpen = false;
+        this.paintShareDialog();
+      },
+    }));
+  }
+
+  private onScreenShare(event: { state?: string; note?: string; detail?: string; fps?: number; height?: number }) {
+    const state = event.state ?? "";
+    const note = event.note || event.detail || "";
+    if (state === "live") this.shareOn = true;
+    if (state === "stopped") this.shareOn = false;
+    if (state === "failed") {
+      this.shareNote = note || "The stream stopped.";
+      this.toast("Screen share", this.shareNote);
+    }
+    if (state === "adapted") {
+      this.shareNote = note;
+      if (typeof event.fps === "number") this.shareLiveFps = snapShareFps(event.fps);
+      if (typeof event.height === "number" && [720, 1080, 1440, 2160].includes(event.height)) this.shareLiveHeight = event.height;
+    }
+    this.paintVoice();
+    this.paintChannels();
+  }
+
+  private onStreamFrame(event: { annexB?: string; streamKey?: string; preview?: boolean }) {
+    if (!event.annexB) return;
+    const raw = atob(event.annexB);
+    const bytes = new Uint8Array(raw.length);
+    for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+    const userId = event.preview || !event.streamKey ? this.meId() : event.streamKey.split(":").at(-1) || "";
+    if (userId) pushStreamFrame(userId, bytes);
   }
 
   private openVoiceMenu(userId: string, x: number, y: number) {
@@ -7858,7 +8205,7 @@ class LarkApp {
     if (!this.voiceMenu && !this.gearOpen && !this.activitiesOpen) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest(".voice-menu, .voice-gear, .voice-pop, .voice-bar, [data-voice-gear]")) return;
+    if (target.closest(".voice-menu, .voice-gear, .voice-pop, .voice-bar, .share-dialog, .share-popover, .share-layer, [data-voice-gear]")) return;
     this.voiceMenu = null;
     this.gearOpen = false;
     this.activitiesOpen = false;

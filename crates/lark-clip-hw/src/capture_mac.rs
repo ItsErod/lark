@@ -6,6 +6,7 @@
 
 use std::ffi::{c_void, CStr};
 use std::os::raw::c_char;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -34,6 +35,8 @@ struct Shared {
     started: Instant,
     fps: u32,
     hevc: bool,
+    force_idr: AtomicBool,
+    audio: Mutex<Vec<f32>>,
 }
 
 pub fn probe() -> HardwareProbe {
@@ -74,9 +77,20 @@ pub fn set_thread_pace(game_mode: bool) {
     }
 }
 
+/// User-interactive QoS. Game Mode does not move a Go Live capture onto the utility queue.
+pub fn set_stream_priority() {
+    unsafe {
+        let _ = pthread_set_qos_class_self_np(0x21, 0);
+    }
+}
+
 impl Session {
     pub fn open(config: &LiveConfig) -> Result<Self, String> {
-        set_thread_pace(config.game_mode);
+        if config.stream {
+            set_stream_priority();
+        } else {
+            set_thread_pace(config.game_mode);
+        }
         let hevc = if config.hevc && hardware_codec(true) {
             true
         } else if hardware_codec(false) {
@@ -93,6 +107,8 @@ impl Session {
             started: Instant::now(),
             fps: config.fps.max(1),
             hevc,
+            force_idr: AtomicBool::new(false),
+            audio: Mutex::new(Vec::new()),
         });
         let vt = unsafe { open_encoder(config, hevc, Arc::as_ptr(&state) as *mut c_void)? };
         *state.vt.lock().unwrap_or_else(|err| err.into_inner()) = vt as usize;
@@ -137,6 +153,15 @@ impl Session {
             .lock()
             .unwrap_or_else(|err| err.into_inner());
         Ok(std::mem::take(&mut *packets))
+    }
+
+    pub fn request_idr(&mut self) {
+        self.state.force_idr.store(true, Ordering::Relaxed);
+    }
+
+    pub fn pull_audio(&mut self) -> Vec<f32> {
+        let mut audio = self.state.audio.lock().unwrap_or_else(|err| err.into_inner());
+        std::mem::take(&mut *audio)
     }
 }
 
@@ -201,10 +226,21 @@ unsafe fn open_stream(
         return Err("No display found.".into());
     }
     let main = CGMainDisplayID();
+    let screen_index = config.source.strip_prefix("screen:").and_then(|text| text.parse::<usize>().ok());
+    let window_id = config.source.strip_prefix("window:").and_then(|text| text.parse::<u32>().ok());
     let mut chosen: *mut Object = std::ptr::null_mut();
+    let mut seen = 0usize;
     for index in 0..count {
         let display: *mut Object = msg_send![displays, objectAtIndex: index];
         let id: usize = msg_send![display, displayID];
+        if let Some(want) = screen_index {
+            if seen == want {
+                chosen = display;
+                break;
+            }
+            seen += 1;
+            continue;
+        }
         if chosen.is_null() || id as u32 == main {
             chosen = display;
         }
@@ -212,15 +248,56 @@ unsafe fn open_stream(
             break;
         }
     }
+    let mut window: *mut Object = std::ptr::null_mut();
+    if let Some(want) = window_id {
+        let windows: *mut Object = msg_send![content, windows];
+        let window_count: usize = msg_send![windows, count];
+        for index in 0..window_count {
+            let item: *mut Object = msg_send![windows, objectAtIndex: index];
+            let id: u32 = msg_send![item, windowID];
+            if id == want {
+                window = item;
+                break;
+            }
+        }
+    }
     let empty: *mut Object = msg_send![class!(NSArray), array];
     let filter: *mut Object = msg_send![class!(SCContentFilter), alloc];
-    let filter: *mut Object = msg_send![filter, initWithDisplay: chosen excludingWindows: empty];
+    let filter: *mut Object = if !window.is_null() {
+        let independent = sel!(initWithDesktopIndependentWindow:);
+        let responds: bool = msg_send![filter, respondsToSelector: independent];
+        if responds {
+            msg_send![filter, initWithDesktopIndependentWindow: window]
+        } else {
+            msg_send![filter, initWithWindow: window]
+        }
+    } else {
+        msg_send![filter, initWithDisplay: chosen excludingWindows: empty]
+    };
     let stream_config: *mut Object = msg_send![class!(SCStreamConfiguration), new];
     let _: () = msg_send![stream_config, setWidth: config.width as usize];
     let _: () = msg_send![stream_config, setHeight: config.height as usize];
     let _: () = msg_send![stream_config, setPixelFormat: 0x4247_5241u32];
     let _: () = msg_send![stream_config, setShowsCursor: true];
-    let depth: isize = if config.game_mode { 1 } else { 2 };
+    if config.stream && config.app_audio {
+        let captures = sel!(setCapturesAudio:);
+        let responds: bool = msg_send![stream_config, respondsToSelector: captures];
+        if responds {
+            let _: () = msg_send![stream_config, setCapturesAudio: true];
+        }
+        let exclude = sel!(setExcludesCurrentProcessAudio:);
+        let responds: bool = msg_send![stream_config, respondsToSelector: exclude];
+        if responds {
+            let _: () = msg_send![stream_config, setExcludesCurrentProcessAudio: true];
+        }
+    }
+    let depth: isize = if config.stream {
+        2
+    } else if config.game_mode {
+        1
+    } else {
+        2
+    };
     let _: () = msg_send![stream_config, setQueueDepth: depth];
     let interval = CmTime {
         value: 1,
@@ -239,13 +316,23 @@ unsafe fn open_stream(
     (*output).set_ivar("sink", sink);
     let label = b"lark.clip\0".as_ptr() as *const c_char;
     let queue = dispatch_queue_create(label, std::ptr::null());
-    let qos: isize = if config.game_mode { 0x11 } else { 0x19 };
+    let qos: isize = if config.stream {
+        0x21
+    } else if config.game_mode {
+        0x11
+    } else {
+        0x19
+    };
     let target = dispatch_get_global_queue(qos, 0);
     dispatch_set_target_queue(queue, target);
     let stream: *mut Object = msg_send![class!(SCStream), alloc];
     let stream: *mut Object = msg_send![stream, initWithFilter: filter configuration: stream_config delegate: std::ptr::null_mut::<Object>()];
     let mut add_error: *mut Object = std::ptr::null_mut();
     let added: bool = msg_send![stream, addStreamOutput: output type: 0usize sampleHandlerQueue: queue error: &mut add_error];
+    if added && config.stream && config.app_audio {
+        let mut audio_error: *mut Object = std::ptr::null_mut();
+        let _: bool = msg_send![stream, addStreamOutput: output type: 1usize sampleHandlerQueue: queue error: &mut audio_error];
+    }
     if !added {
         let _: () = msg_send![content, release];
         return Err(describe(add_error));
@@ -271,6 +358,79 @@ unsafe fn open_stream(
         ));
     }
     Ok((stream, output, queue))
+}
+
+#[repr(C)]
+struct AudioStreamBasicDescription {
+    sample_rate: f64,
+    format_id: u32,
+    format_flags: u32,
+    bytes_per_packet: u32,
+    frames_per_packet: u32,
+    bytes_per_frame: u32,
+    channels: u32,
+    bits: u32,
+    reserved: u32,
+}
+
+fn capture_audio(this: &Object, sample: *mut Object) {
+    let sink = unsafe { *this.get_ivar::<*mut c_void>("sink") } as *const Shared;
+    if sink.is_null() {
+        return;
+    }
+    let state = unsafe { &*sink };
+    unsafe {
+        let format = CMSampleBufferGetFormatDescription(sample as *mut c_void);
+        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format);
+        if asbd.is_null() {
+            return;
+        }
+        let desc = &*asbd;
+        if desc.bits != 32 || desc.channels == 0 {
+            return;
+        }
+        let block = CMSampleBufferGetDataBuffer(sample as *mut c_void);
+        if block.is_null() {
+            return;
+        }
+        let length = CMBlockBufferGetDataLength(block);
+        if length < 4 {
+            return;
+        }
+        let mut bytes = vec![0u8; length];
+        if CMBlockBufferCopyDataBytes(block, 0, length, bytes.as_mut_ptr() as *mut c_void) != 0 {
+            return;
+        }
+        let floats = bytes.len() / 4;
+        let pcm = std::slice::from_raw_parts(bytes.as_ptr() as *const f32, floats);
+        let channels = desc.channels as usize;
+        let mut mono = Vec::with_capacity(floats / channels);
+        let mut index = 0;
+        while index + channels <= pcm.len() {
+            let mut sum = 0f32;
+            for channel in 0..channels {
+                sum += pcm[index + channel];
+            }
+            mono.push(sum / channels as f32);
+            index += channels;
+        }
+        let rate = if desc.sample_rate > 1.0 { desc.sample_rate.round() as u32 } else { 48_000 };
+        if rate != 48_000 && !mono.is_empty() {
+            let out_len = ((mono.len() as u64 * 48_000) / u64::from(rate.max(1))).max(1) as usize;
+            let mut scaled = Vec::with_capacity(out_len);
+            for step in 0..out_len {
+                let src = (step as u64 * u64::from(rate)) / 48_000;
+                scaled.push(mono[src.min(mono.len() as u64 - 1) as usize]);
+            }
+            mono = scaled;
+        }
+        let mut audio = state.audio.lock().unwrap_or_else(|err| err.into_inner());
+        audio.extend(mono);
+        if audio.len() > 48_000 {
+            let extra = audio.len() - 48_000;
+            audio.drain(..extra);
+        }
+    }
 }
 
 fn describe(error: *mut Object) -> String {
@@ -313,7 +473,14 @@ extern "C" fn did_output(
     sample: *mut Object,
     kind: isize,
 ) {
-    if kind != 0 || sample.is_null() {
+    if sample.is_null() {
+        return;
+    }
+    if kind == 1 {
+        capture_audio(this, sample);
+        return;
+    }
+    if kind != 0 {
         return;
     }
     let sink = unsafe { *this.get_ivar::<*mut c_void>("sink") } as *const Shared;
@@ -331,16 +498,25 @@ extern "C" fn did_output(
         return;
     }
     let pts_ms = state.started.elapsed().as_millis() as u64;
+    let force = state.force_idr.swap(false, Ordering::Relaxed);
     let status = unsafe {
-        VTCompressionSessionEncodeFrame(
+        let mut frame_props = std::ptr::null_mut();
+        if force {
+            frame_props = cf_dict(&[kVTEncodeFrameOptionKey_ForceKeyFrame], &[kCFBooleanTrue]);
+        }
+        let status = VTCompressionSessionEncodeFrame(
             vt,
             image,
             cm_time(pts_ms as i64, 1000),
             cm_time(1, state.fps as i32),
-            std::ptr::null(),
+            frame_props,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-        )
+        );
+        if !frame_props.is_null() {
+            CFRelease(frame_props);
+        }
+        status
     };
     if status != 0 {
         *state.error.lock().unwrap_or_else(|err| err.into_inner()) =
@@ -360,7 +536,12 @@ unsafe fn open_encoder(
     };
     let bitrate = cf_number_i32(config.bitrate as i32);
     let frame_rate = cf_number_i32(config.fps.max(1) as i32);
-    let key_interval = cf_number_i32(config.fps.max(1) as i32);
+    let idr = if config.stream {
+        if config.idr_interval == 0 { config.fps.max(1).saturating_mul(2) } else { config.idr_interval }
+    } else {
+        config.fps.max(1)
+    };
+    let key_interval = cf_number_i32(idr as i32);
     let require = cf_dict(
         &[kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder],
         &[kCFBooleanTrue],
@@ -689,6 +870,7 @@ unsafe extern "C" {
     static kVTCompressionPropertyKey_AverageBitRate: *const c_void;
     static kVTCompressionPropertyKey_ExpectedFrameRate: *const c_void;
     static kVTCompressionPropertyKey_MaxKeyFrameInterval: *const c_void;
+    static kVTEncodeFrameOptionKey_ForceKeyFrame: *const c_void;
     static kVTProfileLevel_H264_Baseline_AutoLevel: *const c_void;
     static kVTProfileLevel_HEVC_Main_AutoLevel: *const c_void;
     static kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: *const c_void;
@@ -742,6 +924,7 @@ unsafe extern "C" {
 
     fn CMSampleBufferGetImageBuffer(sample: *mut c_void) -> *mut c_void;
     fn CMSampleBufferGetFormatDescription(sample: *mut c_void) -> *mut c_void;
+    fn CMAudioFormatDescriptionGetStreamBasicDescription(format: *mut c_void) -> *const AudioStreamBasicDescription;
     fn CMSampleBufferGetDataBuffer(sample: *mut c_void) -> *mut c_void;
     fn CMSampleBufferGetSampleAttachmentsArray(sample: *mut c_void, create: i32) -> *mut c_void;
     fn CMBlockBufferGetDataLength(block: *mut c_void) -> usize;

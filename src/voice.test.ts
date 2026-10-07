@@ -38,6 +38,7 @@ describe("voice roster", () => {
     const kept = participantsIn(roster, guild, booth)[0];
     expect(kept.name).toBe("Jonah");
     expect(kept.speaking).toBe(true);
+    expect(kept.sharing).toBe(false);
     expect(kept.volume).toBe(80);
     expect(participantsIn(roster, guild, other)).toHaveLength(0);
   });
@@ -63,5 +64,16 @@ describe("voice roster", () => {
     expect(participantsIn(roster, guild, booth)[0].streamLabel).toBeUndefined();
     hydrateMix(roster, { "2": { volume: 40, muted: false } });
     expect(participantsIn(roster, guild, booth)[0]).toMatchObject({ volume: 40, localMuted: false, sharing: true });
+  });
+
+  it("keeps a Go Live flag until a voice state clears it", () => {
+    const roster: VoiceRoster = {};
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "2", name: "Maya", selfStream: true });
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "2", name: "Maya" });
+    expect(participantsIn(roster, guild, booth)[0].sharing).toBe(true);
+    replaceGuildVoice(roster, guild, [{ guildId: guild, channelId: booth, userId: "2", name: "Maya" }]);
+    expect(participantsIn(roster, guild, booth)[0].sharing).toBe(true);
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "2", name: "Maya", selfStream: false });
+    expect(participantsIn(roster, guild, booth)[0].sharing).toBe(false);
   });
 });

@@ -140,6 +140,26 @@ pub enum ClientEvent {
         endpoint: String,
         token: String,
     },
+    /// STREAM_CREATE. The stream key is `guild:…` or `call:…`.
+    StreamCreate {
+        stream_key: String,
+        paused: bool,
+        region: String,
+    },
+    /// STREAM_SERVER_UPDATE. The token stays on the stream socket and is not shown.
+    StreamServer {
+        stream_key: String,
+        endpoint: String,
+        token: String,
+        guild_id: String,
+    },
+    StreamUpdate {
+        stream_key: String,
+        paused: bool,
+    },
+    StreamDelete {
+        stream_key: String,
+    },
     VoiceState(ClientVoiceState),
     VoiceStates {
         guild_id: String,
@@ -290,6 +310,18 @@ pub enum GatewayCommand {
         channel_id: String,
         ranges: Vec<(u32, u32)>,
     },
+    /// Opcode 18. Opens a Go Live stream for the voice channel.
+    StreamCreate {
+        guild: bool,
+        guild_id: Option<String>,
+        channel_id: String,
+    },
+    /// Opcode 19.
+    StreamDelete { stream_key: String },
+    /// Opcode 20. Watch someone else's stream.
+    StreamWatch { stream_key: String },
+    /// Opcode 22.
+    StreamSetPaused { stream_key: String, paused: bool },
 }
 
 pub fn gateway_command_payload(command: &GatewayCommand) -> String {
@@ -307,6 +339,19 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
             channel_id,
             ranges,
         } => lazy_guild_payload(guild_id, channel_id, ranges),
+        GatewayCommand::StreamCreate { guild, guild_id, channel_id } => {
+            let kind = if *guild {
+                super::stream::StreamKind::Guild
+            } else {
+                super::stream::StreamKind::Call
+            };
+            super::stream::stream_create_payload(kind, guild_id.as_deref(), channel_id)
+        }
+        GatewayCommand::StreamDelete { stream_key } => super::stream::stream_delete_payload(stream_key),
+        GatewayCommand::StreamWatch { stream_key } => super::stream::stream_watch_payload(stream_key),
+        GatewayCommand::StreamSetPaused { stream_key, paused } => {
+            super::stream::stream_set_paused_payload(stream_key, *paused)
+        }
         GatewayCommand::Presence { status, custom } => {
             let activities = if custom.is_empty() {
                 Vec::<serde_json::Value>::new()
@@ -1201,6 +1246,12 @@ fn handle_dispatch(
             }
             false
         }
+        "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_UPDATE" | "STREAM_DELETE" => {
+            if let Some(event) = stream_client_event(name, data) {
+                emit(event);
+            }
+            false
+        }
         "VOICE_SERVER_UPDATE" => {
             let endpoint = json_str(data, "endpoint");
             let token = json_str(data, "token");
@@ -1415,6 +1466,17 @@ fn parse_member_op(value: &Value) -> Option<MemberListOp> {
 // The reaction helper above is intentionally replaced by passing the event name.
 // Keep a single implementation that uses the dispatch name.
 
+fn stream_client_event(name: &str, data: &Value) -> Option<ClientEvent> {
+    match super::stream::parse_stream_dispatch(name, data)? {
+        super::stream::StreamDispatch::Create { stream_key, paused, region } => Some(ClientEvent::StreamCreate { stream_key, paused, region }),
+        super::stream::StreamDispatch::Server { stream_key, endpoint, token, guild_id } => {
+            Some(ClientEvent::StreamServer { stream_key, endpoint, token, guild_id })
+        }
+        super::stream::StreamDispatch::Update { stream_key, paused } => Some(ClientEvent::StreamUpdate { stream_key, paused }),
+        super::stream::StreamDispatch::Delete { stream_key } => Some(ClientEvent::StreamDelete { stream_key }),
+    }
+}
+
 fn emit_reaction(name: &str, data: &Value, emit: &mut impl FnMut(ClientEvent)) {
     let channel_id = json_str(data, "channel_id");
     let message_id = json_str(data, "message_id");
@@ -1460,6 +1522,49 @@ mod tests {
         let value = serde_json::to_value(&events[0]).unwrap();
         assert_eq!(value["kind"], "userNote");
         assert_eq!(value["userId"], "100000000000000002");
+    }
+
+    #[test]
+    fn go_live_commands_use_the_stream_opcodes() {
+        let create = gateway_command_payload(&GatewayCommand::StreamCreate {
+            guild: true,
+            guild_id: Some("10".into()),
+            channel_id: "20".into(),
+        });
+        assert!(create.contains("\"op\":18"));
+        let paused = gateway_command_payload(&GatewayCommand::StreamSetPaused {
+            stream_key: "guild:10:20:30".into(),
+            paused: true,
+        });
+        assert!(paused.contains("\"op\":22"));
+        let delete = gateway_command_payload(&GatewayCommand::StreamDelete {
+            stream_key: "guild:10:20:30".into(),
+        });
+        assert!(delete.contains("\"op\":19"));
+        let watch = gateway_command_payload(&GatewayCommand::StreamWatch {
+            stream_key: "guild:10:20:30".into(),
+        });
+        assert!(watch.contains("\"op\":20"));
+    }
+
+    #[test]
+    fn stream_server_update_becomes_a_client_event() {
+        let event = stream_client_event(
+            "STREAM_SERVER_UPDATE",
+            &serde_json::json!({
+                "stream_key": "guild:10:20:30",
+                "endpoint": "a.discord.media:443",
+                "token": "secret",
+                "guild_id": "10"
+            }),
+        );
+        match event {
+            Some(ClientEvent::StreamServer { token, endpoint, .. }) => {
+                assert_eq!(token, "secret");
+                assert!(endpoint.contains("discord.media"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

@@ -102,6 +102,7 @@ export function renderCallStage(host: HTMLElement, tiles: StageTile[], motion: R
   host.className = "voice-stage";
   host.setAttribute("aria-label", "Voice call");
   const grid = el("div", "voice-grid");
+  grid.dataset.callGrid = "";
   grid.setAttribute("role", "list");
   if (!tiles.length) grid.append(el("p", "voice-empty", "Nobody is in this channel yet."));
   for (const tile of tiles) grid.append(tileView(tile, motion, handlers.onMenu));
@@ -116,7 +117,15 @@ function tileView(tile: StageTile, motion: RingMotion, onMenu: CallStageHandlers
   if (tile.kind !== "avatar") {
     const media = el("div", "voice-media");
     media.dataset.media = tile.kind;
-    media.append(icon(tile.kind === "screen" ? paths.monitor : paths.camera), el("span", "", tile.kind === "screen" ? "Screen" : "Camera"));
+    if (tile.kind === "screen") {
+      node.dataset.streamHost = tile.userId;
+      const slot = el("div", "stream-slot");
+      slot.dataset.streamSlot = "";
+      slot.append(icon(paths.monitor), el("span", "", "Screen"));
+      media.append(slot);
+    } else {
+      media.append(icon(paths.camera), el("span", "", "Camera"));
+    }
     node.append(media);
   }
   if (tile.badge) node.append(el("span", "voice-tile-live", tile.badge));

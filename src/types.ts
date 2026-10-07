@@ -81,6 +81,12 @@ export interface AppConfig {
     /** Hex color for the speaking ring. Discord green when unset. */
     speak_color: string;
     levels: Record<string, UserMix>;
+    /** 720, 1080, 1440, 2160, or source. */
+    share_resolution: string;
+    share_fps: number;
+    share_app_audio: boolean;
+    /** auto, nvenc, amf, qsv, videotoolbox, or media-foundation. */
+    share_encoder: string;
   };
   soundboard: { clips: SoundClip[] };
   desktop: {

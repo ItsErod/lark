@@ -8,6 +8,8 @@
 #[cfg(target_os = "macos")]
 mod capture_mac;
 #[cfg(windows)]
+mod audio_win;
+#[cfg(windows)]
 mod capture_win;
 #[cfg(windows)]
 mod media_foundation;
@@ -15,7 +17,11 @@ mod media_foundation;
 mod videotoolbox;
 
 /// What the capture thread asks the hardware encoder to hold.
-#[derive(Debug, Clone, Copy)]
+///
+/// A Go Live session sets `stream`. That session is CBR, low latency, with no
+/// B-frames and its own IDR period. `game_mode` is ignored while `stream` is set:
+/// Game Mode may slow clips and UI polls, and it must not slow the share.
+#[derive(Debug, Clone)]
 pub struct LiveConfig {
     pub width: u32,
     pub height: u32,
@@ -23,6 +29,11 @@ pub struct LiveConfig {
     pub bitrate: u32,
     pub hevc: bool,
     pub game_mode: bool,
+    pub stream: bool,
+    pub source: String,
+    pub app_audio: bool,
+    pub encoder: String,
+    pub idr_interval: u32,
 }
 
 /// One encoded access unit, still in the encoder's own layout.
@@ -106,6 +117,31 @@ impl LiveSession {
         #[cfg(not(any(windows, target_os = "macos")))]
         {
             Err("Hardware capture is available on macOS and Windows.".into())
+        }
+    }
+
+    /// Ask the stream encoder for an IDR. A PLI from the viewer sets this.
+    pub fn request_idr(&mut self) {
+        #[cfg(windows)]
+        self.inner.request_idr();
+        #[cfg(target_os = "macos")]
+        self.inner.request_idr();
+    }
+
+    /// App audio captured with the picture, mono f32 at 48 kHz. Empty when the
+    /// source has no loopback.
+    pub fn pull_audio(&mut self) -> Vec<f32> {
+        #[cfg(windows)]
+        {
+            return self.inner.pull_audio();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            return self.inner.pull_audio();
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            Vec::new()
         }
     }
 }

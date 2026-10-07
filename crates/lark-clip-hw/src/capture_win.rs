@@ -6,11 +6,12 @@
 //! and a Media Foundation hardware transform (NVENC, AMF, or Quick Sync) emits
 //! H.264 or HEVC access units. The ring stores those units, not the textures.
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use windows::core::Interface;
-use windows::Win32::Foundation::{HMODULE, POINT};
+use windows::Win32::Foundation::{HMODULE, HWND, POINT};
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0};
 use windows::Win32::Graphics::Direct3D11::D3D11_TEX2D_VPIV;
 use windows::Win32::Graphics::Direct3D11::D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0;
@@ -48,7 +49,8 @@ use windows::Win32::Media::MediaFoundation::{
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_MULTITHREADED};
 use windows::Win32::System::Threading::{
-    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL,
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL,
+    THREAD_PRIORITY_NORMAL,
 };
 
 use crate::{HardwareProbe, LiveConfig, LivePacket};
@@ -87,6 +89,13 @@ pub fn set_thread_pace(game_mode: bool) {
     }
 }
 
+/// Go Live stays above the game. Game Mode must not call this with a low priority.
+pub fn set_stream_priority() {
+    unsafe {
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    }
+}
+
 pub struct Session {
     backend: &'static str,
     hevc: bool,
@@ -101,19 +110,32 @@ pub struct Session {
     wgc: Option<Wgc>,
     scaler: Scaler,
     encoder: Encoder,
+    stream: bool,
+    idr_every: u64,
+    force_idr: Arc<AtomicBool>,
+    audio: Option<crate::audio_win::AudioPump>,
 }
 
 impl Session {
     pub fn open(config: &LiveConfig) -> Result<Self, String> {
         com_init()?;
-        set_thread_pace(config.game_mode);
-        let found = primary_output()?;
-        let (device, context) = create_device(&found.adapter)?;
-        let duplication = duplicate(&found.output, &device).ok();
-        let wgc = if duplication.is_none() {
-            Some(Wgc::start(&device, found.monitor, config.game_mode)?)
+        if config.stream {
+            set_stream_priority();
         } else {
-            None
+            set_thread_pace(config.game_mode);
+        }
+        let found = output_for(&config.source)?;
+        let (device, context) = create_device(&found.adapter)?;
+        let (duplication, wgc) = if config.stream {
+            open_stream_capture(&device, &found, config)?
+        } else {
+            let duplication = duplicate(&found.output, &device).ok();
+            let wgc = if duplication.is_none() {
+                Some(Wgc::start(&device, found.monitor, config.game_mode)?)
+            } else {
+                None
+            };
+            (duplication, wgc)
         };
         if duplication.is_none() && wgc.is_none() {
             return Err("Couldn't start DXGI or Windows Graphics Capture.".into());
@@ -139,7 +161,27 @@ impl Session {
             wgc,
             scaler,
             encoder,
+            stream: config.stream,
+            idr_every: if config.stream {
+                u64::from(if config.idr_interval == 0 { config.fps.max(1).saturating_mul(2) } else { config.idr_interval }).max(2)
+            } else {
+                u64::from(config.fps.max(1))
+            },
+            force_idr: Arc::new(AtomicBool::new(false)),
+            audio: if config.stream && config.app_audio {
+                crate::audio_win::AudioPump::start(&config.source).ok()
+            } else {
+                None
+            },
         })
+    }
+
+    pub fn request_idr(&mut self) {
+        self.force_idr.store(true, Ordering::Relaxed);
+    }
+
+    pub fn pull_audio(&mut self) -> Vec<f32> {
+        self.audio.as_ref().map(|audio| audio.pull()).unwrap_or_default()
     }
 
     pub fn backend(&self) -> &'static str {
@@ -181,7 +223,10 @@ impl Session {
             return Err("The capture session has no display.".into());
         };
         let pts_ms = self.started.elapsed().as_millis() as u64;
-        let force_key = self.frame_index == 0 || self.frame_index % u64::from(self.fps.max(1)) == 0;
+        let period = if self.stream { self.idr_every } else { u64::from(self.fps.max(1)) };
+        let force_key = self.force_idr.swap(false, Ordering::Relaxed)
+            || self.frame_index == 0
+            || self.frame_index % period.max(1) == 0;
         self.frame_index += 1;
         self.encoder.encode(&texture, pts_ms, self.fps, force_key)
     }
@@ -267,6 +312,78 @@ fn primary_output() -> Result<FoundOutput, String> {
         }
         chosen.ok_or_else(|| "No display found.".into())
     }
+}
+
+fn output_for(source: &str) -> Result<FoundOutput, String> {
+    let index = source
+        .strip_prefix("screen:")
+        .and_then(|text| text.parse::<u32>().ok());
+    if index.is_none() || index == Some(0) {
+        return primary_output();
+    }
+    let want = index.unwrap_or(0);
+    let outputs = list_outputs()?;
+    outputs.into_iter().nth(want as usize).or_else(|| {
+        list_outputs().ok().and_then(|mut items| items.pop())
+    }).ok_or_else(|| "No display found.".into())
+}
+
+fn list_outputs() -> Result<Vec<FoundOutput>, String> {
+    unsafe {
+        let factory: IDXGIFactory1 =
+            CreateDXGIFactory1().map_err(|err| format!("Couldn't enumerate displays: {err}"))?;
+        let mut found = Vec::new();
+        let mut index = 0u32;
+        while let Ok(adapter) = factory.EnumAdapters1(index) {
+            let mut output_index = 0u32;
+            while let Ok(output) = adapter.EnumOutputs(output_index) {
+                if let Ok(desc) = output.GetDesc() {
+                    let width = desc.DesktopCoordinates.right.saturating_sub(desc.DesktopCoordinates.left).max(0) as u32;
+                    let height = desc.DesktopCoordinates.bottom.saturating_sub(desc.DesktopCoordinates.top).max(0) as u32;
+                    found.push(FoundOutput {
+                        adapter: adapter.clone(),
+                        output,
+                        monitor: desc.Monitor,
+                        width,
+                        height,
+                        refresh_hz: refresh_hz(&desc.DeviceName),
+                    });
+                }
+                output_index += 1;
+            }
+            index += 1;
+        }
+        if found.is_empty() {
+            Err("No display found.".into())
+        } else {
+            Ok(found)
+        }
+    }
+}
+
+fn open_stream_capture(
+    device: &ID3D11Device,
+    found: &FoundOutput,
+    config: &crate::LiveConfig,
+) -> Result<(Option<IDXGIOutputDuplication>, Option<Wgc>), String> {
+    if let Some(hwnd) = window_handle(&config.source) {
+        let wgc = Wgc::start_window(device, hwnd)?;
+        return Ok((None, Some(wgc)));
+    }
+    if let Ok(wgc) = Wgc::start(device, found.monitor, false) {
+        return Ok((None, Some(wgc)));
+    }
+    let duplication = duplicate(&found.output, device)?;
+    Ok((Some(duplication), None))
+}
+
+fn window_handle(source: &str) -> Option<HWND> {
+    let text = source.strip_prefix("window:")?;
+    let value = text.parse::<isize>().ok()?;
+    if value == 0 {
+        return None;
+    }
+    Some(HWND(value as *mut std::ffi::c_void))
 }
 
 fn refresh_hz(name: &[u16]) -> u32 {
@@ -407,7 +524,7 @@ impl Scaler {
             let processor = video_device
                 .CreateVideoProcessor(&enumerator, 0)
                 .map_err(|err| format!("The GPU cannot scale frames: {err}"))?;
-            let mut desc = D3D11_TEXTURE2D_DESC {
+            let desc = D3D11_TEXTURE2D_DESC {
                 Width: width,
                 Height: height,
                 MipLevels: 1,
@@ -636,14 +753,23 @@ fn activate_encoder(
             return Err("No hardware encoder is available.".into());
         }
         let list = std::slice::from_raw_parts(activates, count as usize);
+        let prefer = config.encoder.to_ascii_lowercase();
         let mut chosen: Option<(IMFTransform, &'static str)> = None;
+        let mut fallback: Option<(IMFTransform, &'static str)> = None;
         for activate in list.iter().flatten() {
             let vendor = vendor_of(activate);
             if let Ok(transform) = activate.ActivateObject::<IMFTransform>() {
-                if prepare_transform(&transform, device, config, hevc).is_ok() && chosen.is_none() {
-                    chosen = Some((transform, vendor));
+                if prepare_transform(&transform, device, config, hevc).is_ok() {
+                    if !prefer.is_empty() && prefer != "auto" && vendor == prefer.as_str() && chosen.is_none() {
+                        chosen = Some((transform, vendor));
+                    } else if fallback.is_none() {
+                        fallback = Some((transform, vendor));
+                    }
                 }
             }
+        }
+        if chosen.is_none() {
+            chosen = fallback;
         }
         CoTaskMemFree(Some(activates as *const std::ffi::c_void));
         let (transform, vendor) = chosen.ok_or("No hardware encoder accepted this format.")?;
@@ -751,8 +877,37 @@ unsafe fn prepare_transform(
     transform
         .ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)
         .map_err(|err| format!("The hardware encoder did not start: {err}"))?;
+    if config.stream {
+        apply_stream_codec(transform, config);
+    }
     let _ = hevc;
     Ok(())
+}
+
+unsafe fn apply_stream_codec(transform: &IMFTransform, config: &crate::LiveConfig) {
+    use windows::Win32::Media::MediaFoundation::{
+        CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize, CODECAPI_AVEncMPVDefaultBPictureCount,
+        CODECAPI_AVLowLatencyMode, ICodecAPI,
+    };
+    let Ok(codec) = transform.cast::<ICodecAPI>() else { return };
+    let gop = if config.idr_interval == 0 {
+        config.fps.max(1).saturating_mul(2)
+    } else {
+        config.idr_interval
+    };
+    let _ = set_codec_u32(&codec, &CODECAPI_AVLowLatencyMode, 1);
+    let _ = set_codec_u32(&codec, &CODECAPI_AVEncCommonRateControlMode, 0);
+    let _ = set_codec_u32(&codec, &CODECAPI_AVEncMPVDefaultBPictureCount, 0);
+    let _ = set_codec_u32(&codec, &CODECAPI_AVEncMPVGOPSize, gop);
+}
+
+unsafe fn set_codec_u32(codec: &windows::Win32::Media::MediaFoundation::ICodecAPI, key: &windows::core::GUID, value: u32) -> Result<(), String> {
+    use windows::Win32::System::Variant::{VARIANT, VT_UI4};
+    let mut variant = VARIANT::default();
+    let inner = &mut *variant.Anonymous.Anonymous;
+    inner.vt = VT_UI4;
+    inner.Anonymous.ulVal = value;
+    codec.SetValue(key, &variant).map_err(|err| err.to_string())
 }
 
 unsafe fn attach_device(transform: &IMFTransform, device: &ID3D11Device) -> Result<(), String> {
@@ -925,6 +1080,38 @@ impl Wgc {
             session
                 .StartCapture()
                 .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            Ok(Self { pool, session })
+        }
+    }
+
+    fn start_window(device: &ID3D11Device, window: HWND) -> Result<Self, String> {
+        unsafe {
+            use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
+            use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
+            use windows::Graphics::DirectX::DirectXPixelFormat;
+            use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11DeviceFromDXGIDevice;
+            use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
+            let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let item: GraphicsCaptureItem = interop
+                .CreateForWindow(window)
+                .map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            let dxgi: IDXGIDevice = device.cast().map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let inspectable = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
+                .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let winrt_device: IDirect3DDevice = inspectable.cast().map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let size = item.Size().map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+                &winrt_device,
+                DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                2,
+                size,
+            )
+            .map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            let session = pool.CreateCaptureSession(&item).map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            let _ = session.SetIsBorderRequired(false);
+            let _ = session.SetIsCursorCaptureEnabled(true);
+            session.StartCapture().map_err(|err| format!("Couldn't capture that window: {err}"))?;
             Ok(Self { pool, session })
         }
     }
