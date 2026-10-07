@@ -15,6 +15,7 @@ export function commandCatalog(): CommandItem[] {
     { id: "mute", label: "Toggle mute", hint: "Microphone", keywords: "mute mic voice" },
     { id: "deafen", label: "Toggle deafen", hint: "Speakers", keywords: "deafen headset voice" },
     { id: "leave-voice", label: "Leave voice", hint: "Disconnect the call", keywords: "voice hangup leave" },
+    { id: "call", label: "Toggle call view", hint: "Open the call grid, or return to the text channel", keywords: "voice call grid split popout" },
     { id: "voice-hud", label: "Toggle voice HUD", hint: "Who is talking, on top of a game", keywords: "voice hud overlay speaking mute game" },
     { id: "perf-overlay", label: "Toggle performance overlay", hint: "RAM, CPU, and FPS on the voice HUD", keywords: "performance overlay fps cpu ram stats game" },
     { id: "game-mode", label: "Toggle Game Mode", hint: "Pause animations and ease polling", keywords: "game mode performance battery overlay" },

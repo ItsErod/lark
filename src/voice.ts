@@ -8,6 +8,12 @@ export interface VoiceStateInput {
   selfDeaf?: boolean;
   serverMute?: boolean;
   serverDeaf?: boolean;
+  /** Camera tile. Omitted leaves the previous value. */
+  video?: boolean;
+  /** Screen or Go Live tile. Omitted leaves the previous value. */
+  sharing?: boolean;
+  /** Short label drawn on a stream tile. Empty clears it. Omitted leaves the previous value. */
+  streamLabel?: string;
 }
 
 export interface VoiceParticipant {
@@ -24,6 +30,9 @@ export interface VoiceParticipant {
   volume: number;
   /** Silences this person on this computer. Discord is not told. */
   localMuted: boolean;
+  video: boolean;
+  sharing: boolean;
+  streamLabel?: string;
 }
 
 export type VoiceRoster = Record<string, VoiceParticipant>;
@@ -61,13 +70,16 @@ export function applyVoiceState(roster: VoiceRoster, state: VoiceStateInput): Vo
     speaking: previous?.speaking ?? false,
     volume: previous?.volume ?? 100,
     localMuted: previous?.localMuted ?? false,
+    video: state.video ?? previous?.video ?? false,
+    sharing: state.sharing ?? previous?.sharing ?? false,
+    streamLabel: streamLabel(state.streamLabel, previous?.streamLabel),
   };
   roster[key] = participant;
   return participant;
 }
 
 export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: VoiceStateInput[]): void {
-  const kept = new Map<string, Pick<VoiceParticipant, "speaking" | "volume" | "localMuted" | "name" | "avatarUrl">>();
+  const kept = new Map<string, Pick<VoiceParticipant, "speaking" | "volume" | "localMuted" | "name" | "avatarUrl" | "video" | "sharing" | "streamLabel">>();
   for (const key of Object.keys(roster)) {
     const person = roster[key];
     if (person.guildId !== guildId) continue;
@@ -77,6 +89,9 @@ export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: 
       localMuted: person.localMuted,
       name: person.name,
       avatarUrl: person.avatarUrl,
+      video: person.video,
+      sharing: person.sharing,
+      streamLabel: person.streamLabel,
     });
     delete roster[key];
   }
@@ -90,8 +105,17 @@ export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: 
       participant.localMuted = prior.localMuted;
       if (!state.name || state.name === "Someone") participant.name = prior.name;
       if (!state.avatarUrl) participant.avatarUrl = prior.avatarUrl;
+      if (state.video === undefined) participant.video = prior.video;
+      if (state.sharing === undefined) participant.sharing = prior.sharing;
+      if (state.streamLabel === undefined) participant.streamLabel = prior.streamLabel;
     }
   }
+}
+
+function streamLabel(value: string | undefined, previous: string | undefined): string | undefined {
+  if (value === undefined) return previous;
+  const text = value.trim().slice(0, 16);
+  return text || undefined;
 }
 
 export function participantsIn(roster: VoiceRoster, guildId: string, channelId: string): VoiceParticipant[] {

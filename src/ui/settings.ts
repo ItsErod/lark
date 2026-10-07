@@ -83,6 +83,7 @@ export const SHORTCUT_COPY: Record<string, ShortcutCopy> = {
   toggle_perf_overlay: { label: "Performance overlay", description: "Add RAM, CPU, and FPS to the voice HUD." },
   toggle_game_mode: { label: "Game Mode", description: "Toggle Game Mode, including while a game is focused." },
   save_clip: { label: "Save clip", description: "Save the clip buffer. Global on macOS and Windows." },
+  toggle_call: { label: "Call view", description: "Open or close the call grid. Esc returns to the text channel." },
 };
 
 const SETTING_ENTRIES: readonly SettingEntry[] = [
@@ -99,6 +100,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "notifications.test", section: "notifications", label: "Test notification", description: "Send a sample so you can see where it lands." },
   { id: "notifications.keywords", section: "notifications", label: "Highlight keywords", description: "Messages that contain these words get a highlight.", keywords: "words ping" },
   { id: "shortcut.mark_read", section: "shortcuts", label: "Mark read", description: "Esc closes whatever is open first. With nothing open, it marks the channel read.", keywords: "escape" },
+  { id: "shortcut.toggle_call", section: "shortcuts", label: "Call view", description: "Open or close the call grid.", keywords: "voice hotkey split popout" },
   { id: "window.tray", section: "window", label: "Minimise to tray", description: "Closing the window leaves Lark in the menu bar or system tray.", keywords: "minimize tray" },
   { id: "window.login", section: "window", label: "Open at login", description: "Start Lark when you sign in to this computer.", keywords: "autostart startup" },
   { id: "window.frame", section: "window", label: "Frame rate", description: "Scrolling and transitions follow the monitor, up to this cap.", keywords: "fps hz 240 cap" },

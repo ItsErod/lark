@@ -2,6 +2,12 @@ import type { RingMotion, StageTile, VoiceLinkStatus } from "../voice-stage";
 import { signalBars, signalLabel } from "../voice-stage";
 import { clear, el, icon, portrait, paths } from "./dom";
 
+/**
+ * Call tiles are generic. A screen tile is the stream / Go Live slot: the same
+ * node is used in the grid and in picture-in-picture. `.voice-media` is the
+ * slot a stream preview attaches to. This file does not capture or encode.
+ */
+
 export interface CallClip {
   id: string;
   name: string;
@@ -41,6 +47,56 @@ export function signalMeter(status: VoiceLinkStatus): HTMLElement {
   return meter;
 }
 
+export interface StripPerson {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  speaking: boolean;
+}
+
+export function renderCallStrip(
+  host: HTMLElement,
+  people: { shown: StripPerson[]; extra: number },
+  motion: RingMotion,
+  handlers: { onOpen: () => void; onHide: () => void },
+): void {
+  clear(host);
+  host.className = "call-strip";
+  const open = el("button", "call-strip-open");
+  open.type = "button";
+  const names = people.shown.map((person) => person.name);
+  open.setAttribute("aria-label", names.length ? `Open call view, ${names.join(", ")}` : "Open call view");
+  const row = el("span", "call-strip-people");
+  for (const person of people.shown) {
+    const item = el("span", `call-strip-person${person.speaking ? " is-speaking" : ""}`);
+    item.title = person.name;
+    item.append(speakWrap(portrait(person.name, person.id, person.avatarUrl, true), motion));
+    row.append(item);
+  }
+  if (people.extra > 0) row.append(el("span", "call-strip-more", `+${people.extra}`));
+  open.append(row);
+  open.addEventListener("click", (event) => {
+    event.stopPropagation();
+    handlers.onOpen();
+  });
+  const hide = el("button", "icon-button call-strip-hide");
+  hide.type = "button";
+  hide.setAttribute("aria-label", "Hide call strip");
+  hide.title = "Hide call strip";
+  hide.append(icon(paths.chevronUp));
+  hide.addEventListener("click", (event) => {
+    event.stopPropagation();
+    handlers.onHide();
+  });
+  host.append(open, hide);
+}
+
+/** One media tile. The host is positioned by the picture-in-picture layout. */
+export function renderPipTile(host: HTMLElement, tile: StageTile, motion: RingMotion): void {
+  clear(host);
+  host.append(tileView(tile, motion, () => undefined));
+}
+
 export function renderCallStage(host: HTMLElement, tiles: StageTile[], motion: RingMotion, handlers: CallStageHandlers): void {
   clear(host);
   host.className = "voice-stage";
@@ -55,12 +111,15 @@ export function renderCallStage(host: HTMLElement, tiles: StageTile[], motion: R
 function tileView(tile: StageTile, motion: RingMotion, onMenu: CallStageHandlers["onMenu"]): HTMLElement {
   const node = el("article", `voice-tile is-${tile.kind}${tile.speaking ? " is-speaking" : ""}${tile.localMuted ? " is-local-muted" : ""}`);
   node.dataset.voiceUser = tile.userId;
+  node.dataset.kind = tile.kind;
   node.setAttribute("role", "listitem");
   if (tile.kind !== "avatar") {
     const media = el("div", "voice-media");
+    media.dataset.media = tile.kind;
     media.append(icon(tile.kind === "screen" ? paths.monitor : paths.camera), el("span", "", tile.kind === "screen" ? "Screen" : "Camera"));
     node.append(media);
   }
+  if (tile.badge) node.append(el("span", "voice-tile-live", tile.badge));
   const avatar = portrait(tile.name, tile.userId, tile.avatarUrl, tile.kind !== "avatar");
   node.append(speakWrap(avatar, motion, tile.kind === "avatar"));
   node.append(el("span", "voice-tile-name", tile.name));

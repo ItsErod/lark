@@ -33,6 +33,7 @@ export function defaultConfig(): AppConfig {
       toggle_perf_overlay: "mod+shift+p",
       toggle_game_mode: "mod+shift+g",
       save_clip: "mod+shift+c",
+      toggle_call: "mod+shift+v",
     },
     notifications: {
       default: "all",

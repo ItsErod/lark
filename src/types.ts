@@ -26,6 +26,7 @@ export interface Shortcuts {
   toggle_perf_overlay: string;
   toggle_game_mode: string;
   save_clip: string;
+  toggle_call: string;
 }
 
 export interface GameProfile {
