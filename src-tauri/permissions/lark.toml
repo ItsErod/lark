@@ -184,6 +184,11 @@ description = "Set your status."
 commands.allow = ["set_presence"]
 
 [[permission]]
+identifier = "allow-hardware-snapshot"
+description = "Read GPU, temperature, CPU, memory, and the current game when Settings allows it."
+commands.allow = ["hardware_snapshot"]
+
+[[permission]]
 identifier = "allow-ack-message"
 description = "Mark one channel read."
 commands.allow = ["ack_message"]

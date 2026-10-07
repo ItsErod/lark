@@ -25,6 +25,7 @@ pub struct Config {
     pub voice: Voice,
     pub desktop: Desktop,
     pub clips: Clips,
+    pub games: BTreeMap<String, GameProfile>,
     pub soundboard: Soundboard,
     pub accents: BTreeMap<String, String>,
 }
@@ -39,6 +40,7 @@ impl Default for Config {
             voice: Voice::default(),
             desktop: Desktop::default(),
             clips: Clips::default(),
+            games: BTreeMap::new(),
             soundboard: Soundboard::default(),
             accents: BTreeMap::new(),
         }
@@ -75,6 +77,13 @@ impl Config {
         } else {
             self.desktop.frame_cap.clamp(30, 240)
         };
+        self.games.retain(|name, profile| {
+            valid_game_name(name) && parse_shortcut(&profile.ptt_key).is_ok()
+        });
+        if self.games.len() > 40 {
+            let keep: Vec<String> = self.games.keys().take(40).cloned().collect();
+            self.games.retain(|name, _| keep.iter().any(|item| item == name));
+        }
         self.accents.retain(|id, color| {
             (5..=22).contains(&id.len())
                 && id.chars().all(|c| c.is_ascii_digit())
@@ -151,6 +160,10 @@ pub struct Shortcuts {
     pub toggle_deafen: String,
     pub push_to_talk: String,
     pub toggle_voice_overlay: String,
+    #[serde(default = "default_toggle_perf_overlay")]
+    pub toggle_perf_overlay: String,
+    #[serde(default = "default_toggle_game_mode")]
+    pub toggle_game_mode: String,
     pub save_clip: String,
 }
 
@@ -170,13 +183,15 @@ impl Default for Shortcuts {
             toggle_deafen: "mod+shift+d".into(),
             push_to_talk: "backquote".into(),
             toggle_voice_overlay: "mod+shift+o".into(),
+            toggle_perf_overlay: default_toggle_perf_overlay(),
+            toggle_game_mode: default_toggle_game_mode(),
             save_clip: "mod+shift+c".into(),
         }
     }
 }
 
 impl Shortcuts {
-    pub fn entries(&self) -> [(&str, &str); 14] {
+    pub fn entries(&self) -> [(&str, &str); 16] {
         [
             ("quick_switcher", self.quick_switcher.as_str()),
             ("open_settings", self.open_settings.as_str()),
@@ -191,9 +206,27 @@ impl Shortcuts {
             ("toggle_deafen", self.toggle_deafen.as_str()),
             ("push_to_talk", self.push_to_talk.as_str()),
             ("toggle_voice_overlay", self.toggle_voice_overlay.as_str()),
+            ("toggle_perf_overlay", self.toggle_perf_overlay.as_str()),
+            ("toggle_game_mode", self.toggle_game_mode.as_str()),
             ("save_clip", self.save_clip.as_str()),
         ]
     }
+}
+
+fn default_toggle_perf_overlay() -> String {
+    "mod+shift+p".into()
+}
+
+fn default_toggle_game_mode() -> String {
+    "mod+shift+g".into()
+}
+
+fn default_ptt_key() -> String {
+    "backquote".into()
+}
+
+fn default_game_mode_on() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,6 +336,14 @@ pub struct Desktop {
     /// When true, Lark may read GPU, CPU temperature, and the current game
     /// and publish them as the Discord custom status. Off until Settings says so.
     pub hardware_status: bool,
+    /// Performance strip in the voice HUD window. Off until Settings or the hotkey.
+    pub perf_overlay: bool,
+    /// Foreground-game reads for Game Mode. On until Settings turns it off.
+    /// This does not read GPU sensors.
+    #[serde(default = "default_game_mode_on")]
+    pub detect_games: bool,
+    /// Game Mode while no game is detected. A detected game uses its profile.
+    pub game_mode: bool,
 }
 
 impl Default for Desktop {
@@ -312,8 +353,43 @@ impl Default for Desktop {
             autostart: false,
             frame_cap: 240,
             hardware_status: false,
+            perf_overlay: false,
+            detect_games: true,
+            game_mode: false,
         }
     }
+}
+
+/// Saved switches for one detected game. The name is the map key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GameProfile {
+    pub ptt: bool,
+    #[serde(default = "default_ptt_key")]
+    pub ptt_key: String,
+    #[serde(default = "default_game_mode_on")]
+    pub game_mode: bool,
+    pub voice_overlay: bool,
+    pub perf_overlay: bool,
+}
+
+impl Default for GameProfile {
+    fn default() -> Self {
+        Self {
+            ptt: false,
+            ptt_key: default_ptt_key(),
+            game_mode: true,
+            voice_overlay: false,
+            perf_overlay: false,
+        }
+    }
+}
+
+fn valid_game_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty()
+        && trimmed.chars().count() <= 80
+        && trimmed.chars().all(|ch| !ch.is_control())
 }
 
 /// Local clip buffer. Recording also turns on while screen share is running.
@@ -485,6 +561,18 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
     for (action, shortcut) in cfg.shortcuts.entries() {
         parse_shortcut(shortcut).map_err(|reason| ConfigError::Shortcut {
             key: action.to_string(),
+            reason,
+        })?;
+    }
+    for (name, profile) in &cfg.games {
+        if !valid_game_name(name) {
+            return Err(ConfigError::Shortcut {
+                key: format!("games.{name}"),
+                reason: "game name is empty or too long".into(),
+            });
+        }
+        parse_shortcut(&profile.ptt_key).map_err(|reason| ConfigError::Shortcut {
+            key: format!("games.{name}.ptt_key"),
             reason,
         })?;
     }
@@ -961,6 +1049,12 @@ mod tests {
         assert_eq!(cfg.plugins.enabled, vec!["highlight-mentions", "code-badge"]);
         assert_eq!(cfg.desktop.frame_cap, 240);
         assert!(!cfg.desktop.hardware_status);
+        assert!(!cfg.desktop.perf_overlay);
+        assert!(cfg.desktop.detect_games);
+        assert!(!cfg.desktop.game_mode);
+        assert_eq!(cfg.shortcuts.toggle_perf_overlay, "mod+shift+p");
+        assert_eq!(cfg.shortcuts.toggle_game_mode, "mod+shift+g");
+        assert!(cfg.games.is_empty());
         assert_eq!(cfg.shortcuts.save_clip, "mod+shift+c");
         assert!(!cfg.clips.game_capture);
     }
@@ -1064,6 +1158,39 @@ mod tests {
     fn mod_key_is_command_on_mac_and_ctrl_on_windows() {
         assert_eq!(mod_means("macos"), "Command");
         assert_eq!(mod_means("windows"), "Ctrl");
+    }
+
+    #[test]
+    fn older_shortcut_table_keeps_the_new_overlay_hotkeys() {
+        let cfg = parse_config("[shortcuts]\nquick_switcher = \"mod+k\"\n").unwrap();
+        assert_eq!(cfg.shortcuts.toggle_perf_overlay, "mod+shift+p");
+        assert_eq!(cfg.shortcuts.toggle_game_mode, "mod+shift+g");
+        assert_eq!(cfg.shortcuts.toggle_voice_overlay, "mod+shift+o");
+    }
+
+    #[test]
+    fn game_profile_round_trips_and_rejects_a_bad_key() {
+        let cfg = parse_config(
+            "[desktop]\ndetect_games = false\ngame_mode = true\nperf_overlay = true\n\n[games.Hades]\nptt = true\nptt_key = \"v\"\ngame_mode = false\nvoice_overlay = true\nperf_overlay = true\n",
+        )
+        .unwrap();
+        assert!(!cfg.desktop.detect_games);
+        assert!(cfg.desktop.game_mode);
+        assert!(cfg.desktop.perf_overlay);
+        let profile = cfg.games.get("Hades").unwrap();
+        assert!(profile.ptt);
+        assert_eq!(profile.ptt_key, "v");
+        assert!(!profile.game_mode);
+        assert!(profile.voice_overlay);
+        assert!(profile.perf_overlay);
+        let partial = parse_config("[games.Celeste]\nptt = true\n").unwrap();
+        let celeste = partial.games.get("Celeste").unwrap();
+        assert!(celeste.ptt);
+        assert_eq!(celeste.ptt_key, "backquote");
+        assert!(celeste.game_mode);
+        assert!(!celeste.voice_overlay);
+        assert!(parse_config("[games.Hades]\nptt_key = \"mod+\"\n").is_err());
+        assert!(parse_config("[desktop]\ndetect_games = false\n").unwrap().desktop.detect_games == false);
     }
 
     #[test]

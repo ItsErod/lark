@@ -1,22 +1,32 @@
+import { emptyPerfSample, perfRows } from "../perf";
 import type { VoiceHudView } from "../voice-hud";
 import { colorFor, el, icon, initials, paths } from "./dom";
 
 export function renderVoiceHud(host: HTMLElement, view: VoiceHudView): void {
   host.dataset.clickThrough = view.clickThrough ? "on" : "off";
   host.style.setProperty("--hud-opacity", String(view.opacity));
+  if (!view.enabled && !view.perf) {
+    host.replaceChildren();
+    return;
+  }
   host.replaceChildren(hudCard(view));
 }
 
 function hudCard(view: VoiceHudView): HTMLElement {
   const card = el("section", "voice-hud");
-  card.setAttribute("aria-label", "Voice HUD");
+  card.setAttribute("aria-label", view.enabled ? "Voice HUD" : "Performance");
   const bar = el("header", "voice-hud-bar");
   bar.setAttribute("data-tauri-drag-region", "");
-  const title = view.inCall ? view.channel || "Voice" : "Voice HUD";
+  const title = view.enabled ? (view.inCall ? view.channel || "Voice" : "Voice HUD") : "Performance";
   bar.append(el("strong", "voice-hud-channel", title));
-  bar.append(el("span", `voice-hud-state${view.selfMuted ? " is-muted" : ""}`, statusLine(view)));
+  if (view.enabled) bar.append(el("span", `voice-hud-state${view.selfMuted ? " is-muted" : ""}`, statusLine(view)));
   card.append(bar);
-  if (!view.inCall) return card;
+  if (view.enabled && view.inCall) card.append(peopleList(view));
+  if (view.perf) card.append(perfBlock(view));
+  return card;
+}
+
+function peopleList(view: VoiceHudView): HTMLElement {
   const list = el("ul", "voice-hud-people");
   if (!view.people.length) {
     list.append(el("li", "voice-hud-empty", "Waiting for people…"));
@@ -33,8 +43,16 @@ function hudCard(view: VoiceHudView): HTMLElement {
     list.append(row);
   }
   if (view.extra > 0) list.append(el("li", "voice-hud-more", `+${view.extra} more`));
-  card.append(list);
-  return card;
+  return list;
+}
+
+function perfBlock(view: VoiceHudView): HTMLElement {
+  const list = el("dl", "perf-hud");
+  list.setAttribute("aria-label", "Performance");
+  for (const row of perfRows(view.stats ?? emptyPerfSample())) {
+    list.append(el("dt", "", row.label), el("dd", "", row.value));
+  }
+  return list;
 }
 
 function statusLine(view: VoiceHudView): string {

@@ -7,7 +7,25 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 pub const LABEL: &str = "voice-overlay";
 
-static HOTKEY: Mutex<Option<Shortcut>> = Mutex::new(None);
+#[derive(Clone, Copy)]
+struct Hotkeys {
+    voice: Option<Shortcut>,
+    perf: Option<Shortcut>,
+    game: Option<Shortcut>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum OverlayHotkey {
+    Voice,
+    Perf,
+    Game,
+}
+
+static HOTKEYS: Mutex<Hotkeys> = Mutex::new(Hotkeys {
+    voice: None,
+    perf: None,
+    game: None,
+});
 static FRAME: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
 #[derive(Clone, Copy)]
@@ -29,32 +47,55 @@ fn chrome_needs_apply(prev: OverlayChrome, visible: bool, click_through: bool) -
     !prev.applied || prev.visible != visible || prev.click_through != click_through
 }
 
-pub fn hotkey_is(shortcut: &Shortcut) -> bool {
-    HOTKEY.lock().map(|slot| slot.as_ref() == Some(shortcut)).unwrap_or(false)
+pub fn hotkey_kind(shortcut: &Shortcut) -> Option<OverlayHotkey> {
+    let Ok(slot) = HOTKEYS.lock() else {
+        return None;
+    };
+    if slot.voice.as_ref() == Some(shortcut) {
+        Some(OverlayHotkey::Voice)
+    } else if slot.perf.as_ref() == Some(shortcut) {
+        Some(OverlayHotkey::Perf)
+    } else if slot.game.as_ref() == Some(shortcut) {
+        Some(OverlayHotkey::Game)
+    } else {
+        None
+    }
 }
 
-pub fn sync_hotkey(app: &AppHandle, shortcut: &str) {
-    let Ok(accel) = lark_core::global_accelerator(shortcut) else {
-        log::warn!("voice HUD shortcut is not valid");
-        return;
+/// Register the voice HUD, performance overlay, and Game Mode hotkeys on the one shortcut handler.
+pub fn sync_hotkeys(app: &AppHandle, voice: &str, perf: &str, game: &str) {
+    let next = Hotkeys {
+        voice: parse_global(voice),
+        perf: parse_global(perf),
+        game: parse_global(game),
     };
-    let Ok(parsed) = accel.parse::<Shortcut>() else {
-        log::warn!("voice HUD shortcut could not be registered");
-        return;
-    };
-    let mut slot = HOTKEY.lock().unwrap_or_else(|err| err.into_inner());
-    if slot.as_ref() == Some(&parsed) {
-        return;
-    }
-    if let Some(prev) = slot.take() {
-        if let Err(err) = app.global_shortcut().unregister(prev) {
-            log::warn!("voice HUD shortcut unregister: {err}");
+    let mut slot = HOTKEYS.lock().unwrap_or_else(|err| err.into_inner());
+    let prev = *slot;
+    for old in [prev.voice, prev.perf, prev.game].into_iter().flatten() {
+        if !hotkeys_contain(next, old) {
+            if let Err(err) = app.global_shortcut().unregister(old) {
+                log::warn!("overlay shortcut unregister: {err}");
+            }
         }
     }
-    match app.global_shortcut().register(parsed) {
-        Ok(()) => *slot = Some(parsed),
-        Err(err) => log::warn!("voice HUD shortcut register: {err}"),
+    for shortcut in [next.voice, next.perf, next.game].into_iter().flatten() {
+        if hotkeys_contain(prev, shortcut) {
+            continue;
+        }
+        if let Err(err) = app.global_shortcut().register(shortcut) {
+            log::warn!("overlay shortcut register: {err}");
+        }
     }
+    *slot = next;
+}
+
+fn parse_global(shortcut: &str) -> Option<Shortcut> {
+    let accel = lark_core::global_accelerator(shortcut).ok()?;
+    accel.parse::<Shortcut>().ok()
+}
+
+fn hotkeys_contain(keys: Hotkeys, shortcut: Shortcut) -> bool {
+    keys.voice == Some(shortcut) || keys.perf == Some(shortcut) || keys.game == Some(shortcut)
 }
 
 #[tauri::command]

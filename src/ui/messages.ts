@@ -29,6 +29,8 @@ export function renderMessage(
     onBookmark?: () => void;
     onTranslate?: () => void;
     onHideAuthor?: () => void;
+    /** Game Mode: skip media preload and autoplay. */
+    quiet?: boolean;
   },
 ): HTMLElement {
   const wrap = el("div", "message-wrap");
@@ -101,9 +103,9 @@ export function renderMessage(
     for (const badge of view.badges) badges.append(el("span", "badge", badge));
     body.append(badges);
   }
-  for (const attachment of view.attachments) body.append(renderAttachment(attachment, options.onImage));
+  for (const attachment of view.attachments) body.append(renderAttachment(attachment, options.onImage, Boolean(options.quiet)));
   if (!effects.has("hide-previews")) {
-    for (const embed of view.embeds) body.append(renderEmbed(embed, options.remoteEmoji));
+    for (const embed of view.embeds) body.append(renderEmbed(embed, options.remoteEmoji, Boolean(options.quiet)));
   }
   for (const sticker of view.stickers) {
     const chip = el("div", "sticker");
@@ -227,6 +229,7 @@ function reactionFace(reaction: ViewMessage["reactions"][number], remoteEmoji: b
 function renderAttachment(
   attachment: ViewMessage["attachments"][number],
   onImage: (url: string) => void,
+  quiet: boolean,
 ): HTMLElement {
   if (attachment.kind === "image" && attachment.url) {
     const button = el("button", "image-frame");
@@ -244,7 +247,7 @@ function renderAttachment(
   if ((attachment.kind === "video" || attachment.kind === "audio") && attachment.url) {
     const media = el(attachment.kind === "video" ? "video" : "audio", attachment.kind === "video" ? "attachment-video" : "attachment-audio");
     media.controls = true;
-    media.preload = "metadata";
+    media.preload = quiet ? "none" : "metadata";
     media.src = attachment.url;
     if (attachment.kind === "audio") media.setAttribute("aria-label", attachment.name);
     return media;
@@ -262,7 +265,7 @@ function renderAttachment(
   return row;
 }
 
-function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean): HTMLElement {
+function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean, quiet: boolean): HTMLElement {
   const card = el("article", "embed");
   if (embed.color) card.style.borderColor = embed.color;
   if (embed.author) card.append(el("div", "embed-author", embed.author));
@@ -296,9 +299,9 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean)
   if (embed.video) {
     const video = el("video", "embed-video");
     video.src = embed.video;
-    video.preload = "metadata";
+    video.preload = quiet ? "none" : "metadata";
     video.playsInline = true;
-    const loop = /tenor|giphy/i.test(embed.provider ?? "") || /tenor|giphy/i.test(embed.video);
+    const loop = !quiet && (/tenor|giphy/i.test(embed.provider ?? "") || /tenor|giphy/i.test(embed.video));
     reserveMedia(video, embed.videoWidth, embed.videoHeight);
     if (loop) {
       video.muted = true;

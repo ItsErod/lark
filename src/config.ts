@@ -1,3 +1,4 @@
+import { sanitizeGames } from "./game";
 import { sanitizeClips } from "./soundboard";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
 
@@ -26,6 +27,8 @@ export function defaultConfig(): AppConfig {
       toggle_deafen: "mod+shift+d",
       push_to_talk: "backquote",
       toggle_voice_overlay: "mod+shift+o",
+      toggle_perf_overlay: "mod+shift+p",
+      toggle_game_mode: "mod+shift+g",
       save_clip: "mod+shift+c",
     },
     notifications: {
@@ -52,8 +55,17 @@ export function defaultConfig(): AppConfig {
       levels: {},
     },
     soundboard: { clips: [] },
-    desktop: { minimize_to_tray: true, autostart: false, frame_cap: 240, hardware_status: false },
+    desktop: {
+      minimize_to_tray: true,
+      autostart: false,
+      frame_cap: 240,
+      hardware_status: false,
+      perf_overlay: false,
+      detect_games: true,
+      game_mode: false,
+    },
     clips: { game_capture: false },
+    games: {},
     accents: {},
   };
 }
@@ -125,7 +137,11 @@ export function sanitizeConfig(input: unknown): AppConfig {
       base.desktop.frame_cap = raw.desktop.frame_cap <= 0 ? 0 : Math.min(240, Math.max(30, Math.round(raw.desktop.frame_cap)));
     }
     if (typeof raw.desktop.hardware_status === "boolean") base.desktop.hardware_status = raw.desktop.hardware_status;
+    if (typeof raw.desktop.perf_overlay === "boolean") base.desktop.perf_overlay = raw.desktop.perf_overlay;
+    if (typeof raw.desktop.detect_games === "boolean") base.desktop.detect_games = raw.desktop.detect_games;
+    if (typeof raw.desktop.game_mode === "boolean") base.desktop.game_mode = raw.desktop.game_mode;
   }
+  base.games = sanitizeGames(raw.games);
   if (raw.accents && typeof raw.accents === "object") {
     const accents: Record<string, string> = {};
     for (const [id, color] of Object.entries(raw.accents)) {

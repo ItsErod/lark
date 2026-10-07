@@ -1,3 +1,4 @@
+import type { PerfSample } from "./perf";
 import { participantsIn, type VoiceRoster } from "./voice";
 
 export const VOICE_HUD_LIMIT = 8;
@@ -32,7 +33,11 @@ export interface VoiceHudFrame {
 }
 
 export interface VoiceHudView extends VoiceHudFrame {
+  /** Voice roster is showing in the shared HUD window. */
   enabled: boolean;
+  /** RAM, CPU, and FPS strip in that same window. */
+  perf: boolean;
+  stats: PerfSample | null;
   opacity: number;
   clickThrough: boolean;
 }

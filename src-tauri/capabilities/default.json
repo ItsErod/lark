@@ -44,6 +44,7 @@
     "allow-leave-voice",
     "allow-set-voice-self",
     "allow-set-presence",
+    "allow-hardware-snapshot",
     "allow-ack-message",
     "allow-fetch-pins",
     "allow-pin-message",

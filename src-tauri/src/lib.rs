@@ -80,10 +80,13 @@ pub fn run() {
                     if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         return;
                     }
-                    if !overlay::hotkey_is(shortcut) {
-                        return;
-                    }
-                    let _ = app.emit("voice-overlay-hotkey", ());
+                    let event_name = match overlay::hotkey_kind(shortcut) {
+                        Some(overlay::OverlayHotkey::Voice) => "voice-overlay-hotkey",
+                        Some(overlay::OverlayHotkey::Perf) => "perf-overlay-hotkey",
+                        Some(overlay::OverlayHotkey::Game) => "game-mode-hotkey",
+                        None => return,
+                    };
+                    let _ = app.emit(event_name, ());
                 })
                 .build(),
         )
@@ -98,7 +101,9 @@ pub fn run() {
             let save_clip = config.shortcuts.save_clip.clone();
             let clips = clip_rec::ClipEngine::spawn(resolved.clips_dir.clone(), config.clips.game_capture);
             let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
-            let overlay_shortcut = config.shortcuts.toggle_voice_overlay.clone();
+            let overlay_voice = config.shortcuts.toggle_voice_overlay.clone();
+            let overlay_perf = config.shortcuts.toggle_perf_overlay.clone();
+            let overlay_game = config.shortcuts.toggle_game_mode.clone();
             let (speaking, _) = watch::channel(false);
             let (voice_audio, _) = watch::channel(lark_core::discord::voice_media::VoiceAudio::default());
             let shared = Shared {
@@ -134,7 +139,7 @@ pub fn run() {
                 browser_stop: Mutex::new(None),
             };
             app.manage(shared);
-            overlay::sync_hotkey(app.handle(), &overlay_shortcut);
+            overlay::sync_hotkeys(app.handle(), &overlay_voice, &overlay_perf, &overlay_game);
             if let Err(err) = install_clip_hotkey(app.handle(), &save_clip) {
                 log::warn!("clip hotkey: {err}");
             }
@@ -283,11 +288,11 @@ fn read_config_file(path: &std::path::Path) -> Result<Config, String> {
 async fn get_config(app: AppHandle, state: State<'_, Shared>) -> Result<Config, String> {
     if let Ok(config) = read_config_file(&state.paths.config_file) {
         *state.config.lock().await = config.clone();
-        overlay::sync_hotkey(&app, &config.shortcuts.toggle_voice_overlay);
+        sync_overlay_hotkeys(&app, &config);
         return Ok(config);
     }
     let config = state.config.lock().await.clone();
-    overlay::sync_hotkey(&app, &config.shortcuts.toggle_voice_overlay);
+    sync_overlay_hotkeys(&app, &config);
     Ok(config)
 }
 
@@ -298,7 +303,7 @@ async fn save_config(app: AppHandle, state: State<'_, Shared>, config: Config) -
     let pretty = toml::to_string_pretty(&normalized).map_err(|err| err.to_string())?;
     fs::write(&state.paths.config_file, pretty).map_err(|err| err.to_string())?;
     *state.config.lock().await = normalized.clone();
-    overlay::sync_hotkey(&app, &normalized.shortcuts.toggle_voice_overlay);
+    sync_overlay_hotkeys(&app, &normalized);
     apply_clip_config(&app, &normalized);
     sync_sound_hotkeys(&app, &normalized.soundboard.clips);
     Ok(normalized)
@@ -1279,24 +1284,58 @@ struct HardwareSnapshot {
     cpu_temp_c: Option<u16>,
     game: Option<String>,
     line: Option<String>,
+    cpu_percent: Option<u8>,
+    ram_used_mb: Option<u32>,
+    ram_total_mb: Option<u32>,
 }
 
-/// Reads this computer only when Settings has hardware status turned on.
+fn sync_overlay_hotkeys(app: &AppHandle, config: &Config) {
+    overlay::sync_hotkeys(
+        app,
+        &config.shortcuts.toggle_voice_overlay,
+        &config.shortcuts.toggle_perf_overlay,
+        &config.shortcuts.toggle_game_mode,
+    );
+}
+
+/// Full reads stay behind Hardware in status. A load read (CPU, RAM, game) also
+/// runs for the performance overlay and game detection.
 #[tauri::command]
-async fn hardware_snapshot(state: State<'_, Shared>) -> Result<HardwareSnapshot, String> {
-    let enabled = state.config.lock().await.desktop.hardware_status;
-    if !enabled {
-        return Err("Hardware status is off.".into());
+async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>) -> Result<HardwareSnapshot, String> {
+    let full = full.unwrap_or(true);
+    let allowed = {
+        let config = state.config.lock().await;
+        if full {
+            config.desktop.hardware_status
+        } else {
+            config.desktop.hardware_status || config.desktop.perf_overlay || config.desktop.detect_games
+        }
+    };
+    if !allowed {
+        return Err(if full {
+            "Hardware status is off.".into()
+        } else {
+            "Hardware reads are off.".into()
+        });
     }
     let os = std::env::consts::OS.to_string();
-    let reading = tauri::async_runtime::spawn_blocking(move || lark_core::hardware::sample_hardware(&os))
-        .await
-        .map_err(|_| "Hardware sample failed.".to_string())?;
+    let reading = tauri::async_runtime::spawn_blocking(move || {
+        if full {
+            lark_core::hardware::sample_hardware(&os)
+        } else {
+            lark_core::hardware::sample_load(&os)
+        }
+    })
+    .await
+    .map_err(|_| "Hardware sample failed.".to_string())?;
     Ok(HardwareSnapshot {
         line: reading.line(),
         gpu: reading.gpu,
         cpu_temp_c: reading.cpu_temp_c,
         game: reading.game,
+        cpu_percent: reading.cpu_percent,
+        ram_used_mb: reading.ram_used_mb,
+        ram_total_mb: reading.ram_total_mb,
     })
 }
 
