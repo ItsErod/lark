@@ -4,6 +4,10 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [2.4.2](https://github.com/ItsErod/lark/releases/tag/v2.4.2) — 2026-10-07
+
+Voice calls use a Discord-style layout, and a custom ring flows around whoever is speaking. Clips save as MP4 and can be captured at 60, 120, or 240 fps from 720p through 2160p; the Clips view compresses a clip that is over the upload limit before it is sent. Servers and folders drag into a new order that syncs back to Discord, and Settings opens as a full-screen Discord-style layout.
+
 ## [2.4.1](https://github.com/ItsErod/lark/releases/tag/v2.4.1) — 2026-10-07
 
 IRC messages use the full column, a message you send shows up once, and joining a voice channel completes the DAVE handshake instead of staying on reconnecting.
