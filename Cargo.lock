@@ -3522,6 +3522,7 @@ dependencies = [
  "tokio-tungstenite",
  "toml 0.8.2",
  "urlencoding",
+ "windows-sys 0.59.0",
  "xsalsa20poly1305",
  "zeroize",
 ]

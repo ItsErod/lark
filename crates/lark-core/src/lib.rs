@@ -9,6 +9,8 @@ pub mod clip_rate;
 pub mod config;
 pub mod discord;
 pub mod hardware;
+#[cfg(windows)]
+mod host_win;
 mod mp4mux;
 pub mod platform;
 pub mod ratelimit;
@@ -20,6 +22,8 @@ pub mod soundboard;
 pub mod token;
 
 pub use config::{global_accelerator, parse_config, Config, ConfigError};
+#[cfg(windows)]
+pub use host_win::{open_folder, reveal_file, set_run_at_login};
 pub use platform::{
     config_dir_hint, credential_failure_message, credential_mismatch_after_save_message,
     credential_not_saved_message, credential_store_label, credential_unreadable_after_save_message,

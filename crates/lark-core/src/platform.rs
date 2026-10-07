@@ -14,6 +14,26 @@ pub fn uses_native_credential_store(os: &str) -> bool {
     credential_store_label(os).is_ok()
 }
 
+/// Value stored in `HKCU\...\Run`. Paths with spaces are quoted so Explorer
+/// does not split them. The desktop shell writes this with the registry API.
+pub fn windows_run_value(path: &str) -> String {
+    if path.contains(' ') || path.contains('\t') {
+        format!("\"{path}\"")
+    } else {
+        path.to_string()
+    }
+}
+
+/// Busy percent from two `GetSystemTimes` samples. Kernel time already includes idle.
+pub fn cpu_busy_percent(idle_delta: u64, total_delta: u64) -> Option<u8> {
+    if total_delta == 0 {
+        return None;
+    }
+    let idle = idle_delta.min(total_delta);
+    let busy = total_delta - idle;
+    Some((busy.saturating_mul(100) / total_delta).min(100) as u8)
+}
+
 /// `connect` found no token. This is not a Keychain denial and not a capture failure.
 pub fn credential_not_saved_message(store: &str) -> String {
     format!("No token saved in the {store}.")
@@ -184,6 +204,25 @@ mod tests {
         );
         assert!(!generic.contains(secret));
         assert!(generic.contains("Windows Credential Manager"));
+    }
+
+    #[test]
+    fn windows_run_value_quotes_paths_with_spaces() {
+        assert_eq!(
+            windows_run_value(r"C:\Users\ethan\AppData\Local\Lark\lark.exe"),
+            r"C:\Users\ethan\AppData\Local\Lark\lark.exe"
+        );
+        assert_eq!(
+            windows_run_value(r"C:\Program Files\Lark\lark.exe"),
+            r#""C:\Program Files\Lark\lark.exe""#
+        );
+    }
+
+    #[test]
+    fn cpu_busy_percent_uses_idle_and_total() {
+        assert_eq!(cpu_busy_percent(25, 100), Some(75));
+        assert_eq!(cpu_busy_percent(0, 0), None);
+        assert_eq!(cpu_busy_percent(150, 100), Some(0));
     }
 
     #[test]
