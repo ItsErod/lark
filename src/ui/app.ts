@@ -38,6 +38,22 @@ import { FrameClock } from "../frame";
 import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
 import { prefetchChannelIds } from "../cache";
 import {
+  CACHE_WARM_MS,
+  PLACE_KEY,
+  SLOW_CONNECT_MS,
+  STARTUP_CHANNEL_WAIT_MS,
+  channelsReady,
+  landingTarget,
+  parsePlace,
+  preferredGuild,
+  shouldShowSplash,
+  splashReleaseDelay,
+  startupLabel,
+  startupProgress,
+  type SavedPlace,
+  type StartupMilestone,
+} from "../startup";
+import {
   HARDWARE_STORAGE_KEY,
   clampStatus,
   hardwareSampleDue,
@@ -233,6 +249,27 @@ class LarkApp {
   private channelLoads = new Map<string, Promise<void>>();
   private channelWaiters = new Map<string, Array<() => void>>();
   private gatewayReadyAt = 0;
+  private savedPlace: SavedPlace = { guildId: null, channelId: null };
+  private splashEl!: HTMLElement;
+  private splashStatus!: HTMLElement;
+  private splashTrack!: HTMLElement;
+  private splashBar!: HTMLElement;
+  private holdShell = false;
+  private shellShown = false;
+  private splashLeaving = false;
+  private startupCold = true;
+  private resumeOverlay = false;
+  private startupMilestone: StartupMilestone = "connect";
+  private startupStepAt = 0;
+  private splashShownAt = 0;
+  private gatewayDownAt = 0;
+  private landingWarmStarted = false;
+  private channelCheckQueued = false;
+  private splashFrame = 0;
+  private slowSplashTimer = 0;
+  private channelGraceTimer = 0;
+  private splashFinishTimer = 0;
+  private splashHideTimer = 0;
   private liveDms: Channel[] = [];
   private liveMembers: Person[] = [];
   private membersByGuild: Record<string, Person[]> = {};
@@ -379,6 +416,11 @@ class LarkApp {
         if (Array.isArray(messages)) this.pages[id] = messages.slice(-80);
       }
     }
+    try {
+      this.savedPlace = parsePlace(JSON.parse(localStorage.getItem(PLACE_KEY) ?? "null"));
+    } catch {
+      this.savedPlace = { guildId: null, channelId: null };
+    }
     this.build();
     await this.loadPlugins();
     await this.applyTheme();
@@ -390,7 +432,8 @@ class LarkApp {
     if (!isTauri() && params.has("notice")) {
       this.tokenNote = "Discord rejected the token (HTTP 401). Lark sent it only to discord.com. It may be expired, revoked, or still wrapped in quotes.";
     }
-    if (params.has("demo")) this.enterDemo();
+    if (!isTauri() && params.has("splash")) this.showPreviewSplash();
+    else if (params.has("demo")) this.enterDemo();
     else {
       const initial = gateQr(isTauri());
       this.qrSvg = initial.svg;
@@ -478,14 +521,12 @@ class LarkApp {
       });
       if (await invoke<boolean>("has_token")) {
         this.connection = "Connecting";
-        this.signInBusy = "Checking the saved token with Discord…";
-        this.paint();
+        this.beginStartup(true);
         await invoke("connect");
-        this.signInBusy = "Connecting to Discord…";
-        if (this.view === "gate") this.paintGate();
       }
       if (this.view === "gate" && !this.signInBusy) this.ensureQr();
     } catch (err) {
+      this.abortStartup();
       this.view = "gate";
       this.signInBusy = "";
       this.tokenNote = commandError(err, "Desktop bridge unavailable.");
@@ -558,7 +599,24 @@ class LarkApp {
     this.toastWrap = el("div", "toast-wrap");
     this.inviteEl = el("div", "overlay");
     this.inviteEl.hidden = true;
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.inviteEl, this.hudEl, this.toastWrap);
+    this.splashEl = el("section", "startup");
+    this.splashEl.hidden = true;
+    this.splashEl.setAttribute("role", "status");
+    this.splashEl.setAttribute("aria-live", "polite");
+    this.splashEl.setAttribute("aria-busy", "true");
+    const splashCard = el("div", "startup-card");
+    this.splashStatus = el("p", "startup-status", "Connecting to Discord");
+    this.splashTrack = el("div", "startup-track");
+    this.splashTrack.setAttribute("role", "progressbar");
+    this.splashTrack.setAttribute("aria-valuemin", "0");
+    this.splashTrack.setAttribute("aria-valuemax", "100");
+    this.splashTrack.setAttribute("aria-valuenow", "0");
+    this.splashTrack.setAttribute("aria-label", "Loading Lark");
+    this.splashBar = el("div", "startup-bar");
+    this.splashTrack.append(this.splashBar);
+    splashCard.append(el("div", "mark", "L"), el("h1", "", "Lark"), this.splashStatus, this.splashTrack);
+    this.splashEl.append(splashCard);
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.lightboxEl, this.inviteEl, this.hudEl, this.toastWrap, this.splashEl);
     this.stage.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -689,7 +747,301 @@ class LarkApp {
     setSpeaking(this.voiceRoster, booth[0].id, true);
   }
 
+  /** Cold connect (no shell yet) covers the window immediately. A live shell waits out a short reconnect. */
+  private beginStartup(cold: boolean) {
+    if (this.holdShell) return;
+    this.holdShell = true;
+    this.splashLeaving = false;
+    this.landingWarmStarted = false;
+    this.channelCheckQueued = false;
+    this.startupCold = cold || !this.shellShown;
+    this.resumeOverlay = this.shellShown && !this.startupCold;
+    this.startupMilestone = "connect";
+    this.startupStepAt = performance.now();
+    this.splashShownAt = this.startupStepAt;
+    this.gate.hidden = true;
+    if (!this.shellShown) this.shell.hidden = true;
+    this.syncSplash();
+  }
+
+  /** Browser preview of the cold-start splash, then the sample shell. */
+  private showPreviewSplash() {
+    this.beginStartup(true);
+    const steps: StartupMilestone[] = ["ready", "channels"];
+    let index = 0;
+    const tick = () => {
+      if (!this.holdShell) return;
+      if (index >= steps.length) {
+        this.demo = true;
+        this.view = "app";
+        this.connection = "Sample data";
+        this.guildId = NORTHWIND;
+        this.folders = [{ id: "studio", name: "Studios", color: "#e2a15a", guildIds: [NORTHWIND, "100000000000000011"] }];
+        this.access[NORTHWIND] = {
+          owner: false,
+          permissions: "1024",
+          roles: [{ id: NORTHWIND, permissions: "1024" }],
+          myRoles: [],
+        };
+        this.seedDemoVoice();
+        const page = pageMessages(history[CRIT] ?? [], undefined, 20);
+        this.pages[CRIT] = page.messages;
+        this.more[CRIT] = page.hasMore;
+        this.channelId = CRIT;
+        this.startupMilestone = "channels";
+        this.startupStepAt = performance.now();
+        this.finishStartup();
+        return;
+      }
+      this.startupMilestone = steps[index];
+      this.startupStepAt = performance.now();
+      index += 1;
+      this.syncSplash();
+      window.setTimeout(tick, 800);
+    };
+    window.setTimeout(tick, 800);
+  }
+
+  private noteGatewayLiveness(state: string | undefined) {
+    if (state === "failed" || state === "disconnected") {
+      this.gatewayDownAt = 0;
+      this.clearSlowSplash();
+      if (state === "disconnected" && this.holdShell) this.abortStartup();
+      return;
+    }
+    if (state === "connecting" || state === "reconnecting") {
+      if (!this.gatewayDownAt) this.gatewayDownAt = performance.now();
+      if (!this.shellShown && !this.holdShell) this.beginStartup(true);
+      else if (this.shellShown && !this.holdShell && !this.slowSplashTimer) {
+        this.slowSplashTimer = window.setTimeout(() => {
+          this.slowSplashTimer = 0;
+          if (!this.gatewayDownAt || this.holdShell) return;
+          const waited = performance.now() - this.gatewayDownAt;
+          if (shouldShowSplash(this.shellShown, waited)) this.beginStartup(false);
+        }, SLOW_CONNECT_MS);
+      }
+      return;
+    }
+    if (state === "connected") {
+      this.gatewayDownAt = 0;
+      this.clearSlowSplash();
+      if (this.holdShell && this.resumeOverlay && this.startupMilestone === "connect") this.finishStartup();
+    }
+  }
+
+  private onStartupReady() {
+    this.startupMilestone = "ready";
+    this.startupStepAt = performance.now();
+    const guildIds = this.liveGuilds.map((guild) => guild.id);
+    this.guildId = preferredGuild(guildIds, this.landingPlace().guildId);
+    if (this.guildId) this.liveMembers = this.membersByGuild[this.guildId] ?? [];
+    void this.ensureHome();
+    if (this.guildId && !this.liveChannels[this.guildId]) void this.ensureChannels(this.guildId);
+    if (this.guildId && !(this.membersByGuild[this.guildId]?.length)) void this.ensureMembers(this.guildId);
+    window.clearTimeout(this.channelGraceTimer);
+    this.channelGraceTimer = window.setTimeout(() => this.considerChannels(), STARTUP_CHANNEL_WAIT_MS);
+    this.queueChannelCheck();
+    this.syncSplash();
+  }
+
+  private landingPlace(): SavedPlace {
+    if (this.shellShown && this.channelId) return { guildId: this.guildId, channelId: this.channelId };
+    return this.savedPlace;
+  }
+
+  private queueChannelCheck() {
+    if (!this.holdShell || this.landingWarmStarted || this.channelCheckQueued) return;
+    this.channelCheckQueued = true;
+    // Let the rest of this gateway burst (channel lists, access) land before choosing a channel.
+    window.setTimeout(() => {
+      this.channelCheckQueued = false;
+      this.considerChannels();
+    }, 32);
+  }
+
+  private considerChannels() {
+    if (!this.holdShell || this.landingWarmStarted || this.startupMilestone === "connect") return;
+    const guildIds = this.liveGuilds.map((guild) => guild.id);
+    const place = this.landingPlace();
+    const landingGuildId = preferredGuild(guildIds, place.guildId);
+    const savedDm = Boolean(place.channelId && this.liveDms.some((channel) => channel.id === place.channelId));
+    if (!savedDm && !channelsReady({
+      ready: this.gatewayReadyAt > 0,
+      guildIds,
+      channeled: new Set(Object.keys(this.liveChannels)),
+      landingGuildId,
+      readyAt: this.gatewayReadyAt,
+      now: Date.now(),
+    })) return;
+    this.landingWarmStarted = true;
+    window.clearTimeout(this.channelGraceTimer);
+    this.channelGraceTimer = 0;
+    const target = landingTarget({
+      place,
+      guildIds,
+      channelsByGuild: this.visibleChannelMap(),
+      dms: this.liveDms.map((channel) => ({ id: channel.id, kind: channel.kind })),
+    });
+    this.guildId = target.guildId;
+    this.channelId = target.channelId;
+    if (target.guildId) {
+      this.liveMembers = this.membersByGuild[target.guildId] ?? [];
+      if (!(this.membersByGuild[target.guildId]?.length)) void this.ensureMembers(target.guildId);
+    }
+    this.startupMilestone = "channels";
+    this.startupStepAt = performance.now();
+    this.syncSplash();
+    void this.warmLanding(target.channelId);
+  }
+
+  private visibleChannelMap(): Record<string, { id: string; kind: string }[]> {
+    const out: Record<string, { id: string; kind: string }[]> = {};
+    for (const [guildId, list] of Object.entries(this.liveChannels)) {
+      out[guildId] = list
+        .filter((channel) => this.canSeeChannel(guildId, channel))
+        .map((channel) => ({ id: channel.id, kind: channel.kind }));
+    }
+    return out;
+  }
+
+  private async warmLanding(channelId: string | null) {
+    if (channelId && !(this.pages[channelId]?.length)) {
+      try {
+        const page = await Promise.race([
+          this.livePage(channelId).catch(() => null),
+          delay(CACHE_WARM_MS).then(() => null),
+        ]);
+        if (this.holdShell && page && !this.pages[channelId]?.length) {
+          this.pages[channelId] = page.messages;
+          this.more[channelId] = page.hasMore;
+          for (const message of page.messages) this.absorbMessage(message);
+        }
+      } catch {
+        /* The channel column reports a failed load after the splash. */
+      }
+    }
+    if (!this.holdShell) return;
+    this.startupMilestone = "cache";
+    this.startupStepAt = performance.now();
+    this.finishStartup();
+  }
+
+  private finishStartup() {
+    if (!this.holdShell) return;
+    const wait = splashReleaseDelay(performance.now() - this.splashShownAt);
+    if (wait > 0) {
+      if (this.splashFinishTimer) return;
+      this.startupMilestone = "ui";
+      this.startupStepAt = performance.now();
+      this.syncSplash();
+      this.splashFinishTimer = window.setTimeout(() => {
+        this.splashFinishTimer = 0;
+        this.finishStartup();
+      }, wait);
+      return;
+    }
+    const overlay = this.resumeOverlay;
+    this.holdShell = false;
+    this.shellShown = true;
+    this.splashLeaving = true;
+    this.resumeOverlay = false;
+    window.clearTimeout(this.channelGraceTimer);
+    this.channelGraceTimer = 0;
+    this.clearSlowSplash();
+    if (!overlay) {
+      this.view = "app";
+      const id = this.channelId;
+      if (id) void this.openChannel(id);
+      else this.paint();
+    } else this.paintConnection();
+    this.syncSplash();
+    window.clearTimeout(this.splashHideTimer);
+    this.splashHideTimer = window.setTimeout(() => this.hideSplash(), 280);
+  }
+
+  private hideSplash() {
+    this.splashHideTimer = 0;
+    this.splashLeaving = false;
+    if (!this.splashEl) return;
+    this.splashEl.hidden = true;
+    this.splashEl.classList.remove("is-leaving");
+  }
+
+  private abortStartup() {
+    const cold = !this.shellShown;
+    this.holdShell = false;
+    this.splashLeaving = false;
+    this.landingWarmStarted = false;
+    this.channelCheckQueued = false;
+    this.resumeOverlay = false;
+    this.clearStartupTimers();
+    if (this.splashFrame) {
+      cancelAnimationFrame(this.splashFrame);
+      this.splashFrame = 0;
+    }
+    if (this.splashEl) {
+      this.splashEl.hidden = true;
+      this.splashEl.classList.remove("is-leaving");
+    }
+    if (cold && this.gate && this.shell) {
+      this.view = "gate";
+      this.gate.hidden = false;
+      this.shell.hidden = true;
+    }
+  }
+
+  private clearSlowSplash() {
+    if (!this.slowSplashTimer) return;
+    window.clearTimeout(this.slowSplashTimer);
+    this.slowSplashTimer = 0;
+  }
+
+  private clearStartupTimers() {
+    this.clearSlowSplash();
+    if (this.channelGraceTimer) window.clearTimeout(this.channelGraceTimer);
+    if (this.splashFinishTimer) window.clearTimeout(this.splashFinishTimer);
+    if (this.splashHideTimer) window.clearTimeout(this.splashHideTimer);
+    this.channelGraceTimer = 0;
+    this.splashFinishTimer = 0;
+    this.splashHideTimer = 0;
+  }
+
+  private syncSplash() {
+    if (!this.splashEl) return;
+    const visible = this.holdShell || this.splashLeaving;
+    this.splashEl.hidden = !visible;
+    this.splashEl.classList.toggle("is-leaving", this.splashLeaving && !this.holdShell);
+    this.splashEl.setAttribute("aria-busy", this.holdShell ? "true" : "false");
+    const milestone: StartupMilestone = this.splashLeaving && !this.holdShell ? "ui" : this.startupMilestone;
+    const elapsed = performance.now() - this.startupStepAt;
+    const value = startupProgress(milestone, elapsed);
+    const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
+    this.splashBar.style.width = `${pct}%`;
+    this.splashTrack.setAttribute("aria-valuenow", String(pct));
+    const label = startupLabel(milestone, this.startupCold);
+    this.splashTrack.setAttribute("aria-valuetext", label);
+    this.splashEl.dataset.milestone = milestone;
+    if (this.splashStatus.textContent !== label) this.splashStatus.textContent = label;
+    if (this.holdShell && !this.splashFrame) {
+      this.splashFrame = requestAnimationFrame(() => {
+        this.splashFrame = 0;
+        if (this.holdShell) this.syncSplash();
+      });
+    }
+  }
+
+  private rememberPlace(channelId: string) {
+    this.savedPlace = { guildId: this.guildId, channelId };
+    localStorage.setItem(PLACE_KEY, JSON.stringify(this.savedPlace));
+  }
+
   private paint() {
+    if (this.holdShell) {
+      this.gate.hidden = true;
+      this.shell.hidden = !this.shellShown;
+      this.syncSplash();
+      return;
+    }
     this.applyAppearance();
     this.gate.hidden = this.view !== "gate";
     this.shell.hidden = this.view !== "app";
@@ -709,6 +1061,7 @@ class LarkApp {
     this.paintBookmarks();
     this.paintInvite();
     this.publishVoiceHud();
+    if (!this.splashLeaving) this.splashEl.hidden = true;
   }
 
   private applyAppearance() {
@@ -962,6 +1315,7 @@ class LarkApp {
   }
 
   private paintGate() {
+    if (this.holdShell || this.splashLeaving) return;
     if (!this.qrSvg && !isTauri()) {
       const initial = gateQr(false);
       this.qrSvg = initial.svg;
@@ -1090,11 +1444,11 @@ class LarkApp {
   }
 
   private async finishConnect() {
+    this.beginStartup(true);
     try {
       await invoke("connect");
-      this.signInBusy = "Connecting to Discord…";
-      if (this.view === "gate") this.paintGate();
     } catch (err) {
+      this.abortStartup();
       this.view = "gate";
       this.signInBusy = "";
       this.tokenNote = commandError(err, "Couldn't sign in with the saved token.");
@@ -1113,15 +1467,14 @@ class LarkApp {
     this.signInBusy = "Checking the token with Discord…";
     this.tokenNote = "";
     this.qrWatching = false;
-    this.paintGate();
+    this.beginStartup(true);
     try {
       await invoke("stop_qr_login");
       await invoke("cancel_browser_login");
       await invoke("set_token", { token });
       await invoke("connect");
-      this.signInBusy = "Connecting to Discord…";
-      if (this.view === "gate") this.paintGate();
     } catch (err) {
+      this.abortStartup();
       this.view = "gate";
       this.signInBusy = "";
       this.tokenNote = commandError(err, "Couldn't save the token.");
@@ -1222,6 +1575,7 @@ class LarkApp {
   }
 
   private paintRail() {
+    if (this.holdShell) return;
     const shape = this.railShapeSig();
     if (shape === this.railShape && this.rail.querySelector("[data-guild]")) {
       const badges = this.railBadgeStamp();
@@ -1453,6 +1807,7 @@ class LarkApp {
   }
 
   private paintChannels() {
+    if (this.holdShell) return;
     const shape = this.channelShapeSig();
     if (shape === this.channelShape && this.channelPane.querySelector(".channel-scroll")) {
       this.patchChannelRows();
@@ -1615,6 +1970,7 @@ class LarkApp {
   }
 
   private async openChannel(id: string) {
+    if (this.holdShell) return;
     this.prefetchToken += 1;
     const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
     if (perf) perf.lastSwitch = -1;
@@ -1669,6 +2025,7 @@ class LarkApp {
     const draft = this.drafts[id];
     if (draft !== undefined && !this.editing) this.composer.value = draft;
     this.recent = [id, ...this.recent.filter((item) => item !== id)].slice(0, 6);
+    if (!this.demo) this.rememberPlace(id);
     if (!this.jumpId && (this.pages[id]?.length ?? 0) > 0) {
       const last = this.pages[id][this.pages[id].length - 1];
       this.ackChannel(id, last.id);
@@ -1733,6 +2090,7 @@ class LarkApp {
   }
 
   private paintHeader() {
+    if (this.holdShell) return;
     clear(this.chatHead);
     const channel = this.currentChannel();
     const title = el("div", "chat-title");
@@ -2159,6 +2517,7 @@ class LarkApp {
   }
 
   private paintMessages() {
+    if (this.holdShell) return;
     if (this.friendsOpen && !this.guildId) {
       this.paintFriends();
       return;
@@ -2460,6 +2819,7 @@ class LarkApp {
   }
 
   private paintMembers() {
+    if (this.holdShell) return;
     if (this.membersEl.hidden) {
       if (this.memberShape) {
         clear(this.membersEl);
@@ -2537,6 +2897,7 @@ class LarkApp {
   }
 
   private paintComposer() {
+    if (this.holdShell) return;
     const wrap = this.composer.closest(".composer-wrap");
     if (wrap instanceof HTMLElement) wrap.hidden = this.friendsOpen && !this.guildId;
     const channel = this.currentChannel();
@@ -3712,6 +4073,10 @@ class LarkApp {
       if (this.liveChannels[guildId]) return;
       this.liveChannels[guildId] = channels.map(normalizeChannel);
       for (const channel of this.liveChannels[guildId]) this.noteChannel(channel);
+      if (this.holdShell) {
+        this.queueChannelCheck();
+        return;
+      }
       if (this.guildId === guildId) this.paint();
     } catch {
       /* GUILD_CREATE may still fill the list. */
@@ -4018,6 +4383,7 @@ class LarkApp {
   }
 
   private paintConnection() {
+    if (this.holdShell) return;
     const next = this.me.custom || this.connection;
     const label = this.channelPane.querySelector(".profile-chip .who span");
     if (label instanceof HTMLElement) {
@@ -4063,7 +4429,9 @@ class LarkApp {
       const next = event.state === "connected" ? "Connected" : event.state ?? "Offline";
       if (next !== this.connection) this.noteGatewayStatus(event.state);
       this.connection = next;
+      this.noteGatewayLiveness(event.state);
       if (event.state === "failed") {
+        this.abortStartup();
         this.view = "gate";
         this.demo = false;
         this.signInBusy = "";
@@ -4110,6 +4478,11 @@ class LarkApp {
         this.wakeChannelWaiters(group.guildId);
       }
       this.connection = "Connected";
+      if (this.holdShell) {
+        this.resumeOverlay = false;
+        this.onStartupReady();
+        return;
+      }
       void this.ensureHome();
       if (!this.guildId || !this.liveGuilds.some((guild) => guild.id === this.guildId)) {
         this.guildId = this.liveGuilds[0]?.id ?? null;
@@ -4176,6 +4549,10 @@ class LarkApp {
         this.noteChannel(channel);
         this.refreshChannelBadge(channel.id);
       }
+      if (this.holdShell) {
+        this.queueChannelCheck();
+        return;
+      }
       if (event.guildId === this.guildId && !this.channelId) {
         const first = this.visibleChannels().find((channel) => channel.kind === "text");
         if (first) void this.openChannel(first.id);
@@ -4207,6 +4584,7 @@ class LarkApp {
           roles: access.roles ?? [],
           myRoles: access.myRoles ?? [],
         };
+        if (this.holdShell) this.queueChannelCheck();
         if (access.guildId === this.guildId) {
           this.paintChannels();
           this.paintHeader();
@@ -4853,6 +5231,7 @@ class LarkApp {
   }
 
   private paintVoice() {
+    if (this.holdShell) return;
     const dock = this.voiceDock;
     if (!dock) return;
     dock.hidden = !this.voice;
