@@ -51,6 +51,10 @@ export const paths = {
   headphones: "M4 13a8 8 0 0 1 16 0M4 13v6a2 2 0 0 0 2 2h2v-8H6a2 2 0 0 0-2 2zM20 13v6a2 2 0 0 1-2 2h-2v-8h2a2 2 0 0 1 2 2z",
   headphonesOff: "M4 13a8 8 0 0 1 12.3-6.7M20 13v6a2 2 0 0 1-2 2h-2v-8h2M4 13v6a2 2 0 0 0 2 2h2v-8H6M3 3l18 18",
   hangup: "M10.7 13.3a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.5 2.7.6a2 2 0 0 1 1.7 2v2.1a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7 2 2 0 0 1 2-2.2H8a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.7a2 2 0 0 1-.4 2.1L9.1 12",
+  camera: "M3 8h11v10H3zM14 12l6-3.5v7L14 12",
+  cameraOff: "M3 8h7M14 12l6-3.5v7L16 13M3 18h11V12M2 2l20 20",
+  monitor: "M4 5h16v11H4zM8 20h8M12 16v4",
+  activity: "M4 10v4M8 6v12M12 3v18M16 6v12M20 10v4",
 };
 
 export function colorFor(id: string): string {

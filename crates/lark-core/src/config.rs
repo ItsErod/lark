@@ -54,6 +54,7 @@ impl Config {
         self.appearance.font_size = self.appearance.font_size.clamp(12, 20);
         self.voice.sensitivity = self.voice.sensitivity.min(100);
         self.voice.overlay_opacity = self.voice.overlay_opacity.clamp(35, 100);
+        self.voice.speak_color = normalize_speak_color(&self.voice.speak_color);
         self.voice.levels.retain(|id, level| {
             let snowflake = (5..=22).contains(&id.len()) && id.chars().all(|c| c.is_ascii_digit());
             if snowflake {
@@ -293,6 +294,8 @@ pub struct Voice {
     pub overlay_opacity: u8,
     /// When true, clicks pass through the HUD to the game.
     pub overlay_click_through: bool,
+    /// Speaking ring. Discord green when unset or invalid.
+    pub speak_color: String,
     /// Playback for other people. Local mute does not tell Discord.
     pub levels: BTreeMap<String, UserLevel>,
 }
@@ -323,6 +326,7 @@ impl Default for Voice {
             overlay: false,
             overlay_opacity: 70,
             overlay_click_through: true,
+            speak_color: "#23a559".to_string(),
             levels: BTreeMap::new(),
         }
     }
@@ -570,6 +574,19 @@ pub struct Accel {
     pub shift: bool,
     pub meta: bool,
     pub key: String,
+}
+
+fn normalize_speak_color(value: &str) -> String {
+    let trimmed = value.trim();
+    let bytes = trimmed.as_bytes();
+    let hex = bytes.len() == 7
+        && bytes[0] == b'#'
+        && bytes[1..].iter().all(|byte| byte.is_ascii_hexdigit());
+    if hex {
+        trimmed.to_ascii_lowercase()
+    } else {
+        "#23a559".to_string()
+    }
 }
 
 pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
@@ -1275,7 +1292,12 @@ hotkey = "!!!"
         assert!(!cfg.voice.overlay);
         assert!(cfg.voice.overlay_click_through);
         assert_eq!(cfg.voice.overlay_opacity, 70);
+        assert_eq!(cfg.voice.speak_color, "#23a559");
         assert_eq!(cfg.shortcuts.toggle_voice_overlay, "mod+shift+o");
+        let tinted = parse_config("voice.speak_color = \"#C46B4A\"\n").unwrap();
+        assert_eq!(tinted.voice.speak_color, "#c46b4a");
+        let junk = parse_config("voice.speak_color = \"green\"\n").unwrap();
+        assert_eq!(junk.voice.speak_color, "#23a559");
         let older = parse_config("[voice]\nmode = \"ptt\"\n").unwrap();
         assert_eq!(older.voice.mode, VoiceMode::Ptt);
         assert!(!older.voice.overlay);

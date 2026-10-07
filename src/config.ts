@@ -1,6 +1,7 @@
 import { sanitizeGames } from "./game";
 import { sanitizeClips } from "./soundboard";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
+import { speakColor } from "./voice-stage";
 
 export function defaultConfig(): AppConfig {
   return {
@@ -52,6 +53,7 @@ export function defaultConfig(): AppConfig {
       overlay: false,
       overlay_opacity: 70,
       overlay_click_through: true,
+      speak_color: speakColor(undefined),
       levels: {},
     },
     soundboard: { clips: [] },
@@ -127,6 +129,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
       base.voice.overlay_opacity = Math.min(100, Math.max(35, Math.round(raw.voice.overlay_opacity)));
     }
     if (typeof raw.voice.overlay_click_through === "boolean") base.voice.overlay_click_through = raw.voice.overlay_click_through;
+    base.voice.speak_color = speakColor(raw.voice.speak_color);
     base.voice.levels = sanitizeLevels(raw.voice.levels);
   }
   base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
