@@ -25,8 +25,10 @@ export function renderMessage(
     now?: number;
     quickReactions?: string[];
     bookmarked?: boolean;
+    reminded?: boolean;
     translated?: boolean;
     onBookmark?: () => void;
+    onRemind?: () => void;
     onTranslate?: () => void;
     onHideAuthor?: () => void;
     /** Game Mode: skip media preload and autoplay. */
@@ -156,8 +158,11 @@ export function renderMessage(
   if (effects.has("translate") && options.onTranslate) {
     actions.append(textAction(options.translated ? "Original" : "Translate", options.onTranslate));
   }
-  if (effects.has("bookmark") && options.onBookmark) {
+  if (options.onBookmark) {
     actions.append(textAction(options.bookmarked ? "Saved" : "Save", options.onBookmark));
+  }
+  if (options.onRemind) {
+    actions.append(textAction(options.reminded ? "Reminded" : "Remind", options.onRemind));
   }
   if (options.onHideAuthor) actions.append(textAction("Hide", options.onHideAuthor));
   actions.append(actionButton("Add reaction", paths.plus, () => options.onReact("picker")));

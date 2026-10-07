@@ -180,7 +180,7 @@ export const history: Record<string, RawMessage[]> = {
     msg("100000000000000330", "100000000000000033", "Maya Chen", "Ethan, the late set is up. <@100000000000000001>", 80, { mentionIds: [ME] }),
   ],
   "100000000000000041": [
-    msg("100000000000000410", "100000000000000041", "Maya Chen", "Can you look at the rail spacing when you're back?", 15),
+    msg("100000000000000410", "100000000000000041", "Maya Chen", "Can you look at the rail spacing when you're back? ada@example.com", 15),
   ],
   "100000000000000042": [
     msg("100000000000000420", "100000000000000042", "Jonah Adler", "Pushed the rate limiter tests.", 120),

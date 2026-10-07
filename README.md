@@ -39,6 +39,9 @@ The browser preview will not store a token. `npm run dev`, then open [http://127
 ## Features
 
 - Servers, DMs, threads, search, pins, replies, and uploads
+- Saved messages, reminders, and scheduled send. Ctrl+K (⌘K on macOS) opens them
+- Streamer mode hides emails, tokens, DM previews, and personal info. It can turn on while you share or record
+- Composer drafts are encrypted with a key in the macOS Keychain or Windows Credential Manager
 - Notifications, a tray icon, and shortcuts (`mod` is Command on macOS and Ctrl on Windows)
 - A theme gallery in Settings. The shipped themes are in [THEMES.md](THEMES.md)
 - Plugins that stay off until you turn them on. The pack is in [PLUGINS.md](PLUGINS.md)
@@ -75,4 +78,4 @@ Settings → Voice & Video keeps a profile for each game you adjust: push-to-tal
 - Screen share does not send a live desktop capture yet. The clip buffer is a separate local recording of the main display, and only while screen share or Game Mode capture is on.
 - Markdown is a subset: bold, italic, code, quotes, spoilers, mentions, emoji, and links.
 - Plugins are trusted local scripts. They never receive the token.
-- Linux can compile the shell, but it will not save a token.
+- Linux can compile the shell, but it will not save a token or a draft key. Drafts stay in memory for that session.

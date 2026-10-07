@@ -21,6 +21,10 @@ export function commandCatalog(): CommandItem[] {
     { id: "members", label: "Toggle member list", hint: "People in this server", keywords: "members users" },
     { id: "irc", label: "Toggle IRC layout", hint: "One line per message", keywords: "irc compact density" },
     { id: "pins", label: "Pinned messages", hint: "This channel", keywords: "pins saved" },
+    { id: "saved", label: "Saved messages", hint: "Bookmarks on this device", keywords: "saved bookmarks save messages" },
+    { id: "reminders", label: "Reminders", hint: "Messages to come back to", keywords: "remind reminder later messages" },
+    { id: "scheduled", label: "Scheduled messages", hint: "Send later queue", keywords: "schedule scheduled send later queue" },
+    { id: "streamer", label: "Toggle streamer mode", hint: "Hide emails, tokens, DM previews, and personal info", keywords: "streamer privacy hide email token dm" },
     { id: "status", label: "Set a status", hint: "Online, idle, or a custom line", keywords: "status presence custom" },
   ];
 }

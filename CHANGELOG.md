@@ -10,6 +10,8 @@ Wave 1. The voice HUD can show RAM, CPU, and FPS. Ctrl+Shift+P (⌘⇧P on macOS
 
 Per-person volume and a local mute in a voice channel, RNNoise on the microphone, and a soundboard that plays local WAV clips into the call. Notes on a profile are saved to the Discord account, and friends who are in a game or listening to something show that activity on the friends list and under direct messages.
 
+Saved messages, reminders, and scheduled send are part of the app. Save on a message keeps it in a list on this device, Remind notifies you once at the time you pick, and Later in the composer queues a send. Ctrl+K (⌘K on macOS) opens those lists and toggles streamer mode. Streamer mode hides emails, tokens, DM previews, and personal info, and it can turn itself on while screen share or the clip buffer is recording. Composer drafts are encrypted with a key in the macOS Keychain or Windows Credential Manager. A leftover plaintext draft is sealed once and then removed.
+
 ## [2.3.1](https://github.com/ItsErod/lark/releases/tag/v2.3.1) — 2026-10-07
 
 Adds an in-game voice HUD, a 30-second clip hotkey, and optional GPU, CPU temperature, and game text on a custom status. The HUD is a small always-on-top window that shows who is speaking and who is muted; it stays off until Ctrl+Shift+O (⌘⇧O on macOS) or Settings → Voice & Video, and the clip hotkey saves the last 30 seconds of a screen share or game capture. Guild channel loads no longer stampede Discord’s REST limit, and the login window skips WebView2 script while the page is still busy. Switching channels, scrolling a long history, and the voice HUD update only what changed, so those views paint from cache instead of rebuilding the window.

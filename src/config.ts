@@ -66,6 +66,7 @@ export function defaultConfig(): AppConfig {
     },
     clips: { game_capture: false },
     games: {},
+    privacy: { streamer: false, streamer_auto: false },
     accents: {},
   };
 }
@@ -130,6 +131,8 @@ export function sanitizeConfig(input: unknown): AppConfig {
   }
   base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
   if (typeof raw.clips?.game_capture === "boolean") base.clips.game_capture = raw.clips.game_capture;
+  if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
+  if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
     if (typeof raw.desktop.autostart === "boolean") base.desktop.autostart = raw.desktop.autostart;

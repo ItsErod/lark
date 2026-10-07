@@ -91,6 +91,7 @@ export interface AppConfig {
   };
   clips: { game_capture: boolean };
   games: Record<string, GameProfile>;
+  privacy: { streamer: boolean; streamer_auto: boolean };
   accents: Record<string, string>;
 }
 

@@ -13,6 +13,12 @@ describe("command palette", () => {
     expect(ids).toContain("perf-overlay");
     expect(ids).toContain("game-mode");
     expect(matchCommands("voice", commandCatalog()).some((item) => item.id === "mute")).toBe(true);
+    expect(ids).toContain("saved");
+    expect(ids).toContain("reminders");
+    expect(ids).toContain("scheduled");
+    expect(ids).toContain("streamer");
+    expect(matchCommands("bookmark", commandCatalog()).some((item) => item.id === "saved")).toBe(true);
+    expect(matchCommands("privacy", commandCatalog()).some((item) => item.id === "streamer")).toBe(true);
     expect(matchCommands("zzzz", commandCatalog())).toEqual([]);
   });
 });
