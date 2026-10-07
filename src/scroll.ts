@@ -5,6 +5,7 @@ export const PANEL_SCROLL_SELECTOR = [
   ".messages",
   ".member-scroll",
   ".settings-body",
+  ".settings-nav-scroll",
   ".switcher-results",
   ".bookmark-list",
   ".codeblock",
