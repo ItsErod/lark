@@ -64,7 +64,7 @@ button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 ::selection { background: var(--accent-soft); }
 
-#app { height: 100%; min-height: 0; overflow: hidden; }
+#app { position: relative; height: 100%; min-height: 0; overflow: hidden; }
 
 .shell {
   position: relative;
@@ -465,6 +465,50 @@ kbd, .kbd { font-family: var(--mono); background: var(--bg-0); border-radius: 6p
 .gate-card { width: min(480px, 100%); border-radius: 22px; padding: 28px; }
 .mark { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .gate h1 { font-size: 40px; letter-spacing: -0.04em; margin: 12px 0 8px; }
+.startup {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 28px 16px;
+  background:
+    radial-gradient(900px 420px at 12% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    var(--bg-0);
+  opacity: 1;
+  transition: opacity 220ms ease;
+}
+.startup.is-leaving { opacity: 0; pointer-events: none; }
+.startup-card {
+  width: min(420px, 100%);
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+.startup-card .mark { margin-bottom: 4px; }
+.startup h1 { font-size: 40px; letter-spacing: -0.04em; margin: 8px 0 0; font-weight: 700; }
+.startup-status {
+  margin: 8px 0 22px;
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 14px;
+}
+.startup-track {
+  width: min(280px, 72vw);
+  height: 6px;
+  border-radius: 99px;
+  background: var(--bg-4);
+  overflow: hidden;
+}
+.startup-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup { transition: none; }
+}
 .lede { color: var(--muted); line-height: 1.5; }
 .token-input { background: var(--bg-0); border: 1px solid var(--line); border-radius: 12px; margin: 8px 0 12px; }
 .gate-actions { display: flex; gap: 8px; flex-wrap: wrap; }
