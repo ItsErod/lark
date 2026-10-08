@@ -104,7 +104,7 @@ fn prepare_audio_thread() {
     {
         use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
         unsafe {
-            let _ = CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED);
+            let _ = CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32);
         }
     }
 }
