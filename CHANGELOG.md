@@ -2,6 +2,10 @@
 
 Brief notes for each Lark version, newest first. Installers for published releases are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
+## [Unreleased]
+
+Voice calls complete the DAVE MLS handshake and encrypt each Opus frame before the transport cipher. Joining a channel no longer sends audio while the speaking flag is 0, which was closing the voice gateway and dropping the member. Settings → Voice & Video → Copy voice diagnostics lists the handshake, close codes, and packet counters.
+
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
 ## [2.4.3](https://github.com/ItsErod/lark/releases/tag/v2.4.3) — 2026-10-08

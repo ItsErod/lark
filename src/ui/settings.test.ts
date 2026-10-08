@@ -54,6 +54,7 @@ describe("settings catalog", () => {
     expect(searchSettings("accent").some((hit) => hit.id === "appearance.accent")).toBe(true);
     expect(searchSettings("tray").some((hit) => hit.id === "window.tray")).toBe(true);
     expect(searchSettings("speaking ring").some((hit) => hit.id === "voice.speak")).toBe(true);
+    expect(searchSettings("diagnostics").some((hit) => hit.id === "voice.diagnostics")).toBe(true);
     expect(searchSettings("compress").some((hit) => hit.id === "clips.compress")).toBe(true);
     expect(searchSettings("clip library").some((hit) => hit.id === "clips.library")).toBe(true);
     expect(searchSettings("1440").some((hit) => hit.id === "clips.resolution")).toBe(true);

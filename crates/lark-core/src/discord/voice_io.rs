@@ -20,6 +20,8 @@ pub struct DeviceStreams {
     output_name: String,
     last_input: Instant,
     last_output: Instant,
+    input_error: String,
+    output_error: String,
 }
 
 impl DeviceStreams {
@@ -38,6 +40,8 @@ impl DeviceStreams {
             output_name: String::new(),
             last_input: Instant::now() - Duration::from_secs(30),
             last_output: Instant::now() - Duration::from_secs(30),
+            input_error: String::new(),
+            output_error: String::new(),
         }
     }
 
@@ -46,12 +50,61 @@ impl DeviceStreams {
         if self.input_name != input_name || (self.input.is_none() && now.duration_since(self.last_input) >= Duration::from_secs(2)) {
             self.input_name = input_name.to_string();
             self.last_input = now;
-            self.input = open_input(input_name, self.capture.clone()).ok();
+            prepare_audio_thread();
+            match open_input(input_name, self.capture.clone()) {
+                Ok(stream) => {
+                    self.input = Some(stream);
+                    self.input_error.clear();
+                }
+                Err(err) => {
+                    self.input = None;
+                    self.input_error = err;
+                }
+            }
         }
         if self.output_name != output_name || (self.output.is_none() && now.duration_since(self.last_output) >= Duration::from_secs(2)) {
             self.output_name = output_name.to_string();
             self.last_output = now;
-            self.output = open_output(output_name, self.playback.clone(), self.volumes.clone()).ok();
+            prepare_audio_thread();
+            match open_output(output_name, self.playback.clone(), self.volumes.clone()) {
+                Ok(stream) => {
+                    self.output = Some(stream);
+                    self.output_error.clear();
+                }
+                Err(err) => {
+                    self.output = None;
+                    self.output_error = err;
+                }
+            }
+        }
+    }
+
+    pub fn input_open(&self) -> bool {
+        self.input.is_some()
+    }
+
+    pub fn output_open(&self) -> bool {
+        self.output.is_some()
+    }
+
+    pub fn input_error(&self) -> &str {
+        &self.input_error
+    }
+
+    pub fn output_error(&self) -> &str {
+        &self.output_error
+    }
+}
+
+/// WASAPI needs the thread in the multi-threaded COM apartment before a device
+/// is opened. cpal does this too; doing it first keeps a later STA init from
+/// stealing the thread. Other platforms have nothing to prepare.
+fn prepare_audio_thread() {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        unsafe {
+            let _ = CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED);
         }
     }
 }

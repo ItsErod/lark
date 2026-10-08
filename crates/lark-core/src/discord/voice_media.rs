@@ -17,7 +17,18 @@ use super::noise::NoiseSuppressor;
 use super::voice::{
     decrypt_voice, encrypt_voice, rtp_header, voice_active, CipherMode, OPUS_SILENCE,
 };
+use super::voice_dave::DaveCall;
 use super::voice_io::DeviceStreams;
+use super::voice_log::VoiceLog;
+
+const SILENCE_TAIL: u8 = 5;
+
+/// Ordered voice events. Speaking is queued before the packets it covers so the
+/// gateway sees opcode 5 before UDP audio.
+pub enum VoiceWire {
+    Speaking(bool),
+    Packet(Vec<u8>),
+}
 
 pub const FRAME_SAMPLES: usize = 960;
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -254,9 +265,8 @@ pub fn resample_mono(input: &[f32], out_len: usize) -> Vec<f32> {
 }
 
 pub struct MediaPipe {
-    pub outbound: async_mpsc::UnboundedReceiver<Vec<u8>>,
+    pub outbound: async_mpsc::UnboundedReceiver<VoiceWire>,
     pub inbound: mpsc::SyncSender<Vec<u8>>,
-    pub speaking: async_mpsc::UnboundedReceiver<bool>,
     cancel: Arc<AtomicBool>,
     _join: Option<JoinHandle<()>>,
 }
@@ -276,10 +286,15 @@ pub fn start_media(
     volumes: Arc<Mutex<HashMap<String, f32>>>,
     ssrc_users: Arc<Mutex<HashMap<u32, String>>>,
     board: Arc<Mutex<SoundMix>>,
+    dave: Option<Arc<Mutex<DaveCall>>>,
+    log: Arc<Mutex<VoiceLog>>,
 ) -> Result<MediaPipe, String> {
     let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
     let (inbound_tx, inbound_rx) = mpsc::sync_channel(64);
-    let (speaking_tx, speaking_rx) = async_mpsc::unbounded_channel();
+    let (inject_tx, inject_rx) = mpsc::sync_channel(8);
+    if let Ok(mut guard) = log.lock() {
+        guard.inject = Some(inject_tx);
+    }
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_thread = cancel.clone();
     let capture = Arc::new(Mutex::new(CaptureBuf::new()));
@@ -296,11 +311,13 @@ pub fn start_media(
                 volumes,
                 ssrc_users,
                 board,
+                dave,
+                log,
                 capture,
                 playback,
                 inbound: inbound_rx,
                 outbound: outbound_tx,
-                speaking_out: speaking_tx,
+                inject: inject_rx,
                 cancel: cancel_thread,
             });
         })
@@ -308,7 +325,6 @@ pub fn start_media(
     Ok(MediaPipe {
         outbound: outbound_rx,
         inbound: inbound_tx,
-        speaking: speaking_rx,
         cancel,
         _join: Some(join),
     })
@@ -323,11 +339,13 @@ struct MediaArgs {
     volumes: Arc<Mutex<HashMap<String, f32>>>,
     ssrc_users: Arc<Mutex<HashMap<u32, String>>>,
     board: Arc<Mutex<SoundMix>>,
+    dave: Option<Arc<Mutex<DaveCall>>>,
+    log: Arc<Mutex<VoiceLog>>,
     capture: Arc<Mutex<CaptureBuf>>,
     playback: Arc<Mutex<Playback>>,
     inbound: mpsc::Receiver<Vec<u8>>,
-    outbound: async_mpsc::UnboundedSender<Vec<u8>>,
-    speaking_out: async_mpsc::UnboundedSender<bool>,
+    outbound: async_mpsc::UnboundedSender<VoiceWire>,
+    inject: mpsc::Receiver<Vec<u8>>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -339,8 +357,14 @@ struct Incoming {
 
 fn run_media(args: MediaArgs) {
     let mut encoder = match OpusEncoder::new() {
-        Ok(encoder) => encoder,
-        Err(_) => return,
+        Ok(encoder) => Some(encoder),
+        Err(()) => {
+            if let Ok(mut log) = args.log.lock() {
+                log.opus_error = "Opus encoder failed to start".into();
+                log.push("opus encoder failed");
+            }
+            None
+        }
     };
     let mut decoders: HashMap<u32, Incoming> = HashMap::new();
     let mut streams = DeviceStreams::new(args.capture.clone(), args.playback.clone(), args.volumes.clone());
@@ -349,6 +373,7 @@ fn run_media(args: MediaArgs) {
     let mut timestamp = 0u32;
     let mut nonce = 0u32;
     let mut last_talking = false;
+    let mut silence_left = 0u8;
     let mut scratch = vec![0i16; 12_000];
     let mut pcm = [0i16; FRAME_SAMPLES * 2];
     let mut opus_buf = [0u8; 1_500];
@@ -361,6 +386,12 @@ fn run_media(args: MediaArgs) {
         }
         let controls = args.controls.borrow().clone();
         streams.sync(&controls.input_device, &controls.output_device);
+        if let Ok(mut log) = args.log.lock() {
+            log.input_open = streams.input_open();
+            log.output_open = streams.output_open();
+            log.input_error = streams.input_error().to_string();
+            log.output_error = streams.output_error().to_string();
+        }
         if let Ok(mut play) = args.playback.lock() {
             play.deafened = controls.deafened;
         }
@@ -385,6 +416,7 @@ fn run_media(args: MediaArgs) {
                 &mut timestamp,
                 &mut nonce,
                 &mut last_talking,
+                &mut silence_left,
             );
             next_frame += Duration::from_millis(20);
             if next_frame + Duration::from_millis(80) < Instant::now() {
@@ -411,14 +443,20 @@ fn produce_frame(
     args: &MediaArgs,
     controls: &VoiceAudio,
     denoiser: &mut NoiseSuppressor,
-    encoder: &mut OpusEncoder,
+    encoder: &mut Option<OpusEncoder>,
     pcm: &mut [i16],
     opus_buf: &mut [u8],
     seq: &mut u16,
     timestamp: &mut u32,
     nonce: &mut u32,
     last_talking: &mut bool,
+    silence_left: &mut u8,
 ) {
+    while let Ok(opus) = args.inject.try_recv() {
+        set_talking(args, true, last_talking);
+        *silence_left = SILENCE_TAIL;
+        send_opus(args, &opus, seq, timestamp, nonce);
+    }
     let frame = args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf));
     let have_audio = frame.is_some();
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
@@ -428,23 +466,63 @@ fn produce_frame(
     let transmit = *args.transmit.borrow();
     let active = voice_active(&owned, controls.sensitivity);
     let board = args.board.lock().ok().map(|mut mix| mix.mix_into(&mut owned)).unwrap_or(false);
-    let talking = board || (transmit && have_audio && (!controls.vad || active));
-    if talking != *last_talking {
-        let _ = args.speaking_out.send(talking);
-        *last_talking = talking;
-    }
-    let opus = if talking {
-        stereo_from_mono(&owned, pcm);
-        match encoder.encode(pcm, opus_buf) {
-            Ok(len) if len > 0 => opus_buf[..len].to_vec(),
-            _ => OPUS_SILENCE.to_vec(),
+    let talking = encoder.is_some() && (board || (transmit && have_audio && (!controls.vad || active)));
+    if talking {
+        set_talking(args, true, last_talking);
+        *silence_left = SILENCE_TAIL;
+        let opus = encoder.as_mut().and_then(|encoder| {
+            stereo_from_mono(&owned, pcm);
+            match encoder.encode(pcm, opus_buf) {
+                Ok(len) if len > 0 => Some(opus_buf[..len].to_vec()),
+                _ => None,
+            }
+        });
+        if let Some(opus) = opus {
+            send_opus(args, &opus, seq, timestamp, nonce);
         }
-    } else {
-        OPUS_SILENCE.to_vec()
+        return;
+    }
+    if *silence_left > 0 {
+        *silence_left -= 1;
+        send_opus(args, OPUS_SILENCE, seq, timestamp, nonce);
+        if *silence_left == 0 {
+            set_talking(args, false, last_talking);
+        }
+    }
+}
+
+fn set_talking(args: &MediaArgs, talking: bool, last_talking: &mut bool) {
+    if talking == *last_talking {
+        return;
+    }
+    let _ = args.outbound.send(VoiceWire::Speaking(talking));
+    *last_talking = talking;
+}
+
+fn send_opus(args: &MediaArgs, opus: &[u8], seq: &mut u16, timestamp: &mut u32, nonce: &mut u32) {
+    let sealed = match &args.dave {
+        Some(dave) => {
+            let Ok(mut call) = dave.lock() else { return };
+            match call.seal_opus(opus) {
+                Ok(bytes) => bytes,
+                Err(()) => {
+                    drop(call);
+                    if let Ok(mut log) = args.log.lock() {
+                        log.dave_seal_skip = log.dave_seal_skip.saturating_add(1);
+                    }
+                    return;
+                }
+            }
+        }
+        None => opus.to_vec(),
     };
+    if let Ok(mut log) = args.log.lock() {
+        log.opus_out = log.opus_out.saturating_add(1);
+        log.last_opus_out = opus.to_vec();
+    }
     let header = rtp_header(*seq, *timestamp, args.ssrc);
-    if let Ok(packet) = encrypt_voice(args.mode, &args.key, &header, &opus, *nonce) {
-        let _ = args.outbound.send(packet);
+    if let Ok(packet) = encrypt_voice(args.mode, &args.key, &header, &sealed, *nonce) {
+        let _ = args.outbound.send(VoiceWire::Packet(packet));
     }
     *seq = seq.wrapping_add(1);
     *timestamp = timestamp.wrapping_add(FRAME_SAMPLES as u32);
@@ -493,9 +571,36 @@ fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratc
     if ssrc == 0 || ssrc == args.ssrc {
         return;
     }
-    let Ok(opus) = decrypt_voice(args.mode, &args.key, &packet) else { return };
-    if opus.is_empty() {
+    let Ok(transport) = decrypt_voice(args.mode, &args.key, &packet) else { return };
+    if transport.is_empty() {
         return;
+    }
+    let opus = match &args.dave {
+        Some(dave) => {
+            let user_id = args
+                .ssrc_users
+                .lock()
+                .ok()
+                .and_then(|map| map.get(&ssrc).cloned())
+                .and_then(|id| id.parse::<u64>().ok())
+                .unwrap_or(0);
+            let Ok(mut call) = dave.lock() else { return };
+            match call.open_opus(user_id, &transport) {
+                Ok(plain) => plain,
+                Err(()) => {
+                    drop(call);
+                    if let Ok(mut log) = args.log.lock() {
+                        log.dave_open_fail = log.dave_open_fail.saturating_add(1);
+                    }
+                    return;
+                }
+            }
+        }
+        None => transport,
+    };
+    if let Ok(mut log) = args.log.lock() {
+        log.opus_in = log.opus_in.saturating_add(1);
+        log.last_opus_in = opus.clone();
     }
     let seq = rtp_sequence(&packet);
     if !decoders.contains_key(&ssrc) {

@@ -36,6 +36,12 @@ xsalsa20poly1305 = "0.9"
 zeroize = "1"
 nnnoiseless = "0.5.2"
 
+[dev-dependencies]
+openmls = { version = "0.9", features = ["js"] }
+openmls_basic_credential = "0.6"
+openmls_rust_crypto = "0.6"
+tls_codec = { version = "0.5", features = ["derive"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

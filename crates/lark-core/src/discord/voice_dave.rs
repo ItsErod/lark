@@ -8,7 +8,10 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use dave::{PassthroughMode, ProposalsOperation, Session, SessionConfig, SessionIdentity, SessionOptions};
+use dave::{
+    MediaFrame, MediaType, Opus, PassthroughMode, ProcessProposalsError, ProposalsOperation, Session, SessionConfig,
+    SessionIdentity, SessionOptions, SetExternalSenderError, OPUS_SILENCE_FRAME,
+};
 
 use super::voice::{
     dave_commit_welcome_frame, dave_invalid_commit, dave_key_package_frame, dave_transition_ready,
@@ -34,6 +37,10 @@ pub struct DaveCall {
     welcome: Option<(u16, Vec<u8>)>,
     commit: Option<(u16, Vec<u8>)>,
     outbound: Vec<DaveWire>,
+    /// Protocol version 0 is transport-only. A non-zero version never falls back
+    /// to plaintext just because the transition id is 0.
+    passthrough: bool,
+    trace: Vec<String>,
 }
 
 impl DaveCall {
@@ -63,13 +70,71 @@ impl DaveCall {
             welcome: None,
             commit: None,
             outbound: Vec::new(),
+            passthrough: false,
+            trace: Vec::new(),
         };
+        call.trace("session started");
         call.queue_key_package()?;
         Ok(call)
     }
 
     pub fn take_outbound(&mut self) -> Vec<DaveWire> {
         std::mem::take(&mut self.outbound)
+    }
+
+    pub fn drain_trace(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.trace)
+    }
+
+    pub fn passthrough(&self) -> bool {
+        self.passthrough
+    }
+
+    pub fn sender_ready(&self) -> bool {
+        self.session.sender_ready()
+    }
+
+    pub fn pending_proposals(&self) -> usize {
+        self.proposals.len()
+    }
+
+    /// Encrypt one Opus frame for the current MLS epoch.
+    ///
+    /// Silence from the SFU (`0xF8 0xFF 0xFE`) is not a DAVE frame. A sender that
+    /// is not ready yet returns an error so the transport does not ship plaintext
+    /// into an end-to-end call.
+    pub fn seal_opus(&mut self, opus: &[u8]) -> Result<Vec<u8>, ()> {
+        if opus == OPUS_SILENCE_FRAME && !self.session.sender_ready() && self.passthrough {
+            return Ok(opus.to_vec());
+        }
+        if self.passthrough {
+            return Ok(opus.to_vec());
+        }
+        if !self.session.sender_ready() {
+            self.trace("seal skipped; sender ratchet is not active");
+            return Err(());
+        }
+        let mut out = Vec::with_capacity(opus.len() + 32);
+        self.session
+            .encrypt_into(MediaFrame::<Opus>::new(opus), &mut out)
+            .map_err(|_| ())?;
+        if out.is_empty() || !frame_has_dave_marker(&out) {
+            return Err(());
+        }
+        Ok(out)
+    }
+
+    /// Decrypt one received Opus frame after the transport cipher.
+    pub fn open_opus(&mut self, user_id: u64, frame: &[u8]) -> Result<Vec<u8>, ()> {
+        if frame == OPUS_SILENCE_FRAME {
+            return Ok(frame.to_vec());
+        }
+        match self.session.decrypt(user_id, MediaType::Audio, frame) {
+            Ok(plain) if !plain.is_empty() => Ok(plain),
+            Ok(_) => Err(()),
+            Err(_) if self.passthrough && !frame_has_dave_marker(frame) => Ok(frame.to_vec()),
+            Err(_) => Err(()),
+        }
     }
 
     pub fn note_users(&mut self, ids: impl IntoIterator<Item = u64>) {
@@ -90,8 +155,12 @@ impl DaveCall {
         let Some((_seq, opcode, payload)) = parse_dave_server_binary(bytes) else { return };
         match opcode {
             25 => {
-                self.external_sender = Some(payload.to_vec());
-                self.external_ready = false;
+                let next = payload.to_vec();
+                if self.external_sender.as_ref() != Some(&next) {
+                    self.external_sender = Some(next);
+                    self.external_ready = false;
+                    self.trace("external sender received");
+                }
             }
             27 => self.proposals.push(payload.to_vec()),
             29 => {
@@ -110,15 +179,30 @@ impl DaveCall {
     }
 
     pub fn prepare_transition(&mut self, protocol_version: u16, transition_id: u16) {
-        if transition_id == 0 || protocol_version == 0 {
+        self.trace(format!("prepare transition {transition_id} protocol {protocol_version}"));
+        if protocol_version == 0 {
+            self.passthrough = true;
             self.session.set_passthrough_mode(PassthroughMode::Enabled);
             self.ready(transition_id);
+            return;
+        }
+        self.passthrough = false;
+        if transition_id == 0 {
+            // Re-initialization. The gateway does not send opcode 22 for this id.
+            self.execute_transition(0);
+            self.ready(0);
         }
     }
 
     pub fn execute_transition(&mut self, transition_id: u16) {
-        let _ = self.session.activate_staged_sender();
-        if transition_id == 0 {
+        let activated = self.session.activate_staged_sender();
+        self.trace(format!(
+            "execute transition {transition_id} sender {}",
+            if activated || self.session.sender_ready() { "ready" } else { "pending" }
+        ));
+        if self.passthrough {
+            self.session.set_passthrough_mode(PassthroughMode::Enabled);
+        } else {
             self.session
                 .set_passthrough_mode(PassthroughMode::DisabledAfter(Duration::from_secs(10)));
         }
@@ -157,13 +241,23 @@ impl DaveCall {
         }
         self.outbound.push(DaveWire::Binary(dave_key_package_frame(&package)));
         self.key_package_sent = true;
+        self.trace(format!("key package queued ({} bytes)", package.len()));
         Ok(())
     }
 
     fn pump(&mut self) -> Result<(), String> {
         if let Some(bytes) = self.external_sender.clone() {
-            if !self.external_ready && self.session.set_external_sender(&bytes).is_ok() {
-                self.external_ready = true;
+            if !self.external_ready {
+                match self.session.set_external_sender(&bytes) {
+                    Ok(()) => {
+                        self.external_ready = true;
+                        self.trace("external sender accepted");
+                    }
+                    Err(SetExternalSenderError::AlreadyInGroup) => {
+                        self.external_ready = true;
+                    }
+                    Err(err) => self.trace(format!("external sender rejected ({err})")),
+                }
             }
         }
         if !self.key_package_sent {
@@ -173,9 +267,14 @@ impl DaveCall {
             return Ok(());
         }
         let pending = std::mem::take(&mut self.proposals);
+        let mut retry = Vec::new();
         for payload in pending {
-            self.apply_proposals(&payload);
+            match self.apply_proposals(&payload) {
+                ProposalApply::Done => {}
+                ProposalApply::Later => retry.push(payload),
+            }
         }
+        self.proposals.splice(0..0, retry);
         if let Some((id, welcome)) = self.welcome.clone() {
             self.welcome = None;
             if self.session.process_welcome(&welcome).is_ok() {
@@ -195,19 +294,29 @@ impl DaveCall {
         Ok(())
     }
 
-    fn apply_proposals(&mut self, payload: &[u8]) {
-        let Some((&operation, rest)) = payload.split_first() else { return };
+    fn apply_proposals(&mut self, payload: &[u8]) -> ProposalApply {
+        let Some((&operation, rest)) = payload.split_first() else { return ProposalApply::Done };
         let operation = match operation {
             0 => ProposalsOperation::Append,
             1 => ProposalsOperation::Revoke,
-            _ => return,
+            _ => return ProposalApply::Done,
         };
         let expected = self.roster.iter().copied().collect::<Vec<_>>();
-        if let Ok(Some(commit)) = self.session.process_proposals(operation, rest, expected.as_slice()) {
-            self.outbound.push(DaveWire::Binary(dave_commit_welcome_frame(
-                &commit.commit,
-                commit.welcome.as_deref(),
-            )));
+        match self.session.process_proposals(operation, rest, expected.as_slice()) {
+            Ok(Some(commit)) => {
+                self.trace("commit welcome queued");
+                self.outbound.push(DaveWire::Binary(dave_commit_welcome_frame(
+                    &commit.commit,
+                    commit.welcome.as_deref(),
+                )));
+                ProposalApply::Done
+            }
+            Ok(None) => ProposalApply::Done,
+            Err(ProcessProposalsError::NoGroup | ProcessProposalsError::UnexpectedUser(_)) => ProposalApply::Later,
+            Err(err) => {
+                self.trace(format!("proposals dropped ({err})"));
+                ProposalApply::Done
+            }
         }
     }
 
@@ -221,6 +330,25 @@ impl DaveCall {
         self.external_ready = false;
         self.key_package_sent = false;
         self.pump()
+    }
+}
+
+enum ProposalApply {
+    Done,
+    Later,
+}
+
+fn frame_has_dave_marker(frame: &[u8]) -> bool {
+    frame.len() >= 2 && frame[frame.len() - 2] == 0xFA && frame[frame.len() - 1] == 0xFA
+}
+
+impl DaveCall {
+    fn trace(&mut self, step: impl Into<String>) {
+        let line = step.into();
+        if self.trace.last().is_some_and(|prev| prev == &line) {
+            return;
+        }
+        self.trace.push(line);
     }
 }
 
@@ -259,6 +387,7 @@ mod tests {
         let mut session = call();
         session.take_outbound();
         session.prepare_transition(0, 0);
+        assert!(session.passthrough());
         let ready = session.take_outbound();
         match &ready[0] {
             DaveWire::Text(text) => {
@@ -279,6 +408,30 @@ mod tests {
         session.ingest_binary(&[0, 1]);
         session.ingest_binary(&[0, 9, 27]);
         assert!(session.take_outbound().is_empty());
+    }
+
+    #[test]
+    fn transition_zero_on_protocol_one_does_not_enable_plaintext() {
+        let mut session = call();
+        session.take_outbound();
+        session.prepare_transition(1, 0);
+        assert!(!session.passthrough());
+        let ready = session.take_outbound();
+        match &ready[0] {
+            DaveWire::Text(text) => assert!(text.contains("\"transition_id\":0")),
+            DaveWire::Binary(_) => panic!("transition ready is json"),
+        }
+        assert!(session.seal_opus(&[0x11, 0x22, 0x33, 0x44]).is_err());
+    }
+
+    #[test]
+    fn proposals_wait_until_the_external_sender_and_roster_exist() {
+        let mut session = call();
+        session.take_outbound();
+        session.ingest_binary(&[0x00, 0x01, 27, 0, 1, 2, 3]);
+        assert_eq!(session.pending_proposals(), 1);
+        session.note_users([1]);
+        assert_eq!(session.pending_proposals(), 1, "a proposal must not be dropped before the group exists");
     }
 
     #[test]

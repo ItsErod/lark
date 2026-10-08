@@ -7,7 +7,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
@@ -24,6 +24,7 @@ use super::    stream::{
 use super::voice::{
     choose_mode, dave_protocol_version, ip_discovery_request, parse_dave_server_binary, parse_ip_discovery,
     voice_close_error, voice_error_should_stop, voice_gateway_url, voice_heartbeat, voice_heartbeat_interval_ms,
+    voice_poll_slice,
     voice_reconnect_delay_ms, CipherMode, OPUS_SILENCE,
 };
 use super::voice_dave::{DaveCall, DaveWire};
@@ -162,8 +163,8 @@ where
     let chosen = description.get("mode").and_then(|v| v.as_str()).unwrap_or(mode.name());
     let mode = choose_mode(&[chosen.to_string()]).ok_or_else(|| "fatal:No supported stream encryption".to_string())?;
     let key = secret_key(&description).ok_or_else(|| "Stream key missing".to_string())?;
-    let mut dave = start_dave(hello, dave_protocol_version(&description))?;
-    if let Some(dave) = dave.as_mut() {
+    let dave = start_dave(hello, dave_protocol_version(&description))?;
+    if let Some(dave) = dave.as_ref() {
         flush_dave(&mut write, dave).await?;
     }
 
@@ -277,6 +278,15 @@ where
                         let header = super::voice::rtp_header(audio_seq, audio_ts, audio_ssrc);
                         audio_seq = audio_seq.wrapping_add(1);
                         audio_ts = audio_ts.wrapping_add(960);
+                        let opus_packet = if let Some(dave) = dave.as_ref() {
+                            let Ok(mut call) = dave.lock() else { continue };
+                            match call.seal_opus(&opus_packet) {
+                                Ok(sealed) => sealed,
+                                Err(()) => continue,
+                            }
+                        } else {
+                            opus_packet
+                        };
                         if let Ok(encrypted) = encrypt_rtp(mode, &key, &header, &opus_packet, nonce) {
                             nonce = nonce.wrapping_add(1);
                             let _ = udp_send.send(&encrypted).await;
@@ -293,8 +303,8 @@ where
                         let _ = write.send(Message::Pong(payload)).await;
                     }
                     Message::Text(text) => {
-                        handle_text(&text, dave.as_mut(), &mut seq_ack)?;
-                        if let Some(dave) = dave.as_mut() {
+                        handle_text(&text, dave.as_ref(), &mut seq_ack)?;
+                        if let Some(dave) = dave.as_ref() {
                             flush_dave(&mut write, dave).await?;
                         }
                     }
@@ -302,8 +312,10 @@ where
                         if let Some((seq, _, _)) = parse_dave_server_binary(&bytes) {
                             seq_ack = Some(i64::from(seq));
                         }
-                        if let Some(dave) = dave.as_mut() {
-                            dave.ingest_binary(&bytes);
+                        if let Some(dave) = dave.as_ref() {
+                            if let Ok(mut call) = dave.lock() {
+                                call.ingest_binary(&bytes);
+                            }
                             flush_dave(&mut write, dave).await?;
                         }
                     }
@@ -366,13 +378,14 @@ async fn handle_udp<F>(
     }
 }
 
-fn handle_text(text: &str, dave: Option<&mut DaveCall>, seq_ack: &mut Option<i64>) -> Result<(), String> {
+fn handle_text(text: &str, dave: Option<&Arc<Mutex<DaveCall>>>, seq_ack: &mut Option<i64>) -> Result<(), String> {
     let Ok(value) = serde_json::from_str::<Value>(text) else { return Ok(()) };
     if let Some(seq) = value.get("seq").and_then(|v| v.as_i64()) {
         *seq_ack = Some(seq);
     }
     if let Some(dave) = dave {
-        apply_dave(dave, &value)?;
+        let Ok(mut call) = dave.lock() else { return Ok(()) };
+        apply_dave(&mut call, &value)?;
     }
     Ok(())
 }
@@ -395,7 +408,8 @@ impl Heart {
         self.next = Some(Instant::now() + every / 2);
     }
     fn until(&self) -> Duration {
-        self.next.map(|at| at.saturating_duration_since(Instant::now())).unwrap_or(Duration::from_secs(60))
+        let wait = self.next.map(|at| at.saturating_duration_since(Instant::now())).unwrap_or(Duration::from_secs(60));
+        voice_poll_slice(wait)
     }
     fn due(&self) -> bool {
         self.next.is_some_and(|at| Instant::now() >= at)
@@ -537,14 +551,14 @@ where
     }
 }
 
-fn start_dave(hello: &StreamHello, version: u16) -> Result<Option<DaveCall>, String> {
+fn start_dave(hello: &StreamHello, version: u16) -> Result<Option<Arc<Mutex<DaveCall>>>, String> {
     if version == 0 {
         return Ok(None);
     }
     let user_id = snowflake(&hello.user_id).ok_or_else(|| "fatal:Stream user id was not a snowflake".to_string())?;
     let channel = if hello.channel_id.is_empty() { hello.server_id.as_str() } else { hello.channel_id.as_str() };
     let channel_id = snowflake(channel).ok_or_else(|| "fatal:Stream channel id was not a snowflake".to_string())?;
-    Ok(Some(DaveCall::start(user_id, channel_id, version)?))
+    Ok(Some(Arc::new(Mutex::new(DaveCall::start(user_id, channel_id, version)?))))
 }
 
 fn apply_dave(dave: &mut DaveCall, value: &Value) -> Result<(), String> {
@@ -585,11 +599,15 @@ fn apply_dave(dave: &mut DaveCall, value: &Value) -> Result<(), String> {
     Ok(())
 }
 
-async fn flush_dave<W>(write: &mut W, dave: &mut DaveCall) -> Result<(), String>
+async fn flush_dave<W>(write: &mut W, dave: &Arc<Mutex<DaveCall>>) -> Result<(), String>
 where
     W: SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
-    for message in dave.take_outbound() {
+    let wires = {
+        let Ok(mut call) = dave.lock() else { return Ok(()) };
+        call.take_outbound()
+    };
+    for message in wires {
         let frame = match message {
             DaveWire::Text(text) => Message::Text(text),
             DaveWire::Binary(bytes) => Message::Binary(bytes),

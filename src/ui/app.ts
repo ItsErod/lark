@@ -4421,8 +4421,11 @@ class LarkApp {
     const listDevices = el("button", "text-button", "List microphones and cameras");
     listDevices.type = "button";
     listDevices.addEventListener("click", () => void this.listDevices());
+    const copyDiag = el("button", "text-button", "Copy voice diagnostics");
+    copyDiag.type = "button";
+    copyDiag.addEventListener("click", () => void this.copyVoiceDiagnostics());
     const deviceActions = el("div", "settings-actions");
-    deviceActions.append(listDevices);
+    deviceActions.append(listDevices, copyDiag);
     devices.append(deviceActions);
     const ring = settingCard("Speaking ring");
     ring.append(this.speakRingRow());
@@ -9957,6 +9960,15 @@ class LarkApp {
     this.audioOutputs = map("audiooutput");
     this.videoInputs = map("videoinput");
     if (this.settings && this.section === "voice") this.renderSettings();
+  }
+
+  private async copyVoiceDiagnostics() {
+    try {
+      const text = await invoke<string>("voice_diagnostics");
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* The diagnostics stay on the voice log if the clipboard is unavailable. */
+    }
   }
 
   private guildForChannel(channelId: string): string | null {
