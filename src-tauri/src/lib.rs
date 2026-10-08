@@ -34,6 +34,7 @@ struct Shared {
     shutdown: Mutex<Option<watch::Sender<bool>>>,
     _watcher: Mutex<Option<RecommendedWatcher>>,
     voice: Arc<std::sync::Mutex<VoiceSlot>>,
+    voice_log: Arc<std::sync::Mutex<lark_core::discord::voice_log::VoiceLog>>,
     voice_stop: Mutex<Option<watch::Sender<bool>>>,
     speaking: watch::Sender<bool>,
     voice_audio: watch::Sender<lark_core::discord::voice_media::VoiceAudio>,
@@ -124,6 +125,7 @@ pub fn run() {
                 gateway: Mutex::new(None),
                 shutdown: Mutex::new(None),
                 _watcher: Mutex::new(None),
+                voice_log: Arc::new(std::sync::Mutex::new(lark_core::discord::voice_log::VoiceLog::default())),
                 voice: Arc::new(std::sync::Mutex::new(VoiceSlot {
                     user_id: String::new(),
                     endpoint: String::new(),
@@ -212,6 +214,7 @@ pub fn run() {
             read_plugin,
             join_voice,
             leave_voice,
+            voice_diagnostics,
             set_voice_self,
             set_voice_transmit,
             set_voice_audio,
@@ -1041,6 +1044,11 @@ async fn join_voice(
     let volumes = state.voice_volumes.clone();
     let board = state.sound_mix.clone();
     let slot = state.voice.clone();
+    let voice_log = state.voice_log.clone();
+    if let Ok(mut log) = voice_log.lock() {
+        *log = lark_core::discord::voice_log::VoiceLog::default();
+        log.push("join requested");
+    }
     let server_id = guild_id.unwrap_or(channel_id);
     tauri::async_runtime::spawn(async move {
         let ready = wait_for_voice(&slot, &server_id, &rx).await;
@@ -1055,7 +1063,7 @@ async fn join_voice(
             return;
         };
         hello.epoch = epoch;
-        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, audio, volumes, board, move |event| {
+        lark_core::discord::voice_link::maintain_voice(hello, rx, speaking, audio, volumes, board, voice_log, move |event| {
             let payload = match event {
                 lark_core::discord::voice_link::VoiceLinkEvent::Status { state, detail, epoch } => {
                     serde_json::json!({"kind": "voiceLink", "state": state, "detail": detail, "epoch": epoch})
@@ -1105,6 +1113,15 @@ async fn stop_voice(state: &Shared) {
     if let Some(tx) = state.voice_stop.lock().await.take() {
         let _ = tx.send(true);
     }
+}
+
+#[tauri::command]
+fn voice_diagnostics(state: State<'_, Shared>) -> String {
+    state
+        .voice_log
+        .lock()
+        .map(|log| log.export())
+        .unwrap_or_else(|_| "Lark voice diagnostics\nvoice log is locked\n".to_string())
 }
 
 #[tauri::command]

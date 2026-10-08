@@ -5,6 +5,8 @@
 //! 4016. AEAD nonces are a 32-bit counter appended to the packet and padded with zeros.
 //! The XSalsa helpers remain so an already-captured packet can still be decoded.
 
+use std::time::Duration;
+
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce as AesNonce};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -335,6 +337,12 @@ pub fn voice_resume(server_id: &str, session_id: &str, token: &str, seq_ack: Opt
     .to_string()
 }
 
+/// Windows can coalesce a long sleep into one late wake. The voice task sleeps
+/// at most one second, then sends Opcode 3 only when Hello's interval is due.
+pub fn voice_poll_slice(wait: Duration) -> Duration {
+    wait.min(Duration::from_secs(1))
+}
+
 /// Hello's `heartbeat_interval`, in milliseconds.
 ///
 /// A zero value uses Discord's documented 41250ms example. The floor only stops
@@ -554,6 +562,8 @@ mod tests {
             parse_ip_discovery(&response).unwrap(),
             ("203.0.113.8".into(), 50_000)
         );
+        assert_eq!(voice_poll_slice(Duration::from_secs(41)), Duration::from_secs(1));
+        assert_eq!(voice_poll_slice(Duration::from_millis(200)), Duration::from_millis(200));
         assert_eq!(
             voice_gateway_url("example.discord.gg:443").unwrap(),
             "wss://example.discord.gg/?v=8"
