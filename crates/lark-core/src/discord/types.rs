@@ -181,6 +181,8 @@ pub struct DiscordAttachment {
     #[serde(default)]
     pub url: String,
     #[serde(default)]
+    pub proxy_url: Option<String>,
+    #[serde(default)]
     pub content_type: Option<String>,
     #[serde(default)]
     pub size: u64,
@@ -354,6 +356,9 @@ pub struct ClientAttachment {
     pub id: String,
     pub name: String,
     pub url: String,
+    /// Media proxy URL, including the `ex` / `is` / `hm` expiry query when Discord sent one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub proxy_url: String,
     pub content_type: String,
     pub size: u64,
     pub width: Option<u32>,
@@ -852,6 +857,7 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
                 id: att.id.clone(),
                 name: att.filename.clone(),
                 url: att.url.clone(),
+                proxy_url: att.proxy_url.clone().unwrap_or_default(),
                 content_type: att.content_type.clone().unwrap_or_default(),
                 size: att.size,
                 width: att.width,
@@ -1527,6 +1533,7 @@ mod tests {
         assert_eq!(client.author_name, "Maya Chen");
         assert_eq!(client.mention_ids, vec!["100000000000000001"]);
         assert_eq!(client.attachments[0].content_type, "image/png");
+        assert!(client.attachments[0].proxy_url.is_empty());
         assert_eq!(client.embeds[0].color.as_deref(), Some("#e2a15a"));
         assert_eq!(client.reply.as_ref().unwrap().author_name, "Jonah Adler");
         assert_eq!(client.reactions[0].emoji, "🔥");
@@ -1590,6 +1597,38 @@ mod tests {
         let deleted = r#"{"id":"71","channel_id":"42","type":19,"message_reference":{"message_id":"1"},"referenced_message":null}"#;
         let gone = message_to_client(&serde_json::from_str(deleted).unwrap());
         assert_eq!(gone.reply.as_ref().unwrap().preview, "Message deleted");
+    }
+
+    #[test]
+    fn attachment_keeps_cdn_url_proxy_url_and_expiry() {
+        let raw = r#"{
+            "id": "90",
+            "channel_id": "42",
+            "content": "",
+            "author": {"id": "7", "username": "maya"},
+            "attachments": [{
+                "id": "9",
+                "filename": "image.png",
+                "url": "https://cdn.discordapp.com/attachments/42/9/image.png?ex=6610abcd&is=65feabcd&hm=deadbeef",
+                "proxy_url": "https://media.discordapp.net/attachments/42/9/image.png?ex=6610abcd&is=65feabcd&hm=deadbeef",
+                "content_type": "image/png",
+                "size": 4096,
+                "width": 640,
+                "height": 480
+            }]
+        }"#;
+        let client = message_to_client(&serde_json::from_str(raw).unwrap());
+        let file = &client.attachments[0];
+        assert_eq!(file.name, "image.png");
+        assert!(file.url.contains("cdn.discordapp.com"));
+        assert!(file.url.contains("ex=6610abcd"));
+        assert!(file.url.contains("is=65feabcd"));
+        assert!(file.url.contains("hm=deadbeef"));
+        assert!(file.proxy_url.contains("media.discordapp.net"));
+        assert!(file.proxy_url.contains("ex=6610abcd"));
+        assert!(file.proxy_url.contains("hm=deadbeef"));
+        assert_eq!(file.width, Some(640));
+        assert_eq!(file.height, Some(480));
     }
 
     #[test]

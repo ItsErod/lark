@@ -74,6 +74,7 @@ struct FileIn {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    refresh::prepare_webview();
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(

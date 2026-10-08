@@ -108,6 +108,8 @@ export interface RawAttachment {
   id: string;
   name: string;
   url: string;
+  /** Discord media proxy. Preferred when it still carries the expiry query. */
+  proxyUrl?: string | null;
   contentType?: string;
   size?: number;
   width?: number;

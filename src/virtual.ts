@@ -42,6 +42,15 @@ function rowAt(heights: ArrayLike<number> | undefined, index: number, fallback: 
  * `pinned` keeps the tail on screen. `focus` forces that index into the window
  * so a jump target is mounted.
  */
+function hasMeasured(heights: ArrayLike<number> | undefined, count: number): boolean {
+  if (!heights) return false;
+  const limit = Math.min(count, heights.length);
+  for (let index = 0; index < limit; index += 1) {
+    if (Number(heights[index]) > 0) return true;
+  }
+  return false;
+}
+
 export function spanWindow(
   count: number,
   heights: ArrayLike<number> | undefined,
@@ -54,11 +63,32 @@ export function spanWindow(
 ): SpanWindow {
   const row = Math.max(1, fallback);
   if (count <= 0) return { start: 0, end: 0, top: 0, bottom: 0, total: 0 };
+  if (count <= VIRTUAL_MIN) {
+    let total = 0;
+    for (let index = 0; index < count; index += 1) total += rowAt(heights, index, row);
+    return { start: 0, end: count, top: 0, bottom: 0, total };
+  }
+  // Unmeasured rows share `fallback`. The window is arithmetic, so opening a
+  // channel does not walk or measure every row before the first paint.
+  if (!hasMeasured(heights, count)) {
+    const total = count * row;
+    const pad = Math.max(0, overscan) * row;
+    const viewHeight = Math.max(row, view);
+    const anchor = pinned ? Math.max(0, total - viewHeight) : Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);
+    const viewTop = Math.max(0, anchor - pad);
+    const viewBottom = anchor + viewHeight + pad;
+    let start = Math.min(count, Math.floor(viewTop / row));
+    let end = Math.min(count, Math.ceil(viewBottom / row));
+    if (focus >= 0 && focus < count) {
+      start = Math.min(start, Math.max(0, focus - overscan));
+      end = Math.max(end, Math.min(count, focus + overscan + 1));
+    }
+    return { start, end, top: start * row, bottom: total - end * row, total };
+  }
   const prefix = new Array<number>(count + 1);
   prefix[0] = 0;
   for (let index = 0; index < count; index += 1) prefix[index + 1] = prefix[index] + rowAt(heights, index, row);
   const total = prefix[count];
-  if (count <= VIRTUAL_MIN) return { start: 0, end: count, top: 0, bottom: 0, total };
   const pad = Math.max(0, overscan) * row;
   const viewHeight = Math.max(row, view);
   const anchor = pinned ? Math.max(0, total - viewHeight) : Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);

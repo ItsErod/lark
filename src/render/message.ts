@@ -1,7 +1,7 @@
 import { keywordHits } from "../keywords";
 import { applyPlugins, describePlugin, type PluginApplyContext, type PluginSource } from "../plugins";
 import type { RawEmbed, RawMessage } from "../types";
-import { attachmentKind, parseContent, safeMediaUrl, type Block, type RenderContext } from "./content";
+import { attachmentKind, attachmentMediaUrl, parseContent, safeMediaUrl, type Block, type RenderContext } from "./content";
 
 export interface ViewAttachment {
   id: string;
@@ -131,7 +131,7 @@ export function buildViewMessage(
 
 function toAttachment(att: NonNullable<RawMessage["attachments"]>[number]): ViewAttachment {
   const kind = attachmentKind({ name: att.name, contentType: att.contentType });
-  const url = safeMediaUrl(att.url);
+  const url = attachmentMediaUrl(att.url, att.proxyUrl);
   return {
     id: att.id,
     name: att.name,

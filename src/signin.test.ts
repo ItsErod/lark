@@ -82,5 +82,8 @@ describe("production CSP", () => {
     expect(policy["connect-src"]).toContain("http://ipc.localhost");
     expect(policy["connect-src"]).not.toContain("discord.com");
     expect(policy["img-src"]).toContain("https://cdn.discordapp.com");
+    expect(policy["img-src"]).toContain("https://media.discordapp.net");
+    expect(policy["img-src"]).toContain("https://*.discordapp.net");
+    expect(policy["img-src"]).toContain("https://*.discordapp.com");
   });
 });

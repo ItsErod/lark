@@ -282,7 +282,44 @@ button.category:hover { color: var(--text); }
 @keyframes lark-jump { 30% { background: var(--mention-bg); } }
 .compact-line { display: flex; gap: 8px; align-items: baseline; }
 .compact-text { min-width: 0; }
-#app[data-density="compact"] .message { grid-template-columns: 64px minmax(0, 1fr); padding-top: 1px; padding-bottom: 1px; }
+#app[data-density="compact"] .message {
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  align-items: start;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+#app[data-density="compact"] .message > .gutter {
+  padding-top: 0;
+  line-height: 1.375rem;
+  white-space: nowrap;
+}
+#app[data-density="compact"] .message-body { min-width: 0; }
+#app[data-density="compact"] .compact-line {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  min-height: 1.375rem;
+}
+#app[data-density="compact"] .compact-line > .author {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.375rem;
+}
+#app[data-density="compact"] .compact-line > .compact-text,
+#app[data-density="compact"] .compact-line .paragraph {
+  grid-column: 2;
+  line-height: 1.375rem;
+}
+#app[data-density="compact"] .message-body > .image-frame,
+#app[data-density="compact"] .message-body > .embed,
+#app[data-density="compact"] .message-body > .file-chip,
+#app[data-density="compact"] .message-body > .attachment-video,
+#app[data-density="compact"] .message-body > .attachment-audio {
+  margin-left: calc(9.5rem + 8px);
+}
 /* IRC has no avatar cell. A 56px first track would pin the only child there. */
 .message.is-irc {
   grid-template-columns: minmax(0, 1fr);
@@ -328,9 +365,15 @@ button.category:hover { color: var(--text); }
 @keyframes pulse { 50% { opacity: 0.55; } }
 .reply-ref { display: flex; gap: 8px; border: 0; background: transparent; color: var(--muted); padding: 0 0 4px; }
 .reply-name { color: var(--text); font-weight: 600; }
-.image-frame { border: 0; background: var(--bg-0); padding: 0; border-radius: 12px; overflow: hidden; margin-top: 8px; max-width: min(420px, 100%); }
-.image-preview, .embed-image { display: block; width: 100%; height: auto; background: linear-gradient(120deg, var(--bg-3), var(--bg-0)); }
-.image-preview[data-reserved="0"], .embed-image[data-reserved="0"] { min-height: 96px; }
+.image-frame { border: 0; background: var(--bg-0); padding: 0; border-radius: 12px; overflow: hidden; margin-top: 8px; max-width: min(420px, 100%); line-height: 0; }
+.image-preview, .embed-image {
+  display: block;
+  object-fit: contain;
+  background: linear-gradient(120deg, var(--bg-3), var(--bg-0));
+  color: transparent;
+}
+.image-preview:not([src]), .embed-image:not([src]), .sticker img:not([src]) { opacity: 0; }
+.image-preview[data-reserved="0"], .embed-image[data-reserved="0"] { width: 320px; height: 180px; max-width: 100%; }
 .embed-video[data-reserved="0"] { min-height: 120px; }
 .embed-video[data-reserved="1"] { width: 100%; height: auto; }
 .file-chip, .embed { margin-top: 8px; }

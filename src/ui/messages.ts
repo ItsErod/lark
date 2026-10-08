@@ -1,6 +1,6 @@
 import { formatAbsolute, formatRelative } from "../pack/relative";
 import type { ViewMessage } from "../render/message";
-import { emojiCdnUrl, formatBytes, type Block, type Inline } from "../render/content";
+import { emojiCdnUrl, formatBytes, mediaBox, type Block, type Inline, type MediaBox } from "../render/content";
 import { highlightCode, inlineLang } from "../syntax";
 import { colorFor, el, formatClock, formatDay, icon, initials, paths, portrait } from "./dom";
 
@@ -92,8 +92,8 @@ export function renderMessage(
     }
     const text = el("div", "compact-text");
     renderBlocks(text, view.blocks, options.remoteEmoji, view.collapsed, effects.has("inline-code"));
+    if (view.edited) text.append(el("span", "edited", "edited"));
     line.append(text);
-    if (view.edited) line.append(el("span", "edited", "edited"));
     body.append(line);
   } else {
     const text = el("div", "message-text");
@@ -113,12 +113,11 @@ export function renderMessage(
     const chip = el("div", "sticker");
     if (sticker.url) {
       const img = el("img");
-      img.alt = sticker.name;
+      img.alt = "";
       img.decoding = "async";
-      img.loading = "lazy";
       img.width = 72;
       img.height = 72;
-      img.src = sticker.url;
+      img.dataset.lazySrc = sticker.url;
       chip.append(img);
     }
     chip.append(el("span", "", sticker.name));
@@ -223,7 +222,6 @@ function reactionFace(reaction: ViewMessage["reactions"][number], remoteEmoji: b
   const img = el("img", "emoji");
   img.alt = reaction.emoji;
   img.decoding = "async";
-  img.loading = "lazy";
   img.width = 22;
   img.height = 22;
   img.src = remote;
@@ -239,12 +237,18 @@ function renderAttachment(
   if (attachment.kind === "image" && attachment.url) {
     const button = el("button", "image-frame");
     button.type = "button";
+    button.setAttribute("aria-label", attachment.name);
     const img = el("img", "image-preview");
-    img.alt = attachment.name;
-    img.loading = "lazy";
+    img.alt = "";
     img.decoding = "async";
-    reserveBox(img, attachment.width, attachment.height);
-    img.src = attachment.url;
+    applyMediaBox(img, mediaBox(attachment.width, attachment.height));
+    img.dataset.lazySrc = attachment.url;
+    img.addEventListener("error", () => {
+      if (!img.getAttribute("src")) return;
+      const chip = el("div", "file-chip");
+      chip.append(el("strong", "", attachment.name), el("span", "", "Couldn't load image"));
+      button.replaceWith(chip);
+    });
     button.append(img);
     button.addEventListener("click", () => onImage(attachment.url!));
     return button;
@@ -252,8 +256,10 @@ function renderAttachment(
   if ((attachment.kind === "video" || attachment.kind === "audio") && attachment.url) {
     const media = el(attachment.kind === "video" ? "video" : "audio", attachment.kind === "video" ? "attachment-video" : "attachment-audio");
     media.controls = true;
-    media.preload = quiet ? "none" : "metadata";
-    media.src = attachment.url;
+    media.preload = "none";
+    if (quiet) media.dataset.quiet = "1";
+    if (attachment.kind === "video") applyMediaBox(media, mediaBox(attachment.width, attachment.height));
+    media.dataset.lazySrc = attachment.url;
     if (attachment.kind === "audio") media.setAttribute("aria-label", attachment.name);
     return media;
   }
@@ -303,18 +309,14 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
   }
   if (embed.video) {
     const video = el("video", "embed-video");
-    video.src = embed.video;
-    video.preload = quiet ? "none" : "metadata";
+    video.preload = "none";
     video.playsInline = true;
+    video.controls = true;
     const loop = !quiet && (/tenor|giphy/i.test(embed.provider ?? "") || /tenor|giphy/i.test(embed.video));
-    reserveMedia(video, embed.videoWidth, embed.videoHeight);
-    if (loop) {
-      video.muted = true;
-      video.loop = true;
-      video.autoplay = true;
-    } else {
-      video.controls = true;
-    }
+    applyMediaBox(video, mediaBox(embed.videoWidth, embed.videoHeight));
+    if (quiet) video.dataset.quiet = "1";
+    if (loop) video.dataset.loopPlay = "1";
+    video.dataset.lazySrc = embed.video;
     card.append(video);
   } else if (embed.image || embed.thumbnail) {
     const img = el("img", "embed-image");
@@ -322,8 +324,8 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
     img.decoding = "async";
     const width = embed.image ? embed.imageWidth : undefined;
     const height = embed.image ? embed.imageHeight : undefined;
-    reserveBox(img, width, height);
-    img.src = embed.image || embed.thumbnail || "";
+    applyMediaBox(img, mediaBox(width, height));
+    img.dataset.lazySrc = embed.image || embed.thumbnail || "";
     card.append(img);
   }
   if (embed.provider) card.append(el("div", "embed-footer", embed.provider));
@@ -331,23 +333,64 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
   return card;
 }
 
-function reserveMedia(node: HTMLElement, width?: number, height?: number) {
-  if (width && height && width > 0 && height > 0) {
-    node.dataset.reserved = "1";
-    node.style.aspectRatio = `${Math.round(width)} / ${Math.round(height)}`;
-    return;
+function applyMediaBox(node: HTMLElement, box: MediaBox) {
+  node.dataset.reserved = box.reserved ? "1" : "0";
+  node.style.aspectRatio = `${box.width} / ${box.height}`;
+  node.style.width = `${box.width}px`;
+  node.style.maxWidth = "100%";
+  node.style.height = `${box.height}px`;
+  if (node instanceof HTMLImageElement) {
+    node.decoding = "async";
+    node.width = box.width;
+    node.height = box.height;
   }
-  node.dataset.reserved = "0";
 }
 
-function reserveBox(img: HTMLImageElement, width?: number, height?: number) {
-  img.loading = "lazy";
-  img.decoding = "async";
-  reserveMedia(img, width, height);
-  if (img.dataset.reserved === "1" && width && height) {
-    img.width = Math.round(width);
-    img.height = Math.round(height);
+let lazyObserver: IntersectionObserver | null = null;
+
+function activateLazy(node: HTMLElement) {
+  const url = node.dataset.lazySrc;
+  if (!url || node.dataset.lazyOn === "1") return;
+  node.dataset.lazyOn = "1";
+  delete node.dataset.lazySrc;
+  if (node instanceof HTMLImageElement) {
+    node.decoding = "async";
+    node.src = url;
+    if (typeof node.decode === "function") void node.decode().catch(() => undefined);
+    return;
   }
+  if (node instanceof HTMLVideoElement || node instanceof HTMLAudioElement) {
+    const quiet = node.dataset.quiet === "1";
+    node.preload = quiet ? "none" : "metadata";
+    node.src = url;
+    if (node instanceof HTMLVideoElement && node.dataset.loopPlay === "1" && !quiet) {
+      node.muted = true;
+      node.loop = true;
+      void node.play().catch(() => undefined);
+    }
+  }
+}
+
+/** Assign media URLs only once the node is near the message scroller. Decode off the main thread. */
+export function bindLazyMedia(root: HTMLElement) {
+  lazyObserver?.disconnect();
+  lazyObserver = null;
+  const nodes = [...root.querySelectorAll<HTMLElement>("[data-lazy-src]")];
+  if (!nodes.length) return;
+  const scroller = root.classList.contains("messages") ? root : root.closest(".messages");
+  if (typeof IntersectionObserver === "undefined" || !(scroller instanceof Element)) {
+    for (const node of nodes) activateLazy(node);
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      activateLazy(entry.target as HTMLElement);
+      observer.unobserve(entry.target);
+    }
+  }, { root: scroller, rootMargin: "240px 0px", threshold: 0 });
+  lazyObserver = observer;
+  for (const node of nodes) observer.observe(node);
 }
 
 function inlineNode(source: string, highlight: boolean): HTMLElement {
@@ -454,7 +497,6 @@ function renderInlines(parent: HTMLElement, nodes: Inline[], remoteEmoji: boolea
         const img = el("img", "emoji");
         img.alt = `:${node.name}:`;
         img.decoding = "async";
-        img.loading = "lazy";
         img.width = 22;
         img.height = 22;
         img.src = remote;
