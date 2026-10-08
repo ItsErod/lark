@@ -2,11 +2,11 @@
 
 Brief notes for each Lark version, newest first. Installers for published releases are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
-## Unreleased
-
-Windows hardware and game detection read memory, CPU, the display adapter, and the process list through Windows APIs. Open at login writes the current-user Run key through the registry API, and Show in Explorer uses the shell item API. The 2.4.2 build did those jobs by launching a hidden PowerShell and `reg.exe`. That matched Windows Defender's Behavior:Win32/DefenseEvasion.A!ml heuristic. The scripts were fixed in the app and did not come from Discord or the network. CPU temperature on Windows is left blank. Installers are still unsigned.
-
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
+
+## [2.4.3](https://github.com/ItsErod/lark/releases/tag/v2.4.3) — 2026-10-08
+
+Go Live shares a screen or window as a real stream, with quality options up to 4K. A voice call stays beside the text channel in a quiet layout, so the message list remains the chat. Windows hardware reads and Open at login use native Windows APIs, so this build no longer launches a hidden PowerShell or `reg.exe` that Defender flagged on 2.4.2.
 
 ## [2.4.2](https://github.com/ItsErod/lark/releases/tag/v2.4.2) — 2026-10-07
 
