@@ -2,13 +2,11 @@
 
 Brief notes for each Lark version, newest first. Installers for published releases are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
-## Unreleased
-
-Opening a text channel paints the newest 20 messages first, from cache when a page is already stored, then catches up with Discord. Older history loads 20 at a time when the reader nears the top, without jumping the line they were on. Images and embeds wait until they are near the screen, attachment links keep their CDN URL, proxy URL, and expiry query, and compact rows keep the author and the message on one grid.
-
-Voice calls complete the DAVE MLS handshake and encrypt each Opus frame before the transport cipher. Joining a channel no longer sends audio while the speaking flag is 0, which was closing the voice gateway and dropping the member. Settings → Voice & Video → Copy voice diagnostics lists the handshake, close codes, and packet counters.
-
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
+
+## [2.4.4](https://github.com/ItsErod/lark/releases/tag/v2.4.4) — 2026-10-08
+
+Voice chat completes a real DAVE MLS end-to-end encryption handshake, so calls carry encrypted Opus, and speaking indicators stay in order with RTP. Windows initializes WASAPI COM before the microphone starts, and Settings → Voice & Video can copy voice diagnostics. A channel paints the newest 20 messages first, loads older history on scroll, shows image attachments again, and lines up compact rows.
 
 ## [2.4.3](https://github.com/ItsErod/lark/releases/tag/v2.4.3) — 2026-10-08
 
