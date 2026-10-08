@@ -393,8 +393,9 @@ pub struct Desktop {
     pub autostart: bool,
     /// 0 matches the display. Any other value is a cap from 30 to 240.
     pub frame_cap: u16,
-    /// When true, Lark may read GPU, CPU temperature, and the current game
-    /// and publish them as the Discord custom status. Off until Settings says so.
+    /// When true, Lark may read the GPU name, CPU temperature on macOS, and the
+    /// current game, and publish them as the Discord custom status. Off until
+    /// Settings says so. Windows leaves temperature blank.
     pub hardware_status: bool,
     /// Performance strip in the voice HUD window. Off until Settings or the hotkey.
     pub perf_overlay: bool,

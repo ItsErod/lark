@@ -4,11 +4,19 @@
 //! The desktop shell asks for a full sample only after Settings → Lark →
 //! Hardware in status is on. A lighter sample (CPU, RAM, and the current
 //! game, no GPU sensors) runs when the performance overlay or game detection
-//! is on. macOS and Windows each try the local sources; a missing reading is
-//! omitted. Other systems return an empty reading and do not spawn anything.
+//! is on. macOS reads local tools. Windows uses `GlobalMemoryStatusEx`,
+//! `GetSystemTimes`, `EnumDisplayDevicesW`, and a Toolhelp process snapshot.
+//! It does not start a command interpreter, and it does not take arguments
+//! from Discord. CPU temperature on Windows is omitted because
+//! the only user-mode source was WMI. A missing reading is left out. Other
+//! systems return an empty reading and do not spawn anything.
 //!
 //! Callers should publish the status line at [`HARDWARE_STATUS_INTERVAL_MS`],
 //! not on a frame tick. The overlay reuses this reading instead of a second probe.
+
+#[cfg(windows)]
+#[path = "hardware_win.rs"]
+mod hardware_win;
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -207,9 +215,13 @@ fn macos_cpu() -> Option<u8> {
 }
 
 fn macos_memory() -> Option<MemorySample> {
-    let total = capture("/usr/sbin/sysctl", &["-n", "hw.memsize"], Duration::from_secs(1))
-        .as_deref()
-        .and_then(parse_memsize_bytes)?;
+    let total = capture(
+        "/usr/sbin/sysctl",
+        &["-n", "hw.memsize"],
+        Duration::from_secs(1),
+    )
+    .as_deref()
+    .and_then(parse_memsize_bytes)?;
     let stat = capture("/usr/bin/vm_stat", &[], Duration::from_secs(2))?;
     parse_vm_stat(&stat, total)
 }
@@ -249,138 +261,22 @@ fn macos_foreground() -> Option<String> {
 }
 
 fn sample_windows(full: bool) -> HardwareReading {
-    let gpu = if full {
-        cached_gpu("windows", || {
-            capture(
-                "powershell.exe",
-                &windows_args(WINDOWS_GPU),
-                Duration::from_secs(6),
-            )
-            .as_deref()
-            .and_then(parse_windows_gpu)
-        })
-    } else {
-        None
-    };
-    let cpu_temp_c = if full {
-        capture(
-            "powershell.exe",
-            &windows_args(WINDOWS_TEMP),
-            Duration::from_secs(4),
-        )
-        .as_deref()
-        .and_then(parse_cpu_temp_c)
-    } else {
-        None
-    };
-    let memory = capture(
-        "powershell.exe",
-        &windows_args(WINDOWS_MEMORY),
-        Duration::from_secs(4),
-    )
-    .as_deref()
-    .and_then(parse_windows_memory);
-    let foreground = capture(
-        "powershell.exe",
-        &windows_args(WINDOWS_FOREGROUND),
-        Duration::from_secs(4),
-    )
-    .as_deref()
-    .and_then(parse_foreground_name);
-    let processes = process_lines(&capture(
-        "powershell.exe",
-        &windows_args(WINDOWS_PROCESSES),
-        Duration::from_secs(4),
-    ));
-    let cpu_percent = capture(
-        "powershell.exe",
-        &windows_args(WINDOWS_CPU),
-        Duration::from_secs(4),
-    )
-    .as_deref()
-    .and_then(parse_cpu_percent);
-    HardwareReading {
-        gpu,
-        cpu_temp_c,
-        game: pick_game(foreground.as_deref(), &processes),
-        cpu_percent,
-        ram_used_mb: memory.map(|item| item.used_mb),
-        ram_total_mb: memory.map(|item| item.total_mb),
+    #[cfg(windows)]
+    {
+        let mut reading = hardware_win::sample();
+        reading.gpu = if full {
+            cached_gpu("windows", hardware_win::gpu_name)
+        } else {
+            None
+        };
+        reading
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = full;
+        HardwareReading::default()
     }
 }
-
-fn windows_args(script: &str) -> [&str; 6] {
-    [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        script,
-    ]
-}
-
-const WINDOWS_GPU: &str = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name";
-
-const WINDOWS_TEMP: &str = r#"
-$ErrorActionPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
-$best = $null
-$sensors = Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Sensor -ErrorAction SilentlyContinue |
-  Where-Object { $_.SensorType -eq 'Temperature' -and $_.Name -match 'CPU Package|Tctl|Core Max|^CPU$' }
-foreach ($sensor in $sensors) {
-  $value = [double]$sensor.Value
-  if ($value -ge 1 -and $value -le 120 -and ($null -eq $best -or $value -gt $best)) { $best = $value }
-}
-if ($null -eq $best) {
-  $zones = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue
-  foreach ($zone in $zones) {
-    $raw = [double]$zone.CurrentTemperature
-    if ($raw -le 0) { continue }
-    $value = ($raw / 10.0) - 273.15
-    if ($value -ge 1 -and $value -le 120 -and ($null -eq $best -or $value -gt $best)) { $best = $value }
-  }
-}
-if ($null -ne $best) { [int][math]::Round($best) }
-"#;
-
-const WINDOWS_FOREGROUND: &str = r#"
-$ErrorActionPreference = 'SilentlyContinue'
-if (-not ('LarkForeground' -as [type])) {
-  Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public class LarkForeground {
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-}
-'@
-}
-$handle = [LarkForeground]::GetForegroundWindow()
-$proc = [uint32]0
-[void][LarkForeground]::GetWindowThreadProcessId($handle, [ref]$proc)
-if ($proc -ne 0) {
-  $name = (Get-Process -Id $proc -ErrorAction SilentlyContinue).ProcessName
-  if ($name) { $name }
-}
-"#;
-
-const WINDOWS_PROCESSES: &str = "Get-Process | Select-Object -ExpandProperty ProcessName";
-
-const WINDOWS_CPU: &str = r#"
-$ErrorActionPreference = 'SilentlyContinue'
-$cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average
-if ($null -ne $cpu.Average) { [int][math]::Round($cpu.Average) }
-"#;
-
-const WINDOWS_MEMORY: &str = r#"
-$ErrorActionPreference = 'SilentlyContinue'
-$os = Get-CimInstance Win32_OperatingSystem
-if ($os) {
-  "total_kb=$([uint64]$os.TotalVisibleMemorySize)"
-  "free_kb=$([uint64]$os.FreePhysicalMemory)"
-}
-"#;
 
 fn process_lines(text: &Option<String>) -> Vec<String> {
     text.as_deref()
@@ -425,11 +321,6 @@ fn capture(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
     let mut child = command.spawn().ok()?;
     let stdout = child.stdout.take()?;
     let (tx, rx) = std::sync::mpsc::channel();
@@ -604,7 +495,10 @@ pub fn parse_cpu_percent(text: &str) -> Option<u8> {
         if !lower.contains("cpu usage") {
             continue;
         }
-        if let (Some(user), Some(sys)) = (percent_before(&lower, "user"), percent_before(&lower, "sys")) {
+        if let (Some(user), Some(sys)) = (
+            percent_before(&lower, "user"),
+            percent_before(&lower, "sys"),
+        ) {
             return Some(clamp_percent(user + sys));
         }
         if let Some(idle) = percent_before(&lower, "idle") {
@@ -722,10 +616,10 @@ fn page_count(text: &str, label: &str) -> Option<u64> {
 
 /// Used and total from `total_kb=` / `free_kb=` or the CIM property names. Values are kilobytes.
 pub fn parse_windows_memory(text: &str) -> Option<MemorySample> {
-    let total_kb = labeled_u64(text, "total_kb")
-        .or_else(|| labeled_u64(text, "totalvisiblememorysize"))?;
-    let free_kb = labeled_u64(text, "free_kb")
-        .or_else(|| labeled_u64(text, "freephysicalmemory"))?;
+    let total_kb =
+        labeled_u64(text, "total_kb").or_else(|| labeled_u64(text, "totalvisiblememorysize"))?;
+    let free_kb =
+        labeled_u64(text, "free_kb").or_else(|| labeled_u64(text, "freephysicalmemory"))?;
     if total_kb == 0 || free_kb > total_kb {
         return None;
     }
@@ -1405,6 +1299,12 @@ mod tests {
         assert_eq!(sample_hardware("linux"), HardwareReading::default());
         assert_eq!(sample_load("linux"), HardwareReading::default());
         assert_eq!(HARDWARE_STATUS_INTERVAL_MS, 60_000);
+        if cfg!(not(windows)) {
+            let started = std::time::Instant::now();
+            assert_eq!(sample_hardware("windows"), HardwareReading::default());
+            assert_eq!(sample_load("windows"), HardwareReading::default());
+            assert!(started.elapsed() < Duration::from_millis(500));
+        }
     }
 
     #[test]
@@ -1432,7 +1332,9 @@ mod tests {
             })
         );
         assert_eq!(
-            parse_windows_memory("TotalVisibleMemorySize : 16777216\nFreePhysicalMemory : 4194304\n"),
+            parse_windows_memory(
+                "TotalVisibleMemorySize : 16777216\nFreePhysicalMemory : 4194304\n"
+            ),
             Some(MemorySample {
                 used_mb: 12288,
                 total_mb: 16384

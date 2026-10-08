@@ -1811,14 +1811,7 @@ fn set_login_item(enabled: bool) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn set_login_item(enabled: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|err| err.to_string())?;
-    let mut command = std::process::Command::new("reg");
-    if enabled {
-        command.args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Lark", "/t", "REG_SZ", "/d", &exe.display().to_string(), "/f"]);
-    } else {
-        command.args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Lark", "/f"]);
-    }
-    let status = command.status().map_err(|err| err.to_string())?;
-    if status.success() { Ok(()) } else { Err("Could not update login items.".into()) }
+    lark_core::set_run_at_login(enabled, &exe)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]

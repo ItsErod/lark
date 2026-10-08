@@ -994,11 +994,7 @@ pub fn reveal_path(path: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
-            .spawn()
-            .map(|_| ())
-            .map_err(|err| err.to_string())
+        lark_core::reveal_file(path)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -1023,11 +1019,7 @@ pub fn open_dir(dir: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
-            .arg(dir)
-            .spawn()
-            .map(|_| ())
-            .map_err(|err| err.to_string())
+        lark_core::open_folder(dir)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

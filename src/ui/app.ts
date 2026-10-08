@@ -4626,7 +4626,7 @@ class LarkApp {
       ? `Detected: ${this.detectedGame}. A detected game turns Game Mode on unless that game's profile says otherwise.`
       : "No game detected."));
     const status = settingCard("Status");
-    status.append(this.switchRow("gaming.hardware", "Hardware in status", "Off until you turn this on. Lark then reads this computer's GPU name, CPU temperature when a sensor answers, and the current game. That line becomes your Discord custom status, kept to 128 characters, and it refreshes about once a minute. macOS and Windows only.", this.config.desktop.hardware_status, (value) => {
+    status.append(this.switchRow("gaming.hardware", "Hardware in status", "Off until you turn this on. Lark then reads this computer's GPU name, CPU temperature on macOS when a sensor answers, and the current game. Windows leaves temperature blank. That line becomes your Discord custom status, kept to 128 characters, and it refreshes about once a minute. macOS and Windows only.", this.config.desktop.hardware_status, (value) => {
       this.config.desktop.hardware_status = value;
       this.hardware = setHardwareEnabled(this.hardware, value, this.me.custom ?? "");
       this.hardwarePushFailed = false;

@@ -22,6 +22,8 @@ On a Mac, Gatekeeper blocks the first open. Right-click the app, choose **Open**
 
 On Windows, SmartScreen may say the publisher is unknown. Use **More info → Run anyway** only for an installer from the releases above.
 
+Windows Defender's Behavior:Win32/DefenseEvasion.A!ml alert on the 2.4.2 build is a false positive. That build launched a hidden PowerShell to read hardware and `reg.exe` to set Open at login. Both scripts are compiled into Lark. Nothing in them comes from a message, a server, or another computer. Current builds use Windows APIs for those reads and for the Run key. The installers are still unsigned, so SmartScreen can still warn.
+
 ## Sign in
 
 The first screen has **Sign in with Discord**, **Sign in in your browser**, and a QR code.
