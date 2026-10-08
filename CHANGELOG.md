@@ -2,7 +2,9 @@
 
 Brief notes for each Lark version, newest first. Installers for published releases are on the [Releases](https://github.com/ItsErod/lark/releases) page.
 
-## [Unreleased]
+## Unreleased
+
+Opening a text channel paints the newest 20 messages first, from cache when a page is already stored, then catches up with Discord. Older history loads 20 at a time when the reader nears the top, without jumping the line they were on. Images and embeds wait until they are near the screen, attachment links keep their CDN URL, proxy URL, and expiry query, and compact rows keep the author and the message on one grid.
 
 Voice calls complete the DAVE MLS handshake and encrypt each Opus frame before the transport cipher. Joining a channel no longer sends audio while the speaking flag is 0, which was closing the voice gateway and dropping the member. Settings → Voice & Video → Copy voice diagnostics lists the handshake, close codes, and packet counters.
 

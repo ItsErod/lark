@@ -376,6 +376,47 @@ export function safeMediaUrl(url: string): string | null {
   return null;
 }
 
+/** Discord signs attachment URLs with `ex`, `is`, and `hm`. Stripping them 404s the file. */
+export function hasAttachmentExpiry(url: string): boolean {
+  try {
+    const params = new URL(url, "https://cdn.discordapp.com").searchParams;
+    return Boolean(params.get("ex") && params.get("is") && params.get("hm"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Display URL for an attachment. Prefer a signed proxy URL, then a signed CDN
+ * URL, and keep the expiry query intact. Local and blob URLs pass through.
+ */
+export function attachmentMediaUrl(url: string, proxyUrl?: string | null): string | null {
+  const proxy = proxyUrl ? safeMediaUrl(proxyUrl) : null;
+  const direct = url ? safeMediaUrl(url) : null;
+  const ranked = [proxy, direct].filter((item): item is string => Boolean(item));
+  return ranked.find((item) => hasAttachmentExpiry(item)) ?? ranked[0] ?? null;
+}
+
+export interface MediaBox {
+  reserved: boolean;
+  width: number;
+  height: number;
+}
+
+const MEDIA_MAX = 420;
+const MEDIA_FALLBACK_W = 320;
+const MEDIA_FALLBACK_H = 180;
+
+/** Fixed box so a lazy image cannot move the messages around it when it decodes. */
+export function mediaBox(width?: number, height?: number, max = MEDIA_MAX): MediaBox {
+  if (width && height && width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height)) {
+    const nextWidth = Math.max(1, Math.min(max, Math.round(width)));
+    const nextHeight = Math.max(1, Math.round(height * (nextWidth / width)));
+    return { reserved: true, width: nextWidth, height: nextHeight };
+  }
+  return { reserved: false, width: MEDIA_FALLBACK_W, height: MEDIA_FALLBACK_H };
+}
+
 export function attachmentKind(att: { contentType?: string; name: string }): "image" | "video" | "audio" | "file" {
   const type = att.contentType ?? "";
   if (type.startsWith("image/")) return "image";

@@ -398,10 +398,7 @@ impl DiscordRest {
         if let Some(before) = before {
             self.ensure_snowflake(before)?;
         }
-        let path = match before {
-            Some(before) => format!("/channels/{channel_id}/messages?limit=50&before={before}"),
-            None => format!("/channels/{channel_id}/messages?limit=50"),
-        };
+        let path = messages_path(channel_id, before);
         let route = route_key("GET", "/channels/{channel.id}/messages", channel_id);
         let value = self
             .send_json(Method::GET, &route, channel_id, &path, None)
@@ -883,6 +880,14 @@ fn emoji_available() -> bool {
     true
 }
 
+/// Newest page on open, and the previous page when `before` is the oldest id on screen.
+pub fn messages_path(channel_id: &str, before: Option<&str>) -> String {
+    match before {
+        Some(before) => format!("/channels/{channel_id}/messages?limit=20&before={before}"),
+        None => format!("/channels/{channel_id}/messages?limit=20"),
+    }
+}
+
 pub fn api_url(path: &str) -> Result<String, RestError> {
     if !path.starts_with('/') || path.contains("://") || path.contains("..") {
         return Err(RestError::Message(
@@ -991,6 +996,18 @@ impl Drop for ChannelLead<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_history_asks_for_the_newest_page() {
+        assert_eq!(
+            messages_path("100000000000000023", None),
+            "/channels/100000000000000023/messages?limit=20"
+        );
+        assert_eq!(
+            messages_path("100000000000000023", Some("100000000000000230")),
+            "/channels/100000000000000023/messages?limit=20&before=100000000000000230"
+        );
+    }
 
     #[test]
     fn api_urls_stay_on_discord() {

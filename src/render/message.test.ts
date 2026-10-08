@@ -45,6 +45,24 @@ describe("message view", () => {
     );
     expect(view?.reply?.authorName).toBe("Jonah");
     expect(view?.attachments.map((item) => item.kind)).toEqual(["image", "file", "file"]);
+    const signed = buildViewMessage(
+      raw({
+        attachments: [{
+          id: "img",
+          name: "image.png",
+          url: "https://cdn.discordapp.com/attachments/42/9/image.png",
+          proxyUrl: "https://media.discordapp.net/attachments/42/9/image.png?ex=6610abcd&is=65feabcd&hm=deadbeef",
+          contentType: "image/png",
+          width: 640,
+          height: 480,
+        }],
+      }),
+      ctx,
+      [],
+    );
+    expect(signed?.attachments[0].url).toContain("media.discordapp.net");
+    expect(signed?.attachments[0].url).toContain("ex=6610abcd");
+    expect(signed?.attachments[0].kind).toBe("image");
     expect(view?.attachments[2].url).toBeNull();
     expect(view?.embeds[0].fields[0]).toMatchObject({ name: "Status", inline: true });
     expect(view?.embeds[0].description[0]).toMatchObject({ t: "p" });

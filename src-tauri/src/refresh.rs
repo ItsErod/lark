@@ -6,6 +6,32 @@
 
 use tauri::WebviewWindow;
 
+/// WebView2's native lazy-image loader never starts inside an overflow scroller,
+/// so attachment `<img loading="lazy">` stays on its alt text. Lark assigns `src`
+/// from an IntersectionObserver instead, and this flag keeps the native loader off.
+pub fn webview_image_arguments(existing: &str) -> String {
+    const FLAG: &str = "--disable-features=LazyImageLoading";
+    if existing.contains("LazyImageLoading") {
+        return existing.to_string();
+    }
+    if existing.trim().is_empty() {
+        FLAG.to_string()
+    } else {
+        format!("{existing} {FLAG}")
+    }
+}
+
+pub fn prepare_webview() {
+    #[cfg(target_os = "windows")]
+    {
+        let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            webview_image_arguments(&existing),
+        );
+    }
+}
+
 pub fn prefer_native_refresh(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     macos::apply(window);
@@ -94,5 +120,26 @@ mod macos {
             sel_registerName(b"respondsToSelector:\0".as_ptr().cast()),
             sel,
         ) != 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::webview_image_arguments;
+
+    #[test]
+    fn windows_webview_does_not_lazy_load_images() {
+        assert_eq!(
+            webview_image_arguments(""),
+            "--disable-features=LazyImageLoading"
+        );
+        assert_eq!(
+            webview_image_arguments("--disable-gpu"),
+            "--disable-gpu --disable-features=LazyImageLoading"
+        );
+        assert_eq!(
+            webview_image_arguments("--disable-features=LazyImageLoading"),
+            "--disable-features=LazyImageLoading"
+        );
     }
 }

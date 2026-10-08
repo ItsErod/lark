@@ -62,8 +62,8 @@ import {
 import { emptyPerfSample, fpsWatch, type PerfSample } from "../perf";
 import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
 import { prefetchChannelIds } from "../cache";
+import { HISTORY_PAGE, initialHistory, reconcileHistory } from "../history";
 import {
-  CACHE_WARM_MS,
   PLACE_KEY,
   SLOW_CONNECT_MS,
   STARTUP_CHANNEL_WAIT_MS,
@@ -211,7 +211,7 @@ import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKe
 import { renderVoiceHud } from "./hud";
 import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
 import { renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
-import { renderMessage } from "./messages";
+import { bindLazyMedia, renderMessage } from "./messages";
 import { renderProfileCard, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 
@@ -611,7 +611,10 @@ class LarkApp {
     const cached = readJson("lark.cache.v1") as { pages?: Record<string, RawMessage[]> };
     if (cached.pages) {
       for (const [id, messages] of Object.entries(cached.pages)) {
-        if (Array.isArray(messages)) this.pages[id] = messages.slice(-80);
+        if (!Array.isArray(messages) || !messages.length) continue;
+        const trimmed = messages.length > HISTORY_PAGE;
+        this.pages[id] = initialHistory(messages as RawMessage[]);
+        if (trimmed) this.more[id] = true;
       }
     }
     try {
@@ -1060,7 +1063,7 @@ class LarkApp {
           myRoles: [],
         };
         this.seedDemoVoice();
-        const page = pageMessages(history[CRIT] ?? [], undefined, 20);
+        const page = pageMessages(history[CRIT] ?? [], undefined, HISTORY_PAGE);
         this.pages[CRIT] = page.messages;
         this.more[CRIT] = page.hasMore;
         this.channelId = CRIT;
@@ -1181,21 +1184,9 @@ class LarkApp {
   }
 
   private async warmLanding(channelId: string | null) {
-    if (channelId && !(this.pages[channelId]?.length)) {
-      try {
-        const page = await Promise.race([
-          this.livePage(channelId).catch(() => null),
-          delay(CACHE_WARM_MS).then(() => null),
-        ]);
-        if (this.holdShell && page && !this.pages[channelId]?.length) {
-          this.pages[channelId] = page.messages;
-          this.more[channelId] = page.hasMore;
-          for (const message of page.messages) this.absorbMessage(message);
-        }
-      } catch {
-        /* The channel column reports a failed load after the splash. */
-      }
-    }
+    // The splash does not wait on history. openChannel paints the cached page,
+    // or a skeleton, and fetches the newest 20 without blocking the first paint.
+    void channelId;
     if (!this.holdShell) return;
     this.startupMilestone = "cache";
     this.startupStepAt = performance.now();
@@ -2576,29 +2567,18 @@ class LarkApp {
     }
     this.paintNewBar();
     this.closeSuggest();
-    if (!this.pages[id]) {
-      this.loading = true;
-      this.paint();
-      try {
-        await delay(this.pages[id] ? 0 : this.demo ? 16 : 0);
-        if (id === ARCHIVE) throw new Error("Couldn't load messages in #archive.");
-        const page = this.demo
-          ? pageMessages(history[id] ?? [], undefined, 20)
-          : await this.livePage(id);
-        this.pages[id] = page.messages;
-        this.more[id] = page.hasMore;
-        for (const message of page.messages) this.absorbMessage(message);
-        const marker = firstUnreadId(page.messages.map((message) => message.id), this.lastRead[id]);
-        const unread = this.unread[id] ?? 0;
-        if (marker) this.divider[id] = marker;
-        else if (unread > 0) this.divider[id] = page.messages[Math.max(0, page.messages.length - unread)]?.id ?? null;
-      } catch (err) {
-        this.error = err instanceof Error ? err.message : "Couldn't load messages.";
-      } finally {
-        this.loading = false;
+    const cached = this.pages[id];
+    if (cached?.length) {
+      const visible = initialHistory(cached);
+      if (visible.length !== cached.length) {
+        this.pages[id] = visible;
+        this.more[id] = true;
+      } else if (this.more[id] === undefined) {
+        this.more[id] = visible.length >= HISTORY_PAGE;
       }
-    } else if (this.more[id] === undefined) {
-      this.more[id] = (this.pages[id]?.length ?? 0) >= 20;
+      this.loading = false;
+    } else {
+      this.loading = true;
     }
     this.localUnread[id] = 0;
     this.localMentions[id] = 0;
@@ -2619,22 +2599,80 @@ class LarkApp {
       const last = this.pages[id][this.pages[id].length - 1];
       this.ackChannel(id, last.id);
     }
-    const opened = this.currentChannel();
-    if (opened && (opened.kind === "text" || opened.kind === "forum" || opened.kind === "announcement" || opened.kind === "thread")) {
-      void this.loadThreads(id);
-    }
     this.openedAt = performance.now();
     this.msgSig = "";
     this.friendsOpen = false;
     this.clipsOpen = false;
-    if (!this.demo && this.guildId) {
-      const prefix = `${this.guildId}:${id}:`;
-      if (!this.memberRanges.startsWith(prefix)) this.queueMemberSubscribe(this.guildId, id, [[0, 99]]);
-    }
-    this.paint();
-    this.prefetchAround(id);
-    this.syncBadge();
+    this.paintMessages();
     if (perf) perf.lastSwitch = performance.now() - started;
+    window.setTimeout(() => this.finishChannelChrome(id), 0);
+    await this.reconcileChannel(id);
+  }
+
+  /** Header, channel selection, and composer. Members, threads, and prefetch stay off this path. */
+  private finishChannelChrome(id: string) {
+    if (this.channelId !== id || this.holdShell) return;
+    this.applyAppearance();
+    this.paintRail();
+    this.paintChannels();
+    this.paintHeader();
+    this.paintSplit();
+    this.paintVoice();
+    this.paintComposer();
+    this.syncBadge();
+    const token = this.prefetchToken;
+    const idle = window.requestIdleCallback ?? ((fn: IdleRequestCallback) => window.setTimeout(() => fn({ didTimeout: false, timeRemaining: () => 0 }), 48));
+    idle(() => {
+      if (this.channelId !== id || token !== this.prefetchToken) return;
+      this.paintMembers();
+      const opened = this.currentChannel();
+      if (opened && (opened.kind === "text" || opened.kind === "forum" || opened.kind === "announcement" || opened.kind === "thread")) {
+        void this.loadThreads(id);
+      }
+      if (!this.demo && this.guildId) {
+        const prefix = `${this.guildId}:${id}:`;
+        if (!this.memberRanges.startsWith(prefix)) this.queueMemberSubscribe(this.guildId, id, [[0, 99]]);
+      }
+      this.prefetchAround(id);
+    });
+  }
+
+  private async reconcileChannel(id: string) {
+    const hadCache = Boolean(this.pages[id]?.length);
+    try {
+      if (this.demo && id === ARCHIVE) throw new Error("Couldn't load messages in #archive.");
+      const page = this.demo
+        ? pageMessages(history[id] ?? [], undefined, HISTORY_PAGE)
+        : await this.livePage(id);
+      const next = reconcileHistory(this.pages[id] ?? [], page.messages);
+      this.pages[id] = next;
+      this.more[id] = page.hasMore || next.length > page.messages.length;
+      for (const message of page.messages) this.absorbMessage(message);
+      if (!this.divider[id]) {
+        const marker = firstUnreadId(next.map((message) => message.id), this.lastRead[id]);
+        const unread = this.unread[id] ?? 0;
+        const before = this.divider[id];
+        if (marker) this.divider[id] = marker;
+        else if (unread > 0) this.divider[id] = next[Math.max(0, next.length - unread)]?.id ?? null;
+        if (this.divider[id] !== before) this.msgSig = "";
+      }
+      this.loading = false;
+      if (this.channelId !== id) return;
+      if (!this.jumpId && this.pinnedToBottom) this.scroll = "bottom";
+      this.paintMessages();
+      const last = next.at(-1);
+      if (!this.jumpId && last) this.ackChannel(id, last.id);
+    } catch (err) {
+      this.loading = false;
+      if (this.channelId !== id) return;
+      const message = err instanceof Error ? err.message : "Couldn't load messages.";
+      if (hadCache && (this.pages[id]?.length ?? 0) > 0) this.toast("History", message);
+      else {
+        this.error = message;
+        this.msgSig = "";
+        this.paintMessages();
+      }
+    }
   }
 
   private livePage(id: string, before?: string): Promise<{ messages: RawMessage[]; hasMore: boolean }> {
@@ -2652,7 +2690,7 @@ class LarkApp {
     const batch = await invoke<RawMessage[]>("fetch_messages", { channelId: id, before });
     const messages = [...batch].reverse().map(normalizeMessage);
     for (const message of messages) this.absorbMessage(message);
-    return { messages, hasMore: batch.length >= 50 };
+    return { messages, hasMore: batch.length >= HISTORY_PAGE };
   }
 
   private async loadOlder(force = false) {
@@ -2663,7 +2701,7 @@ class LarkApp {
     this.loading = true;
     try {
       const page = this.demo
-        ? pageMessages(history[id] ?? [], loaded[0].id, 20)
+        ? pageMessages(history[id] ?? [], loaded[0].id, HISTORY_PAGE)
         : await this.livePage(id, loaded[0].id);
       this.pages[id] = [...page.messages, ...loaded];
       this.more[id] = page.hasMore;
@@ -2820,6 +2858,35 @@ class LarkApp {
     this.pinnedToBottom = intent === "bottom" || (intent !== "preserve" && metrics.near);
   }
 
+  /**
+   * The first message line that still crosses the scroller's top edge.
+   * Day and unread separators live inside `.message-wrap`, so the wrap's box
+   * moves when a separator hops onto a newly prepended message. Anchoring the
+   * line itself keeps the text the reader was looking at from jumping.
+   */
+  private readingLine(): { id: string; top: number } | null {
+    const edge = this.messagesEl.getBoundingClientRect().top;
+    for (const wrap of this.messagesEl.querySelectorAll<HTMLElement>(".message-wrap")) {
+      const id = wrap.dataset.mid;
+      if (!id) continue;
+      const line = wrap.querySelector<HTMLElement>(":scope > .message, :scope > .system-line") ?? wrap;
+      const rect = line.getBoundingClientRect();
+      if (rect.bottom > edge + 1) return { id, top: rect.top };
+    }
+    return null;
+  }
+
+  private holdReadingLine(reading: { id: string; top: number } | null) {
+    if (!reading) return;
+    const escaped = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(reading.id) : reading.id;
+    const wrap = this.messagesEl.querySelector<HTMLElement>(`[data-mid="${escaped}"]`);
+    const line = wrap?.querySelector<HTMLElement>(":scope > .message, :scope > .system-line") ?? wrap;
+    if (!line) return;
+    const shift = line.getBoundingClientRect().top - reading.top;
+    if (Math.abs(shift) < 1) return;
+    this.messagesEl.scrollTop += shift;
+  }
+
   private windowMessages(id: string, list: RawMessage[]): RawMessage[] {
     const capped = capMessages(list, this.pinnedToBottom);
     if (!capped.trimmed) return list;
@@ -2839,6 +2906,7 @@ class LarkApp {
     if (!(column instanceof HTMLElement)) return;
     const heights = new Map<Element, number>();
     const nodes = [column, ...column.querySelectorAll("img")].filter((node): node is HTMLElement => node instanceof HTMLElement);
+    bindLazyMedia(scroller);
     this.layoutObserver = new ResizeObserver((entries) => {
       if (this.scrollLock > 0) {
         for (const entry of entries) {
@@ -3172,6 +3240,7 @@ class LarkApp {
       return;
     }
     this.noteMessagePaint("replace");
+    const reading = intent === "preserve" ? this.readingLine() : null;
     this.lockScroll(() => {
       clear(this.messagesEl);
       if (this.loading && !list.length) {
@@ -3230,6 +3299,8 @@ class LarkApp {
       this.placeScroll(metrics, intent);
       if (intent === "bottom" || (intent !== "preserve" && metrics.near)) {
         this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      } else {
+        this.holdReadingLine(reading);
       }
     });
     this.watchMessageLayout();
@@ -6797,7 +6868,7 @@ class LarkApp {
     const pages: Record<string, RawMessage[]> = {};
     for (const id of this.recent) {
       const list = this.pages[id];
-      if (list) pages[id] = list.slice(-40).map((message) => ({ ...message, attachments: (message.attachments ?? []).map((file) => ({ ...file, url: file.url.startsWith("blob:") ? "" : file.url })) }));
+      if (list) pages[id] = initialHistory(list).map((message) => ({ ...message, attachments: (message.attachments ?? []).map((file) => ({ ...file, url: file.url.startsWith("blob:") ? "" : file.url })) }));
     }
     localStorage.setItem("lark.cache.v1", JSON.stringify({ pages }));
   }
@@ -6814,7 +6885,7 @@ class LarkApp {
       for (const channelId of targets) {
         if (!shouldPreload(this.gameMode) || token !== this.prefetchToken || this.pages[channelId]) continue;
         if (this.demo) {
-          const page = pageMessages(history[channelId] ?? [], undefined, 20);
+          const page = pageMessages(history[channelId] ?? [], undefined, HISTORY_PAGE);
           if (token !== this.prefetchToken || this.pages[channelId]) continue;
           this.pages[channelId] = page.messages;
           this.more[channelId] = page.hasMore;
@@ -7175,7 +7246,7 @@ class LarkApp {
   private async preload(id: string) {
     if (!shouldPreload(this.gameMode) || this.pages[id] || id === ARCHIVE) return;
     if (this.demo) {
-      const page = pageMessages(history[id] ?? [], undefined, 20);
+      const page = pageMessages(history[id] ?? [], undefined, HISTORY_PAGE);
       this.pages[id] = page.messages;
       this.paintSplit();
       return;

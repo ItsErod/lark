@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachmentKind, emojiCdnUrl, parseContent, safeMediaUrl, type RenderContext } from "./content";
+import { attachmentKind, attachmentMediaUrl, emojiCdnUrl, hasAttachmentExpiry, mediaBox, parseContent, safeMediaUrl, type RenderContext } from "./content";
 
 const ctx: RenderContext = {
   users: { "42": "Ethan", "7": "Maya" },
@@ -117,6 +117,17 @@ describe("message rendering", () => {
     expect(safeMediaUrl("https://cdn.discordapp.com/attachments/1/2/a.png")).toContain("cdn.discordapp.com");
     expect(safeMediaUrl("https://media.tenor.com/clip.mp4")).toContain("media.tenor.com");
     expect(safeMediaUrl("https://images-ext-1.discordapp.net/external/x.gif")).toContain("images-ext-1.discordapp.net");
+    const signedCdn = "https://cdn.discordapp.com/attachments/42/9/image.png?ex=6610abcd&is=65feabcd&hm=deadbeef";
+    const signedProxy = "https://media.discordapp.net/attachments/42/9/image.png?ex=6610abcd&is=65feabcd&hm=deadbeef";
+    expect(hasAttachmentExpiry(signedCdn)).toBe(true);
+    expect(attachmentMediaUrl("https://cdn.discordapp.com/attachments/42/9/image.png", signedProxy)).toBe(signedProxy);
+    expect(attachmentMediaUrl(signedCdn, signedProxy)).toContain("ex=6610abcd");
+    expect(attachmentMediaUrl(signedCdn, signedProxy)).toContain("hm=deadbeef");
+    expect(attachmentMediaUrl(signedCdn, "https://evil.example/image.png")).toBe(signedCdn);
+    expect(attachmentMediaUrl("/media/frame.svg", null)).toBe("/media/frame.svg");
+    expect(mediaBox(800, 480).height).toBe(252);
+    expect(mediaBox(800, 480).width).toBe(420);
+    expect(mediaBox(undefined, undefined)).toEqual({ reserved: false, width: 320, height: 180 });
     expect(attachmentKind({ name: "clip.mp4", contentType: "video/mp4" })).toBe("video");
     expect(attachmentKind({ name: "voice.ogg", contentType: "audio/ogg" })).toBe("audio");
     expect(emojiCdnUrl("100000000000000099", false)).toContain("/emojis/100000000000000099.webp");

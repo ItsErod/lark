@@ -25,7 +25,7 @@
     "security": {
       "csp": {
         "default-src": "'self'",
-        "img-src": "'self' data: blob: https://cdn.discordapp.com https://media.discordapp.net",
+        "img-src": "'self' asset: http://asset.localhost data: blob: https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.com https://*.discordapp.net https://media.tenor.com https://c.tenor.com https://media.giphy.com https://i.giphy.com https://*.giphy.com",
         "style-src": "'self' 'unsafe-inline'",
         "font-src": "'self' data:",
         "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:47321 ws://127.0.0.1:47321",
