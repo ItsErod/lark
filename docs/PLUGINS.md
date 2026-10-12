@@ -40,6 +40,18 @@ The clock under each message can read as `3m ago` or as a clock time.
 - **12-hour** and **24-hour** choose the clock. The hover date uses the same choice.
 - The relative label refreshes about twice a minute.
 
+## Silent typing
+
+While this is on, the composer does not send a typing indicator. Incoming typing lines are unchanged. The switch is the only option.
+
+## Typing indicators
+
+A channel row and a direct-message row can show that someone is typing there.
+
+- The label reads `typing`, or `2 typing` when more than one person is going. Hover it for the names.
+- **Channel list** and **Direct messages** turn each list off on its own.
+- The label clears about eight seconds after the last typing event, the same window as the line under the composer.
+
 ## Panic Key
 
 A hotkey that instantly hides or minimizes Lark and mutes.
