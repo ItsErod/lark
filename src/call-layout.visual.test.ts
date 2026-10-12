@@ -4,6 +4,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const port = 47323;
 
+async function settleFonts(page: Page) {
+  await page.waitForFunction(async () => {
+    const faces = ["400 16px Inter", "500 16px Inter", "600 16px Inter", "700 16px Inter"];
+    const loaded = await Promise.all(faces.map((face) => document.fonts.load(face)));
+    return loaded.every((list) => list.length > 0) && faces.every((face) => document.fonts.check(face));
+  }, undefined, { timeout: 15_000 });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 async function metrics(page: Page) {
   return page.evaluate(() => {
     const box = (selector: string) => {
@@ -60,10 +71,11 @@ describe("call layout", () => {
     });
     await page.goto(`http://127.0.0.1:${port}/?demo=1`);
     await page.waitForSelector(".message", { timeout: 15_000 });
-    await page.evaluate(async () => { await document.fonts.ready; });
+    await settleFonts(page);
     const before = await metrics(page);
     await page.getByRole("button", { name: "Studio booth" }).click();
     await page.waitForSelector(".voice-signal.is-3", { timeout: 5_000 });
+    await settleFonts(page);
     const collapsed = await metrics(page);
 
     expect(collapsed.header).toBe("# design-crit");

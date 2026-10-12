@@ -1,6 +1,6 @@
 [package]
 name = "lark"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2021"
 description = "Lark, a small personal Discord client for macOS and Windows"
 license = "MIT"

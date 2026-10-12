@@ -8,7 +8,7 @@ Lark is a fast, native desktop Discord client built with Tauri. It aims for 1:1 
 
 It exists for speed and customization. Chat and calls should feel quick, and you should be able to change how the client looks and behaves.
 
-The 3.0 release is the parity pass. 3.0.1 follows with speed work and a network viewer. 3.1 is the features release after that.
+The 3.0 release is the parity pass. 3.0.1 is the Windows voice hotfix. Camera, soundboard, and noise suppression follow in 3.0.2.
 
 ## Features
 
