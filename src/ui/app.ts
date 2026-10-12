@@ -39,6 +39,7 @@ import {
 import { ListSync, applyRemoteLists, flattenFavoriteIds, mapToPins, readIdList, refileFavorites, toggleListed, uniqueSnowflakes, type ListPayload, type RemoteLists } from "../user-lists";
 import { noteActivity, stepAway, type AwayClock } from "../pack/away";
 import { isBookmarked, toggleBookmark, type Bookmark } from "../pack/bookmarks";
+import { mergeSaved, rowsFromPayload } from "../saved-sync";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
 import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
 import { orderDms } from "../pack/pin-dms";
@@ -890,6 +891,7 @@ class LarkApp {
   private favoritesMigrated = false;
   private pinsMigrated = false;
   private listSync: ListSync | null = null;
+  private savedHeld = new Set<string>();
   private pinnedChannels: Record<string, string[]> = {};
   private hideMuted = false;
   private viewAsRoleId: string | null = null;
@@ -968,6 +970,7 @@ class LarkApp {
     } catch {
       this.reminders = [];
     }
+    void this.pullSaved();
     void this.hydrateDrafts();
     try {
       const parsed = JSON.parse(localStorage.getItem("lark.emoji.v1") ?? "[]");
@@ -8456,6 +8459,8 @@ class LarkApp {
       this.paintRail();
     } else if (event.kind === "userLists") {
       this.applyUserLists(event as RemoteLists);
+    } else if (event.kind === "savedMessage") {
+      this.applySavedEvent(event as { channelId?: string; messageId?: string; removed?: boolean; dueAt?: string | null; authorName?: string; excerpt?: string; savedAt?: string });
     } else if (event.kind === "guildAccess") {
       const access = (event as { access?: { guildId?: string; owner?: boolean; permissions?: string; roles?: { id: string; permissions: string }[]; myRoles?: string[] } }).access;
       if (access?.guildId) {
@@ -8920,6 +8925,8 @@ class LarkApp {
       this.msgSig = "";
       this.paintMessages();
       if (this.settings && this.section === "messages") this.renderSettings();
+      const kept = isBookmarked(this.pack.bookmarks, message.channelId, message.id);
+      void this.pushSaved(message.channelId, message.id, kept, null);
       return;
     }
     this.reminding = message;
@@ -8948,6 +8955,8 @@ class LarkApp {
     this.paintMessages();
     this.paintComposer();
     this.toast("Reminder", "Lark will notify you once.");
+    const saved = result.list.find((item) => item.channelId === message.channelId && item.messageId === message.id);
+    if (saved) void this.pushSaved(message.channelId, message.id, true, new Date(saved.remindAt).toISOString());
   }
 
   private paintReminderBanner() {
@@ -13148,7 +13157,7 @@ class LarkApp {
     });
     head.append(close);
     const list = el("div", "bookmark-list");
-    if (!this.pack.bookmarks.length) list.append(el("p", "hint", "Save a message and it stays on this device."));
+    if (!this.pack.bookmarks.length) list.append(el("p", "hint", "Save a message and it stays with your account."));
     for (const bookmark of this.pack.bookmarks) {
       const row = el("button", "bookmark-row");
       row.type = "button";
@@ -13175,6 +13184,9 @@ class LarkApp {
     this.savePack();
     this.msgSig = "";
     this.paintMessages();
+    const kept = isBookmarked(this.pack.bookmarks, message.channelId, message.id);
+    const reminder = reminderFor(this.reminders, message.channelId, message.id);
+    void this.pushSaved(message.channelId, message.id, kept || Boolean(reminder), reminder ? new Date(reminder.remindAt).toISOString() : null);
   }
 
   private async onTranslate(message: RawMessage) {
@@ -15856,6 +15868,88 @@ class LarkApp {
     this.persistLists();
     this.paintChannels();
     if (applied.push) sync.edit(this.listPayload());
+  }
+
+  private async pullSaved() {
+    if (this.demo || !isTauri()) return;
+    try {
+      const payload = await invoke<unknown>("list_saved_messages");
+      const remote = rowsFromPayload(payload);
+      const first = localStorage.getItem("lark.saved.migrated") !== "1";
+      const keep = new Set(this.savedHeld);
+      if (first) {
+        for (const item of this.pack.bookmarks) keep.add(`${item.channelId}:${item.messageId}`);
+        for (const item of this.reminders) keep.add(`${item.channelId}:${item.messageId}`);
+      }
+      const merged = mergeSaved(this.pack.bookmarks, this.reminders, remote, keep);
+      this.pack.bookmarks = merged.bookmarks;
+      this.reminders = merged.reminders;
+      this.savePack();
+      this.saveReminders();
+      if (first) localStorage.setItem("lark.saved.migrated", "1");
+      for (const row of merged.upload) {
+        const id = `${row.channelId}:${row.messageId}`;
+        try {
+          await invoke("put_saved_message", { channelId: row.channelId, messageId: row.messageId, dueAt: row.dueAt });
+          this.savedHeld.delete(id);
+        } catch {
+          this.savedHeld.add(id);
+        }
+      }
+    } catch {
+      // Discord's saved-message list is unavailable. The local lists stay.
+    }
+  }
+
+  private async pushSaved(channelId: string, messageId: string, keep: boolean, dueAt: string | null) {
+    if (this.demo || !isTauri()) return;
+    if (!/^\d{5,22}$/.test(channelId) || !/^\d{5,22}$/.test(messageId)) return;
+    const id = `${channelId}:${messageId}`;
+    try {
+      if (keep) await invoke("put_saved_message", { channelId, messageId, dueAt });
+      else await invoke("delete_saved_message", { channelId, messageId });
+      this.savedHeld.delete(id);
+    } catch {
+      this.savedHeld.add(id);
+      this.toast("Saved", "Discord didn't store that. Lark kept it on this device.");
+    }
+  }
+
+  private applySavedEvent(event: { channelId?: string; messageId?: string; removed?: boolean; dueAt?: string | null; authorName?: string; excerpt?: string; savedAt?: string }) {
+    const channelId = event.channelId ?? "";
+    const messageId = event.messageId ?? "";
+    if (!/^\d{5,22}$/.test(channelId) || !/^\d{5,22}$/.test(messageId)) return;
+    const id = `${channelId}:${messageId}`;
+    if (this.savedHeld.has(id)) return;
+    if (event.removed) {
+      this.pack.bookmarks = this.pack.bookmarks.filter((item) => item.channelId !== channelId || item.messageId !== messageId);
+      this.reminders = this.reminders.filter((item) => item.channelId !== channelId || item.messageId !== messageId);
+    } else {
+      const prev = this.pack.bookmarks.find((item) => item.channelId === channelId && item.messageId === messageId);
+      const next = {
+        messageId,
+        channelId,
+        authorName: event.authorName || prev?.authorName || "Someone",
+        excerpt: event.excerpt || prev?.excerpt || "",
+        savedAt: Date.parse(event.savedAt ?? "") || prev?.savedAt || Date.now(),
+      };
+      this.pack.bookmarks = [next, ...this.pack.bookmarks.filter((item) => item.channelId !== channelId || item.messageId !== messageId)].slice(0, 200);
+      const due = event.dueAt ? Date.parse(event.dueAt) : NaN;
+      this.reminders = this.reminders.filter((item) => item.channelId !== channelId || item.messageId !== messageId);
+      if (Number.isFinite(due)) {
+        this.reminders = [...this.reminders, {
+          id: `remind-${messageId}`,
+          messageId,
+          channelId,
+          authorName: next.authorName,
+          excerpt: next.excerpt,
+          remindAt: due,
+        }].sort((a, b) => a.remindAt - b.remindAt).slice(0, 50);
+      }
+    }
+    this.savePack();
+    this.saveReminders();
+    if (this.bookmarksOpen) this.paintBookmarks();
   }
 }
 

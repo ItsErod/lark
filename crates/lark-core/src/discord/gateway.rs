@@ -271,6 +271,20 @@ pub enum ClientEvent {
         channel_pins: Option<Vec<super::shell::GuildChannelPins>>,
         from_ready: bool,
     },
+    /// SAVED_MESSAGE_CREATE / UPDATE / DELETE. `due_at` is the reminder timestamp.
+    SavedMessage {
+        channel_id: String,
+        message_id: String,
+        removed: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        due_at: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        author_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        excerpt: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        saved_at: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -1452,6 +1466,10 @@ fn handle_dispatch(
             }
             false
         }
+        "SAVED_MESSAGE_CREATE" | "SAVED_MESSAGE_UPDATE" | "SAVED_MESSAGE_DELETE" => {
+            emit_saved_message(name, data, emit);
+            false
+        }
         _ => false,
     }
 }
@@ -2163,6 +2181,31 @@ mod tests {
         assert_eq!(pins.unwrap(), Vec::<String>::new());
         assert!(!from_ready);
     }
+
+    #[test]
+    fn saved_message_events_keep_the_reminder_time() {
+        let data = json!({
+            "message": {"id": "100000000000000301", "content": "later", "author": {"username": "maya"}},
+            "save_data": {
+                "channel_id": "100000000000000021",
+                "message_id": "100000000000000301",
+                "saved_at": "2026-10-12T12:00:00.000Z",
+                "due_at": "2026-10-13T15:00:00.000Z"
+            }
+        });
+        let mut events = Vec::new();
+        let mut session = None;
+        handle_dispatch("SAVED_MESSAGE_CREATE", &data, None, &mut session, &mut |event| events.push(event));
+        match &events[0] {
+            ClientEvent::SavedMessage { channel_id, due_at, removed, excerpt, .. } => {
+                assert_eq!(channel_id, "100000000000000021");
+                assert_eq!(due_at.as_deref(), Some("2026-10-13T15:00:00.000Z"));
+                assert_eq!(excerpt.as_deref(), Some("later"));
+                assert!(!(*removed));
+            }
+            _ => panic!("expected saved message"),
+        }
+    }
 }
 
 /// Gateway READY session, kept for interaction payloads. The voice slot's session id is a different value.
@@ -2198,5 +2241,35 @@ fn emit_user_lists(encoded: Option<&str>, from_ready: bool, emit: &mut impl FnMu
         pinned_dms: lists.pinned_dms,
         channel_pins: lists.channel_pins,
         from_ready,
+    });
+}
+
+fn emit_saved_message(name: &str, data: &Value, emit: &mut impl FnMut(ClientEvent)) {
+    let removed = name == "SAVED_MESSAGE_DELETE";
+    let save = data.get("save_data").unwrap_or(data);
+    let channel_id = json_str(save, "channel_id");
+    let message_id = json_str(save, "message_id");
+    if channel_id.is_empty() || message_id.is_empty() {
+        return;
+    }
+    let due_at = save.get("due_at").and_then(|value| value.as_str()).filter(|text| !text.is_empty()).map(str::to_string);
+    let saved_at = save.get("saved_at").and_then(|value| value.as_str()).map(str::to_string);
+    let message = data.get("message");
+    let author_name = message
+        .and_then(|value| value.pointer("/author/global_name").or_else(|| value.pointer("/author/username")))
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let excerpt = message
+        .and_then(|value| value.get("content"))
+        .and_then(|value| value.as_str())
+        .map(|text| text.chars().take(140).collect::<String>());
+    emit(ClientEvent::SavedMessage {
+        channel_id,
+        message_id,
+        removed,
+        due_at,
+        author_name,
+        excerpt,
+        saved_at,
     });
 }

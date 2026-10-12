@@ -375,7 +375,10 @@ pub fn run() {
             search_app_commands,
             invoke_command,
             open_discord_page,
-            set_user_lists
+            set_user_lists,
+            list_saved_messages,
+            put_saved_message,
+            delete_saved_message
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -2708,6 +2711,34 @@ async fn set_user_lists(
             &pinned_dms,
             &channel_pins,
         )
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn list_saved_messages(state: State<'_, Shared>) -> Result<serde_json::Value, String> {
+    rest(&state).await?.list_saved_messages().await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn put_saved_message(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+    due_at: Option<String>,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .put_saved_message(&channel_id, &message_id, due_at.as_deref())
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn delete_saved_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .delete_saved_message(&channel_id, &message_id)
         .await
         .map_err(|err| err.to_string())
 }
