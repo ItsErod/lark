@@ -92,6 +92,22 @@ pub struct DiscordChannel {
     pub permission_overwrites: Vec<DiscordOverwrite>,
     #[serde(default)]
     pub last_message_id: Option<String>,
+    #[serde(default)]
+    pub nsfw: bool,
+    #[serde(default)]
+    pub rate_limit_per_user: u32,
+    #[serde(default)]
+    pub bitrate: u32,
+    #[serde(default)]
+    pub user_limit: u32,
+    #[serde(default)]
+    pub video_quality_mode: u32,
+    #[serde(default)]
+    pub rtc_region: Option<String>,
+    #[serde(default)]
+    pub default_auto_archive_duration: u32,
+    #[serde(default)]
+    pub flags: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -339,6 +355,22 @@ pub struct ClientChannel {
     pub last_message_id: Option<String>,
     #[serde(default)]
     pub overwrites: Vec<ClientOverwrite>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nsfw: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub rate_limit_per_user: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub bitrate: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub user_limit: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub video_quality_mode: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtc_region: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub default_auto_archive_duration: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub flags: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -698,6 +730,14 @@ pub fn guild_to_client(guild: &DiscordGuild) -> ClientGuild {
     }
 }
 
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
     let kind = channel_kind_name(channel.kind);
     let name = if kind == "dm" || kind == "group" {
@@ -742,6 +782,14 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
                 deny: overwrite.deny.clone(),
             })
             .collect(),
+        nsfw: channel.nsfw,
+        rate_limit_per_user: channel.rate_limit_per_user,
+        bitrate: channel.bitrate,
+        user_limit: channel.user_limit,
+        video_quality_mode: channel.video_quality_mode,
+        rtc_region: channel.rtc_region.clone().filter(|region| !region.is_empty()),
+        default_auto_archive_duration: channel.default_auto_archive_duration,
+        flags: channel.flags,
     }
 }
 
@@ -1570,6 +1618,19 @@ mod tests {
             channel_to_client(&serde_json::from_str(r#"{"id":"2","type":2,"name":"booth","position":0}"#).unwrap()).kind,
             "voice"
         );
+        let detailed: DiscordChannel = serde_json::from_str(
+            r#"{"id":"9","type":0,"name":"general","position":0,"nsfw":true,"rate_limit_per_user":10,"bitrate":64000,"user_limit":5,"video_quality_mode":2,"rtc_region":"us-east","default_auto_archive_duration":1440,"flags":2097152}"#,
+        )
+        .unwrap();
+        let client = channel_to_client(&detailed);
+        assert!(client.nsfw);
+        assert_eq!(client.rate_limit_per_user, 10);
+        assert_eq!(client.bitrate, 64000);
+        assert_eq!(client.user_limit, 5);
+        assert_eq!(client.video_quality_mode, 2);
+        assert_eq!(client.rtc_region.as_deref(), Some("us-east"));
+        assert_eq!(client.default_auto_archive_duration, 1440);
+        assert_eq!(client.flags, 2_097_152);
     }
 
     #[test]

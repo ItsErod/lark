@@ -501,6 +501,8 @@ export function textChannelPatch(input: {
   slowmode: number;
   nsfw: boolean;
   hideAfter: number | null;
+  spoiler?: boolean;
+  flags?: number;
 }): Record<string, unknown> {
   const body: Record<string, unknown> = {
     name: clampChannelName(input.name, "text") || "channel",
@@ -510,7 +512,32 @@ export function textChannelPatch(input: {
   };
   if (input.hideAfter == null) body.default_auto_archive_duration = 4320;
   else body.default_auto_archive_duration = input.hideAfter;
+  if (input.spoiler != null) body.flags = withSpoiler(input.flags ?? 0, input.spoiler && !input.nsfw);
   return body;
+}
+
+/** Discord `IS_SPOILER_CHANNEL`. It can only be set when the channel is not age-restricted. */
+export const SPOILER_FLAG = 1 << 21;
+
+export const HIDE_AFTER_MINUTES = [60, 1440, 4320, 10080] as const;
+
+export function withSpoiler(flags: number, on: boolean): number {
+  const safe = Number.isFinite(flags) ? Math.trunc(flags) : 0;
+  return (on ? safe | SPOILER_FLAG : safe & ~SPOILER_FLAG) >>> 0;
+}
+
+export function overwriteBits(
+  id: string,
+  kind: number,
+  choices: { flag: bigint; state: "inherit" | "allow" | "deny" }[],
+): OverwriteBits {
+  let allow = 0n;
+  let deny = 0n;
+  for (const choice of choices) {
+    if (choice.state === "allow") allow |= choice.flag;
+    else if (choice.state === "deny") deny |= choice.flag;
+  }
+  return { id, kind: kind === 1 ? 1 : 0, allow: allow.toString(), deny: deny.toString() };
 }
 
 export function voiceChannelPatch(input: {
