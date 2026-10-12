@@ -14,4 +14,10 @@ describe("chrome styling", () => {
     expect(css).toContain(".member-scroll.is-virtual .member-row");
     expect(css).toContain("height: 42px");
   });
+
+  it("keeps the server rail narrow and square", () => {
+    expect(css).toContain("width: 56px");
+    expect(css).toContain("border-radius: var(--radius-lg)");
+    expect(css).not.toContain("border-radius: 24px");
+  });
 });
