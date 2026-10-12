@@ -736,6 +736,233 @@ impl DiscordRest {
             .map_err(|_| RestError::Message("Could not read that channel".into()))
     }
 
+    pub async fn list_relationships(&self) -> Result<Vec<super::types::ClientRelationship>, RestError> {
+        let value = self
+            .send_json(
+                Method::GET,
+                "GET /users/@me/relationships",
+                "me",
+                "/users/@me/relationships",
+                None,
+            )
+            .await?;
+        Ok(super::types::relationships_from_value(&value))
+    }
+
+    /// Accept a request or send one to a user id. Discord type 1.
+    pub async fn add_relationship(&self, user_id: &str) -> Result<super::types::ClientRelationship, RestError> {
+        self.put_relationship(user_id, 1).await
+    }
+
+    /// Block. Discord type 2.
+    pub async fn block_user(&self, user_id: &str) -> Result<super::types::ClientRelationship, RestError> {
+        self.put_relationship(user_id, 2).await
+    }
+
+    async fn put_relationship(&self, user_id: &str, kind: i64) -> Result<super::types::ClientRelationship, RestError> {
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/users/@me/relationships/{user_id}");
+        let value = self
+            .send_json(
+                Method::PUT,
+                "PUT /users/@me/relationships/{user.id}",
+                "me",
+                &path,
+                Some(json!({ "type": kind })),
+            )
+            .await?;
+        super::types::relationship_from_value(&value).ok_or_else(|| RestError::Message("Could not update that relationship".into()))
+    }
+
+    /// Remove a friend, cancel a request, or unblock.
+    pub async fn delete_relationship(&self, user_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/users/@me/relationships/{user_id}");
+        self.send_empty(Method::DELETE, "DELETE /users/@me/relationships/{user.id}", &path).await
+    }
+
+    /// Ignore an incoming friend request.
+    pub async fn ignore_relationship(&self, user_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/users/@me/relationships/{user_id}/ignore");
+        let value = self
+            .send_json(
+                Method::PUT,
+                "PUT /users/@me/relationships/{user.id}/ignore",
+                "me",
+                &path,
+                Some(json!({})),
+            )
+            .await?;
+        let _ = value;
+        Ok(())
+    }
+
+    /// Send a friend request by username. Discord no longer uses discriminators.
+    pub async fn send_friend_request(&self, username: &str) -> Result<super::types::ClientRelationship, RestError> {
+        let username = username.trim();
+        if !super::types::friend_username_ok(username) {
+            return Err(RestError::Message("Enter a Discord username.".into()));
+        }
+        let value = self
+            .send_json(
+                Method::POST,
+                "POST /users/@me/relationships",
+                "me",
+                "/users/@me/relationships",
+                Some(json!({ "username": username, "discriminator": null })),
+            )
+            .await?;
+        super::types::relationship_from_value(&value).ok_or_else(|| RestError::Message("Could not send that friend request".into()))
+    }
+
+    pub async fn set_friend_nickname(&self, user_id: &str, nickname: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/users/@me/relationships/{user_id}");
+        self.send_json(
+            Method::PATCH,
+            "PATCH /users/@me/relationships/{user.id}",
+            "me",
+            &path,
+            Some(json!({ "nickname": super::types::clamp_friend_nickname(nickname) })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Hide a direct message. Discord deletes the channel object; a new message opens it again.
+    pub async fn close_dm(&self, channel_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}");
+        self.send_empty(Method::DELETE, "DELETE /channels/{channel.id}", &path).await
+    }
+
+    pub async fn create_group_dm(&self, recipient_ids: &[String]) -> Result<ClientChannel, RestError> {
+        if recipient_ids.len() < 2 || recipient_ids.len() > 10 {
+            return Err(RestError::Message("A group needs two to ten people besides you.".into()));
+        }
+        for id in recipient_ids {
+            self.ensure_snowflake(id)?;
+        }
+        let value = self
+            .send_json(
+                Method::POST,
+                "POST /users/@me/channels",
+                "me",
+                "/users/@me/channels",
+                Some(json!({ "recipients": recipient_ids })),
+            )
+            .await?;
+        let channel: DiscordChannel = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not create that group".into()))?;
+        Ok(super::types::channel_to_client(&channel))
+    }
+
+    pub async fn rename_group_dm(&self, channel_id: &str, name: &str) -> Result<ClientChannel, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let name = super::types::clamp_group_name(name);
+        if name.is_empty() {
+            return Err(RestError::Message("Enter a group name.".into()));
+        }
+        let path = format!("/channels/{channel_id}");
+        let value = self
+            .send_json(
+                Method::PATCH,
+                "PATCH /channels/{channel.id}",
+                channel_id,
+                &path,
+                Some(json!({ "name": name })),
+            )
+            .await?;
+        let channel: DiscordChannel = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not rename that group".into()))?;
+        Ok(super::types::channel_to_client(&channel))
+    }
+
+    pub async fn add_dm_recipient(&self, channel_id: &str, user_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/channels/{channel_id}/recipients/{user_id}");
+        self.send_json(
+            Method::PUT,
+            "PUT /channels/{channel.id}/recipients/{user.id}",
+            channel_id,
+            &path,
+            Some(json!({})),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Mute a DM. Discord stores this on the private-channel guild settings (`@me`).
+    pub async fn mute_dm(&self, channel_id: &str, muted: bool) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = "/users/@me/guilds/@me/settings";
+        let body = json!({
+            "channel_overrides": {
+                channel_id: {
+                    "muted": muted,
+                    "message_notifications": if muted { 2 } else { 0 },
+                    "mute_config": { "selected_time_window": -1, "end_time": null }
+                }
+            }
+        });
+        self.send_json(Method::PATCH, "PATCH /users/@me/guilds/@me/settings", "me", path, Some(body)).await?;
+        Ok(())
+    }
+
+    pub async fn create_channel_invite(&self, channel_id: &str) -> Result<String, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/invites");
+        let value = self
+            .send_json(
+                Method::POST,
+                "POST /channels/{channel.id}/invites",
+                channel_id,
+                &path,
+                Some(json!({ "max_age": 86400, "max_uses": 0, "temporary": false, "unique": true })),
+            )
+            .await?;
+        value
+            .get("code")
+            .and_then(|item| item.as_str())
+            .filter(|code| invite_code_ok(code))
+            .map(|code| code.to_string())
+            .ok_or_else(|| RestError::Message("Could not create that invite".into()))
+    }
+
+    pub async fn set_server_profile(
+        &self,
+        guild_id: &str,
+        nick: &str,
+        bio: &str,
+        avatar: Option<&str>,
+    ) -> Result<(), RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let nick = super::types::clamp_friend_nickname(nick);
+        let bio = super::types::clamp_server_bio(bio);
+        let mut body = json!({
+            "nick": if nick.is_empty() { serde_json::Value::Null } else { json!(nick) },
+            "bio": bio,
+        });
+        if let Some(avatar) = avatar.map(str::trim).filter(|value| value.starts_with("data:image/") && value.len() <= 360_000) {
+            body["avatar"] = json!(avatar);
+        }
+        let path = format!("/guilds/{guild_id}/members/@me");
+        let route = route_key("PATCH", "/guilds/{guild.id}/members/@me", guild_id);
+        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body)).await?;
+        Ok(())
+    }
+
+    async fn send_empty(&self, method: Method, route: &str, path: &str) -> Result<(), RestError> {
+        let response = self.send(method, route, path, None, &[]).await?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        Self::json_body(response, &self.token).await?;
+        Ok(())
+    }
+
     fn ensure_invite(&self, code: &str) -> Result<(), RestError> {
         if invite_code_ok(code) {
             Ok(())
