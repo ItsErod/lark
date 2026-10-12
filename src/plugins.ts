@@ -61,6 +61,8 @@ export interface PluginHooks {
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
+  patternNotify: boolean;
+  pinDms: boolean;
   panicKey: boolean;
   incognito: boolean;
   streamerSafe: boolean;
@@ -108,6 +110,8 @@ export function emptyHooks(): PluginHooks {
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
+    patternNotify: false,
+    pinDms: false,
     panicKey: false,
     incognito: false,
     streamerSafe: false,
@@ -307,6 +311,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;
+  hooks.patternNotify = record.patternNotify === true;
+  hooks.pinDms = record.pinDms === true;
   hooks.panicKey = record.panicKey === true;
   hooks.incognito = record.incognito === true;
   hooks.streamerSafe = record.streamerSafe === true;

@@ -63,6 +63,8 @@ Timestamps read as `3m ago` or `just now`. Hover or focus the time for the full 
 
 While this is on, the composer does not send a typing indicator. Incoming typing lines are unchanged.
 
+Chat plugins added after the pack are written up in [docs/PLUGINS.md](docs/PLUGINS.md). Keyword highlights and Pin DMs are the first of that set. Both start off.
+
 ## Panic Key
 
 Off until you turn it on. The hotkey is **Ctrl+Shift+H** (Command+Shift+H on macOS). Press it and Lark hides, or minimizes if you pick that option, and mutes and deafens a live call. The chat is covered immediately, before the window animation finishes. Press the same hotkey after Lark is back to show the chat again. A bare letter is not accepted, so typing in the composer cannot fire it. Change the key, the window action, and mute under the plugin.
