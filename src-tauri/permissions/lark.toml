@@ -367,15 +367,3 @@ commands.allow = ["installed_store"]
 identifier = "allow-open-store-page"
 description = "Open the Lark store page in the system browser."
 commands.allow = ["open_store_page"]
-
-[[permission]]
-identifier = "allow-interface-update"
-description = "Check, stage, reload, and roll back a signed interface bundle."
-commands.allow = [
-  "interface_status",
-  "interface_check",
-  "interface_set_channel",
-  "interface_reset",
-  "interface_reload",
-  "interface_boot_ready",
-]
