@@ -4,6 +4,10 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [2.4.5](https://github.com/ItsErod/lark/releases/tag/v2.4.5) — 2026-10-12
+
+Opening Lark no longer stops on a blank window after the startup splash. The shell is shown when that splash finishes, and the splash gives up if startup stalls. If the first paint throws, the window shows the error and a Reload button instead of a gray screen.
+
 ## [2.4.4](https://github.com/ItsErod/lark/releases/tag/v2.4.4) — 2026-10-08
 
 Voice chat completes a real DAVE MLS end-to-end encryption handshake, so calls carry encrypted Opus, and speaking indicators stay in order with RTP. Windows initializes WASAPI COM before the microphone starts, and Settings → Voice & Video can copy voice diagnostics. A channel paints the newest 20 messages first, loads older history on scroll, shows image attachments again, and lines up compact rows.
