@@ -20,6 +20,8 @@ import {
   stripWindow,
   toggleCallHotkey,
   voiceChannelAction,
+  voiceChatInsets,
+  VOICE_CHAT_WIDTH,
 } from "./call-layout";
 
 describe("call layout", () => {
@@ -33,6 +35,9 @@ describe("call layout", () => {
       stripPx: 0,
       pip: false,
       members: true,
+      voiceChat: false,
+      fullScreen: false,
+      blocksChat: false,
     });
   });
 
@@ -113,5 +118,18 @@ describe("call layout", () => {
     const anchors = pipAnchors(frame, composer, size);
     expect(nearestPipCorner({ x: anchors["top-left"].x + 4, y: anchors["top-left"].y + 4 }, anchors)).toBe("top-left");
     expect(nearestPipCorner(anchors["bottom-right"], anchors)).toBe("bottom-right");
+  });
+
+  it("opens voice chat beside the transcript and never over the composer", () => {
+    const hidden = callChrome({ inCall: true, surface: "split", stripOpen: false, hasMedia: false, showChat: false });
+    expect(hidden).toMatchObject({ messages: true, composer: true, voiceChat: false, blocksChat: false });
+    const open = callChrome({ inCall: true, surface: "chat", stripOpen: false, hasMedia: true, showChat: true, fullScreen: true });
+    expect(open).toMatchObject({ messages: true, composer: true, voiceChat: true, fullScreen: true, blocksChat: false, pip: false });
+    expect(callChrome({ inCall: false, surface: "chat", stripOpen: false, hasMedia: false, showChat: true }).voiceChat).toBe(false);
+    const wide = voiceChatInsets(true, 900, 96);
+    expect(wide).toEqual({ marginRight: VOICE_CHAT_WIDTH, panelWidth: VOICE_CHAT_WIDTH, panelBottom: 96, coversComposer: false });
+    expect(wide.marginRight + 280).toBeLessThanOrEqual(900);
+    expect(voiceChatInsets(true, 400, 80)).toEqual({ marginRight: 0, panelWidth: 0, panelBottom: 80, coversComposer: false });
+    expect(voiceChatInsets(false, 900, 40).panelWidth).toBe(0);
   });
 });

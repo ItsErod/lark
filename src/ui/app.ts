@@ -131,6 +131,7 @@ import {
   PIP_HEIGHT,
   PIP_WIDTH,
   callChrome,
+  voiceChatInsets,
   clampPip,
   clampSplitRatio,
   dismissCallSurface,
@@ -240,9 +241,10 @@ import {
   type ThreadIndexWire,
 } from "../threads";
 import { mountChannelPolls, parityHeaderButtons, parityThreadBar, renderForumSurface } from "./threads-forums";
-import { clipForHotkey, soundHotkeyIsGlobal } from "../soundboard";
-import { applyUserMix, applyVoiceState, hydrateMix, participantsIn, replaceGuildVoice, setSpeaking, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
+import { applyMoreAction, applyUserMix, applyVoiceState, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
+import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import { mountPrivacyPanel } from "./privacy-panels";
@@ -288,6 +290,7 @@ import {
   settingRow,
   settingsCloseButton,
   settingsPane,
+  registerSettingEntries,
   settingsSections,
   SHORTCUT_COPY,
   sliderControl,
@@ -298,7 +301,8 @@ import { installShareSettings } from "../share-settings";
 import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKeyFor, type ShareSource } from "../share";
 import { renderVoiceHud } from "./hud";
 import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
-import { renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
+import { appendCallControls, renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
+import { renderStageBoard, renderVoiceChat } from "./stage-view";
 import { bindLazyMedia, renderBlockedMessage, renderMessage } from "./messages";
 import {
   APP_DIRECTORY_URL,
@@ -664,7 +668,37 @@ class LarkApp {
   private cameraOn = false;
   private gearOpen = false;
   private activitiesOpen = false;
+  private soundboardOpen = false;
+  private micMenuOpen = false;
+  private moreOpen = false;
   private voiceMenu: { userId: string; x: number; y: number } | null = null;
+  private channelMenu: { channelId: string; x: number; y: number } | null = null;
+  private desk: DeskAudio = restingDesk();
+  private callView: CallViewPrefs = defaultCallView();
+  private voiceDetails = voiceLinkDetails({});
+  private inputProfiles: InputProfile[] = [];
+  private inputProfileId = "";
+  private inputVolume = 100;
+  private outputVolume = 100;
+  private echoCancellation = true;
+  private agc = true;
+  private soundToggles: Record<string, boolean> = {};
+  private guildSounds: GuildSound[] = [];
+  private voiceChatLines: { id: string; author: string; text: string }[] = [];
+  private voiceChatEl: HTMLElement | null = null;
+  private watchUrl = "";
+  private watchVideo = "";
+  private stageTopic = "";
+  private stageRaised = false;
+  private stageSpeaker = false;
+  private voiceChannelMenuBound = false;
+  private deviceMenu: "input" | "output" | null = null;
+  private inputLevel = 0;
+  private micTestOn = false;
+  private micMeterTimer = 0;
+  private micPreview: MediaStream | null = null;
+  private cameraStream: MediaStream | null = null;
+  private cameraTimer = 0;
   private cpalInputs: string[] = [];
   private cpalOutputs: string[] = [];
   private shareOn = false;
@@ -2756,7 +2790,7 @@ class LarkApp {
       }
       this.openProfile(me, true);
     });
-    const panel = this.voice ? this.voicePanel() : null;
+    const panel = this.voicePanel();
     const player = this.spotifyPlayer();
     const tail = [panel, player, profile].filter((node): node is HTMLElement => Boolean(node));
     this.channelPane.append(head, scroll, ...tail);
@@ -2767,7 +2801,7 @@ class LarkApp {
 
   private channelBlock(channel: Channel): HTMLElement {
     const button = this.channelButton(channel, false);
-    if (channel.kind !== "voice" || !this.guildId) return button;
+    if ((channel.kind !== "voice" && !isStageChannel(channel)) || !this.guildId) return button;
     const people = participantsIn(this.voiceRoster, this.guildId, channel.id);
     if (!people.length) return button;
     const block = el("div", "voice-block has-people");
@@ -2859,19 +2893,41 @@ class LarkApp {
   }
 
   private voicePanel(): HTMLElement {
+    this.ensureVoicePrefs();
+    this.bindVoiceChannelMenu();
     const session = this.voice;
-    const status = session?.status ?? "connecting";
-    const panel = el("section", "voice-panel");
+    const panel = el("section", session ? "voice-panel" : "voice-panel is-resting");
+    if (!session) {
+      panel.setAttribute("aria-label", "Mute and deafen");
+      panel.append(this.userAudioRow());
+      return panel;
+    }
+    const status = session.status ?? "connecting";
     const audible = status === "connected" ? "Voice connected" : status === "reconnecting" ? "Reconnecting" : "Connecting";
     const timer = this.callTimerText();
-    panel.setAttribute("aria-label", timer ? `${audible}, ${session?.name ?? "Voice"}, ${timer}` : `${audible}, ${session?.name ?? "Voice"}`);
+    panel.setAttribute("aria-label", timer ? `${audible}, ${session.name ?? "Voice"}, ${timer}` : `${audible}, ${session.name ?? "Voice"}`);
     const line = el("div", "voice-panel-line");
-    line.append(signalMeter(status), el("strong", "voice-panel-name", session?.name ?? "Voice"));
+    line.append(signalMeter(status), el("strong", "voice-panel-name", session.name ?? "Voice"));
     if (timer) line.append(el("time", "voice-panel-timer", timer));
     if (this.shareOn) line.append(liveBadge(this.sharePaused));
+    const details = el("p", "voice-panel-details", voiceDetailLine(this.voiceDetails, status));
     const actions = el("div", "voice-panel-actions");
     const share = this.iconButton(this.shareOn ? "Stop sharing" : "Share your screen", paths.monitor, () => this.toggleShare(), false);
     if (this.shareOn) share.classList.add("is-live");
+    const camera = this.iconButton(this.cameraOn ? "Turn off camera" : "Turn on camera", this.cameraOn ? paths.camera : paths.cameraOff, () => this.toggleCamera(), false);
+    if (this.cameraOn) camera.classList.add("is-live");
+    const activity = this.iconButton(this.activitiesOpen ? "Close activities" : "Activity", paths.activity, () => this.toggleActivities(), false);
+    if (this.activitiesOpen) activity.classList.add("is-live");
+    const sounds = this.iconButton(this.soundboardOpen ? "Close soundboard" : "Soundboard", paths.volume, () => this.toggleSoundboard(), false);
+    if (this.soundboardOpen) sounds.classList.add("is-live");
+    const noise = this.iconButton(
+      this.config.voice.noise_suppression ? "Noise suppression on" : "Noise suppression off",
+      paths.mic,
+      () => this.toggleNoiseSuppression(),
+      false,
+    );
+    if (this.config.voice.noise_suppression) noise.classList.add("is-on");
+    noise.title = "Lark noise suppression (RNNoise)";
     const hangup = this.iconButton("Disconnect", paths.hangup, () => this.leaveVoice(), false);
     hangup.classList.add("is-disconnect");
     const strip = this.iconButton(
@@ -2882,14 +2938,48 @@ class LarkApp {
     );
     actions.append(
       share,
-      this.iconButton(session?.muted ? "Unmute" : "Mute", session?.muted ? paths.micOff : paths.mic, () => this.toggleMute(), Boolean(session?.muted)),
-      this.iconButton(session?.deafened ? "Undeafen" : "Deafen", session?.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session?.deafened)),
+      camera,
+      activity,
+      sounds,
+      noise,
+      this.iconButton(session.muted ? "Unmute" : "Mute", session.muted ? paths.micOff : paths.mic, () => this.toggleMute(), Boolean(session.muted)),
+      this.deviceChevron("Input device", () => this.toggleDeviceMenu("input")),
+      this.iconButton(session.deafened ? "Undeafen" : "Deafen", session.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session.deafened)),
+      this.deviceChevron("Output device", () => this.toggleDeviceMenu("output")),
       hangup,
       el("span", "spacer"),
       strip,
     );
-    panel.append(line, actions);
+    panel.append(line, details, actions);
+    if (this.deviceMenu) panel.append(this.deviceMenuPop());
     return panel;
+  }
+
+  private userAudioRow(): HTMLElement {
+    const row = el("div", "user-audio");
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", "Microphone and headphones");
+    const muted = this.voice?.muted ?? this.desk.muted;
+    const deafened = this.voice?.deafened ?? this.desk.deafened;
+    const micSlot = el("div", "user-audio-slot");
+    micSlot.append(
+      this.iconButton(muted ? "Unmute" : "Mute", muted ? paths.micOff : paths.mic, () => this.toggleMute(), muted),
+      this.deviceChevron("Input device", () => this.toggleDeviceMenu("input")),
+    );
+    const deafSlot = el("div", "user-audio-slot");
+    deafSlot.append(
+      this.iconButton(deafened ? "Undeafen" : "Deafen", deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), deafened),
+      this.deviceChevron("Output device", () => this.toggleDeviceMenu("output")),
+    );
+    row.append(micSlot, deafSlot);
+    if (!this.voice && this.deviceMenu) row.append(this.deviceMenuPop());
+    return row;
+  }
+
+  private deviceChevron(label: string, onClick: () => void): HTMLButtonElement {
+    const button = this.iconButton(label, paths.chevronUp, onClick, false);
+    button.classList.add("device-chevron");
+    return button;
   }
 
   private channelButton(channel: Channel, dm: boolean): HTMLButtonElement {
@@ -2898,8 +2988,9 @@ class LarkApp {
     const mentions = this.mentions[channel.id] ?? 0;
     const unread = unreadCount > 0 || mentions > 0;
     const quiet = !unread && Boolean(this.behind[channel.id]);
-    const joined = channel.kind === "voice" && this.voice?.channelId === channel.id;
-    const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.kind === "thread" ? " is-thread" : ""}${this.channelSelected(channel.id) ? " is-selected" : ""}${unread || quiet ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" ? " is-voice" : ""}${joined ? " is-joined" : ""}`);
+    const stage = isStageChannel(channel);
+    const joined = (channel.kind === "voice" || stage) && this.voice?.channelId === channel.id;
+    const button = el("button", `${dm ? "dm-row" : "channel-row"}${channel.kind === "thread" ? " is-thread" : ""}${this.channelSelected(channel.id) ? " is-selected" : ""}${unread || quiet ? " is-unread" : ""}${muted ? " is-muted" : ""}${channel.kind === "voice" || stage ? " is-voice" : ""}${stage ? " is-stage" : ""}${joined ? " is-joined" : ""}`);
     button.type = "button";
     button.dataset.channel = channel.id;
     let known: Person | undefined;
@@ -2970,7 +3061,7 @@ class LarkApp {
     }
     button.addEventListener("click", () => {
       this.drawer = false;
-      if (channel.kind === "voice") {
+      if (channel.kind === "voice" || isStageChannel(channel)) {
         this.onVoiceChannel(channel);
         return;
       }
@@ -5303,8 +5394,9 @@ class LarkApp {
   }
 
   private paneVoice(): HTMLElement {
+    this.ensureVoicePrefs();
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Voice & Video", "Push to talk, voice activity, and RNNoise on the microphone. Echo cancellation stays off."));
+    wrap.append(settingHead("Voice & Video", "Push to talk, voice activity, and Lark noise suppression (RNNoise) on the microphone."));
     void this.loadAudioDevices();
     const input = settingCard("Input");
     input.append(this.segmentRow(
@@ -5326,7 +5418,7 @@ class LarkApp {
       this.persist();
       this.pushVoiceAudio();
     }));
-    input.append(this.switchRow("voice.noise", "Noise suppression", "RNNoise runs on the microphone when this is on. It does not cancel echo.", this.config.voice.noise_suppression, (value) => {
+    input.append(this.switchRow("voice.noise", "Lark noise suppression", "RNNoise runs on the microphone when this is on. It is not Krisp, and it does not cancel echo.", this.config.voice.noise_suppression, (value) => {
       this.config.voice.noise_suppression = value;
       this.persist();
       this.pushVoiceAudio();
@@ -5364,7 +5456,7 @@ class LarkApp {
       this.persist();
       this.pushVoiceAudio();
     }));
-    devices.append(this.deviceRow("voice.camera", "Camera", "Camera id stored for later. Video calls are not sent yet.", this.config.voice.video_device, this.videoInputs, (value) => {
+    devices.append(this.deviceRow("voice.camera", "Camera", "Camera Lark opens for the preview and for video in a call.", this.config.voice.video_device, this.videoInputs, (value) => {
       this.config.voice.video_device = value;
       this.persist();
     }));
@@ -5422,6 +5514,7 @@ class LarkApp {
       },
     ));
     wrap.append(input, hud, devices, ring, share);
+    this.appendVoiceLab(wrap);
     this.appendSoundboard(wrap);
     return wrap;
   }
@@ -5445,6 +5538,152 @@ class LarkApp {
       control,
       true,
     );
+  }
+
+  private voicePrefsLoaded = false;
+
+  private ensureVoicePrefs() {
+    if (this.voicePrefsLoaded) return;
+    this.voicePrefsLoaded = true;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(VOICE_PREFS_KEY);
+    } catch {
+      raw = null;
+    }
+    const prefs = readVoicePrefs(raw);
+    this.inputProfiles = prefs.profiles;
+    this.inputProfileId = prefs.profileId;
+    this.echoCancellation = prefs.echoCancellation;
+    this.agc = prefs.agc;
+    this.inputVolume = prefs.inputVolume;
+    this.outputVolume = prefs.outputVolume;
+    this.soundToggles = sanitizeSoundToggles(prefs.soundToggles);
+  }
+
+  private storeVoicePrefs() {
+    try {
+      localStorage.setItem(VOICE_PREFS_KEY, writeVoicePrefs({
+        profiles: this.inputProfiles,
+        profileId: this.inputProfileId,
+        echoCancellation: this.echoCancellation,
+        agc: this.agc,
+        inputVolume: this.inputVolume,
+        outputVolume: this.outputVolume,
+        soundToggles: this.soundToggles,
+      }));
+    } catch {
+      /* private mode */
+    }
+  }
+
+  private appendVoiceLab(wrap: HTMLElement) {
+    registerSettingEntries([
+      { id: "voice.mic-test", section: "voice", label: "Mic test", description: "Watch the microphone level.", keywords: "meter input" },
+      { id: "voice.profiles", section: "voice", label: "Input profiles", description: "Saved microphone, input mode, and sensitivity.", keywords: "profile" },
+      { id: "voice.echo", section: "voice", label: "Echo cancellation", description: "Subtract playback from the microphone.", keywords: "aec echo" },
+      { id: "voice.agc", section: "voice", label: "Automatic gain control", description: "Keep the microphone at a steady level.", keywords: "agc volume" },
+      { id: "voice.camera-test", section: "voice", label: "Camera test", description: "Preview the camera. In a call, the same picture is sent.", keywords: "video webcam" },
+      { id: "voice.stream-preview", section: "voice", label: "Stream preview", description: "The current Go Live picture.", keywords: "share screen" },
+      { id: "voice.sound-toggles", section: "voice", label: "Sound toggles", description: "Turn individual sounds on or off.", keywords: "soundboard" },
+    ]);
+    const test = settingCard("Mic test");
+    test.dataset.setting = "voice.mic-test";
+    const meter = el("div", "mic-meter");
+    meter.append(el("span", "mic-meter-fill"));
+    const probe = el("button", this.micTestOn ? "text-button is-on" : "text-button", this.micTestOn ? "Stop mic test" : "Mic test");
+    probe.type = "button";
+    probe.addEventListener("click", () => {
+      this.micTestOn = !this.micTestOn;
+      if (this.micTestOn) this.watchMicLevel();
+      else this.stopMicLevel();
+      if (this.settings) this.renderSettings();
+    });
+    test.append(el("p", "setting-help", "The meter moves while the test or the microphone menu is open."), meter, probe);
+    const profiles = settingCard("Input profiles");
+    profiles.dataset.setting = "voice.profiles";
+    profiles.append(el("p", "setting-help", "A profile stores the microphone, voice activity or push to talk, and the sensitivity."));
+    const name = el("input");
+    name.type = "text";
+    name.maxLength = 40;
+    name.placeholder = "Profile name";
+    name.setAttribute("aria-label", "Input profile name");
+    const save = el("button", "text-button", "Save profile");
+    save.type = "button";
+    save.addEventListener("click", () => {
+      const label = name.value.trim() || "Profile";
+      const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+      const id = /^[a-z0-9]/.test(slug) ? slug : `p${Date.now().toString(36)}`;
+      this.inputProfiles = sanitizeInputProfiles([
+        ...this.inputProfiles.filter((profile) => profile.id !== id),
+        { id, name: label, deviceId: this.config.voice.input_device, mode: this.voiceMode() === "ptt" ? "ptt" : "vad", sensitivity: this.config.voice.sensitivity },
+      ]);
+      this.inputProfileId = id;
+      this.storeVoicePrefs();
+      if (this.settings) this.renderSettings();
+    });
+    const form = el("div", "settings-actions");
+    form.append(name, save);
+    profiles.append(form);
+    if (!this.inputProfiles.length) profiles.append(el("p", "setting-help", "No profiles yet."));
+    for (const profile of this.inputProfiles) {
+      const row = el("div", "shortcut-row");
+      const use = el("button", profile.id === this.inputProfileId ? "text-button is-on" : "text-button", profile.name);
+      use.type = "button";
+      use.addEventListener("click", () => {
+        this.pickInputProfile(profile.id);
+        this.storeVoicePrefs();
+        if (this.settings) this.renderSettings();
+      });
+      const drop = el("button", "text-button", "Remove");
+      drop.type = "button";
+      drop.addEventListener("click", () => {
+        this.inputProfiles = this.inputProfiles.filter((item) => item.id !== profile.id);
+        if (this.inputProfileId === profile.id) this.inputProfileId = "";
+        this.storeVoicePrefs();
+        if (this.settings) this.renderSettings();
+      });
+      row.append(use, drop);
+      profiles.append(row);
+    }
+    const process = settingCard("Processing");
+    process.append(this.switchRow("voice.echo", "Echo cancellation", "Subtracts the call playback from the microphone before RNNoise.", this.echoCancellation, (value) => {
+      this.echoCancellation = value;
+      this.storeVoicePrefs();
+      this.pushVoiceProcessing();
+    }));
+    process.append(this.switchRow("voice.agc", "Automatic gain control", "Keeps a quiet microphone at a steady level. Silence stays silence.", this.agc, (value) => {
+      this.agc = value;
+      this.storeVoicePrefs();
+      this.pushVoiceProcessing();
+    }));
+    const camera = settingCard("Camera test");
+    camera.dataset.setting = "voice.camera-test";
+    const slot = el("div", "camera-preview-slot");
+    slot.dataset.cameraTest = "";
+    const open = el("button", this.cameraOn ? "text-button is-on" : "text-button", this.cameraOn ? "Stop camera" : "Test camera");
+    open.type = "button";
+    open.addEventListener("click", () => this.toggleCamera());
+    camera.append(el("p", "setting-help", "The preview uses the camera above. In a voice channel the same frames are sent on the voice connection."), slot, open);
+    const stream = settingCard("Stream preview");
+    stream.dataset.setting = "voice.stream-preview";
+    const preview = el("div", "stream-preview");
+    const live = document.querySelector("[data-stream-slot] video");
+    if (live instanceof HTMLVideoElement && live.srcObject instanceof MediaStream) {
+      const copy = document.createElement("video");
+      copy.className = "stream-preview-video";
+      copy.muted = true;
+      copy.autoplay = true;
+      copy.playsInline = true;
+      copy.srcObject = live.srcObject;
+      preview.append(copy);
+    } else {
+      preview.append(el("p", "hint", this.shareOn
+        ? `Live at ${this.config.voice.share_resolution} · ${this.config.voice.share_fps} fps.`
+        : "Start a stream to see it here."));
+    }
+    stream.append(preview);
+    wrap.append(test, profiles, process, camera, stream);
   }
 
   private paneMessages(): HTMLElement {
@@ -7671,6 +7910,14 @@ class LarkApp {
         this.voice.status = state as VoiceSession["status"];
         this.voice.detail = friendlyVoiceDetail(detail);
         if (state === "connected") this.noteVoiceConnected();
+        const ping = (event as { pingMs?: number; endpoint?: string; mode?: string }).pingMs;
+        if (ping !== undefined || (event as { endpoint?: string }).endpoint) {
+          this.voiceDetails = voiceLinkDetails({
+            pingMs: ping,
+            endpoint: (event as { endpoint?: string }).endpoint ?? this.voiceDetails.endpoint,
+            mode: (event as { mode?: string }).mode || this.voiceDetails.mode || detail,
+          });
+        }
         this.paintVoice();
         this.paintChannels();
       }
@@ -8138,35 +8385,226 @@ class LarkApp {
     }));
   }
 
-  private joinVoice(channel: Channel) {
+  private bindVoiceChannelMenu() {
+    if (this.voiceChannelMenuBound) return;
+    this.voiceChannelMenuBound = true;
+    this.channelPane.addEventListener("contextmenu", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest("[data-channel]");
+      if (!(row instanceof HTMLElement)) return;
+      const channel = this.channelById(row.dataset.channel ?? "");
+      if (!channel || (channel.kind !== "voice" && !isStageChannel(channel))) return;
+      event.preventDefault();
+      this.channelMenu = { channelId: channel.id, x: event.clientX, y: event.clientY };
+      this.voiceMenu = null;
+      this.paintVoiceChannelMenu();
+    });
+  }
+
+  private toggleDeviceMenu(which: "input" | "output") {
+    this.deviceMenu = this.deviceMenu === which ? null : which;
+    void this.loadAudioDevices();
+    this.paintChannels();
+  }
+
+  private deviceMenuPop(): HTMLElement {
+    const pop = el("div", "user-device-menu");
+    pop.setAttribute("role", "menu");
+    const input = this.deviceMenu !== "output";
+    pop.append(el("strong", "", input ? "Input device" : "Output device"));
+    const options = input ? this.captureDevices() : this.playbackDevices();
+    const current = input ? this.config.voice.input_device : this.config.voice.output_device;
+    const pick = (id: string) => {
+      if (input) this.pickInput(id);
+      else this.pickOutput(id);
+      this.deviceMenu = null;
+      this.paintChannels();
+    };
+    const def = el("button", current ? "text-button" : "text-button is-on", "Default");
+    def.type = "button";
+    def.addEventListener("click", () => pick(""));
+    pop.append(def);
+    for (const option of options) {
+      const button = el("button", option.id === current ? "text-button is-on" : "text-button", option.label);
+      button.type = "button";
+      button.addEventListener("click", () => pick(option.id));
+      pop.append(button);
+    }
+    if (input && this.inputProfiles.length) {
+      pop.append(el("span", "hint", "Input profile"));
+      for (const profile of this.inputProfiles) {
+        const button = el("button", profile.id === this.inputProfileId ? "text-button is-on" : "text-button", profile.name);
+        button.type = "button";
+        button.addEventListener("click", () => {
+          this.pickInputProfile(profile.id);
+          this.deviceMenu = null;
+          this.paintChannels();
+        });
+        pop.append(button);
+      }
+    }
+    return pop;
+  }
+
+  private toggleNoiseSuppression() {
+    this.config.voice.noise_suppression = !this.config.voice.noise_suppression;
+    this.persist();
+    this.pushVoiceAudio();
+    this.paintChannels();
+    this.toast("Noise suppression", this.config.voice.noise_suppression ? "RNNoise is on." : "RNNoise is off.");
+  }
+
+  private toggleActivities() {
+    this.activitiesOpen = !this.activitiesOpen;
+    this.soundboardOpen = false;
+    this.gearOpen = false;
+    this.micMenuOpen = false;
+    this.moreOpen = false;
+    this.voiceMenu = null;
+    this.paintVoice();
+  }
+
+  private toggleSoundboard() {
+    this.soundboardOpen = !this.soundboardOpen;
+    this.activitiesOpen = false;
+    this.gearOpen = false;
+    this.micMenuOpen = false;
+    this.moreOpen = false;
+    this.voiceMenu = null;
+    this.paintVoice();
+  }
+
+  private toggleShowChat() {
+    this.callView = { ...this.callView, showChat: !this.callView.showChat };
+    if (this.callView.showChat) void this.loadVoiceChat();
+    this.paintVoice();
+  }
+
+  private toggleFullScreen() {
+    this.callView = { ...this.callView, fullScreen: !this.callView.fullScreen };
+    this.paint();
+  }
+
+  private toggleMicMenu() {
+    this.micMenuOpen = !this.micMenuOpen;
+    this.moreOpen = false;
+    this.activitiesOpen = false;
+    this.soundboardOpen = false;
+    if (this.micMenuOpen) this.watchMicLevel();
+    else this.stopMicLevel();
+    this.paintVoice();
+  }
+
+  private toggleMore() {
+    this.moreOpen = !this.moreOpen;
+    this.micMenuOpen = false;
+    this.paintVoice();
+  }
+
+  private onMoreAction(action: "grid" | "non-video" | "previews" | "settings" | "fullscreen") {
+    if (action === "settings") {
+      this.moreOpen = false;
+      this.section = "voice";
+      this.openSettings();
+      return;
+    }
+    this.callView = applyMoreAction(this.callView, action);
+    this.paint();
+  }
+
+  private pickInput(id: string) {
+    this.config.voice.input_device = id;
+    this.persist();
+    this.pushVoiceAudio();
+  }
+
+  private pickOutput(id: string) {
+    this.config.voice.output_device = id;
+    this.persist();
+    this.pushVoiceAudio();
+  }
+
+  private pickInputProfile(id: string) {
+    this.inputProfileId = id;
+    const profile = selectInputProfile(this.inputProfiles, id);
+    if (!profile) return;
+    this.config.voice.input_device = profile.deviceId;
+    this.config.voice.mode = profile.mode;
+    this.config.voice.sensitivity = profile.sensitivity;
+    this.persist();
+    this.pushVoiceAudio();
+    this.storeVoicePrefs();
+    this.paintVoice();
+  }
+
+  private setInputVolume(value: number) {
+    this.inputVolume = Math.min(200, Math.max(0, Math.round(value)));
+    this.storeVoicePrefs();
+    this.pushVoiceProcessing();
+  }
+
+  private setOutputVolume(value: number) {
+    this.outputVolume = Math.min(200, Math.max(0, Math.round(value)));
+    this.storeVoicePrefs();
+    this.pushVoiceProcessing();
+  }
+
+  private pushVoiceProcessing() {
+    if (!this.voice || this.demo) return;
+    void invoke("set_voice_processing", {
+      echoCancellation: this.echoCancellation,
+      agc: this.agc,
+      inputVolume: this.inputVolume,
+      outputVolume: this.outputVolume,
+    }).catch(() => undefined);
+  }
+
+  private joinVoice(channel: Channel, options?: { quiet?: boolean }) {
+    this.ensureVoicePrefs();
+    const target = joinVoiceTarget(channel, this.guildId);
+    if (!target) return;
     this.voiceEpoch += 1;
     const epoch = this.voiceEpoch;
+    const profile = selectInputProfile(this.inputProfiles, this.inputProfileId);
+    if (profile) {
+      this.config.voice.input_device = profile.deviceId;
+      this.config.voice.mode = profile.mode;
+      this.config.voice.sensitivity = profile.sensitivity;
+    }
     applyVoiceState(this.voiceRoster, {
-      guildId: this.guildId ?? "",
-      channelId: channel.id,
+      guildId: target.guildId ?? "",
+      channelId: target.channelId,
       userId: this.meId(),
       name: this.demo ? "Ethan Park" : this.me.name,
       avatarUrl: this.me.avatarUrl ?? null,
+      selfMute: this.desk.muted,
+      selfDeaf: this.desk.deafened,
     });
     this.voice = {
-      channelId: channel.id,
-      guildId: this.guildId,
+      channelId: target.channelId,
+      guildId: target.guildId,
       name: channel.name,
       status: "connecting",
-      muted: false,
-      deafened: false,
+      muted: this.desk.muted,
+      deafened: this.desk.deafened,
       members: [],
     };
     this.voiceJoinedAt = Date.now();
     this.voiceConnectedAt = 0;
+    this.stageRaised = false;
+    if (target.callKind === "stage") this.stageTopic = channel.topic ?? this.stageTopic;
     this.syncCallMembers();
     this.paintChannels();
     this.paintVoice();
+    if (options?.quiet) this.toast("Voice", "Joined without the entrance sound.");
+    if (!this.demo && this.guildId) void this.loadGuildSounds(this.guildId);
     if (this.demo) {
       window.setTimeout(() => {
-        if (!this.voice || this.voice.channelId !== channel.id) return;
+        if (!this.voice || this.voice.channelId !== target.channelId) return;
         this.voice.status = "connected";
         this.noteVoiceConnected();
+        this.voiceDetails = voiceLinkDetails({ pingMs: 28, endpoint: "c-demo.discord.gg", mode: "connected" });
         this.refreshSpeaking();
         this.paintChannels();
         this.paintVoice();
@@ -8174,10 +8612,10 @@ class LarkApp {
       return;
     }
     void invoke("join_voice", {
-      guildId: this.guildId,
-      channelId: channel.id,
-      mute: false,
-      deaf: false,
+      guildId: target.guildId,
+      channelId: target.channelId,
+      mute: this.desk.muted,
+      deaf: this.desk.deafened,
       epoch,
       vad: this.voiceMode() === "vad",
       sensitivity: this.config.voice.sensitivity,
@@ -8188,6 +8626,7 @@ class LarkApp {
       this.toast("Voice", err instanceof Error ? err.message : "Couldn't join.");
       this.leaveVoice();
     });
+    this.pushVoiceProcessing();
     void this.loadAudioDevices();
   }
 
@@ -8207,6 +8646,7 @@ class LarkApp {
     this.shareNote = "";
     clearStreamFrames();
     this.cameraOn = false;
+    this.stopCameraSend();
     this.callSurface = dismissCallSurface();
     this.closeCallPopout();
     this.gearOpen = false;
@@ -8219,9 +8659,13 @@ class LarkApp {
   }
 
   private toggleMute() {
-    if (!this.voice) return;
-    this.voice.muted = !this.voice.muted;
-    if (!this.voice.muted) this.voice.deafened = false;
+    this.desk = toggleDeskMute(this.voice ? { muted: this.voice.muted, deafened: this.voice.deafened } : this.desk);
+    if (!this.voice) {
+      this.paintChannels();
+      return;
+    }
+    this.voice.muted = this.desk.muted;
+    this.voice.deafened = this.desk.deafened;
     this.mirrorSelfFlags();
     this.refreshSpeaking();
     this.pushVoiceState();
@@ -8231,9 +8675,13 @@ class LarkApp {
   }
 
   private toggleDeafen() {
-    if (!this.voice) return;
-    this.voice.deafened = !this.voice.deafened;
-    this.voice.muted = this.voice.deafened;
+    this.desk = toggleDeskDeafen(this.voice ? { muted: this.voice.muted, deafened: this.voice.deafened } : this.desk);
+    if (!this.voice) {
+      this.paintChannels();
+      return;
+    }
+    this.voice.muted = this.desk.muted;
+    this.voice.deafened = this.desk.deafened;
     this.mirrorSelfFlags();
     this.refreshSpeaking();
     this.pushVoiceState();
@@ -8367,6 +8815,8 @@ class LarkApp {
       serverMute: Boolean(state.serverMute),
       serverDeaf: Boolean(state.serverDeaf),
       ...(state.selfStream === undefined ? {} : { selfStream: Boolean(state.selfStream) }),
+      ...(state.suppress === undefined ? {} : { suppress: Boolean(state.suppress) }),
+      ...(state.requestToSpeak === undefined ? {} : { requestToSpeak: Boolean(state.requestToSpeak) }),
     };
   }
 
@@ -8845,13 +9295,15 @@ class LarkApp {
     const dock = this.voiceDock;
     if (!dock || !this.callStrip || !this.callSplit) return;
     const textChat = Boolean(this.voice) && !this.clipsOpen && !(this.friendsOpen && !this.guildId);
-    const tiles = textChat ? stageTiles(this.stageMembers()) : [];
+    const tiles = textChat ? visibleCallTiles(stageTiles(this.stageMembers()), this.callView.showNonVideo) : [];
     const media = leadMedia(tiles);
     const chrome = callChrome({
       inCall: textChat,
       surface: textChat ? this.callSurface : "chat",
       stripOpen: this.stripOpen,
       hasMedia: Boolean(media),
+      showChat: this.callView.showChat,
+      fullScreen: this.callView.fullScreen,
     });
     const chat = this.messagesEl.parentElement;
     if (chat) {
@@ -8893,7 +9345,25 @@ class LarkApp {
       const actions = el("div", "call-split-actions");
       actions.append(pop, close);
       this.callSplitBar.append(actions);
-      renderCallStage(dock, tiles, this.ringMotion(), this.callStageHandlers());
+      const chat = chrome.voiceChat ? this.voiceChatPanel() : null;
+      const channel = this.voice ? this.channelById(this.voice.channelId) : undefined;
+      if (channel && isStageChannel(channel)) {
+        clear(dock);
+        dock.className = "voice-stage";
+        renderStageBoard(dock, stageGroups(this.stagePeople()), {
+          topic: this.stageTopic,
+          raised: this.stageRaised,
+          selfSpeaker: this.stageSpeaker,
+          onRaise: () => this.toggleRaiseHand(),
+          onStart: (topic) => void this.startStage(topic),
+          onInviteUp: (userId) => void this.setStageAudience(userId, false),
+          onMoveAudience: (userId) => void this.setStageAudience(userId, true),
+        });
+        if (chat) dock.append(chat);
+        appendCallControls(dock, this.callStageHandlers());
+      } else {
+        renderCallStage(dock, this.decorateTiles(tiles), this.ringMotion(), this.callStageHandlers(), chat);
+      }
     }
     this.paintPip(chrome.pip ? media : null);
     this.mountShareSurfaces();
@@ -8901,28 +9371,68 @@ class LarkApp {
     this.paintVoiceFloats();
     this.publishVoiceHud();
     this.publishCallFrame();
+    const inlineChat = chrome.voiceChat && chrome.grid === "split";
+    this.placeVoiceChat(chrome.voiceChat && !inlineChat);
+    if (this.callView.fullScreen) this.messagesEl.parentElement?.classList.add("is-call-full");
+    else this.messagesEl.parentElement?.classList.remove("is-call-full");
     requestAnimationFrame(() => {
       this.placeCallSplit();
       this.placePip();
+      this.placeVoiceChat(chrome.voiceChat && chrome.grid !== "split");
     });
   }
 
   private callStageHandlers() {
+    const clips = this.config.soundboard.clips
+      .filter((clip) => playableClipIds([clip], this.soundToggles).length > 0)
+      .map((clip) => ({ id: clip.id, name: clip.name }));
+    const guildSounds = playableGuildSounds(this.guildSounds, this.soundToggles, Boolean(this.voice?.deafened))
+      .map((sound) => ({ id: sound.id, name: sound.name, enabled: true }));
     return {
       cameraOn: this.cameraOn,
       shareOn: this.shareOn,
       muted: Boolean(this.voice?.muted),
       deafened: Boolean(this.voice?.deafened),
       activitiesOpen: this.activitiesOpen,
-      clips: this.config.soundboard.clips.map((clip) => ({ id: clip.id, name: clip.name })),
+      soundboardOpen: this.soundboardOpen,
+      clips,
+      showChat: this.callView.showChat,
+      fullScreen: this.callView.fullScreen,
+      gridView: this.callView.grid,
+      showNonVideo: this.callView.showNonVideo,
+      messagePreviews: this.callView.messagePreviews,
+      micMenuOpen: this.micMenuOpen,
+      moreOpen: this.moreOpen,
+      inputLevel: this.inputLevel,
+      profiles: this.inputProfiles.map((profile) => ({ id: profile.id, name: profile.name })),
+      profileId: this.inputProfileId,
+      inputVolume: this.inputVolume,
+      outputVolume: this.outputVolume,
+      inputs: this.captureDevices(),
+      outputs: this.playbackDevices(),
+      inputDevice: this.config.voice.input_device,
+      outputDevice: this.config.voice.output_device,
+      guildSounds,
+      activities: ACTIVITIES.map((activity) => ({ id: activity.id, name: activity.name })),
+      watchUrl: this.watchUrl,
       onCamera: () => this.toggleCamera(),
       onShare: () => this.toggleShare(),
-      onActivities: () => {
-        this.activitiesOpen = !this.activitiesOpen;
-        this.gearOpen = false;
-        this.voiceMenu = null;
-        this.paintVoice();
-      },
+      onActivities: () => this.toggleActivities(),
+      onSoundboard: () => this.toggleSoundboard(),
+      onShowChat: () => this.toggleShowChat(),
+      onInvite: () => void this.inviteToCall(),
+      onFullScreen: () => this.toggleFullScreen(),
+      onMicMenu: () => this.toggleMicMenu(),
+      onMore: () => this.toggleMore(),
+      onMoreAction: (action: "grid" | "non-video" | "previews" | "settings" | "fullscreen") => this.onMoreAction(action),
+      onInput: (id: string) => this.pickInput(id),
+      onOutput: (id: string) => this.pickOutput(id),
+      onProfile: (id: string) => this.pickInputProfile(id),
+      onInputVolume: (value: number) => this.setInputVolume(value),
+      onOutputVolume: (value: number) => this.setOutputVolume(value),
+      onGuildSound: (id: string) => void this.playGuildSound(id),
+      onActivity: (id: string) => void this.launchActivity(id),
+      onWatch: (url: string) => void this.startWatchTogether(url),
       onMute: () => this.toggleMute(),
       onDeafen: () => this.toggleDeafen(),
       onLeave: () => this.leaveVoice(),
@@ -9184,7 +9694,467 @@ class LarkApp {
 
   private toggleCamera() {
     this.cameraOn = !this.cameraOn;
+    if (this.cameraOn) void this.startCameraSend();
+    else this.stopCameraSend();
+    if (this.voice && !this.demo) {
+      void invoke("set_voice_camera", { active: this.cameraOn }).catch(() => undefined);
+      void invoke("set_voice_video", {
+        guildId: this.voice.guildId,
+        channelId: this.voice.channelId,
+        mute: this.voice.muted,
+        deaf: this.voice.deafened,
+        video: this.cameraOn,
+      }).catch(() => undefined);
+    }
     this.paintVoice();
+    this.paintChannels();
+  }
+
+  private async startCameraSend() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.toast("Camera", "This window cannot open a camera.");
+      this.cameraOn = false;
+      return;
+    }
+    this.stopCameraSend();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: this.config.voice.video_device ? { deviceId: { exact: this.config.voice.video_device } } : true,
+        audio: false,
+      });
+      this.cameraStream = stream;
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      await video.play();
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 176;
+      const ctx = canvas.getContext("2d");
+      const tick = () => {
+        if (!this.cameraOn || !this.cameraStream || !ctx) return;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        if (!this.demo && this.voice) {
+          void invoke("push_camera_frame", { width: canvas.width, height: canvas.height, rgba: Array.from(frame.data) }).catch(() => undefined);
+        }
+        const previewSlot = document.querySelector("[data-camera-test]");
+        if (previewSlot && !previewSlot.querySelector("video")) {
+          const preview = document.createElement("video");
+          preview.className = "camera-preview";
+          preview.muted = true;
+          preview.playsInline = true;
+          preview.autoplay = true;
+          preview.srcObject = stream;
+          previewSlot.replaceChildren(preview);
+        }
+        const slot = document.querySelector(".voice-tile.is-video[data-voice-user=\"" + this.meId() + "\"] .voice-media");
+        if (slot && !slot.querySelector("video")) {
+          const preview = document.createElement("video");
+          preview.className = "camera-preview";
+          preview.muted = true;
+          preview.playsInline = true;
+          preview.autoplay = true;
+          preview.srcObject = stream;
+          slot.replaceChildren(preview);
+        }
+      };
+      tick();
+      this.cameraTimer = window.setInterval(tick, 1000 / 15);
+    } catch (err) {
+      if (this.demo) return;
+      this.cameraOn = false;
+      this.toast("Camera", err instanceof Error ? err.message : "Couldn't open the camera.");
+      this.paintVoice();
+    }
+  }
+
+  private stopCameraSend() {
+    window.clearInterval(this.cameraTimer);
+    this.cameraTimer = 0;
+    this.cameraStream?.getTracks().forEach((track) => track.stop());
+    this.cameraStream = null;
+  }
+
+  private watchMicLevel() {
+    this.stopMicLevel();
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    void navigator.mediaDevices.getUserMedia({
+      audio: this.config.voice.input_device ? { deviceId: { exact: this.config.voice.input_device } } : true,
+      video: false,
+    }).then((stream) => {
+      this.micPreview = stream;
+      const context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const bins = new Float32Array(analyser.fftSize);
+      const pump = () => {
+        if (!this.micMenuOpen && !this.micTestOn) {
+          context.close().catch(() => undefined);
+          return;
+        }
+        analyser.getFloatTimeDomainData(bins);
+        this.inputLevel = micLevel(bins);
+        const fill = document.querySelector(".mic-meter-fill");
+        if (fill instanceof HTMLElement) fill.style.width = `${this.inputLevel}%`;
+        this.micMeterTimer = window.setTimeout(pump, 80);
+      };
+      pump();
+    }).catch(() => undefined);
+  }
+
+  private stopMicLevel() {
+    window.clearTimeout(this.micMeterTimer);
+    this.micMeterTimer = 0;
+    this.micPreview?.getTracks().forEach((track) => track.stop());
+    this.micPreview = null;
+  }
+
+  private stagePeople(): StagePerson[] {
+    if (!this.voice) return [];
+    return participantsIn(this.voiceRoster, this.voice.guildId ?? "", this.voice.channelId).map((person) => ({
+      userId: person.userId,
+      name: person.name,
+      avatarUrl: person.avatarUrl,
+      suppressed: person.userId === this.meId() ? !this.stageSpeaker : person.suppress,
+      requestToSpeak: person.userId === this.meId() ? this.stageRaised : person.requestToSpeak,
+      self: person.userId === this.meId(),
+      speaking: person.speaking,
+    }));
+  }
+
+  private toggleRaiseHand() {
+    this.stageRaised = !this.stageRaised;
+    if (this.stageRaised) this.stageSpeaker = false;
+    const stamp = raiseHand(this.stageRaised, new Date().toISOString());
+    if (this.voice && !this.demo) {
+      void invoke("set_voice_video", {
+        guildId: this.voice.guildId,
+        channelId: this.voice.channelId,
+        mute: this.voice.muted,
+        deaf: this.voice.deafened,
+        video: this.cameraOn,
+        requestToSpeak: stamp.requestToSpeakTimestamp,
+      }).catch(() => undefined);
+    }
+    this.paintVoice();
+  }
+
+  private async startStage(topic: string) {
+    if (!this.voice) return;
+    this.stageTopic = topic.trim().slice(0, 120);
+    this.stageSpeaker = true;
+    this.stageRaised = false;
+    const body = startStageBody(this.voice.channelId, this.stageTopic);
+    if (!this.demo) {
+      try {
+        await invoke("start_stage", { channelId: body.channel_id, topic: body.topic });
+      } catch (err) {
+        this.toast("Stage", err instanceof Error ? err.message : "Couldn't start the stage.");
+      }
+    }
+    this.paintVoice();
+  }
+
+  private async setStageAudience(userId: string, audience: boolean) {
+    if (!this.voice?.guildId || this.demo) {
+      const person = Object.values(this.voiceRoster).find((item) => item.userId === userId);
+      if (person) person.suppress = audience;
+      this.paintVoice();
+      return;
+    }
+    try {
+      await invoke("set_member_voice", { guildId: this.voice.guildId, userId, suppress: audience });
+    } catch (err) {
+      this.toast("Stage", err instanceof Error ? err.message : "Couldn't move that person.");
+    }
+  }
+
+  private async loadGuildSounds(guildId: string) {
+    if (this.demo) return;
+    try {
+      const listed = await invoke<unknown>("fetch_soundboard", { guildId });
+      this.guildSounds = sanitizeGuildSounds(listed, guildId);
+      this.paintVoice();
+    } catch {
+      this.guildSounds = [];
+    }
+  }
+
+  private async playGuildSound(id: string) {
+    if (!this.voice || this.voice.deafened) return;
+    if (!soundEnabled(this.soundToggles, id)) return;
+    const sound = this.guildSounds.find((item) => item.id === id);
+    if (!sound) return;
+    if (this.demo) {
+      this.toast("Soundboard", sound.name);
+      return;
+    }
+    try {
+      await invoke("play_guild_sound", { channelId: this.voice.channelId, soundId: sound.id, guildId: sound.guildId });
+    } catch (err) {
+      this.toast("Soundboard", err instanceof Error ? err.message : "Couldn't play that sound.");
+    }
+  }
+
+  private async inviteToCall() {
+    if (!this.voice) return;
+    if (this.demo) {
+      const link = voiceChannelLink(this.voice.guildId, this.voice.channelId);
+      this.toast("Invite", link || "Invite copied.");
+      return;
+    }
+    try {
+      const code = await invoke<string>("create_channel_invite", { channelId: this.voice.channelId });
+      const url = code.startsWith("http") ? code : `https://discord.gg/${code}`;
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      this.toast("Invite", "Copied the invite link.");
+    } catch (err) {
+      this.toast("Invite", err instanceof Error ? err.message : "Couldn't create an invite.");
+    }
+  }
+
+  private async launchActivity(id: string) {
+    const activity = activityById(id);
+    if (!activity || !this.voice) return;
+    this.activitiesOpen = true;
+    if (this.demo) {
+      this.toast(activity.name, "Activity invite is ready in the desktop app.");
+      return;
+    }
+    try {
+      const url = await invoke<string>("create_activity_invite", { channelId: this.voice.channelId, applicationId: activity.id });
+      this.toast(activity.name, url);
+    } catch (err) {
+      this.toast(activity.name, err instanceof Error ? err.message : "Couldn't start that activity.");
+    }
+  }
+
+  private async startWatchTogether(url: string) {
+    const videoId = watchVideoId(url);
+    if (!videoId) {
+      this.toast("Watch Together", "Paste a YouTube link.");
+      return;
+    }
+    this.watchUrl = url.trim();
+    this.watchVideo = videoId;
+    await this.launchActivity(ACTIVITIES[0].id);
+    if (this.voice && !this.demo) {
+      void invoke("send_message", { channelId: this.voice.channelId, content: url.trim(), replyTo: null, nonce: null, files: [] }).catch(() => undefined);
+    }
+    this.paintVoice();
+  }
+
+  private async loadVoiceChat() {
+    if (!this.voice) return;
+    const channelId = this.voice.channelId;
+    if (this.demo) {
+      this.voiceChatLines = (this.pages[channelId] ?? []).slice(-40).map((message) => ({
+        id: message.id,
+        author: message.authorName,
+        text: messagePreview(message.content),
+      }));
+      this.paintVoice();
+      return;
+    }
+    try {
+      const page = await invoke<{ id: string; authorName?: string; content?: string }[]>("fetch_messages", { channelId, before: null });
+      this.voiceChatLines = page.slice(-40).map((message) => ({
+        id: message.id,
+        author: message.authorName || "Someone",
+        text: messagePreview(message.content ?? ""),
+      }));
+      this.paintVoice();
+    } catch (err) {
+      this.toast("Voice chat", err instanceof Error ? err.message : "Couldn't load the voice channel chat.");
+    }
+  }
+
+  private async sendVoiceChat(text: string) {
+    if (!this.voice) return;
+    const content = text.trim();
+    if (!content) return;
+    const local = { id: `local-${Date.now()}`, author: this.me.name, text: messagePreview(content) };
+    this.voiceChatLines = [...this.voiceChatLines, local].slice(-40);
+    this.paintVoice();
+    if (this.demo) return;
+    try {
+      await invoke("send_message", { channelId: this.voice.channelId, content, replyTo: null, nonce: null, files: [] });
+    } catch (err) {
+      this.toast("Voice chat", err instanceof Error ? err.message : "Couldn't send that.");
+    }
+  }
+
+  private ensureVoiceChat(): HTMLElement {
+    if (this.voiceChatEl) return this.voiceChatEl;
+    const panel = el("aside", "voice-chat");
+    panel.hidden = true;
+    this.voiceChatEl = panel;
+    return panel;
+  }
+
+  private voiceChatPanel(): HTMLElement {
+    const panel = this.ensureVoiceChat();
+    const sig = `${this.watchVideo}:${this.voiceChatLines.map((line) => line.id + line.text).join("\n")}`;
+    if (panel.dataset.sig !== sig) {
+      panel.dataset.sig = sig;
+      renderVoiceChat(panel, this.voiceChatLines, (value) => void this.sendVoiceChat(value));
+      if (this.watchVideo) {
+        const frame = el("iframe", "watch-frame");
+        frame.src = watchEmbedUrl(this.watchVideo);
+        frame.title = "Watch Together";
+        frame.setAttribute("allow", "autoplay; encrypted-media");
+        panel.prepend(frame);
+      }
+    }
+    panel.hidden = false;
+    return panel;
+  }
+
+  private placeVoiceChat(docked: boolean) {
+    const panel = this.ensureVoiceChat();
+    const chat = this.messagesEl.parentElement;
+    if (!chat) return;
+    if (!docked) {
+      panel.classList.remove("is-docked");
+      if (!panel.closest(".voice-stage")) panel.hidden = true;
+      if (!this.callView.showChat) this.messagesEl.style.marginRight = "";
+      return;
+    }
+    if (panel.parentElement !== chat) chat.append(panel);
+    const composer = this.composer.closest(".composer-wrap");
+    const composerH = composer instanceof HTMLElement ? composer.offsetHeight : 0;
+    const insets = voiceChatInsets(true, chat.clientWidth, composerH);
+    panel.hidden = insets.panelWidth === 0;
+    panel.classList.toggle("is-docked", insets.panelWidth > 0);
+    panel.style.width = `${insets.panelWidth}px`;
+    panel.style.bottom = `${insets.panelBottom}px`;
+    this.messagesEl.style.marginRight = insets.marginRight ? `${insets.marginRight}px` : "";
+    if (insets.panelWidth > 0 && panel.dataset.sig == null) this.voiceChatPanel();
+  }
+
+  private decorateTiles<T extends { userId: string; name?: string; badge?: string }>(tiles: T[]): T[] {
+    if (!this.callView.messagePreviews) return tiles;
+    return tiles.map((tile) => {
+      const line = [...this.voiceChatLines].reverse().find((item) => item.author === tile.name);
+      if (!line || tile.badge) return tile;
+      return { ...tile, badge: line.text };
+    });
+  }
+
+  private paintVoiceChannelMenu() {
+    const host = this.voiceMenuEl;
+    if (!host) return;
+    const menu = this.channelMenu;
+    const channel = menu ? this.channelById(menu.channelId) : undefined;
+    if (!menu || !channel) {
+      if (!this.voiceMenu) {
+        host.hidden = true;
+        clear(host);
+      }
+      return;
+    }
+    host.hidden = false;
+    clear(host);
+    host.setAttribute("role", "menu");
+    host.setAttribute("aria-label", channel.name);
+    host.style.left = `${menu.x}px`;
+    host.style.top = `${menu.y}px`;
+    host.append(el("strong", "", channel.name));
+    const labels: Record<(typeof voiceChannelMenu extends () => readonly (infer T)[] ? T : never), string> = {
+      "join-quiet": "Join Without Entrance Sound",
+      "open-chat": "Open Chat",
+      "hide-names": this.callView.hideNames ? "Show Names" : "Hide Names",
+      invite: "Invite",
+      edit: "Edit Channel",
+      duplicate: "Duplicate Channel",
+      "copy-link": "Copy Link",
+      mute: "Mute Channel",
+      "set-status": "Set Channel Status",
+    };
+    for (const action of voiceChannelMenu()) {
+      const button = el("button", "text-button", labels[action]);
+      button.type = "button";
+      button.addEventListener("click", () => void this.runVoiceChannelAction(channel, action));
+      host.append(button);
+    }
+    this.clampFloat(host, menu.x, menu.y);
+  }
+
+  private async runVoiceChannelAction(channel: Channel, action: ReturnType<typeof voiceChannelMenu>[number]) {
+    this.channelMenu = null;
+    this.paintVoiceChannelMenu();
+    if (action === "join-quiet") {
+      this.joinVoice(channel, { quiet: true });
+      return;
+    }
+    if (action === "open-chat") {
+      this.callView = { ...this.callView, showChat: true };
+      if (this.voice?.channelId === channel.id) void this.loadVoiceChat();
+      else void this.openChannel(channel.id);
+      this.paint();
+      return;
+    }
+    if (action === "hide-names") {
+      this.callView = { ...this.callView, hideNames: !this.callView.hideNames };
+      this.channelPane.dataset.hideNames = this.callView.hideNames ? "1" : "0";
+      this.paintChannels();
+      return;
+    }
+    if (action === "invite") {
+      this.joinVoice(channel);
+      await this.inviteToCall();
+      return;
+    }
+    if (action === "copy-link") {
+      const link = voiceChannelLink(this.guildId, channel.id);
+      if (link && navigator.clipboard?.writeText) await navigator.clipboard.writeText(link);
+      this.toast("Link", link || "Couldn't copy that link.");
+      return;
+    }
+    if (action === "mute") {
+      const muted = this.levelFor(this.guildId, channel.id) === "mute";
+      this.config.notifications.channels[channel.id] = muted ? { level: "all", muted: false } : { level: "mute", muted: true };
+      this.persist();
+      this.toast("Notifications", muted ? `${channel.name} is unmuted.` : `${channel.name} is muted.`);
+      this.paintChannels();
+      return;
+    }
+    if (action === "edit") {
+      const opener = (this as unknown as { openChannelSettings?: (item: Channel) => void }).openChannelSettings;
+      if (typeof opener === "function") {
+        opener.call(this, channel);
+        return;
+      }
+      const name = window.prompt("Channel name", channel.name);
+      if (!name || this.demo) return;
+      try {
+        await invoke("modify_channel", { channelId: channel.id, name: name.trim() });
+      } catch (err) {
+        this.toast("Edit channel", err instanceof Error ? err.message : "Couldn't edit that channel.");
+      }
+      return;
+    }
+    if (action === "duplicate") {
+      if (this.demo || !this.guildId) return;
+      try {
+        await invoke("duplicate_channel", { guildId: this.guildId, channelId: channel.id, name: `${channel.name} copy` });
+        this.toast("Channel", "Duplicated.");
+      } catch (err) {
+        this.toast("Channel", err instanceof Error ? err.message : "Couldn't duplicate that channel.");
+      }
+      return;
+    }
+    const status = window.prompt("Channel status", "");
+    if (status === null || this.demo) return;
+    try {
+      await invoke("set_voice_status", { channelId: channel.id, status: status.trim().slice(0, 500) });
+    } catch (err) {
+      this.toast("Status", err instanceof Error ? err.message : "Couldn't set the channel status.");
+    }
   }
 
   private toggleShare() {
@@ -9471,7 +10441,62 @@ class LarkApp {
 
   private paintVoiceFloats() {
     this.paintVoiceMenu();
+    this.paintVoiceChannelMenu();
     this.paintGear();
+  }
+
+  private async moderateMember(userId: string, action: ParticipantMenuAction, channelId?: string) {
+    const person = Object.values(this.voiceRoster).find((item) => item.userId === userId);
+    this.voiceMenu = null;
+    this.paintVoiceFloats();
+    if (!person) return;
+    if (action === "profile") {
+      const known = this.directory[userId];
+      this.openProfile(known ?? { id: userId, name: person.name, avatarUrl: person.avatarUrl });
+      return;
+    }
+    if (action === "pop-out") {
+      this.pipUser = userId;
+      this.toast("Call", `${person.name} is popped out.`);
+      this.paint();
+      return;
+    }
+    if (action === "mod-view") {
+      this.toast("Mod view", `${person.name}: server mute ${person.serverMute ? "on" : "off"}, server deafen ${person.serverDeaf ? "on" : "off"}.`);
+      return;
+    }
+    if (action === "move") {
+      /* channel id is the destination */
+    }
+    const moderation = action === "move" || action === "disconnect" || action === "server-mute" || action === "server-deafen" ? action : null;
+    if (!moderation) return;
+    const body = memberVoiceBody(moderation, person, channelId);
+    if (this.demo || !this.voice?.guildId) {
+      if (moderation === "server-mute") person.serverMute = !person.serverMute;
+      if (moderation === "server-deafen") {
+        person.serverDeaf = !person.serverDeaf;
+        if (person.serverDeaf) person.serverMute = true;
+      }
+      if (moderation === "disconnect") applyVoiceState(this.voiceRoster, { guildId: person.guildId, channelId: "", userId });
+      if (moderation === "move" && channelId) person.channelId = channelId;
+      this.syncCallMembers();
+      this.paintChannels();
+      this.paintVoice();
+      return;
+    }
+    try {
+      await invoke("set_member_voice", {
+        guildId: this.voice.guildId,
+        userId,
+        mute: body.mute ?? null,
+        deaf: body.deaf ?? null,
+        channelId: moderation === "move" ? channelId ?? null : null,
+        disconnect: moderation === "disconnect",
+        suppress: null,
+      });
+    } catch (err) {
+      this.toast("Voice", err instanceof Error ? err.message : "Couldn't update that person.");
+    }
   }
 
   private paintVoiceMenu() {
@@ -9511,6 +10536,32 @@ class LarkApp {
     mute.type = "button";
     mute.addEventListener("click", () => this.setUserMix(person.userId, Number(vol.value), !muted));
     host.append(readout, vol, mute);
+    const labels: Record<ParticipantMenuAction, string> = {
+      profile: "Profile",
+      "server-mute": person.serverMute ? "Unmute on server" : "Server mute",
+      "server-deafen": person.serverDeaf ? "Undeafen on server" : "Server deafen",
+      "pop-out": "Pop out user",
+      "mod-view": "Mod view",
+      move: "Move to",
+      disconnect: "Disconnect",
+    };
+    for (const action of participantMenu()) {
+      if (action === "move") {
+        host.append(el("span", "hint", "Move to"));
+        for (const channel of this.visibleChannels().filter((item) => item.kind === "voice" || isStageChannel(item))) {
+          if (channel.id === person.channelId) continue;
+          const button = el("button", "text-button", channel.name);
+          button.type = "button";
+          button.addEventListener("click", () => void this.moderateMember(person.userId, "move", channel.id));
+          host.append(button);
+        }
+        continue;
+      }
+      const button = el("button", "text-button", labels[action]);
+      button.type = "button";
+      button.addEventListener("click", () => void this.moderateMember(person.userId, action));
+      host.append(button);
+    }
     this.clampFloat(host, menu.x, menu.y);
   }
 
@@ -9553,10 +10604,20 @@ class LarkApp {
       this.refreshSpeaking();
     });
     host.append(el("span", "hint", "Voice activity sensitivity"), sense);
-    host.append(this.gearToggle("Noise suppression", this.config.voice.noise_suppression, (value) => {
+    host.append(this.gearToggle("Lark noise suppression", this.config.voice.noise_suppression, (value) => {
       this.config.voice.noise_suppression = value;
       this.persist();
       this.pushVoiceAudio();
+    }));
+    host.append(this.gearToggle("Echo cancellation", this.echoCancellation, (value) => {
+      this.echoCancellation = value;
+      this.storeVoicePrefs();
+      this.pushVoiceProcessing();
+    }));
+    host.append(this.gearToggle("Automatic gain", this.agc, (value) => {
+      this.agc = value;
+      this.storeVoicePrefs();
+      this.pushVoiceProcessing();
     }));
     host.append(this.gearToggle("Voice HUD", this.overlayOn(), (value) => this.setVoiceOverlay(value, false)));
     host.append(this.gearToggle("Performance", this.perfOn(), (value) => this.setPerfOverlay(value, false)));
@@ -9655,7 +10716,7 @@ class LarkApp {
 
   private playSound(id: string) {
     const clip = this.config.soundboard.clips.find((item) => item.id === id);
-    if (!clip) return;
+    if (!clip || !soundEnabled(this.soundToggles, id)) return;
     if (!this.voice) {
       this.toast("Soundboard", "Join a voice channel to play a sound.");
       return;
@@ -9716,7 +10777,16 @@ class LarkApp {
     }
     for (const clip of this.config.soundboard.clips) {
       const row = el("div", "shortcut-row");
-      row.append(el("span", "", clip.name));
+      const enabled = soundEnabled(this.soundToggles, clip.id);
+      const toggle = el("button", enabled ? "text-button is-on" : "text-button", enabled ? "On" : "Off");
+      toggle.type = "button";
+      toggle.setAttribute("aria-label", `${enabled ? "Disable" : "Enable"} ${clip.name}`);
+      toggle.addEventListener("click", () => {
+        this.soundToggles = { ...this.soundToggles, [clip.id]: !enabled };
+        this.storeVoicePrefs();
+        if (this.settings) this.renderSettings();
+      });
+      row.append(el("span", "", clip.name), toggle);
       const hotkey = el("button", "kbd", this.soundBind === clip.id ? "Press keys" : clip.hotkey ? formatShortcut(clip.hotkey, this.platform.os) : "Hotkey");
       hotkey.type = "button";
       hotkey.addEventListener("click", () => {

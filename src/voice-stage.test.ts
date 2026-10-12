@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeConfig } from "./config";
 import {
+  ACTIVITIES,
   DISCORD_SPEAK_GREEN,
+  activityInviteBody,
+  clampStageTopic,
+  isStageChannel,
+  messagePreview,
+  raiseHand,
   signalBars,
   signalLabel,
   speakColor,
   speakingMotion,
+  stageGroups,
   stageTiles,
+  startStageBody,
+  visibleCallTiles,
   voiceBadges,
+  watchEmbedUrl,
+  watchVideoId,
   type StageMember,
 } from "./voice-stage";
 
@@ -95,5 +106,48 @@ describe("voice stage", () => {
     expect(config.voice.speak_color).toBe("#c46b4a");
     expect(sanitizeConfig({ voice: { speak_color: "nope" } }).voice.speak_color).toBe(DISCORD_SPEAK_GREEN);
     expect(sanitizeConfig({}).voice.speak_color).toBe(DISCORD_SPEAK_GREEN);
+  });
+
+  it("treats kind stage and raw type 13 as a stage channel", () => {
+    expect(isStageChannel({ kind: "voice", discordType: 13 })).toBe(true);
+    expect(isStageChannel({ kind: "stage" })).toBe(true);
+    expect(isStageChannel({ kind: "voice", discordType: 2 })).toBe(false);
+    const groups = stageGroups([
+      { userId: "1", name: "Ethan", avatarUrl: null, suppressed: false, requestToSpeak: false, self: true, speaking: true },
+      { userId: "2", name: "Maya", avatarUrl: null, suppressed: true, requestToSpeak: true, self: false, speaking: false },
+      { userId: "3", name: "Jonah", avatarUrl: null, suppressed: true, requestToSpeak: false, self: false, speaking: false },
+    ]);
+    expect(groups.speakers.map((person) => person.name)).toEqual(["Ethan"]);
+    expect(groups.requests.map((person) => person.name)).toEqual(["Maya"]);
+    expect(groups.audience.map((person) => person.name)).toEqual(["Jonah"]);
+    expect(raiseHand(true, "2026-10-12T18:00:00.000Z")).toEqual({
+      requestToSpeakTimestamp: "2026-10-12T18:00:00.000Z",
+      suppressed: true,
+    });
+    expect(raiseHand(false, "2026-10-12T18:00:00.000Z").requestToSpeakTimestamp).toBeNull();
+    expect(clampStageTopic("  hello\nstage  ")).toBe("hello stage");
+    expect(startStageBody("100000000000000026", "Town hall")).toEqual({
+      channel_id: "100000000000000026",
+      topic: "Town hall",
+      privacy_level: 2,
+    });
+  });
+
+  it("launches Watch Together from a YouTube link and hides non-video tiles", () => {
+    expect(ACTIVITIES[0].name).toBe("Watch Together");
+    expect(activityInviteBody(ACTIVITIES[0].id)).toMatchObject({ target_type: 2, target_application_id: ACTIVITIES[0].id });
+    expect(activityInviteBody("nope")).toBeNull();
+    expect(watchVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    expect(watchVideoId("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    expect(watchVideoId("https://example.com/watch?v=dQw4w9WgXcQ")).toBeNull();
+    expect(watchEmbedUrl("dQw4w9WgXcQ")).toBe("https://www.youtube.com/embed/dQw4w9WgXcQ");
+    const tiles = [
+      { kind: "avatar", self: false },
+      { kind: "video", self: false },
+      { kind: "avatar", self: true },
+    ];
+    expect(visibleCallTiles(tiles, false).map((tile) => tile.kind)).toEqual(["video", "avatar"]);
+    expect(visibleCallTiles(tiles, true)).toHaveLength(3);
+    expect(messagePreview("  hello   there  ")).toBe("hello there");
   });
 });

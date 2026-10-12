@@ -13,6 +13,27 @@ export interface CallClip {
   name: string;
 }
 
+export interface DeviceChoice {
+  id: string;
+  label: string;
+}
+
+export interface CallProfile {
+  id: string;
+  name: string;
+}
+
+export interface CallSound {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
+export interface CallActivity {
+  id: string;
+  name: string;
+}
+
 export interface CallStageHandlers {
   cameraOn: boolean;
   shareOn: boolean;
@@ -28,6 +49,41 @@ export interface CallStageHandlers {
   onLeave: () => void;
   onPlay: (id: string) => void;
   onMenu: (userId: string, x: number, y: number) => void;
+  showChat?: boolean;
+  fullScreen?: boolean;
+  gridView?: boolean;
+  showNonVideo?: boolean;
+  messagePreviews?: boolean;
+  micMenuOpen?: boolean;
+  moreOpen?: boolean;
+  soundboardOpen?: boolean;
+  inputLevel?: number;
+  profiles?: CallProfile[];
+  profileId?: string;
+  inputVolume?: number;
+  outputVolume?: number;
+  inputs?: DeviceChoice[];
+  outputs?: DeviceChoice[];
+  inputDevice?: string;
+  outputDevice?: string;
+  guildSounds?: CallSound[];
+  activities?: CallActivity[];
+  watchUrl?: string;
+  onShowChat?: () => void;
+  onInvite?: () => void;
+  onFullScreen?: () => void;
+  onMicMenu?: () => void;
+  onMore?: () => void;
+  onSoundboard?: () => void;
+  onMoreAction?: (action: "grid" | "non-video" | "previews" | "settings" | "fullscreen") => void;
+  onInput?: (id: string) => void;
+  onOutput?: (id: string) => void;
+  onProfile?: (id: string) => void;
+  onInputVolume?: (value: number) => void;
+  onOutputVolume?: (value: number) => void;
+  onGuildSound?: (id: string) => void;
+  onActivity?: (id: string) => void;
+  onWatch?: (url: string) => void;
 }
 
 export function speakWrap(avatar: HTMLElement, motion: RingMotion, large = false): HTMLElement {
@@ -97,16 +153,25 @@ export function renderPipTile(host: HTMLElement, tile: StageTile, motion: RingMo
   host.append(tileView(tile, motion, () => undefined));
 }
 
-export function renderCallStage(host: HTMLElement, tiles: StageTile[], motion: RingMotion, handlers: CallStageHandlers): void {
+export function renderCallStage(
+  host: HTMLElement,
+  tiles: StageTile[],
+  motion: RingMotion,
+  handlers: CallStageHandlers,
+  chat?: HTMLElement | null,
+): void {
   clear(host);
-  host.className = "voice-stage";
+  host.className = `voice-stage${handlers.gridView === false ? " is-focus" : ""}`;
   host.setAttribute("aria-label", "Voice call");
+  const row = el("div", "voice-stage-row");
   const grid = el("div", "voice-grid");
   grid.dataset.callGrid = "";
   grid.setAttribute("role", "list");
   if (!tiles.length) grid.append(el("p", "voice-empty", "Nobody is in this channel yet."));
   for (const tile of tiles) grid.append(tileView(tile, motion, handlers.onMenu));
-  host.append(grid, controlBar(handlers));
+  row.append(grid);
+  if (chat) row.append(chat);
+  host.append(row, controlBar(handlers));
 }
 
 function tileView(tile: StageTile, motion: RingMotion, onMenu: CallStageHandlers["onMenu"]): HTMLElement {
@@ -146,21 +211,157 @@ function tileView(tile: StageTile, motion: RingMotion, onMenu: CallStageHandlers
   return node;
 }
 
+export function appendCallControls(host: HTMLElement, handlers: CallStageHandlers): void {
+  host.append(controlBar(handlers));
+}
+
 function controlBar(handlers: CallStageHandlers): HTMLElement {
   const bar = el("div", "voice-bar");
   bar.setAttribute("role", "toolbar");
   bar.setAttribute("aria-label", "Call controls");
   bar.append(callButton(handlers.cameraOn ? "Turn off camera" : "Turn on camera", handlers.cameraOn ? paths.camera : paths.cameraOff, handlers.onCamera, { live: handlers.cameraOn }));
   bar.append(callButton(handlers.shareOn ? "Stop sharing" : "Share your screen", handlers.shareOn ? paths.monitor : paths.monitor, handlers.onShare, { live: handlers.shareOn }));
-  const slot = el("div", "voice-slot");
-  slot.append(callButton(handlers.activitiesOpen ? "Close soundboard" : "Soundboard", paths.activity, handlers.onActivities, { live: handlers.activitiesOpen }));
-  if (handlers.activitiesOpen) slot.append(soundboardPop(handlers));
-  bar.append(slot);
+  const legacySounds = !handlers.onSoundboard;
+  const activity = el("div", "voice-slot");
+  activity.append(callButton(
+    handlers.activitiesOpen ? (legacySounds ? "Close soundboard" : "Close activities") : (legacySounds ? "Soundboard" : "Activity"),
+    legacySounds ? paths.volume : paths.activity,
+    handlers.onActivities,
+    { live: handlers.activitiesOpen },
+  ));
+  if (handlers.activitiesOpen) activity.append(legacySounds ? soundboardPop(handlers) : activityPop(handlers));
+  bar.append(activity);
+  if (!legacySounds) {
+    const sounds = el("div", "voice-slot");
+    sounds.append(callButton(handlers.soundboardOpen ? "Close soundboard" : "Soundboard", paths.volume, handlers.onSoundboard!, { live: Boolean(handlers.soundboardOpen) }));
+    if (handlers.soundboardOpen) sounds.append(soundboardPop(handlers));
+    bar.append(sounds);
+  }
   bar.append(el("span", "voice-bar-gap"));
-  bar.append(callButton(handlers.muted ? "Unmute" : "Mute", handlers.muted ? paths.micOff : paths.mic, handlers.onMute, { hot: handlers.muted }));
+  if (handlers.onShowChat) bar.append(callButton(handlers.showChat ? "Hide chat" : "Show chat", paths.message, handlers.onShowChat, { live: Boolean(handlers.showChat) }));
+  if (handlers.onInvite) bar.append(callButton("Invite", paths.users, handlers.onInvite, {}));
+  const mic = el("div", "voice-slot");
+  mic.append(callButton(handlers.muted ? "Unmute" : "Mute", handlers.muted ? paths.micOff : paths.mic, handlers.onMute, { hot: handlers.muted }));
+  if (handlers.onMicMenu) mic.append(callButton(handlers.micMenuOpen ? "Close microphone options" : "Microphone options", paths.chevronUp, handlers.onMicMenu, { live: Boolean(handlers.micMenuOpen) }));
+  if (handlers.micMenuOpen) mic.append(micMenu(handlers));
+  bar.append(mic);
   bar.append(callButton(handlers.deafened ? "Undeafen" : "Deafen", handlers.deafened ? paths.headphonesOff : paths.headphones, handlers.onDeafen, { hot: handlers.deafened }));
   bar.append(callButton("Disconnect", paths.hangup, handlers.onLeave, { disconnect: true }));
+  if (handlers.onMore) {
+    const more = el("div", "voice-slot");
+    more.append(callButton(handlers.moreOpen ? "Close more" : "More", paths.panels, handlers.onMore, { live: Boolean(handlers.moreOpen) }));
+    if (handlers.moreOpen) more.append(moreMenu(handlers));
+    bar.append(more);
+  }
+  if (handlers.onFullScreen) bar.append(callButton(handlers.fullScreen ? "Exit full screen" : "Full screen", paths.monitor, handlers.onFullScreen, { live: Boolean(handlers.fullScreen) }));
   return bar;
+}
+
+function micMenu(handlers: CallStageHandlers): HTMLElement {
+  const pop = el("div", "voice-pop voice-mic-menu");
+  pop.setAttribute("role", "menu");
+  pop.setAttribute("aria-label", "Microphone options");
+  pop.append(el("strong", "", "Microphone"));
+  const meter = el("div", "mic-meter");
+  meter.setAttribute("role", "meter");
+  meter.setAttribute("aria-valuemin", "0");
+  meter.setAttribute("aria-valuemax", "100");
+  meter.setAttribute("aria-valuenow", String(handlers.inputLevel ?? 0));
+  meter.setAttribute("aria-label", "Input level");
+  const fill = el("span", "mic-meter-fill");
+  fill.style.width = `${Math.min(100, Math.max(0, handlers.inputLevel ?? 0))}%`;
+  meter.append(fill);
+  pop.append(meter);
+  if (handlers.onInput) pop.append(deviceSelect("Input device", handlers.inputDevice ?? "", handlers.inputs ?? [], handlers.onInput));
+  if (handlers.onOutput) pop.append(deviceSelect("Output device", handlers.outputDevice ?? "", handlers.outputs ?? [], handlers.onOutput));
+  if (handlers.onProfile && handlers.profiles?.length) {
+    pop.append(deviceSelect("Input profile", handlers.profileId ?? "", handlers.profiles.map((profile) => ({ id: profile.id, label: profile.name })), handlers.onProfile));
+  }
+  if (handlers.onInputVolume) pop.append(volumeRow("Input volume", handlers.inputVolume ?? 100, handlers.onInputVolume));
+  if (handlers.onOutputVolume) pop.append(volumeRow("Output volume", handlers.outputVolume ?? 100, handlers.onOutputVolume));
+  return pop;
+}
+
+function moreMenu(handlers: CallStageHandlers): HTMLElement {
+  const pop = el("div", "voice-pop");
+  pop.setAttribute("role", "menu");
+  pop.setAttribute("aria-label", "More");
+  pop.append(el("strong", "", "More"));
+  const row = (label: string, on: boolean, action: "grid" | "non-video" | "previews" | "settings" | "fullscreen") => {
+    const button = el("button", on ? "text-button is-on" : "text-button", label);
+    button.type = "button";
+    button.addEventListener("click", () => handlers.onMoreAction?.(action));
+    return button;
+  };
+  pop.append(row(handlers.gridView === false ? "Grid view" : "Focus view", handlers.gridView !== false, "grid"));
+  pop.append(row("Show non-video participants", handlers.showNonVideo !== false, "non-video"));
+  pop.append(row("Message previews", Boolean(handlers.messagePreviews), "previews"));
+  pop.append(row(handlers.fullScreen ? "Exit full screen" : "Full screen", Boolean(handlers.fullScreen), "fullscreen"));
+  pop.append(row("Voice & Video settings", false, "settings"));
+  return pop;
+}
+
+function activityPop(handlers: CallStageHandlers): HTMLElement {
+  const pop = el("div", "voice-pop voice-activity-pop");
+  pop.setAttribute("role", "menu");
+  pop.setAttribute("aria-label", "Activities");
+  pop.append(el("strong", "", "Activities"));
+  const activities = handlers.activities ?? [];
+  if (!activities.length) pop.append(el("p", "hint", "No activities on this call."));
+  for (const activity of activities) {
+    const button = el("button", "text-button", activity.name);
+    button.type = "button";
+    button.addEventListener("click", () => handlers.onActivity?.(activity.id));
+    pop.append(button);
+  }
+  if (handlers.onWatch) {
+    const form = el("form", "watch-together");
+    const input = el("input");
+    input.type = "url";
+    input.placeholder = "YouTube link";
+    input.value = handlers.watchUrl ?? "";
+    input.setAttribute("aria-label", "Watch Together link");
+    const go = el("button", "text-button", "Watch");
+    go.type = "submit";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      handlers.onWatch?.(input.value);
+    });
+    form.append(input, go);
+    pop.append(form);
+  }
+  return pop;
+}
+
+function deviceSelect(label: string, current: string, options: DeviceChoice[], onChange: (id: string) => void): HTMLElement {
+  const wrap = el("label", "device", label);
+  const select = el("select");
+  select.setAttribute("aria-label", label);
+  const blank = el("option", "", "Default");
+  blank.value = "";
+  select.append(blank);
+  for (const option of options) {
+    const node = el("option", "", option.label || option.id || "Device");
+    node.value = option.id;
+    select.append(node);
+  }
+  select.value = options.some((option) => option.id === current) ? current : "";
+  select.addEventListener("change", () => onChange(select.value));
+  wrap.append(select);
+  return wrap;
+}
+
+function volumeRow(label: string, value: number, onInput: (value: number) => void): HTMLElement {
+  const wrap = el("label", "device", label);
+  const input = el("input");
+  input.type = "range";
+  input.min = "0";
+  input.max = "200";
+  input.value = String(value);
+  input.setAttribute("aria-label", label);
+  input.addEventListener("input", () => onInput(Number(input.value)));
+  wrap.append(input);
+  return wrap;
 }
 
 function soundboardPop(handlers: CallStageHandlers): HTMLElement {
@@ -168,6 +369,19 @@ function soundboardPop(handlers: CallStageHandlers): HTMLElement {
   pop.setAttribute("role", "menu");
   pop.setAttribute("aria-label", "Soundboard");
   pop.append(el("strong", "", "Soundboard"));
+  const guild = handlers.guildSounds ?? [];
+  if (handlers.deafened) pop.append(el("p", "hint", "Soundboard is off while you are deafened."));
+  else if (guild.length) {
+    pop.append(el("span", "hint", "Server sounds"));
+    for (const sound of guild) {
+      const button = el("button", sound.enabled ? "text-button" : "text-button is-off", sound.name);
+      button.type = "button";
+      button.disabled = !sound.enabled;
+      button.addEventListener("click", () => handlers.onGuildSound?.(sound.id));
+      pop.append(button);
+    }
+  }
+  pop.append(el("span", "hint", "This device"));
   if (!handlers.clips.length) pop.append(el("p", "hint", "Add clips in Voice & Video."));
   for (const clip of handlers.clips) {
     const button = el("button", "text-button", clip.name);

@@ -105,7 +105,7 @@ describe("call layout", () => {
     expect(grid.pip?.hidden).toBe(true);
     expect(grid.sliders).toBe(0);
 
-    await page.getByRole("button", { name: "Turn on camera" }).click();
+    await page.locator(".call-split").getByRole("button", { name: "Turn on camera" }).click();
     await page.keyboard.press("Escape");
     await page.locator(".call-strip-hide").click();
     await page.waitForSelector(".call-pip .voice-tile.is-video", { timeout: 5_000 });
