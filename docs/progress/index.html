@@ -178,6 +178,23 @@
     }
     .refresh:hover { background: #4e5058; }
     .refresh:disabled { opacity: 0.55; cursor: wait; }
+    .store-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: var(--blurple);
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      line-height: 1.2;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .store-link:hover { background: #4752c4; color: #fff; }
+    .card-titles .store-link { margin-top: 10px; }
 
     main {
       display: grid;
@@ -993,7 +1010,7 @@
         </span>
       </a>
       <div class="top-meta">
-        <a href="../store/">Plugin store</a>
+        <a class="store-link" href="../store/">Plugin &amp; Theme Store</a>
         <span class="updated" id="updated">Waiting for GitHub…</span>
         <span class="clock" id="countdown">Refresh in 1:00</span>
         <button class="refresh" id="refresh" type="button">Refresh</button>
@@ -2534,7 +2551,7 @@
           const blurb = document.createElement("p");
           blurb.className = "card-blurb";
           blurb.textContent = item.blurb;
-          titles.append(blurb);
+          titles.append(blurb, storeLink());
         }
         const side = document.createElement("div");
         side.className = "card-side";
@@ -2605,6 +2622,14 @@
         details.append(summary, list);
         card.append(details);
         return card;
+      }
+
+      function storeLink() {
+        const link = document.createElement("a");
+        link.className = "store-link";
+        link.href = "../store/";
+        link.textContent = "Plugin & Theme Store";
+        return link;
       }
 
       function pluginFeature(item) {
