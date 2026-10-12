@@ -6,6 +6,7 @@ import type { ChannelWords, RuleLevel } from "./keywords";
 import type { ScheduledSend } from "./schedule";
 import type { LogEntry } from "./logger";
 import { sanitizeLog } from "./logger";
+import type { HourCycle, TimeMode } from "./time";
 import { cleanWords } from "./keywords";
 
 export interface PackState {
@@ -28,6 +29,8 @@ export interface PackState {
   messageLog: LogEntry[];
   logDeleted: boolean;
   logEdits: boolean;
+  timeMode: TimeMode;
+  timeHours: HourCycle;
 }
 
 export const PACK_IDS = [
@@ -46,6 +49,7 @@ export const PACK_IDS = [
   "call-timer",
   "volume-booster",
   "message-logger",
+  "better-timestamps",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -72,6 +76,8 @@ export function defaultPack(): PackState {
     messageLog: [],
     logDeleted: true,
     logEdits: true,
+    timeMode: "relative",
+    timeHours: "12",
   };
 }
 
@@ -91,6 +97,8 @@ export function sanitizePack(input: unknown): PackState {
   if (raw.volumeCap === 200 || raw.volumeCap === 300 || raw.volumeCap === 400) base.volumeCap = raw.volumeCap;
   if (typeof raw.logDeleted === "boolean") base.logDeleted = raw.logDeleted;
   if (typeof raw.logEdits === "boolean") base.logEdits = raw.logEdits;
+  if (raw.timeMode === "relative" || raw.timeMode === "absolute") base.timeMode = raw.timeMode;
+  if (raw.timeHours === "12" || raw.timeHours === "24") base.timeHours = raw.timeHours;
   base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
