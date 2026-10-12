@@ -434,6 +434,7 @@ import {
 } from "./composer-tools";
 import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
 import { toggleInbox } from "./inbox";
+import { installModView } from "./mod-view";
 import { callKeyAction } from "../keybind-actions";
 import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
@@ -948,6 +949,7 @@ class LarkApp {
     this.favorites = parseIdMap(localStorage.getItem("lark.favorites.v1"));
     this.pinnedChannels = parseIdMap(localStorage.getItem("lark.channel-pins.v1"));
     this.bootLists();
+    this.bootModView();
     this.hideMuted = parseFlag(localStorage.getItem("lark.hide-muted.v1"));
     const params = new URLSearchParams(location.search);
     this.bench = params.has("bench");
@@ -11430,7 +11432,8 @@ class LarkApp {
       return;
     }
     if (action === "mod-view") {
-      this.toast("Mod view", `${person.name}: server mute ${person.serverMute ? "on" : "off"}, server deafen ${person.serverDeaf ? "on" : "off"}.`);
+      const guildId = person.guildId || this.guildId;
+      if (requestModView(userId, guildId) !== "called") this.toast("Mod View", "Mod View is not available yet.");
       return;
     }
     if (action === "move") {
@@ -15303,7 +15306,7 @@ class LarkApp {
       else if (id === "apps") window.open("https://discord.com/app-directory", "_blank", "noopener");
       else if (id === "roles") this.openRoleMenu(person);
       else if (id === "mod") {
-        this.toast("Mod View", requestModView(person.id, this.guildId) === "called" ? "Opened Mod View." : "Mod View is not available yet.");
+        if (requestModView(person.id, this.guildId) !== "called") this.toast("Mod View", "Mod View is not available yet.");
       } else if (id === "copy-id") void this.copySocialId(person.id, "User ID");
     });
   }
@@ -15972,6 +15975,59 @@ class LarkApp {
       this.sendingLive = false;
       this.paintComposer();
     }
+  }
+
+  private bootModView() {
+    installModView({
+      isDemo: () => this.demo || !isTauri(),
+      name: (userId) => this.directory[userId]?.name || this.userNames[userId] || "Member",
+      roles: (guildId) => (this.rolesByGuild[guildId] ?? [])
+        .filter((role) => role.id !== guildId)
+        .map((role) => ({ id: role.id, name: role.name, position: role.position })),
+      memberRoleIds: (userId) => this.wireProfile?.id === userId && this.wireProfile.roleIds
+        ? this.wireProfile.roleIds
+        : this.directory[userId]?.roleIds ?? [],
+      localMessages: (userId) => {
+        const hits: { id: string; channelId: string; content: string }[] = [];
+        for (const [channelId, page] of Object.entries(this.pages)) {
+          for (const message of page) {
+            if (message.authorId === userId) hits.push({ id: message.id, channelId, content: message.content || "Empty message" });
+          }
+        }
+        return hits.slice(-8).reverse();
+      },
+      voice: (guildId, userId) => {
+        const person = Object.values(this.voiceRoster).find((item) => item.userId === userId && item.guildId === guildId && item.channelId);
+        return { inVoice: Boolean(person?.channelId), mute: Boolean(person?.serverMute), deaf: Boolean(person?.serverDeaf) };
+      },
+      invoke: (command, args) => invoke(command, args),
+      toast: (title, detail) => this.toast(title, detail),
+      jump: (channelId, messageId) => { void this.jumpToMessage(channelId, messageId); },
+      rememberRole: (userId, roleId, on) => {
+        const apply = (person: { roleIds?: string[] } | undefined) => {
+          if (!person) return;
+          const ids = new Set(person.roleIds ?? []);
+          if (on) ids.add(roleId);
+          else ids.delete(roleId);
+          person.roleIds = [...ids];
+        };
+        apply(this.directory[userId]);
+        if (this.wireProfile?.id === userId) this.wireProfile.roleIds = this.directory[userId]?.roleIds ?? this.wireProfile.roleIds;
+        const guildId = this.guildId;
+        if (!guildId) return;
+        apply((this.membersByGuild[guildId] ?? []).find((person) => person.id === userId));
+      },
+      noteVoice: (userId, kind, on) => {
+        const person = Object.values(this.voiceRoster).find((item) => item.userId === userId);
+        if (!person) return;
+        if (kind === "mute") person.serverMute = on;
+        if (kind === "deaf") {
+          person.serverDeaf = on;
+          if (on) person.serverMute = true;
+        }
+        this.paintVoice();
+      },
+    });
   }
 
   private bootLists() {
