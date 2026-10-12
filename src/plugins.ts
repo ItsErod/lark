@@ -92,6 +92,8 @@ export interface PluginHooks {
   localNicks: boolean;
   folderStats: boolean;
   betterFolders: boolean;
+  autoReply: boolean;
+  themeAttrs: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -167,6 +169,8 @@ export function emptyHooks(): PluginHooks {
     localNicks: false,
     folderStats: false,
     betterFolders: false,
+    autoReply: false,
+    themeAttrs: false,
   };
 }
 
@@ -391,6 +395,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.localNicks = record.localNicks === true;
   hooks.folderStats = record.folderStats === true;
   hooks.betterFolders = record.betterFolders === true;
+  hooks.autoReply = record.autoReply === true;
+  hooks.themeAttrs = record.themeAttrs === true;
   return hooks;
 }
 

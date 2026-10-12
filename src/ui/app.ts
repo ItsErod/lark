@@ -53,6 +53,8 @@ import { replyChain } from "../pack/chain";
 import { connectionLabel, connectionLines, type ConnectionLine } from "../pack/connections";
 import { displayName, setLocalNick } from "../pack/nicks";
 import { folderTitle, orderUnreadFirst, peekNames, summarizeFolder, type FolderServer } from "../pack/folder-extra";
+import { awayReplyDecision, cleanAwayText } from "../pack/away-reply";
+import { themeAttributeLines, themeAttributeText } from "../pack/theme-attrs";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
@@ -819,6 +821,7 @@ class LarkApp {
   private receiptNote = false;
   private nickTarget: { id: string; name: string } | null = null;
   private connectionCache = new Map<string, { lines: ConnectionLine[]; at: number }>();
+  private awayReplyBusy = false;
   private themeOpen = false;
   private themeFilter = "";
   private extraThemeIds: string[] = [];
@@ -8205,6 +8208,7 @@ class LarkApp {
       this.mergeThreads(String((event as { guildId?: string }).guildId ?? ""), String(event.channelId ?? ""), threads);
     } else if (event.kind === "messageCreate" && event.message) {
       const message = normalizeMessage(event.message);
+      this.considerAwayReply(message);
       this.absorbMessage(message);
       const bucket = this.pages[message.channelId] ?? [];
       const known = bucket.some((item) => sameOutgoing(item, message));
@@ -12686,6 +12690,42 @@ class LarkApp {
       }));
       card.append(el("p", "hint", "Hover a folder for the server names. Unread servers can move to the top of the folder on this screen. Discord keeps the saved order."));
       wrap.append(card);
+    } else if (id === "auto-reply") {
+      const card = el("div", "plugin-card");
+      const field = el("textarea");
+      field.maxLength = 200;
+      field.value = this.pack.awayReplyText;
+      field.placeholder = "I am away. I will reply later.";
+      field.setAttribute("aria-label", "Away reply");
+      field.addEventListener("input", () => {
+        this.pack.awayReplyText = cleanAwayText(field.value);
+        this.savePack();
+      });
+      card.append(field);
+      card.append(this.toggle("Reply while away", this.pack.awayReplyArmed, (value) => {
+        this.pack.awayReplyArmed = value;
+        if (!value) this.pack.awayReplied = [];
+        this.savePack();
+      }));
+      card.append(el("p", "hint", "Direct messages only. Group chats and servers are skipped, and nothing is sent while that conversation is open. Each conversation gets one reply until you turn this off. Sends stay 30 seconds apart. You write the line. Bots and your own messages are skipped."));
+      wrap.append(card);
+    } else if (id === "theme-attributes") {
+      const card = el("div", "plugin-card");
+      const lines = themeAttributeLines(getComputedStyle(document.documentElement));
+      if (!lines.length) card.append(el("p", "hint", "No theme colours are set on this page."));
+      for (const line of lines) card.append(el("p", "", `${line.name}: ${line.value}`));
+      const copy = el("button", "text-button", "Copy");
+      copy.type = "button";
+      copy.addEventListener("click", () => {
+        const text = themeAttributeText(lines);
+        void navigator.clipboard.writeText(text).then(
+          () => this.toast("Theme attributes", "Copied."),
+          () => this.toast("Theme attributes", text || "Nothing to copy."),
+        );
+      });
+      card.append(copy);
+      card.append(el("p", "hint", "These are the colours already on the page. The theme file is not changed."));
+      wrap.append(card);
     }
     this.appendChatPluginPanel(wrap, id);
   }
@@ -13593,6 +13633,42 @@ class LarkApp {
     this.playingShown = line;
     this.playingWrite = now;
     this.setStatus(this.me.status ?? "online", line, "plugin");
+  }
+
+  private considerAwayReply(message: RawMessage) {
+    if (!this.hookOn("autoReply") || this.demo || this.awayReplyBusy) return;
+    const decision = awayReplyDecision({
+      armed: this.pack.awayReplyArmed,
+      text: this.pack.awayReplyText,
+      kind: this.channelById(message.channelId)?.kind ?? "",
+      authorBot: Boolean(message.authorBot),
+      authorId: message.authorId,
+      meId: this.meId(),
+      channelId: message.channelId,
+      lookingAt: message.channelId === this.channelId,
+      content: message.content,
+      repliedChannels: this.pack.awayReplied,
+      lastSentAt: this.pack.awayReplyAt,
+      now: Date.now(),
+    });
+    if (!decision.send) return;
+    this.pack.awayReplied = [...this.pack.awayReplied, message.channelId].slice(-50);
+    this.pack.awayReplyAt = Date.now();
+    this.savePack();
+    void this.sendAwayReply(message.channelId, decision.text);
+  }
+
+  private async sendAwayReply(channelId: string, content: string) {
+    if (this.awayReplyBusy) return;
+    this.awayReplyBusy = true;
+    try {
+      await invoke("send_message", { channelId, content, replyTo: null, nonce: null, files: [] });
+    } catch {
+      this.pack.awayReplied = this.pack.awayReplied.filter((id) => id !== channelId);
+      this.savePack();
+    } finally {
+      this.awayReplyBusy = false;
+    }
   }
 
   private async tickSchedule() {

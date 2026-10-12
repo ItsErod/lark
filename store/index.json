@@ -18,6 +18,22 @@
       "download": "downloads/auto-away.zip"
     },
     {
+      "id": "auto-reply",
+      "name": "Auto-reply when away",
+      "description": "Send one reply you wrote, in a direct message, while you say you are away.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "status",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "moon",
+      "changelog": "Opt in, write the line, and Lark sends it once per direct message. Group chats and servers are skipped, and sends stay 30 seconds apart.",
+      "sha256": "8e3a6d0fa405e8af65711a4ce11d86575040a00e6c840a62ddaeec7bc6570917",
+      "bytes": 188,
+      "file": "plugins/auto-reply/plugin.js",
+      "download": "downloads/auto-reply.zip"
+    },
+    {
       "id": "better-folders",
       "name": "Better folders",
       "description": "Peek at a folder and put unread servers first. The Discord order is kept.",
@@ -800,6 +816,22 @@
       "bytes": 891,
       "file": "plugins/streamer-safe/plugin.js",
       "download": "downloads/streamer-safe.zip"
+    },
+    {
+      "id": "theme-attributes",
+      "name": "Theme attributes",
+      "description": "Show the colour tokens of the theme you are using.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "chat",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "palette",
+      "changelog": "Lists the theme colours already on the page, and copies them. The theme file is not changed.",
+      "sha256": "808037b276f8fda2bf7a1ca2bc19666ee9703278ea0b426349ea0662dd9ebe16",
+      "bytes": 161,
+      "file": "plugins/theme-attributes/plugin.js",
+      "download": "downloads/theme-attributes.zip"
     },
     {
       "id": "translate",

@@ -18,6 +18,7 @@ import { defaultPrivacy, sanitizePrivacy, spoilerMode, type PrivacyOptions } fro
 import { sanitizeCursors } from "./receipts";
 import { wordMin, type WordMin } from "./words";
 import { sanitizeNicks } from "./nicks";
+import { cleanAwayText, sanitizeAwayReplied } from "./away-reply";
 
 export interface PackState {
   translateLang: Lang;
@@ -82,6 +83,10 @@ export interface PackState {
   wordMin: WordMin;
   localNicks: Record<string, string>;
   folderUnreadFirst: boolean;
+  awayReplyText: string;
+  awayReplyArmed: boolean;
+  awayReplied: string[];
+  awayReplyAt: number;
 }
 
 export const PACK_IDS = [
@@ -136,6 +141,8 @@ export const PACK_IDS = [
   "local-nicknames",
   "folder-stats",
   "better-folders",
+  "auto-reply",
+  "theme-attributes",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -205,6 +212,10 @@ export function defaultPack(): PackState {
     wordMin: 0,
     localNicks: {},
     folderUnreadFirst: true,
+    awayReplyText: "",
+    awayReplyArmed: false,
+    awayReplied: [],
+    awayReplyAt: 0,
   };
 }
 
@@ -276,6 +287,10 @@ export function sanitizePack(input: unknown): PackState {
   if (raw.wordMin !== undefined) base.wordMin = wordMin(raw.wordMin);
   base.localNicks = sanitizeNicks(raw.localNicks);
   if (typeof raw.folderUnreadFirst === "boolean") base.folderUnreadFirst = raw.folderUnreadFirst;
+  if (typeof raw.awayReplyText === "string") base.awayReplyText = cleanAwayText(raw.awayReplyText);
+  if (typeof raw.awayReplyArmed === "boolean") base.awayReplyArmed = raw.awayReplyArmed;
+  base.awayReplied = sanitizeAwayReplied(raw.awayReplied);
+  if (typeof raw.awayReplyAt === "number" && Number.isFinite(raw.awayReplyAt) && raw.awayReplyAt >= 0) base.awayReplyAt = raw.awayReplyAt;
   return base;
 }
 
