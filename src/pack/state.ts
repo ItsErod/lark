@@ -8,6 +8,8 @@ import type { LogEntry } from "./logger";
 import { sanitizeLog } from "./logger";
 import type { HourCycle, TimeMode } from "./time";
 import type { TranslatePrefer } from "./inline-translate";
+import type { ReplyTemplate } from "./replies";
+import { sanitizeTemplates } from "./replies";
 import { cleanWords } from "./keywords";
 import { cleanPinnedDms } from "./pin-dms";
 import { cleanPatterns, patternsFor } from "./patterns";
@@ -48,6 +50,9 @@ export interface PackState {
   highlightNotify: boolean;
   pinnedDms: string[];
   privacy: PrivacyOptions;
+  templates: ReplyTemplate[];
+  copyMeta: boolean;
+  zoomMax: 2 | 3 | 4;
 }
 
 export const PACK_IDS = [
@@ -79,6 +84,9 @@ export const PACK_IDS = [
   "clean-links",
   "spoiler-everything",
   "hide-blocked",
+  "quick-replies",
+  "copy-markdown",
+  "image-zoom",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -120,6 +128,9 @@ export function defaultPack(): PackState {
     highlightNotify: true,
     pinnedDms: [],
     privacy: defaultPrivacy(),
+    templates: [],
+    copyMeta: false,
+    zoomMax: 3,
   };
 }
 
@@ -149,6 +160,9 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.hiddenTopics === "boolean") base.hiddenTopics = raw.hiddenTopics;
   if (typeof raw.spotifyPresence === "boolean") base.spotifyPresence = raw.spotifyPresence;
   if (typeof raw.spotifyLinks === "boolean") base.spotifyLinks = raw.spotifyLinks;
+  if (typeof raw.copyMeta === "boolean") base.copyMeta = raw.copyMeta;
+  if (raw.zoomMax === 2 || raw.zoomMax === 3 || raw.zoomMax === 4) base.zoomMax = raw.zoomMax;
+  base.templates = sanitizeTemplates(raw.templates);
   base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);

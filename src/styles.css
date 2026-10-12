@@ -1254,3 +1254,5 @@ button.guild-row:hover { background: var(--hover); }
 .camera-preview-slot, .stream-preview { min-height: 72px; }
 [data-hide-names="1"] .voice-user-name, [data-hide-names="1"] .voice-tile-name { visibility: hidden; }
 .voice-stage.is-focus { display: grid; }
+.lightbox img.is-zoomable { cursor: zoom-in; transform-origin: center center; }
+.lightbox img.is-zoomed { cursor: zoom-out; max-width: none; max-height: none; }
