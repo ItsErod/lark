@@ -10211,7 +10211,7 @@ function normalizeMessage(message: RawMessage): RawMessage {
   };
 }
 
-const CHANNEL_KINDS = new Set<Channel["kind"]>(["text", "voice", "category", "forum", "dm", "group", "announcement", "thread"]);
+const CHANNEL_KINDS = new Set<Channel["kind"]>(["text", "voice", "category", "forum", "dm", "group", "announcement", "thread", "stage", "media"]);
 
 function normalizeChannel(channel: Channel): Channel {
   return {

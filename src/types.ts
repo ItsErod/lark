@@ -196,7 +196,7 @@ export interface ChannelRecipient {
 export interface Channel {
   id: string;
   name: string;
-  kind: "text" | "voice" | "category" | "forum" | "dm" | "group" | "announcement" | "thread";
+  kind: "text" | "voice" | "category" | "forum" | "dm" | "group" | "announcement" | "thread" | "stage" | "media";
   parentId?: string | null;
   position: number;
   topic?: string | null;

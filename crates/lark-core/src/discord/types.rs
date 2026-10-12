@@ -598,9 +598,11 @@ pub fn kind_name(kind: i32) -> &'static str {
 pub fn channel_kind_name(kind: i32) -> &'static str {
     match kind {
         0 | 5 => "text",
-        2 | 13 => "voice",
+        2 => "voice",
+        13 => "stage",
         4 => "category",
         15 => "forum",
+        16 => "media",
         1 => "dm",
         3 => "group",
         10 | 11 | 12 => "thread",
@@ -1541,6 +1543,33 @@ mod tests {
         assert_eq!(kind_name(7), "join");
         assert_eq!(channel_kind_name(2), "voice");
         assert_eq!(channel_kind_name(4), "category");
+        assert_eq!(channel_kind_name(13), "stage");
+        assert_eq!(channel_kind_name(16), "media");
+    }
+
+    #[test]
+    fn channel_kinds_keep_voice_and_name_stage_and_media() {
+        assert_eq!(channel_kind_name(0), "text");
+        assert_eq!(channel_kind_name(2), "voice");
+        assert_eq!(channel_kind_name(13), "stage");
+        assert_eq!(channel_kind_name(15), "forum");
+        assert_eq!(channel_kind_name(16), "media");
+        assert_eq!(channel_kind_name(10), "thread");
+        assert_eq!(channel_kind_name(99), "text");
+        let stage: DiscordChannel = serde_json::from_str(
+            r#"{"id":"13","type":13,"name":"live","position":1}"#,
+        )
+        .unwrap();
+        let media: DiscordChannel = serde_json::from_str(
+            r#"{"id":"16","type":16,"name":"gallery","position":2}"#,
+        )
+        .unwrap();
+        assert_eq!(channel_to_client(&stage).kind, "stage");
+        assert_eq!(channel_to_client(&media).kind, "media");
+        assert_eq!(
+            channel_to_client(&serde_json::from_str(r#"{"id":"2","type":2,"name":"booth","position":0}"#).unwrap()).kind,
+            "voice"
+        );
     }
 
     #[test]
