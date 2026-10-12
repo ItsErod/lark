@@ -88,3 +88,11 @@ The font control still wins when it is System, Serif, or Mono. **Inter** means â
 ## Frame rate
 
 Themes do not schedule paints. Scrolling, the gallery, and overlays still follow the display, up to the 240 fps cap in Desktop settings. A still channel does not animate a theme.
+
+## App tokens
+
+Spacing, radii, elevation, type, icons, and motion live in `src/design.css`. A theme file does not set them. Colour still comes from the theme, and from Light, Ash, Dark, and Onyx.
+
+The app uses an 8px spacing scale (`--space-1` 4px through `--space-9` 64px), radii from `--radius-xs` to `--radius-full`, elevation `--elev-1` through `--elev-3`, a type scale from `--text-xs` to `--text-2xl` with `--weight-regular` through `--weight-bold`, icon sizes `--icon-xs` through `--icon-lg`, and motion `--motion-fast` 120ms, `--motion-base` 160ms, `--motion-slow` 200ms on `--ease-out`. `prefers-reduced-motion: reduce` sets those durations to 0ms.
+
+`--color-bg`, `--color-fg`, `--color-accent`, and the other colour aliases point at the existing theme variables (`--bg-0`, `--text`, `--accent`, and the rest). The gallery and the four colour modes keep owning the palette.
