@@ -8,6 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 47321 --strictPort",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "bench": "LARK_BENCH=1 vitest run src/bench/harness.bench.ts",
     "preview": "vite preview --host 127.0.0.1 --port 47321 --strictPort",
     "tauri": "tauri"
   },
