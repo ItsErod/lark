@@ -4,6 +4,9 @@ import { reportCrash } from "../crash";
 import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
 import { benchHistory, benchPeople } from "../bench/corpus";
+import { latestGateway, readyShape, rememberGateway } from "../gateway-cache";
+import { messageSignature } from "../list-sig";
+import { REST_PAGE_TTL_MS, readRestCache, writeRestCache, type RestHit } from "../rest-cache";
 import { bindEmojiLoader, expandShortcodes, rememberEmoji, frecency, EMOJI, setCustomEmojis, type EmojiUse } from "../emoji";
 import { applyMention, mentionHits, mentionQuery, plainPreview, type MentionHit } from "../mentions";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
@@ -308,7 +311,7 @@ import {
   type ThreadIndexWire,
 } from "../threads";
 import { isHeldRequest } from "../message-requests";
-import { mountChannelPolls, parityHeaderButtons, parityThreadBar, renderForumSurface } from "./threads-forums";
+import { loadThreadsUi, threadsNow } from "./lazy-threads";
 import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
 import { applyMoreAction, applyUserMix, applyVoiceState, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
@@ -343,8 +346,7 @@ import {
 import { mountChatPluginPanel } from "./chat-plugin-panels";
 import { renderWhois } from "./whois-card";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
-import { mountGuildSettings } from "./guild-pages";
-import { mountChannelEditor, mountCreateChannel, mountInviteModal } from "./channel-settings";
+import { loadSettingsPages, peekSettingsPages, type SettingsPages } from "./lazy-chrome";
 import {
   colorControl,
   groupedSections,
@@ -439,22 +441,6 @@ import {
   shortcutOk,
   type AccountOverview,
 } from "../user-settings";
-import {
-  appIconCard,
-  colorModeCard,
-  discordKeybindCard,
-  mediaCard,
-  notificationExtras,
-  renderAccessibilityPane,
-  renderAccountDetails,
-  renderActivityPane,
-  renderAdvancedPane,
-  renderConnectionsPane,
-  renderDataPane,
-  renderLanguagePane,
-  renderMessagingPane,
-  renderNitroPane,
-} from "./settings-pages";
 
 interface VoiceMember {
   id: string;
@@ -543,6 +529,7 @@ class LarkApp {
   private switcher = false;
   private switcherIndex = 0;
   private settings = false;
+  private settingsQueued = false;
   private section = "appearance";
   private settingsQuery = "";
   private settingsAnchor = "";
@@ -617,6 +604,7 @@ class LarkApp {
   private msgStart = 0;
   private msgEnd = 0;
   private messageFrame = 0;
+  private composerFrame = 0;
   private channelShape = "";
   private railShape = "";
   private railBadges = "";
@@ -625,6 +613,7 @@ class LarkApp {
   private memberFrame = 0;
   private prefetchToken = 0;
   private pageLoads = new Map<string, Promise<{ messages: RawMessage[]; hasMore: boolean }>>();
+  private restPages = new Map<string, RestHit<RawMessage[]>>();
   private warm = new Set<string>();
   private hudQueued = false;
   private openedAt = 0;
@@ -895,6 +884,7 @@ class LarkApp {
   private viewAsRoleId: string | null = null;
   private viewAsPermissions = "";
   private guildSettingsEl: HTMLElement | null = null;
+  private guildSettingsTicket = 0;
   private memberListSort: MemberListSort = "status";
   private audioInputs: { id: string; label: string }[] = [];
   private audioOutputs: { id: string; label: string }[] = [];
@@ -997,8 +987,20 @@ class LarkApp {
       this.stripOpen = false;
     }
     this.build();
-    await this.loadPlugins();
-    await this.applyTheme();
+    const warmCatalog = () => {
+      void this.loadPlugins();
+      void this.applyTheme();
+    };
+    if (params.has("bench")) window.setTimeout(warmCatalog, 8000);
+    else warmCatalog();
+    if (!params.has("bench")) {
+      const idle = window.requestIdleCallback ?? ((fn: IdleRequestCallback) => window.setTimeout(() => fn({ didTimeout: false, timeRemaining: () => 0 }), 400));
+      idle(() => {
+        void loadSettingsPages();
+        void import("./guild-pages");
+        void import("./channel-settings");
+      });
+    }
     this.syncGameEffects();
     this.frames.setCap(this.config.desktop.frame_cap);
     if (!isTauri() && params.has("notice")) {
@@ -1282,13 +1284,18 @@ class LarkApp {
       }
     });
     this.composer.addEventListener("input", () => {
-      this.composer.style.height = "auto";
-      this.composer.style.height = `${Math.min(this.composer.scrollHeight, 160)}px`;
-      if (this.countEl) this.countEl.textContent = composerCount(this.composer.value, this.hookOn("wordCount"));
       const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
       if (perf) perf.lastInput = performance.now();
-      this.saveDraft();
-      this.refreshSuggest();
+      if (!this.composerFrame) {
+        this.composerFrame = requestAnimationFrame(() => {
+          this.composerFrame = 0;
+          this.composer.style.height = "auto";
+          this.composer.style.height = `${Math.min(this.composer.scrollHeight, 160)}px`;
+          if (this.countEl) this.countEl.textContent = composerCount(this.composer.value, this.hookOn("wordCount"));
+          this.saveDraft();
+          this.refreshSuggest();
+        });
+      }
       if (this.demo || !this.channelId || this.hookOn("silentTyping") || this.hideActivity()) return;
       const now = Date.now();
       if (now - this.typingSent > 8000) {
@@ -1330,7 +1337,6 @@ class LarkApp {
       this.away = noteActivity(this.away, Date.now());
     }, { passive: true });
     this.bindPolls();
-    this.armCallTimer();
     this.startUpdates();
     this.messagesEl.addEventListener("scroll", () => {
       if (this.scrollLock > 0) return;
@@ -1380,7 +1386,8 @@ class LarkApp {
     this.seedDemoVoice(shareMode === "live");
     const named = cleanGameName(new URLSearchParams(location.search).get("game") ?? "");
     if (named && this.config.desktop.detect_games) this.noteGame(named);
-    this.paint();
+    this.revealShell();
+    this.splashEl.hidden = true;
     const openClips = new URLSearchParams(location.search).has("clips");
     void this.openChannel(CRIT).then(() => {
       if (openClips) this.openClips();
@@ -3034,6 +3041,10 @@ class LarkApp {
   private clearVoiceClock() {
     this.voiceJoinedAt = 0;
     this.voiceConnectedAt = 0;
+    if (this.callTimerTick) {
+      window.clearInterval(this.callTimerTick);
+      this.callTimerTick = 0;
+    }
   }
 
   private armCallTimer() {
@@ -3330,6 +3341,21 @@ class LarkApp {
     return [...this.visibleChannels(), ...this.dmChannels(), ...lists.flat()].find((channel) => channel.id === this.channelId);
   }
 
+  /** Demo history is local, so paint it once instead of a skeleton and a second pass. */
+  private seedDemoPage(id: string) {
+    if (!this.demo || id === ARCHIVE || this.pages[id]?.length) return;
+    const page = pageMessages(this.bench ? benchHistory(id) : (history[id] ?? []), undefined, this.historyLimit());
+    this.pages[id] = page.messages;
+    this.more[id] = page.hasMore;
+    this.loading = false;
+    for (const message of page.messages) this.absorbMessage(message);
+    if (this.divider[id]) return;
+    const marker = firstUnreadId(page.messages.map((message) => message.id), this.lastRead[id]);
+    const unread = this.unread[id] ?? 0;
+    if (marker) this.divider[id] = marker;
+    else if (unread > 0) this.divider[id] = page.messages[Math.max(0, page.messages.length - unread)]?.id ?? null;
+  }
+
   private async openChannel(id: string) {
     if (this.holdShell) return;
     this.revealShell();
@@ -3386,6 +3412,7 @@ class LarkApp {
       const last = this.pages[id][this.pages[id].length - 1];
       this.ackChannel(id, last.id);
     }
+    this.seedDemoPage(id);
     this.openedAt = performance.now();
     this.msgSig = "";
     this.friendsOpen = false;
@@ -3393,6 +3420,12 @@ class LarkApp {
     this.paintMessages();
     if (perf) perf.lastSwitch = performance.now() - started;
     window.setTimeout(() => this.finishChannelChrome(id), 0);
+    if (this.demo && this.pages[id]?.length) {
+      if (perf && perf.switchAt) perf.lastLoad = performance.now() - perf.switchAt;
+      const last = this.pages[id].at(-1);
+      if (!this.jumpId && last) this.ackChannel(id, last.id);
+      return;
+    }
     await this.reconcileChannel(id);
   }
 
@@ -3407,11 +3440,16 @@ class LarkApp {
     this.paintVoice();
     this.paintComposer();
     this.syncBadge();
+    this.paintMembers();
+    if (!this.bench) {
+      void loadThreadsUi().then(() => {
+        if (this.channelId === id) this.paintHeader();
+      });
+    }
     const token = this.prefetchToken;
     const idle = window.requestIdleCallback ?? ((fn: IdleRequestCallback) => window.setTimeout(() => fn({ didTimeout: false, timeRemaining: () => 0 }), 48));
     idle(() => {
       if (this.channelId !== id || token !== this.prefetchToken) return;
-      this.paintMembers();
       const opened = this.currentChannel();
       if (opened && (opened.kind === "text" || opened.kind === "forum" || opened.kind === "announcement" || opened.kind === "thread")) {
         void this.loadThreads(id);
@@ -3476,7 +3514,10 @@ class LarkApp {
   }
 
   private async fetchLivePage(id: string, before?: string): Promise<{ messages: RawMessage[]; hasMore: boolean }> {
-    const batch = await invoke<RawMessage[]>("fetch_messages", { channelId: id, before });
+    const key = `GET /channels/${id}/messages${before ? `?before=${before}` : ""}`;
+    const cached = readRestCache(this.restPages, key, Date.now(), REST_PAGE_TTL_MS);
+    const batch = cached ?? await invoke<RawMessage[]>("fetch_messages", { channelId: id, before });
+    if (!cached) writeRestCache(this.restPages, key, batch, Date.now());
     const messages = [...batch].reverse().map(normalizeMessage);
     for (const message of messages) this.absorbMessage(message);
     return { messages, hasMore: batch.length >= HISTORY_PAGE };
@@ -3536,7 +3577,7 @@ class LarkApp {
     if (this.holdRead() || this.hideActivity()) row.append(el("span", "demo-pill", "Incognito"));
     title.append(row);
     if (channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
-    const threadBar = parityThreadBar();
+    const threadBar = threadsNow()?.parityThreadBar() ?? null;
     if (threadBar) title.append(threadBar);
     const actions = el("div", "head-actions");
     if (this.holdRead() && this.channelId) {
@@ -3615,7 +3656,7 @@ class LarkApp {
       this.bookmarksOpen = !this.bookmarksOpen;
       this.paintBookmarks();
     });
-    const parityButtons = parityHeaderButtons();
+    const parityButtons = threadsNow()?.parityHeaderButtons() ?? [];
     const headerButtons = [search, find, pin, ...parityButtons, saved, split, theme, members, bell];
     actions.append(...headerButtons);
     if (this.hookOn("readAll")) actions.append(this.readAllButton());
@@ -3627,7 +3668,7 @@ class LarkApp {
     help.addEventListener("click", () => externalLink(DISCORD_LINKS.help));
     actions.append(help);
     this.chatHead.append(title, actions);
-    mountChannelPolls(this.messagesEl);
+    threadsNow()?.mountChannelPolls(this.messagesEl);
   }
 
   private cycleNotify() {
@@ -3833,9 +3874,7 @@ class LarkApp {
   }
 
   private messageBody(list: RawMessage[]): string {
-    return list
-      .map((message) => `${message.id}:${message.content}:${message.edited}:${message.embeds?.length ?? 0}:${message.stickers?.length ?? 0}:${message.reactions?.map((reaction) => `${reaction.emoji}${reaction.emojiId ?? ""}:${reaction.count}${reaction.me ? "y" : "n"}`).join(".")}`)
-      .join("~");
+    return messageSignature(list);
   }
 
   private messageSpan(list: RawMessage[], scrollTop: number, pinned: boolean): SpanWindow {
@@ -4023,7 +4062,7 @@ class LarkApp {
     } catch (error) {
       reportCrash(error);
     }
-    mountChannelPolls(this.messagesEl);
+    threadsNow()?.mountChannelPolls(this.messagesEl);
   }
 
   private paintMessageList() {
@@ -5316,21 +5355,42 @@ class LarkApp {
     }
   }
 
+  private settingsNow(): SettingsPages | null {
+    const pages = peekSettingsPages();
+    if (pages) return pages;
+    if (!this.settingsQueued) {
+      this.settingsQueued = true;
+      void loadSettingsPages().then(() => {
+        this.settingsQueued = false;
+        if (this.settings) this.renderSettings();
+      });
+    }
+    return null;
+  }
+
+  private paneFromSettings(render: (pages: SettingsPages) => HTMLElement): HTMLElement {
+    const pages = this.settingsNow();
+    if (pages) return render(pages);
+    const wrap = el("div", "settings-stack");
+    wrap.append(el("p", "setting-help", "Loading settings"));
+    return wrap;
+  }
+
   private settingsPane(): HTMLElement {
     switch (this.section) {
       case "account": return this.paneAccount();
-      case "messaging": return renderMessagingPane(this.settingsHost());
-      case "data": return renderDataPane(this.settingsHost());
-      case "connections": return renderConnectionsPane(this.settingsHost());
-      case "activity": return renderActivityPane(this.settingsHost());
-      case "nitro": return renderNitroPane(this.settingsHost());
+      case "messaging": return this.paneFromSettings((pages) => pages.renderMessagingPane(this.settingsHost()));
+      case "data": return this.paneFromSettings((pages) => pages.renderDataPane(this.settingsHost()));
+      case "connections": return this.paneFromSettings((pages) => pages.renderConnectionsPane(this.settingsHost()));
+      case "activity": return this.paneFromSettings((pages) => pages.renderActivityPane(this.settingsHost()));
+      case "nitro": return this.paneFromSettings((pages) => pages.renderNitroPane(this.settingsHost()));
       case "appearance": return this.paneAppearance();
-      case "accessibility": return renderAccessibilityPane(this.settingsHost());
+      case "accessibility": return this.paneFromSettings((pages) => pages.renderAccessibilityPane(this.settingsHost()));
       case "notifications": return this.paneNotifications();
       case "shortcuts": return this.paneShortcuts();
-      case "language": return renderLanguagePane(this.settingsHost());
+      case "language": return this.paneFromSettings((pages) => pages.renderLanguagePane(this.settingsHost()));
       case "window": return this.paneWindow();
-      case "advanced": return renderAdvancedPane(this.settingsHost());
+      case "advanced": return this.paneFromSettings((pages) => pages.renderAdvancedPane(this.settingsHost()));
       case "updates": return this.paneUpdates();
       case "voice": return this.paneVoice();
       case "messages": return this.paneMessages();
@@ -5399,7 +5459,8 @@ class LarkApp {
     grid.append(this.platformCard("Windows", "Windows Credential Manager", "%APPDATA%\\dev.lark.desktop"));
     session.append(grid);
     session.append(el("p", "setting-help", `This session: ${this.platform.credentialStore}. Config folder: ${this.platform.configDir}`));
-    wrap.append(who, session, ...renderAccountDetails(this.settingsHost()));
+    const accountPages = this.settingsNow();
+    wrap.append(who, session, ...(accountPages ? accountPages.renderAccountDetails(this.settingsHost()) : []));
     return wrap;
   }
 
@@ -5439,7 +5500,8 @@ class LarkApp {
   private paneAppearance(): HTMLElement {
     const wrap = el("div", "settings-stack");
     wrap.append(settingHead("Appearance", "Each card is that theme's own colours. One click applies it."));
-    wrap.append(colorModeCard(this.settingsHost()));
+    const appearancePages = this.settingsNow();
+    if (appearancePages) wrap.append(appearancePages.colorModeCard(this.settingsHost()));
     const themes = settingCard("Themes");
     themes.dataset.setting = "appearance.theme";
     const filter = el("input", "theme-filter");
@@ -5533,7 +5595,8 @@ class LarkApp {
       this.paint();
     }));
     display.append(this.accentRow());
-    wrap.append(themes, text, display, appIconCard(this.settingsHost()), mediaCard(this.settingsHost()));
+    wrap.append(themes, text, display);
+    if (appearancePages) wrap.append(appearancePages.appIconCard(this.settingsHost()), appearancePages.mediaCard(this.settingsHost()));
     this.paintThemeGallery(wrap);
     return wrap;
   }
@@ -5598,7 +5661,8 @@ class LarkApp {
     grid.append(this.platformCard("macOS", "Banners and Notification Center", "⌘"));
     grid.append(this.platformCard("Windows", "Toasts in Action Center", "Ctrl"));
     card.append(grid);
-    card.append(...notificationExtras(this.settingsHost()));
+    const notificationPages = this.settingsNow();
+    if (notificationPages) card.append(...notificationPages.notificationExtras(this.settingsHost()));
     wrap.append(card);
     return wrap;
   }
@@ -5620,7 +5684,9 @@ class LarkApp {
       });
       card.append(settingRow(`shortcut.${action}`, copy.label, copy.description, button));
     }
-    wrap.append(card, discordKeybindCard(this.settingsHost()));
+    const shortcutPages = this.settingsNow();
+    wrap.append(card);
+    if (shortcutPages) wrap.append(shortcutPages.discordKeybindCard(this.settingsHost()));
     return wrap;
   }
 
@@ -8308,6 +8374,14 @@ class LarkApp {
       }
       if (this.view === "app") this.paintConnection();
     } else if (event.kind === "ready" && event.user) {
+      const shape = readyShape(event);
+      const previous = latestGateway("ready");
+      rememberGateway(event);
+      if (previous && shape && previous.shape === shape && this.view === "app" && !this.holdShell) {
+        this.connection = "Connected";
+        this.gatewayReadyAt = Date.now();
+        return;
+      }
       this.demo = false;
       this.view = "app";
       this.tokenNote = "";
@@ -9368,6 +9442,7 @@ class LarkApp {
     this.noteCallForUpdates();
     this.voiceJoinedAt = Date.now();
     this.voiceConnectedAt = 0;
+    this.armCallTimer();
     this.stageRaised = false;
     if (target.callKind === "stage") this.stageTopic = channel.topic ?? this.stageTopic;
     this.syncCallMembers();
@@ -13374,7 +13449,14 @@ class LarkApp {
     const channel = this.currentChannel();
     if (!channel || channel.id !== channelId) return null;
     if (channel.kind !== "forum" && !isMediaChannel(channel)) return null;
-    return renderForumSurface(channelId);
+    const threads = threadsNow();
+    if (!threads) {
+      void loadThreadsUi().then(() => {
+        if (this.channelId === channelId) this.paintMessages();
+      });
+      return null;
+    }
+    return threads.renderForumSurface(channelId);
   }
 
   /** Stream A: + Create Thread. */
@@ -14487,7 +14569,7 @@ class LarkApp {
         this.toast("Invite", "This server has no text channel yet.");
         return;
       }
-      mountInviteModal(this.channelHost(guildId), channel.id);
+      void import("./channel-settings").then(({ mountInviteModal }) => mountInviteModal(this.channelHost(guildId), channel.id));
       return;
     }
     if (id === "hide-muted") {
@@ -14513,11 +14595,11 @@ class LarkApp {
       return;
     }
     if (id === "create-channel") {
-      mountCreateChannel(this.channelHost(guildId), "text");
+      void import("./channel-settings").then(({ mountCreateChannel }) => mountCreateChannel(this.channelHost(guildId), "text"));
       return;
     }
     if (id === "create-category") {
-      mountCreateChannel(this.channelHost(guildId), "category");
+      void import("./channel-settings").then(({ mountCreateChannel }) => mountCreateChannel(this.channelHost(guildId), "category"));
       return;
     }
     if (id === "create-event") {
@@ -14580,6 +14662,11 @@ class LarkApp {
     const guild = this.guilds().find((item) => item.id === guildId);
     if (!guild) return;
     this.guildSettingsEl?.remove();
+    this.guildSettingsEl = null;
+    const ticket = ++this.guildSettingsTicket;
+    void import("./guild-pages").then(({ mountGuildSettings }) => {
+    if (ticket !== this.guildSettingsTicket) return;
+    this.guildSettingsEl?.remove();
     this.guildSettingsEl = mountGuildSettings({
       invoke: (command, args) => invoke(command, args),
       toast: (title, detail) => this.toast(title, detail),
@@ -14605,6 +14692,7 @@ class LarkApp {
         this.paint();
       },
       copy: (text) => this.copyText(text),
+    });
     });
   }
 
@@ -14655,7 +14743,7 @@ class LarkApp {
       return;
     }
     if (id === "invite" && guildId) {
-      mountInviteModal(this.channelHost(guildId), channel.id);
+      void import("./channel-settings").then(({ mountInviteModal }) => mountInviteModal(this.channelHost(guildId), channel.id));
       return;
     }
     if (id === "pin-top" && guildId) {
@@ -14679,7 +14767,7 @@ class LarkApp {
       return;
     }
     if (id === "edit" && guildId) {
-      mountChannelEditor(this.channelHost(guildId), channel);
+      void import("./channel-settings").then(({ mountChannelEditor }) => mountChannelEditor(this.channelHost(guildId), channel));
       return;
     }
     if (id === "duplicate" && guildId) {
@@ -14721,7 +14809,8 @@ class LarkApp {
   private openCategoryMenu(category: Channel, x: number, y: number) {
     this.showMenu(x, y, categoryContextItems(), (id) => {
       if (id === "edit" && this.guildId) {
-        mountChannelEditor(this.channelHost(this.guildId), category);
+        const guildId = this.guildId;
+        void import("./channel-settings").then(({ mountChannelEditor }) => mountChannelEditor(this.channelHost(guildId), category));
         return;
       }
       if (id === "delete") {
