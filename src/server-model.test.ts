@@ -27,6 +27,7 @@ import {
   openCreateEvent,
   openPerServerProfile,
   orderChannels,
+  overwriteBits,
   parseFlag,
   parseIdMap,
   PERMISSION_GROUPS,
@@ -34,6 +35,8 @@ import {
   pruneBody,
   reorderRole,
   searchPeople,
+  SPOILER_FLAG,
+  withSpoiler,
   serverContextItems,
   snowflakeTime,
   sortMemberTable,
@@ -161,6 +164,15 @@ describe("server menus and channel tools", () => {
       rtc_region: null,
     });
     expect(clampBitrate(128)).toBe(96000);
+    expect(withSpoiler(1, true) & SPOILER_FLAG).toBe(SPOILER_FLAG);
+    expect(withSpoiler(SPOILER_FLAG, false) & SPOILER_FLAG).toBe(0);
+    expect(textChannelPatch({ name: "general", topic: "", slowmode: 0, nsfw: true, hideAfter: 60, spoiler: true, flags: 0 }).flags).toBe(0);
+    expect(overwriteBits("role", 0, [{ flag: VIEW_CHANNEL, state: "deny" }])).toEqual({
+      id: "role",
+      kind: 0,
+      allow: "0",
+      deny: VIEW_CHANNEL.toString(),
+    });
     expect(duplicateChannelBody({ name: "general", kind: "text", topic: "t", parentId: "9" })).toMatchObject({
       name: "general-copy",
       type: 0,

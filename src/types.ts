@@ -213,6 +213,7 @@ export interface Channel {
   userLimit?: number;
   videoQualityMode?: number;
   rtcRegion?: string | null;
+  defaultAutoArchiveDuration?: number;
   /** Discord channel type. Threads are 10, 11, or 12. Media is 16. */
   rawKind?: number;
   archived?: boolean;

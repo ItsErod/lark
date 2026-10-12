@@ -1151,3 +1151,5 @@ button.guild-row:hover { background: var(--hover); }
 .role-editor { width: min(640px, calc(100% - 32px)); }
 .role-editor-body { display: grid; gap: 6px; max-height: 50vh; overflow: auto; }
 .guild-row .ghost { width: auto; }
+.channel-editor { width: min(560px, calc(100% - 32px)); }
+.channel-editor-body { display: grid; gap: 8px; max-height: 60vh; overflow: auto; }
