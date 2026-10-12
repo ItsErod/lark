@@ -1,5 +1,6 @@
 import { parseCompressMode } from "./clips";
 import { readDisplayFlags } from "./display-flags";
+import { clampFontSize, defaultKeybinds, defaultPreferences, sanitizeKeybinds, sanitizePreferences, sanitizeSessions } from "./user-settings";
 import { sanitizeGames } from "./game";
 import { sanitizeClipFps, sanitizeClipResolution } from "./clip";
 import { snapShareFps, snapShareHeight } from "./share";
@@ -84,6 +85,9 @@ export function defaultConfig(): AppConfig {
       show_embeds: true,
       show_spoilers: false,
     },
+    preferences: defaultPreferences(),
+    keybinds: defaultKeybinds(),
+    sessions: [],
   };
 }
 
@@ -104,7 +108,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
     base.appearance.theme = appearance.theme;
   }
   if (typeof appearance.font_size === "number" && Number.isFinite(appearance.font_size)) {
-    base.appearance.font_size = Math.min(20, Math.max(12, Math.round(appearance.font_size)));
+    base.appearance.font_size = clampFontSize(appearance.font_size);
   }
   if (typeof appearance.show_member_list === "boolean") base.appearance.show_member_list = appearance.show_member_list;
   if (typeof appearance.show_server_rail === "boolean") base.appearance.show_server_rail = appearance.show_server_rail;
@@ -166,6 +170,9 @@ export function sanitizeConfig(input: unknown): AppConfig {
   if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
   if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
   base.display = readDisplayFlags(raw);
+  base.preferences = sanitizePreferences(raw.preferences);
+  base.keybinds = sanitizeKeybinds(raw.keybinds);
+  base.sessions = sanitizeSessions(raw.sessions);
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
     if (typeof raw.desktop.autostart === "boolean") base.desktop.autostart = raw.desktop.autostart;

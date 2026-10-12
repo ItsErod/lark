@@ -32,6 +32,12 @@ pub struct Config {
     /// Developer Mode, embeds, and spoiler reveal. Missing fields keep these defaults.
     /// Unknown fields are ignored so a newer client can still save.
     pub display: DisplayFlags,
+    /// User-settings pages. Unknown fields are ignored. Missing fields keep defaults.
+    pub preferences: Preferences,
+    /// Discord keybinds, kept beside Lark's shortcuts. Empty means unbound.
+    pub keybinds: DiscordKeybinds,
+    /// Account switcher names. Tokens are not stored here.
+    pub sessions: Vec<SavedSession>,
 }
 
 impl Default for Config {
@@ -49,13 +55,19 @@ impl Default for Config {
             privacy: Privacy::default(),
             accents: BTreeMap::new(),
             display: DisplayFlags::default(),
+            preferences: Preferences::default(),
+            keybinds: DiscordKeybinds::default(),
+            sessions: Vec::new(),
         }
     }
 }
 
 impl Config {
     pub fn normalize(mut self) -> Self {
-        self.appearance.font_size = self.appearance.font_size.clamp(12, 20);
+        self.appearance.font_size = self.appearance.font_size.clamp(12, 24);
+        self.preferences = normalize_preferences(self.preferences);
+        self.keybinds = normalize_keybinds(self.keybinds);
+        self.sessions = normalize_sessions(self.sessions);
         self.voice.sensitivity = self.voice.sensitivity.min(100);
         self.voice.overlay_opacity = self.voice.overlay_opacity.clamp(35, 100);
         self.voice.speak_color = normalize_speak_color(&self.voice.speak_color);
@@ -565,6 +577,332 @@ impl Default for DisplayFlags {
             show_spoilers: false,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_saturation() -> u8 {
+    100
+}
+
+fn default_language() -> String {
+    "en".into()
+}
+
+fn default_app_icon() -> String {
+    "blurple".into()
+}
+
+fn default_density_name() -> String {
+    "cozy".into()
+}
+
+fn default_explicit() -> String {
+    "everyone".into()
+}
+
+fn default_spam() -> String {
+    "non_friends".into()
+}
+
+fn default_everyone() -> String {
+    "everyone".into()
+}
+
+fn default_time_format() -> String {
+    "auto".into()
+}
+
+/// Settings pages other than the three display flags.
+/// Unknown fields are ignored. Missing fields use the defaults below.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Preferences {
+    pub color_mode: String,
+    #[serde(default = "default_app_icon")]
+    pub app_icon: String,
+    #[serde(default = "default_true")]
+    pub show_media: bool,
+    pub underline_links: bool,
+    #[serde(default = "default_density_name")]
+    pub ui_density: String,
+    #[serde(default = "default_density_name")]
+    pub message_density: String,
+    pub group_spacing: u8,
+    #[serde(default = "default_saturation")]
+    pub saturation: u8,
+    pub high_contrast: bool,
+    #[serde(default = "default_explicit")]
+    pub explicit_filter: String,
+    #[serde(default = "default_spam")]
+    pub spam_filter: String,
+    #[serde(default = "default_everyone")]
+    pub dm_permission: String,
+    #[serde(default = "default_everyone")]
+    pub friend_requests: String,
+    #[serde(default = "default_true")]
+    pub improve_discord: bool,
+    #[serde(default = "default_true")]
+    pub personalize: bool,
+    #[serde(default = "default_true")]
+    pub desktop_notifications: bool,
+    pub message_sound: bool,
+    pub call_sound: bool,
+    #[serde(default = "default_true")]
+    pub unread_badge: bool,
+    pub email_notifications: bool,
+    #[serde(default = "default_true")]
+    pub share_activity: bool,
+    #[serde(default = "default_true")]
+    pub activity_status: bool,
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(default = "default_time_format")]
+    pub time_format: String,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            color_mode: String::new(),
+            app_icon: default_app_icon(),
+            show_media: true,
+            underline_links: false,
+            ui_density: default_density_name(),
+            message_density: default_density_name(),
+            group_spacing: 0,
+            saturation: 100,
+            high_contrast: false,
+            explicit_filter: default_explicit(),
+            spam_filter: default_spam(),
+            dm_permission: default_everyone(),
+            friend_requests: default_everyone(),
+            improve_discord: true,
+            personalize: true,
+            desktop_notifications: true,
+            message_sound: false,
+            call_sound: false,
+            unread_badge: true,
+            email_notifications: false,
+            share_activity: true,
+            activity_status: true,
+            language: default_language(),
+            time_format: default_time_format(),
+        }
+    }
+}
+
+fn pick(value: &str, allowed: &[&str], fallback: &str) -> String {
+    if allowed.contains(&value) {
+        value.to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn normalize_preferences(mut prefs: Preferences) -> Preferences {
+    prefs.color_mode = pick(&prefs.color_mode, &["light", "ash", "dark", "onyx"], "");
+    prefs.app_icon = pick(&prefs.app_icon, &["blurple", "dark", "light", "midnight", "dusk"], "blurple");
+    prefs.ui_density = pick(&prefs.ui_density, &["cozy", "compact"], "cozy");
+    prefs.message_density = pick(&prefs.message_density, &["cozy", "compact"], "cozy");
+    prefs.group_spacing = prefs.group_spacing.min(24);
+    prefs.saturation = prefs.saturation.min(100);
+    prefs.explicit_filter = pick(&prefs.explicit_filter, &["off", "friends", "everyone"], "everyone");
+    prefs.spam_filter = pick(&prefs.spam_filter, &["off", "non_friends", "everyone"], "non_friends");
+    prefs.dm_permission = pick(&prefs.dm_permission, &["everyone", "friends", "none"], "everyone");
+    prefs.friend_requests = pick(
+        &prefs.friend_requests,
+        &["everyone", "friends_of_friends", "server_members"],
+        "everyone",
+    );
+    let languages = [
+        "en", "en-GB", "es", "fr", "de", "pt-BR", "ja", "ko", "zh-CN", "ru", "pl", "tr", "nl", "it", "sv",
+    ];
+    if !languages.contains(&prefs.language.as_str()) {
+        prefs.language = "en".into();
+    }
+    prefs.time_format = pick(&prefs.time_format, &["auto", "12", "24"], "auto");
+    prefs
+}
+
+fn default_mark_server_read() -> String { "shift+escape".into() }
+fn default_toggle_hotkeys() -> String { "mod+slash".into() }
+fn default_return_previous_text() -> String { "alt+arrowleft".into() }
+fn default_return_previous_audio() -> String { "alt+arrowright".into() }
+fn default_toggle_pins() -> String { "mod+p".into() }
+fn default_toggle_inbox() -> String { "mod+i".into() }
+fn default_toggle_emoji_picker() -> String { "mod+e".into() }
+fn default_toggle_gif_picker() -> String { "mod+g".into() }
+fn default_toggle_sticker_picker() -> String { "mod+s".into() }
+fn default_scroll_chat_up() -> String { "pageup".into() }
+fn default_scroll_chat_down() -> String { "pagedown".into() }
+fn default_create_or_join_server() -> String { "mod+shift+n".into() }
+fn default_answer_call() -> String { "mod+enter".into() }
+fn default_decline_call() -> String { "mod+shift+escape".into() }
+fn default_create_group() -> String { "mod+shift+t".into() }
+fn default_start_call() -> String { "mod+quote".into() }
+fn default_upload_file() -> String { "mod+u".into() }
+fn default_search_key() -> String { "mod+f".into() }
+fn default_push_to_mute() -> String { "mod+shift+alt+b".into() }
+
+/// Discord's keybind list. Lark's shortcuts stay on `Shortcuts`.
+/// An empty string is unbound. Unknown fields are ignored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiscordKeybinds {
+    #[serde(default = "default_mark_server_read")]
+    pub mark_server_read: String,
+    #[serde(default = "default_toggle_hotkeys")]
+    pub toggle_hotkeys: String,
+    #[serde(default = "default_return_previous_text")]
+    pub return_previous_text: String,
+    #[serde(default = "default_return_previous_audio")]
+    pub return_previous_audio: String,
+    #[serde(default = "default_toggle_pins")]
+    pub toggle_pins: String,
+    #[serde(default = "default_toggle_inbox")]
+    pub toggle_inbox: String,
+    #[serde(default = "default_toggle_emoji_picker")]
+    pub toggle_emoji_picker: String,
+    #[serde(default = "default_toggle_gif_picker")]
+    pub toggle_gif_picker: String,
+    #[serde(default = "default_toggle_sticker_picker")]
+    pub toggle_sticker_picker: String,
+    #[serde(default = "default_scroll_chat_up")]
+    pub scroll_chat_up: String,
+    #[serde(default = "default_scroll_chat_down")]
+    pub scroll_chat_down: String,
+    #[serde(default = "default_create_or_join_server")]
+    pub create_or_join_server: String,
+    #[serde(default = "default_answer_call")]
+    pub answer_call: String,
+    #[serde(default = "default_decline_call")]
+    pub decline_call: String,
+    #[serde(default = "default_create_group")]
+    pub create_group: String,
+    #[serde(default = "default_start_call")]
+    pub start_call: String,
+    #[serde(default = "default_upload_file")]
+    pub upload_file: String,
+    #[serde(default = "default_search_key")]
+    pub search: String,
+    #[serde(default = "default_push_to_mute")]
+    pub push_to_mute: String,
+}
+
+impl Default for DiscordKeybinds {
+    fn default() -> Self {
+        Self {
+            mark_server_read: default_mark_server_read(),
+            toggle_hotkeys: default_toggle_hotkeys(),
+            return_previous_text: default_return_previous_text(),
+            return_previous_audio: default_return_previous_audio(),
+            toggle_pins: default_toggle_pins(),
+            toggle_inbox: default_toggle_inbox(),
+            toggle_emoji_picker: default_toggle_emoji_picker(),
+            toggle_gif_picker: default_toggle_gif_picker(),
+            toggle_sticker_picker: default_toggle_sticker_picker(),
+            scroll_chat_up: default_scroll_chat_up(),
+            scroll_chat_down: default_scroll_chat_down(),
+            create_or_join_server: default_create_or_join_server(),
+            answer_call: default_answer_call(),
+            decline_call: default_decline_call(),
+            create_group: default_create_group(),
+            start_call: default_start_call(),
+            upload_file: default_upload_file(),
+            search: default_search_key(),
+            push_to_mute: default_push_to_mute(),
+        }
+    }
+}
+
+fn keep_key(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if parse_shortcut(trimmed).is_ok() {
+        trimmed.to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn normalize_keybinds(keys: DiscordKeybinds) -> DiscordKeybinds {
+    DiscordKeybinds {
+        mark_server_read: keep_key(&keys.mark_server_read, &default_mark_server_read()),
+        toggle_hotkeys: keep_key(&keys.toggle_hotkeys, &default_toggle_hotkeys()),
+        return_previous_text: keep_key(&keys.return_previous_text, &default_return_previous_text()),
+        return_previous_audio: keep_key(&keys.return_previous_audio, &default_return_previous_audio()),
+        toggle_pins: keep_key(&keys.toggle_pins, &default_toggle_pins()),
+        toggle_inbox: keep_key(&keys.toggle_inbox, &default_toggle_inbox()),
+        toggle_emoji_picker: keep_key(&keys.toggle_emoji_picker, &default_toggle_emoji_picker()),
+        toggle_gif_picker: keep_key(&keys.toggle_gif_picker, &default_toggle_gif_picker()),
+        toggle_sticker_picker: keep_key(&keys.toggle_sticker_picker, &default_toggle_sticker_picker()),
+        scroll_chat_up: keep_key(&keys.scroll_chat_up, &default_scroll_chat_up()),
+        scroll_chat_down: keep_key(&keys.scroll_chat_down, &default_scroll_chat_down()),
+        create_or_join_server: keep_key(&keys.create_or_join_server, &default_create_or_join_server()),
+        answer_call: keep_key(&keys.answer_call, &default_answer_call()),
+        decline_call: keep_key(&keys.decline_call, &default_decline_call()),
+        create_group: keep_key(&keys.create_group, &default_create_group()),
+        start_call: keep_key(&keys.start_call, &default_start_call()),
+        upload_file: keep_key(&keys.upload_file, &default_upload_file()),
+        search: keep_key(&keys.search, &default_search_key()),
+        push_to_mute: keep_key(&keys.push_to_mute, &default_push_to_mute()),
+    }
+}
+
+/// A saved account name. The token lives in the credential store, not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedSession {
+    pub id: String,
+    pub name: String,
+}
+
+impl Default for SavedSession {
+    fn default() -> Self {
+        Self { id: String::new(), name: String::new() }
+    }
+}
+
+fn snowflake_id(id: &str) -> bool {
+    (5..=22).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn session_name(name: &str, id: &str) -> String {
+    let trimmed: String = name
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(64)
+        .collect();
+    let suspicious = trimmed.contains("mfa.") || (trimmed.matches('.').count() >= 2 && trimmed.len() > 40);
+    if trimmed.is_empty() || suspicious {
+        format!("Account {}", &id[id.len().saturating_sub(4)..])
+    } else {
+        trimmed
+    }
+}
+
+fn normalize_sessions(sessions: Vec<SavedSession>) -> Vec<SavedSession> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for session in sessions {
+        let id = session.id.trim().to_string();
+        if !snowflake_id(&id) || !seen.insert(id.clone()) {
+            continue;
+        }
+        out.push(SavedSession { name: session_name(&session.name, &id), id });
+        if out.len() == 5 {
+            break;
+        }
+    }
+    out
 }
 
 /// Streamer mode hides emails, tokens, DM previews, and personal info.
@@ -1149,6 +1487,11 @@ fn is_key(key: &str) -> bool {
             | "f10"
             | "f11"
             | "f12"
+            | "pageup"
+            | "pagedown"
+            | "home"
+            | "end"
+            | "delete"
     )
 }
 
@@ -1294,7 +1637,7 @@ mod tests {
     #[test]
     fn font_size_is_clamped() {
         let cfg = parse_config("appearance.font_size = 99\n").unwrap();
-        assert_eq!(cfg.appearance.font_size, 20);
+        assert_eq!(cfg.appearance.font_size, 24);
         let cfg = parse_config("appearance.font_size = 5\n").unwrap();
         assert_eq!(cfg.appearance.font_size, 12);
     }
@@ -1534,6 +1877,34 @@ hotkey = "!!!"
         assert!(saved.display.developer_mode);
         assert!(saved.display.show_embeds);
         assert!(!saved.display.show_spoilers);
+    }
+
+    #[test]
+    fn user_settings_accept_unknown_fields_and_drop_session_secrets() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "preferences": { "color_mode": "ash", "sparkles": true, "saturation": 200 },
+            "keybinds": { "search": "", "toggle_future": "mod+9", "scroll_chat_up": "not-a-key" },
+            "sessions": [
+                { "id": "100000000000000001", "name": "Ada", "token": "mfa.super-secret-token-value" },
+                { "id": "nope", "name": "Skip" },
+                { "id": "100000000000000002", "name": "mfa.aaaaaaaaaaaaaaaaaaaa.bbbbb.cccccccccccccccccccc" }
+            ]
+        }))
+        .unwrap();
+        let saved = prepare_saved_config(cfg).unwrap();
+        assert_eq!(saved.preferences.color_mode, "ash");
+        assert_eq!(saved.preferences.saturation, 100);
+        assert_eq!(saved.preferences.language, "en");
+        assert!(saved.keybinds.search.is_empty());
+        assert_eq!(saved.keybinds.scroll_chat_up, "pageup");
+        assert_eq!(saved.sessions.len(), 2);
+        assert_eq!(saved.sessions[0].name, "Ada");
+        assert_eq!(saved.sessions[1].name, "Account 0002");
+        let value = serde_json::to_value(&saved).unwrap();
+        assert!(value["sessions"][0].get("token").is_none());
+        let text = serde_json::to_string(&saved).unwrap();
+        assert!(!text.contains("super-secret"));
+        assert!(!text.contains("mfa."));
     }
 
     #[test]

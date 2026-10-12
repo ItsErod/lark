@@ -102,7 +102,10 @@ export function initials(name: string): string {
 }
 
 export function formatClock(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const root = typeof document === "undefined" ? null : document.documentElement;
+  const format = root?.dataset.timeFormat;
+  const hourCycle = format === "12" ? "h12" : format === "24" ? "h23" : undefined;
+  return new Intl.DateTimeFormat(root?.lang || undefined, { hour: "numeric", minute: "2-digit", hourCycle }).format(new Date(iso));
 }
 
 export function formatDay(iso: string): string {
