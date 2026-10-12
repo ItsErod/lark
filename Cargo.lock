@@ -3646,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "lark"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "base64 0.22.1",
  "env_logger",
@@ -3676,7 +3676,7 @@ dependencies = [
 
 [[package]]
 name = "lark-clip-hw"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "block",
  "objc",
@@ -3686,7 +3686,7 @@ dependencies = [
 
 [[package]]
 name = "lark-core"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "aes-gcm",
  "audiopus_sys",

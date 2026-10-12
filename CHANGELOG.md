@@ -4,6 +4,16 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.1](https://github.com/ItsErod/lark/releases/tag/v3.0.1) — 2026-10-12
+
+A joined voice channel is audible again on Windows. Copying voice diagnostics and resizing the window work.
+
+### 🐛 Fixed
+
+- Windows voice opens the communications microphone and speakers, and tries a shared-mode format when the mix format is unsupported, so both directions play. ([#133](https://github.com/ItsErod/lark/pull/133))
+- Copy voice diagnostics copies the handshake log and shows a Copied toast. ([#133](https://github.com/ItsErod/lark/pull/133))
+- Resizing the window can read whether it is minimized. ([#133](https://github.com/ItsErod/lark/pull/133))
+
 ## [3.0.0](https://github.com/ItsErod/lark/releases/tag/v3.0.0) — 2026-10-12
 
 Lark 3.0 is the Discord parity release: servers and settings, your account, chat, people, calls, and threads, forums, polls, events, and the inbox.

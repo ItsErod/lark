@@ -723,7 +723,7 @@ class LarkApp {
   private youtubeFloatEl!: HTMLElement;
   private toastWrap!: HTMLElement;
   private updateBannerEl!: HTMLElement;
-  private updates: UpdateState = initialUpdateState("3.0.0", true);
+  private updates: UpdateState = initialUpdateState("3.0.1", true);
   private updateTimer = 0;
   private pendingUpdate: Update | null = null;
   private updateBusy = false;
@@ -5425,7 +5425,7 @@ class LarkApp {
     const wrap = el("div", "settings-stack");
     wrap.append(settingHead("Updates", "Lark checks for a new version on startup and every 30 minutes. The download stays in the background. A voice call finishes before the app restarts."));
     const card = settingCard("This computer");
-    card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.0")));
+    card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.1")));
     card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
       const step = setAutoInstall(this.updates, value);
       this.updates = step.state;
@@ -6906,7 +6906,7 @@ class LarkApp {
   }
 
   private startUpdates() {
-    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.0", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
+    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.1", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
     if (!isTauri()) return;
     void this.watchForUpdates();
   }
@@ -6917,7 +6917,7 @@ class LarkApp {
       const version = await getVersion();
       if (version) this.updates = { ...this.updates, currentVersion: version };
     } catch {
-      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.0" };
+      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.1" };
     }
     this.refreshUpdateUi();
     void this.checkForUpdates(false);
