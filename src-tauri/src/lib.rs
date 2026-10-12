@@ -7,6 +7,7 @@ mod overlay;
 mod paths;
 mod refresh;
 mod store;
+mod ui_hot;
 
 use std::collections::HashMap;
 use std::fs;
@@ -112,6 +113,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .register_uri_scheme_protocol("larkui", |ctx, request| ui_hot::serve(ctx.app_handle(), request))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -185,6 +187,8 @@ pub fn run() {
                 browser_stop: Mutex::new(None),
             };
             app.manage(shared);
+            ui_hot::manage(app.handle());
+            ui_hot::startup(app.handle());
             #[cfg(any(windows, target_os = "linux"))]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -371,7 +375,13 @@ pub fn run() {
             reaction_users,
             search_app_commands,
             invoke_command,
-            open_discord_page
+            open_discord_page,
+            interface_status,
+            interface_check,
+            interface_set_channel,
+            interface_reset,
+            interface_reload,
+            interface_boot_ready
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -412,6 +422,47 @@ async fn install_watcher(app: AppHandle) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     *state._watcher.lock().await = Some(watcher);
     Ok(())
+}
+
+fn voice_busy(state: &Shared) -> bool {
+    state
+        .voice
+        .lock()
+        .map(|slot| !slot.channel_id.is_empty())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+fn interface_status(app: AppHandle) -> ui_hot::InterfaceStatus {
+    ui_hot::status(&app)
+}
+
+#[tauri::command]
+async fn interface_check(app: AppHandle, manual: bool) -> Result<ui_hot::InterfaceReport, String> {
+    ui_hot::check_interface(app, manual).await
+}
+
+#[tauri::command]
+fn interface_set_channel(app: AppHandle, channel: String) -> Result<ui_hot::InterfaceStatus, String> {
+    ui_hot::set_channel(&app, &channel)
+}
+
+#[tauri::command]
+fn interface_reset(app: AppHandle) -> Result<ui_hot::InterfaceStatus, String> {
+    ui_hot::reset_to_builtin(&app)
+}
+
+#[tauri::command]
+fn interface_reload(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
+    if voice_busy(&state) {
+        return Err("A voice call is still connected.".into());
+    }
+    ui_hot::reload_interface(&app)
+}
+
+#[tauri::command]
+fn interface_boot_ready(app: AppHandle) -> Result<(), String> {
+    ui_hot::boot_ready(&app)
 }
 
 fn read_config_file(path: &std::path::Path) -> Result<Config, String> {
