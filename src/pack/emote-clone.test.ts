@@ -37,7 +37,7 @@ describe("emote cloner", () => {
   });
 
   it("declares the clone hook and does not call the network itself", () => {
-    const source = readFileSync("plugins/emote-cloner.js", "utf8");
+    const source = readFileSync("store/plugins/emote-cloner/plugin.js", "utf8");
     expect(source).not.toMatch(/fetch\s*\(|discord\.com\/api|Authorization|\btoken\b/i);
     const plugin = describePlugin(source, "emote-cloner");
     expect(plugin.hooks.emoteClone).toBe(true);

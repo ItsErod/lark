@@ -131,12 +131,12 @@ describe("plugin pack", () => {
       "keyword-ping": "keywords",
     } as const;
     for (const [id, flag] of Object.entries(hooks)) {
-      const plugin = describePlugin(readFileSync(`plugins/${id}.js`, "utf8"), id);
+      const plugin = describePlugin(readFileSync(`store/plugins/${id}/plugin.js`, "utf8"), id);
       expect(plugin.hooks[flag as keyof typeof plugin.hooks]).toBe(true);
     }
-    const quick = describePlugin(readFileSync("plugins/quick-react.js", "utf8"), "quick-react");
+    const quick = describePlugin(readFileSync("store/plugins/quick-react/plugin.js", "utf8"), "quick-react");
     expect(quick.hooks.quickReactions).toEqual(["👍", "❤️", "😂", "🎉", "👀"]);
-    const media = describePlugin(readFileSync("plugins/quiet-media.js", "utf8"), "quiet-media");
+    const media = describePlugin(readFileSync("store/plugins/quiet-media/plugin.js", "utf8"), "quiet-media");
     const view = media.run(
       {
         id: "1",

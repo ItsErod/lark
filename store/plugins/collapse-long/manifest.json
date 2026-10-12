@@ -1,0 +1,12 @@
+{
+  "id": "collapse-long",
+  "name": "Collapse long messages",
+  "description": "Fold messages longer than 280 characters.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "fold",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

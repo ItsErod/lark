@@ -20,7 +20,7 @@ describe("bigger emoji", () => {
   });
 
   it("declares the jumbo hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/bigger-emoji.js", "utf8"), "bigger-emoji");
+    const plugin = describePlugin(readFileSync("store/plugins/bigger-emoji/plugin.js", "utf8"), "bigger-emoji");
     expect(plugin.hooks.jumboEmoji).toBe(true);
     expect(plugin.name).toBe("Bigger emoji");
   });

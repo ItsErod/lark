@@ -1,0 +1,12 @@
+{
+  "id": "dracula",
+  "name": "Dracula",
+  "description": "Purple, with pink mentions.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "palette",
+  "changelog": "First store release. Same colours as the file that used to ship inside Lark."
+}

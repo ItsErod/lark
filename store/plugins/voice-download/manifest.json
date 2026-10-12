@@ -1,0 +1,12 @@
+{
+  "id": "voice-download",
+  "name": "Voice Message Downloader",
+  "description": "A download button on voice messages and, if you want, every attachment.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "voice",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "volume",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

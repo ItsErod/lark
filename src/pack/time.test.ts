@@ -25,7 +25,7 @@ describe("better timestamps", () => {
     expect(pack.timeHours).toBe("24");
     expect(sanitizePack({ timeMode: "soon", timeHours: "13" }).timeMode).toBe("relative");
     expect(sanitizePack({ timeHours: "13" }).timeHours).toBe("12");
-    const plugin = describePlugin(readFileSync("plugins/better-timestamps.js", "utf8"), "better-timestamps");
+    const plugin = describePlugin(readFileSync("store/plugins/better-timestamps/plugin.js", "utf8"), "better-timestamps");
     expect(plugin.hooks.betterTime).toBe(true);
     expect(plugin.name).toBe("Better timestamps");
   });

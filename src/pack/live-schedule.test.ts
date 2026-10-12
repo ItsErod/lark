@@ -20,7 +20,7 @@ describe("message scheduler", () => {
   });
 
   it("declares the live schedule hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/message-scheduler.js", "utf8"), "message-scheduler");
+    const plugin = describePlugin(readFileSync("store/plugins/message-scheduler/plugin.js", "utf8"), "message-scheduler");
     expect(plugin.hooks.liveSchedule).toBe(true);
     expect(plugin.name).toBe("Message scheduler");
   });

@@ -24,13 +24,13 @@ describe("typing list", () => {
   });
 
   it("declares the hook and keeps the list toggles", () => {
-    const plugin = describePlugin(readFileSync("plugins/typing-list.js", "utf8"), "typing-list");
+    const plugin = describePlugin(readFileSync("store/plugins/typing-list/plugin.js", "utf8"), "typing-list");
     expect(plugin.hooks.typingList).toBe(true);
     const pack = sanitizePack({ typingChannels: false, typingDms: true });
     expect(pack.typingChannels).toBe(false);
     expect(pack.typingDms).toBe(true);
     expect(sanitizePack({}).typingChannels).toBe(true);
-    const silent = describePlugin(readFileSync("plugins/silent-typing.js", "utf8"), "silent-typing");
+    const silent = describePlugin(readFileSync("store/plugins/silent-typing/plugin.js", "utf8"), "silent-typing");
     expect(silent.hooks.silentTyping).toBe(true);
   });
 });

@@ -1,0 +1,12 @@
+{
+  "id": "pin-dms",
+  "name": "Pin DMs",
+  "description": "Pin direct-message conversations to a Pinned category at the top of the list.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "pin",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

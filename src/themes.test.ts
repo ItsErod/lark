@@ -21,13 +21,16 @@ import {
 const heavyShadow = new Set<string>(HEAVY_SHADOW_THEME_IDS);
 
 describe("theme pack", () => {
-  const files = readdirSync("themes").filter((name) => name.endsWith(".css")).sort();
+  const files = readdirSync("store/themes").sort();
 
-  it("ships discord as the default and keeps warm ink in the pack", () => {
+  it("keeps the theme catalog in the store and discord as the built-in default", () => {
     expect(themePack().length).toBe(16);
     expect(themePack().map((theme) => theme.id)).toContain("discord");
     expect(themePack().map((theme) => theme.id)).toContain("modern-dark");
-    expect(files).toEqual(SHIPPED_THEMES.map((theme) => `${theme.id}.css`).sort());
+    expect(files).toEqual(SHIPPED_THEMES.map((theme) => theme.id).sort());
+    for (const id of files) {
+      expect(readdirSync(`store/themes/${id}`).sort()).toEqual(["manifest.json", "theme.css"]);
+    }
     const doc = readFileSync("THEMES.md", "utf8");
     for (const theme of SHIPPED_THEMES) expect(doc, theme.id).toContain(theme.id);
     expect(defaultConfig().appearance.theme).toBe("discord");
@@ -37,7 +40,7 @@ describe("theme pack", () => {
 
   it("keeps every theme to variables, with a cheap shadow on the new pack", () => {
     for (const theme of SHIPPED_THEMES) {
-      const css = readFileSync(`themes/${theme.id}.css`, "utf8");
+      const css = readFileSync(`store/themes/${theme.id}/theme.css`, "utf8");
       expect(validateThemeCss(css), theme.id).toBeNull();
       const parsed = parseThemeCss(css);
       expect(parsed.vars["--bg-0"], theme.id).toBeTruthy();
@@ -51,7 +54,7 @@ describe("theme pack", () => {
   });
 
   it("matches the discord dark palette and leaves the warm theme selectable", () => {
-    const discord = parseThemeCss(readFileSync("themes/discord.css", "utf8"));
+    const discord = parseThemeCss(readFileSync("store/themes/discord/theme.css", "utf8"));
     expect(discord.vars["--bg-0"]).toBe("#1e1f22");
     expect(discord.vars["--bg-1"]).toBe("#2b2d31");
     expect(discord.vars["--bg-2"]).toBe("#313338");
@@ -63,7 +66,7 @@ describe("theme pack", () => {
     expect(discord.vars["--danger"]).toBe("#f23f43");
     expect(discord.vars["--font"]).toContain("Inter");
     expect(shadowBlurPx(discord.vars["--shadow"] ?? "")).toBeLessThanOrEqual(12);
-    const warm = parseThemeCss(readFileSync("themes/modern-dark.css", "utf8"));
+    const warm = parseThemeCss(readFileSync("store/themes/modern-dark/theme.css", "utf8"));
     expect(warm.vars["--bg-0"]).toBe("#12110f");
     expect(warm.vars["--accent"]).toBe("#e2a15a");
     const fallback = readFileSync("src/styles.css", "utf8");
@@ -73,16 +76,16 @@ describe("theme pack", () => {
   });
 
   it("uses true black for OLED and a mono face for the terminal", () => {
-    const oled = parseThemeCss(readFileSync("themes/oled.css", "utf8"));
+    const oled = parseThemeCss(readFileSync("store/themes/oled/theme.css", "utf8"));
     expect(oled.vars["--bg-0"]).toBe("#000000");
     expect(oled.vars["--bg-1"]).toBe("#000000");
     expect(oled.vars["--bg-2"]).toBe("#000000");
-    const phosphor = parseThemeCss(readFileSync("themes/phosphor.css", "utf8"));
+    const phosphor = parseThemeCss(readFileSync("store/themes/phosphor/theme.css", "utf8"));
     expect(phosphor.vars["--font"]).toContain("monospace");
   });
 
   it("asks for native vibrancy without a CSS blur", () => {
-    const css = readFileSync("themes/frosted.css", "utf8");
+    const css = readFileSync("store/themes/frosted/theme.css", "utf8");
     const parsed = parseThemeCss(css);
     expect(parsed.material).toBe("vibrancy");
     expect(css).toContain("html.is-vibrancy");
@@ -91,7 +94,7 @@ describe("theme pack", () => {
   });
 
   it("keeps high contrast text at 7:1", () => {
-    const parsed = parseThemeCss(readFileSync("themes/high-contrast.css", "utf8"));
+    const parsed = parseThemeCss(readFileSync("store/themes/high-contrast/theme.css", "utf8"));
     const pairs: [string, string][] = [
       ["--text", "--bg-0"],
       ["--text", "--bg-2"],
@@ -111,7 +114,7 @@ describe("theme pack", () => {
 });
 
 describe("theme import and export", () => {
-  const nord = readFileSync("themes/nord.css", "utf8");
+  const nord = readFileSync("store/themes/nord/theme.css", "utf8");
 
   it("round-trips a file through JSON", () => {
     const back = themeFromJson(themeToJson("nord", nord));
@@ -156,10 +159,11 @@ describe("theme import and export", () => {
     expect(loaded.get("nord")).toBe(nord);
   });
 
-  it("filters the gallery and appends installed ids", () => {
-    const entries = galleryEntries(["nord", "custom-ink", "Nope", "../x"]);
-    expect(entries.some((theme) => theme.id === "custom-ink")).toBe(true);
-    expect(entries.filter((theme) => theme.id === "nord")).toHaveLength(1);
+  it("lists installed themes and skips ones that are not on disk", () => {
+    const entries = galleryEntries(["nord", "custom-ink", "catppuccin-latte", "Nope", "../x", "nord"]);
+    expect(entries.map((theme) => theme.id)).toEqual(["nord", "custom-ink", "catppuccin-latte"]);
+    expect(entries[0]?.title).toBe("Nord");
+    expect(entries.some((theme) => theme.id === "discord")).toBe(false);
     expect(filterThemes(entries, "latte").map((theme) => theme.id)).toEqual(["catppuccin-latte"]);
   });
 });

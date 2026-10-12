@@ -1,0 +1,12 @@
+{
+  "id": "frosted",
+  "name": "Frosted",
+  "description": "Cool glass. Native vibrancy on macOS and Windows.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "special",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "spark",
+  "changelog": "First store release. Same colours as the file that used to ship inside Lark."
+}

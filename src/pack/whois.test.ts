@@ -39,7 +39,7 @@ describe("user whois", () => {
   });
 
   it("declares the whois hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/user-whois.js", "utf8"), "user-whois");
+    const plugin = describePlugin(readFileSync("store/plugins/user-whois/plugin.js", "utf8"), "user-whois");
     expect(plugin.hooks.userWhois).toBe(true);
     expect(plugin.name).toBe("User whois");
   });

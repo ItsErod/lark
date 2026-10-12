@@ -24,6 +24,9 @@ src-tauri/WixTools/
 *.deb
 *.AppImage
 
+# Generated store zips. index.json is committed; CI republishes the zips.
+store/downloads/
+
 # Logs, caches, and test artifacts
 *.log
 .vite/

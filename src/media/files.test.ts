@@ -18,7 +18,7 @@ describe("voice message download", () => {
   });
 
   it("declares the download hook and marks messages", () => {
-    const source = readFileSync("plugins/voice-download.js", "utf8");
+    const source = readFileSync("store/plugins/voice-download/plugin.js", "utf8");
     const plugin = describePlugin(source, "voice-download");
     expect(plugin.hooks.voiceDownload).toBe(true);
     const view = plugin.run(
@@ -60,7 +60,7 @@ describe("view original image", () => {
   });
 
   it("declares the original image hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/original-image.js", "utf8"), "original-image");
+    const plugin = describePlugin(readFileSync("store/plugins/original-image/plugin.js", "utf8"), "original-image");
     expect(plugin.name).toBe("View Original Image");
     expect(plugin.hooks.originalImage).toBe(true);
   });

@@ -1,0 +1,12 @@
+{
+  "id": "game-activity",
+  "name": "Game Activity Toggle",
+  "description": "One click hides or shows the game you are playing.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "status",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "bolt",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

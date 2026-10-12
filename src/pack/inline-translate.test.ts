@@ -43,7 +43,7 @@ describe("inline translate", () => {
   });
 
   it("declares the hook and keeps language options", () => {
-    const plugin = describePlugin(readFileSync("plugins/inline-translate.js", "utf8"), "inline-translate");
+    const plugin = describePlugin(readFileSync("store/plugins/inline-translate/plugin.js", "utf8"), "inline-translate");
     expect(plugin.hooks.inlineTranslate).toBe(true);
     expect(plugin.run.toString()).not.toMatch(/fetch\s*\(/);
     const pack = sanitizePack({ inlineLang: "ja", inlineSource: "en", inlinePrefer: "local" });

@@ -20,7 +20,7 @@ describe("hidden channels", () => {
   });
 
   it("declares the hook and the topic option", () => {
-    const plugin = describePlugin(readFileSync("plugins/show-hidden.js", "utf8"), "show-hidden");
+    const plugin = describePlugin(readFileSync("store/plugins/show-hidden/plugin.js", "utf8"), "show-hidden");
     expect(plugin.hooks.showHidden).toBe(true);
     expect(plugin.name).toBe("Show hidden channels");
     expect(sanitizePack({ hiddenTopics: false }).hiddenTopics).toBe(false);

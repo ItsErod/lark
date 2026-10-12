@@ -1,0 +1,12 @@
+{
+  "id": "copy-markdown",
+  "name": "Copy message markdown",
+  "description": "Right-click a message to copy its markdown. The author line is optional.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "code",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

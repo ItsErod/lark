@@ -1,6 +1,8 @@
 # Lark plugins
 
-Plugins are local scripts. Lark loads a plugin’s file only after you turn it on in **Settings → Plugins**, and the pack below starts **off**. The two samples `highlight-mentions` and `code-badge` stay on, the same as before.
+Plugins are not part of the app download. Each one lives in `store/plugins/<id>/` and is installed from the store into the app data directory. Lark loads a plugin’s file only after you turn it on in **Settings → Plugins and Themes**. A fresh install has none enabled, and the app still runs.
+
+See [MIGRATING.md](MIGRATING.md) if you are adding a plugin.
 
 A plugin can highlight a message, add a badge, collapse it, ask for a small display effect, or return `null` to hide it. The host keeps `authorId` and the timestamp. Plugins do not receive the token, and the scripts in this folder do not call the network. Treat every plugin as trusted code: it runs with `new Function` in the window.
 
@@ -93,8 +95,8 @@ Off until you turn it on. Messages from people you have blocked are removed from
 
 | Plugin | Default | What it does |
 | --- | --- | --- |
-| highlight-mentions | on | Highlights a message that mentions you |
-| code-badge | on | Badges a message that contains a fence |
+| highlight-mentions | off | Highlights a message that mentions you |
+| code-badge | off | Badges a message that contains a fence |
 | hide-joins | off | Hides join and system lines |
 | edit-log | off | Badges an edited message |
 | collapse-long | off | Folds a message longer than 280 characters |

@@ -1,0 +1,12 @@
+{
+  "id": "high-contrast",
+  "name": "High contrast",
+  "description": "White type on black. Text pairs are at least 7:1.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "contrast",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "contrast",
+  "changelog": "First store release. Same colours as the file that used to ship inside Lark."
+}

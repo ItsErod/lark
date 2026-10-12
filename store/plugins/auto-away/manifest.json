@@ -1,0 +1,12 @@
+{
+  "id": "auto-away",
+  "name": "Auto away",
+  "description": "After a few quiet minutes, set idle once. Activity sets you back. Do not disturb stays put.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "status",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "moon",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

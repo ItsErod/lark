@@ -1,0 +1,12 @@
+{
+  "id": "send-later",
+  "name": "Send later",
+  "description": "Queue one message at a time from the composer. Nothing sends early, and nothing sends in a burst.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "clock",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

@@ -1,0 +1,12 @@
+{
+  "id": "synthwave",
+  "name": "Synthwave",
+  "description": "Deep purple and hot pink. Colour only, no glow blur.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "bolt",
+  "changelog": "First store release. Same colours as the file that used to ship inside Lark."
+}

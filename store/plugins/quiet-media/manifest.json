@@ -1,0 +1,12 @@
+{
+  "id": "quiet-media",
+  "name": "Quiet media",
+  "description": "Hide link previews and shrink images. The link text stays.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "image",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

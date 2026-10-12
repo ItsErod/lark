@@ -1,0 +1,12 @@
+{
+  "id": "clean-links",
+  "name": "Clean Links",
+  "description": "Strip utm, si, fbclid, and other tracking parameters from links you send and open.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "privacy",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "link",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

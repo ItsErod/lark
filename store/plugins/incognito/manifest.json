@@ -1,0 +1,12 @@
+{
+  "id": "incognito",
+  "name": "Incognito Mode",
+  "description": "Don't mark channels read until you choose, and hide your activity on this device.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "privacy",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "shield",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

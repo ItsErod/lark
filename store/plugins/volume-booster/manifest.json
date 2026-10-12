@@ -1,0 +1,12 @@
+{
+  "id": "volume-booster",
+  "name": "Volume Booster",
+  "description": "Raise one person's volume up to 400%. Mute for you still silences them.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "voice",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "volume",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

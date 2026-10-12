@@ -48,7 +48,7 @@ export function defaultConfig(): AppConfig {
       },
       keywords: ["wordmark"],
     },
-    plugins: { enabled: ["highlight-mentions", "code-badge"] },
+    plugins: { enabled: [] },
     voice: {
       mode: "vad",
       sensitivity: 45,

@@ -1,0 +1,12 @@
+{
+  "id": "spotify-controls",
+  "name": "Spotify controls",
+  "description": "A mini player in the user panel from the listening line and Spotify links. No login and no key.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "status",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "music",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

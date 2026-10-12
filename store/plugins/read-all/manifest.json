@@ -1,0 +1,12 @@
+{
+  "id": "read-all",
+  "name": "Read all",
+  "description": "Mark every unread channel read in one click. Muted channels stay unless you include them.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "archive",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

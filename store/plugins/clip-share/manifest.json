@@ -1,0 +1,12 @@
+{
+  "id": "clip-share",
+  "name": "Quick Clip Share",
+  "description": "Send the last saved clip to the current channel with one hotkey.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "bolt",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

@@ -1,0 +1,12 @@
+{
+  "id": "daylight",
+  "name": "Daylight",
+  "description": "Warm paper.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "light",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "sun",
+  "changelog": "First store release. Same colours as the file that used to ship inside Lark."
+}

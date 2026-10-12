@@ -53,7 +53,7 @@ describe("keyword highlights", () => {
   });
 
   it("highlights from the plugin script and declares the notify hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/keyword-highlights.js", "utf8"), "keyword-highlights");
+    const plugin = describePlugin(readFileSync("store/plugins/keyword-highlights/plugin.js", "utf8"), "keyword-highlights");
     expect(plugin.hooks.patternNotify).toBe(true);
     const hit = plugin.run(
       {

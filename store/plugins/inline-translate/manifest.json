@@ -1,0 +1,12 @@
+{
+  "id": "inline-translate",
+  "name": "Translate",
+  "description": "Right-click a message to translate it in place. Uses a free endpoint, then a local phrase book. No key.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "translation",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "languages",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

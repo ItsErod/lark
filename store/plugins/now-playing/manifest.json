@@ -1,0 +1,12 @@
+{
+  "id": "now-playing",
+  "name": "Now playing",
+  "description": "Put a listening line on your status. Manual, or the media session if the system exposes one. No Spotify login and no token.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "status",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "music",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

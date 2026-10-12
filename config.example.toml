@@ -48,8 +48,8 @@ level = "mentions"
 muted = true
 
 [plugins]
-# The pack in PLUGINS.md ships off. Turn a plugin on in Settings; Lark loads it then.
-enabled = ["highlight-mentions", "code-badge"]
+# Nothing is bundled. Install from the store, then turn a plugin on in Settings.
+enabled = []
 
 [voice]
 mode = "vad"                   # vad | ptt

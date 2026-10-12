@@ -44,10 +44,7 @@
     ]
   },
   "plugins": {
-    "enabled": [
-      "highlight-mentions",
-      "code-badge"
-    ]
+    "enabled": []
   },
   "voice": {
     "mode": "vad",

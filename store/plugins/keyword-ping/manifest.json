@@ -1,0 +1,12 @@
+{
+  "id": "keyword-ping",
+  "name": "Keyword ping",
+  "description": "Highlight words, and ping on a mentions-only channel when one appears. Mute still wins.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "bell",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

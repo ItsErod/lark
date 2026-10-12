@@ -1,0 +1,12 @@
+{
+  "id": "spoiler-everything",
+  "name": "Spoiler Everything",
+  "description": "Blur images and embeds until you click them. Each channel can opt out.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "eye-off",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

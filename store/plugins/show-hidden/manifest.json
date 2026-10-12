@@ -1,0 +1,12 @@
+{
+  "id": "show-hidden",
+  "name": "Show hidden channels",
+  "description": "List channels you cannot view, with a lock and the topic. Opening one is refused.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "lock",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}
