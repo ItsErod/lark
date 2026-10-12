@@ -292,6 +292,8 @@ export interface Channel {
   id: string;
   name: string;
   kind: "text" | "voice" | "category" | "forum" | "dm" | "group" | "announcement" | "thread" | "stage" | "media";
+  /** Discord channel type. 13 is a stage even when `kind` is still `"voice"`. */
+  discordType?: number;
   parentId?: string | null;
   position: number;
   topic?: string | null;

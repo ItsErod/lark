@@ -51,7 +51,17 @@ export interface CallChrome {
   pip: boolean;
   /** The member list is not collapsed just because a call is up. */
   members: true;
+  /** Voice-channel text beside the call. Closed leaves the column alone. */
+  voiceChat: boolean;
+  /** Full screen grows the call and still leaves the transcript and composer mounted. */
+  fullScreen: boolean;
+  /** A call never covers the text channel or the composer. */
+  blocksChat: false;
 }
+
+/** Voice-channel text column. The main transcript keeps at least this much width. */
+export const VOICE_CHAT_WIDTH = 320;
+export const VOICE_CHAT_MIN_MAIN = 280;
 
 export function readStripOpen(raw: string | null): boolean {
   return raw === "1";
@@ -90,16 +100,48 @@ export function dismissCallSurface(): CallSurface {
   return "chat";
 }
 
-export function callChrome(input: { inCall: boolean; surface: CallSurface; stripOpen: boolean; hasMedia: boolean }): CallChrome {
+export function callChrome(input: {
+  inCall: boolean;
+  surface: CallSurface;
+  stripOpen: boolean;
+  hasMedia: boolean;
+  showChat?: boolean;
+  fullScreen?: boolean;
+}): CallChrome {
   const grid = !input.inCall || input.surface === "chat" ? "hidden" : input.surface === "split" ? "split" : "window";
   return {
     messages: true,
     composer: true,
     grid,
     stripPx: input.inCall && input.stripOpen ? STRIP_HEIGHT : 0,
-    pip: Boolean(input.inCall && input.surface === "chat" && input.hasMedia),
+    pip: Boolean(input.inCall && input.surface === "chat" && input.hasMedia && !input.fullScreen),
     members: true,
+    voiceChat: Boolean(input.inCall && input.showChat),
+    fullScreen: Boolean(input.inCall && input.fullScreen),
+    blocksChat: false,
   };
+}
+
+/**
+ * The voice-channel side panel takes a column. The transcript keeps a minimum
+ * width, and the panel stops above the composer so it never covers either one.
+ * A frame that is too narrow closes the panel instead of overlapping the chat.
+ */
+export function voiceChatInsets(
+  open: boolean,
+  frameWidth: number,
+  composerHeight: number,
+): { marginRight: number; panelWidth: number; panelBottom: number; coversComposer: false } {
+  const bottom = Math.max(0, composerHeight);
+  if (!open || !Number.isFinite(frameWidth)) {
+    return { marginRight: 0, panelWidth: 0, panelBottom: bottom, coversComposer: false };
+  }
+  const room = frameWidth - VOICE_CHAT_MIN_MAIN;
+  const panelWidth = Math.min(VOICE_CHAT_WIDTH, Math.floor(room));
+  if (panelWidth < 180) {
+    return { marginRight: 0, panelWidth: 0, panelBottom: bottom, coversComposer: false };
+  }
+  return { marginRight: panelWidth, panelWidth, panelBottom: bottom, coversComposer: false };
 }
 
 /** Screen (Go Live / stream) leads. Camera is next. Avatars are not a preview tile. */

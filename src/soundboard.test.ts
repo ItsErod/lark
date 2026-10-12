@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeConfig } from "./config";
-import { clipForHotkey, sanitizeClips, soundHotkeyIsGlobal } from "./soundboard";
+import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeClips, sanitizeGuildSounds, sanitizeSoundToggles, soundHotkeyIsGlobal } from "./soundboard";
 
 describe("soundboard", () => {
   it("keeps a short list of wav clips and drops a duplicate hotkey", () => {
@@ -35,5 +35,20 @@ describe("soundboard", () => {
     expect(config.voice.levels.nope).toBeUndefined();
     expect(config.soundboard.clips[0].name).toBe("Horn");
     expect(config.voice.noise_suppression).toBe(true);
+  });
+
+  it("gates guild sounds while deafened and honors a per-sound toggle", () => {
+    const sounds = sanitizeGuildSounds([
+      { sound_id: "100000000000000201", name: "Horn", volume: 1, emoji_name: "📯", available: true },
+      { sound_id: "100000000000000202", name: "Off", volume: 1, available: false },
+      { name: "Missing" },
+    ], "100000000000000010");
+    expect(sounds.map((sound) => sound.name)).toEqual(["Horn", "Off"]);
+    const toggles = sanitizeSoundToggles({ "100000000000000201": false, horn: true, nope: true });
+    expect(toggles["100000000000000201"]).toBe(false);
+    expect(playableGuildSounds(sounds, toggles, false)).toEqual([]);
+    expect(playableGuildSounds(sounds, { "100000000000000201": true }, false).map((sound) => sound.id)).toEqual(["100000000000000201"]);
+    expect(playableGuildSounds(sounds, {}, true)).toEqual([]);
+    expect(playableClipIds([{ id: "horn" }, { id: "bell" }], { bell: false })).toEqual(["horn"]);
   });
 });

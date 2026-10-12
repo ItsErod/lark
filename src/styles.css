@@ -1232,3 +1232,25 @@ button.guild-row:hover { background: var(--hover); }
   width: 100%; min-height: 72px; border: 1px solid var(--line); background: var(--bg-0);
   color: var(--text); border-radius: 8px; padding: 8px 10px; resize: vertical;
 }
+.voice-panel.is-resting { padding: 8px 10px; }
+.voice-panel-details { margin: 0; color: var(--muted); font-size: 12px; }
+.user-audio { display: flex; gap: 8px; align-items: center; }
+.user-audio-slot { display: flex; align-items: center; }
+.device-chevron { width: 22px; min-width: 22px; }
+.user-device-menu, .voice-mic-menu, .voice-activity-pop { display: grid; gap: 4px; padding: 8px; background: var(--bg-3); border: 1px solid var(--line); border-radius: 12px; }
+.mic-meter { height: 8px; background: var(--bg-4); border-radius: 99px; overflow: hidden; }
+.mic-meter-fill { display: block; height: 100%; width: 0; background: var(--speak, #23a559); }
+.stage-board, .stage-row { display: grid; gap: 8px; }
+.stage-people { display: grid; gap: 6px; }
+.stage-person { display: flex; align-items: center; gap: 8px; }
+.voice-chat { display: flex; flex-direction: column; min-height: 0; background: var(--bg-3); border-left: 1px solid var(--line); }
+.voice-chat.is-docked { position: absolute; top: 0; right: 0; z-index: 2; }
+.voice-chat-log { flex: 1; overflow: auto; padding: 8px; display: grid; gap: 6px; align-content: start; }
+.voice-chat-line { margin: 0; font-size: 13px; }
+.voice-chat-author { font-weight: 600; margin-right: 6px; }
+.voice-chat-form { display: flex; gap: 6px; padding: 8px; }
+.voice-chat-form input { flex: 1; }
+.watch-frame, .camera-preview, .stream-preview-video { width: 100%; max-height: 180px; background: #000; border-radius: 8px; }
+.camera-preview-slot, .stream-preview { min-height: 72px; }
+[data-hide-names="1"] .voice-user-name, [data-hide-names="1"] .voice-tile-name { visibility: hidden; }
+.voice-stage.is-focus { display: grid; }

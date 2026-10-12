@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { applyVoiceState, applyUserMix, hydrateMix, participantsIn, playbackVolume, replaceGuildVoice, setSpeaking, setVolume, type VoiceRoster } from "./voice";
+import {
+  applyMoreAction,
+  applyUserMix,
+  applyVoiceState,
+  defaultCallView,
+  hydrateMix,
+  joinVoiceTarget,
+  memberVoiceBody,
+  micLevel,
+  participantMenu,
+  participantsIn,
+  playbackVolume,
+  readVoicePrefs,
+  replaceGuildVoice,
+  restingDesk,
+  sanitizeInputProfiles,
+  selectInputProfile,
+  setSpeaking,
+  setVolume,
+  toggleDeskDeafen,
+  toggleDeskMute,
+  voiceChannelLink,
+  voiceChannelMenu,
+  voiceDetailLine,
+  voiceLinkDetails,
+  writeVoicePrefs,
+  type VoiceRoster,
+} from "./voice";
 
 const guild = "100000000000000010";
 const booth = "100000000000000026";
@@ -75,5 +102,97 @@ describe("voice roster", () => {
     expect(participantsIn(roster, guild, booth)[0].sharing).toBe(true);
     applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "2", name: "Maya", selfStream: false });
     expect(participantsIn(roster, guild, booth)[0].sharing).toBe(false);
+  });
+
+  it("keeps mute and deafen on the user panel with no call connected", () => {
+    let desk = restingDesk();
+    desk = toggleDeskMute(desk);
+    expect(desk).toEqual({ muted: true, deafened: false });
+    desk = toggleDeskDeafen(desk);
+    expect(desk).toEqual({ muted: true, deafened: true });
+    desk = toggleDeskMute(desk);
+    expect(desk).toEqual({ muted: false, deafened: false });
+    desk = toggleDeskDeafen(desk);
+    expect(desk).toEqual({ muted: true, deafened: true });
+    desk = toggleDeskDeafen(desk);
+    expect(desk).toEqual({ muted: false, deafened: false });
+  });
+
+  it("joins a DM or group by channel id and a stage by raw type 13", () => {
+    expect(joinVoiceTarget({ id: "100000000000000042", kind: "dm" }, guild)).toEqual({
+      channelId: "100000000000000042",
+      guildId: null,
+      callKind: "dm",
+    });
+    expect(joinVoiceTarget({ id: "100000000000000043", kind: "group" }, guild)?.callKind).toBe("group");
+    expect(joinVoiceTarget({ id: booth, kind: "voice" }, guild)).toMatchObject({ guildId: guild, callKind: "voice" });
+    expect(joinVoiceTarget({ id: booth, kind: "voice", discordType: 13 }, guild)?.callKind).toBe("stage");
+    expect(joinVoiceTarget({ id: booth, kind: "stage" }, null)?.callKind).toBe("stage");
+    expect(joinVoiceTarget({ id: "  ", kind: "voice" }, guild)).toBeNull();
+    expect(joinVoiceTarget({ id: booth, kind: "text" }, guild)).toBeNull();
+  });
+
+  it("stores input profiles, a mic meter, and voice server details", () => {
+    const profiles = sanitizeInputProfiles([
+      { id: "desk", name: "Desk mic", deviceId: "Built-in", mode: "vad", sensitivity: 140 },
+      { id: "Desk", name: "Nope", deviceId: "", mode: "ptt", sensitivity: 10 },
+      { id: "stage", name: "Stage", deviceId: "Headset", mode: "ptt", sensitivity: 20 },
+    ]);
+    expect(profiles.map((profile) => profile.id)).toEqual(["desk", "stage"]);
+    expect(profiles[0].sensitivity).toBe(100);
+    expect(selectInputProfile(profiles, "stage")?.mode).toBe("ptt");
+    expect(micLevel([0, 0, 0])).toBe(0);
+    expect(micLevel([1, -1, 1, -1])).toBe(100);
+    const details = voiceLinkDetails({ pingMs: 42.2, endpoint: "wss://c-ord.discord.gg/?v=8", mode: "aead_aes256_gcm_rtpsize" });
+    expect(details.pingMs).toBe(42);
+    expect(voiceDetailLine(details, "connected")).toContain("Ping 42 ms");
+    expect(voiceDetailLine(details, "connected")).toContain("c-ord.discord.gg");
+    expect(voiceDetailLine(details, "connected")).not.toContain("aead_");
+  });
+
+  it("lists the voice-channel menu and the participant moderation actions", () => {
+    expect(voiceChannelMenu()).toEqual([
+      "join-quiet",
+      "open-chat",
+      "hide-names",
+      "invite",
+      "edit",
+      "duplicate",
+      "copy-link",
+      "mute",
+      "set-status",
+    ]);
+    expect(voiceChannelLink(guild, booth)).toBe(`https://discord.com/channels/${guild}/${booth}`);
+    expect(voiceChannelLink(null, booth)).toContain("/@me/");
+    expect(participantMenu()).toContain("server-mute");
+    expect(participantMenu()).toContain("move");
+    expect(memberVoiceBody("server-mute", { serverMute: false, serverDeaf: false })).toEqual({ mute: true });
+    expect(memberVoiceBody("server-deafen", { serverMute: false, serverDeaf: false })).toEqual({ deaf: true, mute: true });
+    expect(memberVoiceBody("disconnect", { serverMute: false, serverDeaf: false })).toEqual({ channel_id: null });
+    expect(memberVoiceBody("move", { serverMute: false, serverDeaf: false }, other)).toEqual({ channel_id: other });
+    const prefs = applyMoreAction(defaultCallView(), "non-video");
+    expect(prefs.showNonVideo).toBe(false);
+    expect(applyMoreAction(prefs, "fullscreen").fullScreen).toBe(true);
+    expect(applyMoreAction(prefs, "grid").grid).toBe(false);
+  });
+
+  it("keeps input profiles, echo cancellation, and gain", () => {
+    const saved = writeVoicePrefs({
+      profiles: [{ id: "desk", name: "Desk", deviceId: "mic-1", mode: "ptt", sensitivity: 30 }],
+      profileId: "desk",
+      echoCancellation: false,
+      agc: true,
+      inputVolume: 80,
+      outputVolume: 110,
+      soundToggles: { honk: false },
+    });
+    const prefs = readVoicePrefs(saved);
+    expect(prefs.profiles).toEqual([{ id: "desk", name: "Desk", deviceId: "mic-1", mode: "ptt", sensitivity: 30 }]);
+    expect(prefs.profileId).toBe("desk");
+    expect(prefs.echoCancellation).toBe(false);
+    expect(prefs.agc).toBe(true);
+    expect(prefs.inputVolume).toBe(80);
+    expect(prefs.outputVolume).toBe(110);
+    expect(readVoicePrefs("not json").echoCancellation).toBe(true);
   });
 });

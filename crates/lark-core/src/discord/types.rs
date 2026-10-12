@@ -406,6 +406,9 @@ pub struct ClientChannel {
     pub default_auto_archive_duration: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub flags: u32,
+    /// Discord's channel type integer. 13 is a stage channel.
+    #[serde(default)]
+    pub discord_type: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -841,6 +844,7 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
         rtc_region: channel.rtc_region.clone().filter(|region| !region.is_empty()),
         default_auto_archive_duration: channel.default_auto_archive_duration,
         flags: channel.flags,
+        discord_type: channel.kind,
     }
 }
 
