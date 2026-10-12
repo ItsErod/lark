@@ -195,6 +195,28 @@ import {
 import { callBus, openCallPopout, type CallCommand, type CallFrame } from "../call-window";
 import { speakColor, speakingMotion, stageTiles, voiceBadges, type RingMotion, type StageMember, type StageTile } from "../voice-stage";
 import { fuzzyScore } from "../search";
+import {
+  AUTO_INSTALL_KEY,
+  UPDATE_CHECK_MS,
+  beginCheck,
+  checkFailed,
+  checkFinished,
+  dismissUpdate,
+  downloadFinished,
+  downloadProgress,
+  initialUpdateState,
+  readAutoInstall,
+  requestRestart,
+  setAutoInstall,
+  setInCall,
+  updateBanner,
+  updateErrorMessage,
+  updatesStatus,
+  writeAutoInstall,
+  type UpdateState,
+  type UpdateStep,
+} from "../updates";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts, SoundClip } from "../types";
 import {
@@ -697,6 +719,12 @@ class LarkApp {
   private lightboxEl!: HTMLElement;
   private youtubeFloatEl!: HTMLElement;
   private toastWrap!: HTMLElement;
+  private updateBannerEl!: HTMLElement;
+  private updates: UpdateState = initialUpdateState("3.0.0", true);
+  private updateTimer = 0;
+  private pendingUpdate: Update | null = null;
+  private updateBusy = false;
+  private installingUpdate = false;
   private stage!: HTMLElement;
   private splitPane!: HTMLElement;
   private voiceDock!: HTMLElement;
@@ -1171,6 +1199,11 @@ class LarkApp {
     this.voiceGearEl = el("div", "voice-gear");
     this.voiceGearEl.hidden = true;
     this.toastWrap = el("div", "toast-wrap");
+    this.updateBannerEl = el("div", "update-banner");
+    this.updateBannerEl.hidden = true;
+    this.updateBannerEl.setAttribute("role", "status");
+    this.updateBannerEl.setAttribute("aria-live", "polite");
+    this.toastWrap.append(this.updateBannerEl);
     this.inviteEl = el("div", "overlay");
     this.inviteEl.hidden = true;
     this.splashEl = el("section", "startup");
@@ -1279,6 +1312,7 @@ class LarkApp {
     }, { passive: true });
     this.bindPolls();
     this.armCallTimer();
+    this.startUpdates();
     this.messagesEl.addEventListener("scroll", () => {
       if (this.scrollLock > 0) return;
       const top = this.messagesEl.scrollTop;
@@ -5261,6 +5295,7 @@ class LarkApp {
       case "language": return renderLanguagePane(this.settingsHost());
       case "window": return this.paneWindow();
       case "advanced": return renderAdvancedPane(this.settingsHost());
+      case "updates": return this.paneUpdates();
       case "voice": return this.paneVoice();
       case "messages": return this.paneMessages();
       case "privacy": return this.panePrivacy();
@@ -5278,6 +5313,33 @@ class LarkApp {
         return wrap;
       }
     }
+  }
+
+  private paneUpdates(): HTMLElement {
+    const wrap = el("div", "settings-stack");
+    wrap.append(settingHead("Updates", "Lark checks for a new version on startup and every 30 minutes. The download stays in the background. A voice call finishes before the app restarts."));
+    const card = settingCard("This computer");
+    card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.0")));
+    card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
+      const step = setAutoInstall(this.updates, value);
+      this.updates = step.state;
+      localStorage.setItem(AUTO_INSTALL_KEY, writeAutoInstall(value));
+      this.paintUpdateBanner();
+      this.followUpdate(step);
+    }));
+    const check = el("button", "text-button", this.updates.phase === "checking" ? "Checking…" : "Check now");
+    check.type = "button";
+    check.disabled = this.updates.phase === "checking" || this.updates.phase === "downloading" || this.updates.phase === "installing";
+    check.addEventListener("click", () => void this.checkForUpdates(true));
+    card.append(settingRow("updates.check", "Check now", "Look for a Lark update now.", check));
+    card.append(el("p", "setting-help", updatesStatus(this.updates)));
+    if (!isTauri()) card.append(el("p", "setting-help", "Updates install from the macOS and Windows apps."));
+    const notes = this.updates.offer?.notes.trim();
+    if (notes && this.updates.skippedVersion !== this.updates.offer?.version) {
+      card.append(el("p", "setting-help", notes.length > 1200 ? `${notes.slice(0, 1199).trimEnd()}…` : notes));
+    }
+    wrap.append(card);
+    return wrap;
   }
 
   private paneAccount(): HTMLElement {
@@ -6632,6 +6694,171 @@ class LarkApp {
       return;
     }
     await this.deliverClip(clip.name, sendable.id);
+  }
+
+  private startUpdates() {
+    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.0", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
+    if (!isTauri()) return;
+    void this.watchForUpdates();
+  }
+
+  private async watchForUpdates() {
+    try {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      const version = await getVersion();
+      if (version) this.updates = { ...this.updates, currentVersion: version };
+    } catch {
+      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.0" };
+    }
+    this.refreshUpdateUi();
+    void this.checkForUpdates(false);
+    window.clearInterval(this.updateTimer);
+    this.updateTimer = window.setInterval(() => void this.checkForUpdates(false), UPDATE_CHECK_MS);
+  }
+
+  private async checkForUpdates(manual: boolean) {
+    if (!isTauri()) {
+      if (!manual) return;
+      this.updates = { ...this.updates, phase: "error", error: "Updates install from the macOS and Windows apps." };
+      this.refreshUpdateUi();
+      return;
+    }
+    const started = beginCheck(this.updates);
+    if (started === this.updates) return;
+    this.updates = started;
+    this.refreshUpdateUi();
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const found = await check();
+      if (this.updates.phase !== "checking") return;
+      if (!found) {
+        this.applyUpdateStep(checkFinished(this.updates, null, manual));
+        return;
+      }
+      if (this.pendingUpdate && this.pendingUpdate.version !== found.version) void this.pendingUpdate.close().catch(() => undefined);
+      this.pendingUpdate = found;
+      const step = checkFinished(this.updates, { version: found.version, notes: found.body ?? "" }, manual);
+      this.applyUpdateStep(step);
+    } catch (err) {
+      this.updates = checkFailed(this.updates, updateErrorMessage(err), manual);
+      this.refreshUpdateUi();
+    }
+  }
+
+  private followUpdate(step: UpdateStep) {
+    if (step.effect === "download") void this.downloadPending();
+    else if (step.effect === "install") void this.installPending();
+  }
+
+  private applyUpdateStep(step: UpdateStep) {
+    this.updates = step.state;
+    this.refreshUpdateUi();
+    this.followUpdate(step);
+  }
+
+  private async downloadPending() {
+    const update = this.pendingUpdate;
+    if (!update || this.updateBusy) return;
+    this.updateBusy = true;
+    let received = 0;
+    try {
+      await update.download((event) => {
+        if (event.event === "Started") {
+          received = 0;
+          this.updates = downloadProgress(this.updates, 0, event.data.contentLength ?? null);
+        } else if (event.event === "Progress") {
+          received += event.data.chunkLength;
+          this.updates = downloadProgress(this.updates, received, this.updates.total);
+        }
+        this.paintUpdateBanner();
+      });
+      this.applyUpdateStep(downloadFinished({ ...this.updates, inCall: Boolean(this.voice) }));
+    } catch (err) {
+      if (this.updates.skippedVersion === update.version) return;
+      this.updates = { ...this.updates, phase: "error", error: updateErrorMessage(err) };
+      this.refreshUpdateUi();
+    } finally {
+      this.updateBusy = false;
+    }
+  }
+
+  private async installPending() {
+    if (this.installingUpdate) return;
+    if (this.voice) {
+      this.updates = { ...this.updates, inCall: true, phase: "deferred", installRequested: true };
+      this.refreshUpdateUi();
+      return;
+    }
+    const update = this.pendingUpdate;
+    if (!update) {
+      this.updates = { ...this.updates, phase: "error", error: "The update is no longer available." };
+      this.refreshUpdateUi();
+      return;
+    }
+    this.installingUpdate = true;
+    this.updates = { ...this.updates, phase: "installing", inCall: false };
+    this.refreshUpdateUi();
+    try {
+      await update.install();
+      // The Windows NSIS installer exits Lark and starts the new version itself.
+      if (this.platform.os !== "windows") {
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      }
+    } catch (err) {
+      this.installingUpdate = false;
+      this.updates = { ...this.updates, phase: "error", error: updateErrorMessage(err) };
+      this.refreshUpdateUi();
+    }
+  }
+
+  private noteCallForUpdates() {
+    const step = setInCall(this.updates, Boolean(this.voice));
+    if (step.state === this.updates && step.effect === "none") return;
+    this.applyUpdateStep(step);
+  }
+
+  private refreshUpdateUi() {
+    this.paintUpdateBanner();
+    if (this.settings && this.section === "updates") this.renderSettings();
+  }
+
+  private paintUpdateBanner() {
+    const banner = updateBanner(this.updates);
+    clear(this.updateBannerEl);
+    if (!banner) {
+      this.updateBannerEl.hidden = true;
+      return;
+    }
+    this.updateBannerEl.hidden = false;
+    this.updateBannerEl.append(el("strong", "", banner.title));
+    if (banner.notes) this.updateBannerEl.append(el("p", "", banner.notes));
+    if (banner.status) this.updateBannerEl.append(el("p", "", banner.status));
+    if (banner.progress != null) {
+      const track = el("div", "update-progress");
+      track.setAttribute("role", "progressbar");
+      track.setAttribute("aria-valuemin", "0");
+      track.setAttribute("aria-valuemax", "100");
+      track.setAttribute("aria-valuenow", String(Math.round(banner.progress * 100)));
+      track.setAttribute("aria-label", "Update download");
+      const bar = el("span");
+      bar.style.width = `${Math.round(banner.progress * 100)}%`;
+      track.append(bar);
+      this.updateBannerEl.append(track);
+    }
+    if (!banner.showActions) return;
+    const actions = el("div", "update-banner-actions");
+    const later = el("button", "text-button", "Later");
+    later.type = "button";
+    later.addEventListener("click", () => {
+      this.updates = dismissUpdate(this.updates);
+      this.refreshUpdateUi();
+    });
+    const restart = el("button", "primary", "Restart to update");
+    restart.type = "button";
+    restart.addEventListener("click", () => this.applyUpdateStep(requestRestart({ ...this.updates, inCall: Boolean(this.voice) })));
+    actions.append(later, restart);
+    this.updateBannerEl.append(actions);
   }
 
   private toast(title: string, body: string) {
@@ -8048,6 +8275,7 @@ class LarkApp {
       }
       this.voiceRoster = {};
       this.voice = null;
+      this.noteCallForUpdates();
       this.me = {
         id: event.user.id,
         name: event.user.name,
@@ -8414,6 +8642,7 @@ class LarkApp {
       if (state === "left" && epoch === this.voiceEpoch) {
         this.voice = null;
         this.clearVoiceClock();
+        this.noteCallForUpdates();
         this.paintVoice();
         this.paintChannels();
       }
@@ -9083,6 +9312,7 @@ class LarkApp {
       deafened: this.desk.deafened,
       members: [],
     };
+    this.noteCallForUpdates();
     this.voiceJoinedAt = Date.now();
     this.voiceConnectedAt = 0;
     this.stageRaised = false;
@@ -9128,6 +9358,7 @@ class LarkApp {
     if (this.voice) applyVoiceState(this.voiceRoster, { guildId, channelId: "", userId: this.meId() });
     this.voice = null;
     this.clearVoiceClock();
+    this.noteCallForUpdates();
     this.shareOn = false;
     this.sharePaused = false;
     this.shareUserPaused = false;

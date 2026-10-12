@@ -760,8 +760,26 @@ html.is-game-mode *::after {
 .gate-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .lightbox { place-items: center; }
 .lightbox img { max-width: min(920px, 92vw); max-height: 86vh; border-radius: 12px; }
-.toast-wrap { position: fixed; right: 16px; bottom: 16px; z-index: 30; display: flex; flex-direction: column; gap: 8px; }
+.toast-wrap { position: fixed; right: 16px; bottom: 16px; z-index: 30; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toast { background: var(--bg-3); border: 1px solid var(--line); box-shadow: var(--shadow); min-width: 240px; margin: 0; }
+.update-banner {
+  width: min(360px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.update-banner strong { font-size: 14px; }
+.update-banner p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.update-banner-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.update-progress { height: 4px; border-radius: 99px; background: var(--bg-0); overflow: hidden; }
+.update-progress > span { display: block; height: 100%; background: var(--accent); }
 
 #app[data-narrow="on"] .members { display: none; }
 #app[data-narrow="on"] .channels {

@@ -1,13 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Lark main window. The webview can listen for events and read focus. It cannot start a shell, relaunch the app, or create windows.",
+  "description": "Lark main window. The webview can listen for events, read focus, check for updates, and relaunch after an update is installed. It cannot start a shell or create windows.",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-is-focused",
     "notification:default",
+    "updater:default",
+    "process:allow-restart",
     "allow-get-config",
     "allow-save-config",
     "allow-app-paths",

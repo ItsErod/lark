@@ -38,7 +38,7 @@ describe("settings catalog", () => {
       "nitro",
     ]);
     const app = groups.find((group) => group.id === "app")?.sections.map((section) => section.id) ?? [];
-    expect(app).toEqual(["appearance", "accessibility", "shortcuts", "language", "window", "advanced"]);
+    expect(app).toEqual(["appearance", "accessibility", "shortcuts", "language", "window", "advanced", "updates"]);
     expect(app).not.toContain("notifications");
   });
 
@@ -75,6 +75,8 @@ describe("settings catalog", () => {
     expect(searchSettings("ash").some((hit) => hit.id === "appearance.mode")).toBe(true);
     expect(searchSettings("spoiler").some((hit) => hit.id === "appearance.spoilers")).toBe(true);
     expect(searchSettings("log out").some((hit) => hit.id === "account.logout")).toBe(true);
+    expect(searchSettings("automatically install").some((hit) => hit.id === "updates.auto")).toBe(true);
+    expect(searchSettings("check now").some((hit) => hit.section === "updates")).toBe(true);
   });
 
   it("accepts a later section without dropping the built-in pages", () => {

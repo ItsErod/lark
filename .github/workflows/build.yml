@@ -183,6 +183,20 @@ jobs:
           echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install frontend dependencies
         run: npm ci
+      - name: Require the updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY repository secret. The public key is in src-tauri/tauri.conf.json."
+            exit 1
+          fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+            echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY_PASSWORD repository secret."
+            exit 1
+          fi
       - name: Set the installer version from the tag
         if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
         shell: bash
@@ -194,6 +208,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
           args: ${{ matrix.args }}
@@ -203,6 +219,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
           args: ${{ matrix.args }}
@@ -213,3 +231,35 @@ jobs:
           releaseDraft: false
           prerelease: false
           retryAttempts: 3
+          # Signatures (.sig) are uploaded with the installers. NSIS wins over MSI
+          # in the generated manifest. A later job rewrites latest.json so the
+          # macOS universal build and the Windows NSIS build are both present.
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+
+  publish-updater:
+    name: Updater manifest
+    needs: [build, release-notes]
+    if: >-
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      (needs.release-notes.result == 'success' || needs.release-notes.result == 'skipped') &&
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+       (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publish latest.json
+        env:
+          LARK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LARK_NOTES: ${{ needs.release-notes.outputs.body }}
+        run: node .github/scripts/publish-latest-json.mjs
