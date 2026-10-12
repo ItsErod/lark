@@ -129,6 +129,8 @@ pub enum ClientEvent {
         status: String,
         custom: String,
         activity: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rich: Option<super::types::RichActivity>,
     },
     ReadState {
         channel_id: String,
@@ -242,6 +244,12 @@ pub enum ClientEvent {
         event: super::types::ClientScheduledEvent,
         removed: bool,
     },
+    /// Friends, incoming and outgoing requests, and blocks. `replace` is the full READY list.
+    Relationships {
+        relationships: Vec<super::types::ClientRelationship>,
+        replace: bool,
+        removed: bool,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -322,6 +330,13 @@ pub enum GatewayCommand {
         status: String,
         custom: String,
     },
+    /// Opcode 3 with a custom-status emoji and a clear-after timestamp. The plain Presence command stays.
+    CustomStatus {
+        status: String,
+        custom: String,
+        emoji: String,
+        expires_at: Option<i64>,
+    },
     /// Subscribe to a channel's member-list ranges. Opcode 14.
     /// Empty `ranges` clears the subscription for that guild.
     SubscribeMembers {
@@ -391,6 +406,9 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
                 }
             })
             .to_string()
+        }
+        GatewayCommand::CustomStatus { status, custom, emoji, expires_at } => {
+            super::types::custom_status_payload(status, custom, emoji, *expires_at)
         }
     }
 }
@@ -938,6 +956,10 @@ fn handle_dispatch(
                     if !friends.is_empty() {
                         emit(ClientEvent::Friends { friends });
                     }
+                    let rows = super::types::relationships_from_value(relationships);
+                    if !rows.is_empty() {
+                        emit(ClientEvent::Relationships { relationships: rows, replace: true, removed: false });
+                    }
                 }
                 for (index, guild) in ready.guilds.iter().enumerate() {
                     let roles = my_roles_from_merged(&ready.merged_members, index);
@@ -1098,6 +1120,9 @@ fn handle_dispatch(
             false
         }
         "RELATIONSHIP_ADD" | "RELATIONSHIP_UPDATE" => {
+            if let Some(row) = super::types::relationship_from_value(data) {
+                emit(ClientEvent::Relationships { relationships: vec![row], replace: false, removed: false });
+            }
             let friends = friends_from_relationships(&Value::Array(vec![data.clone()]), None);
             if let Some(friend) = friends.into_iter().next() {
                 emit(ClientEvent::Friends { friends: vec![friend] });
@@ -1124,6 +1149,12 @@ fn handle_dispatch(
                         .map(|id| id.to_string())
                 });
             if let Some(user_id) = user_id {
+                let row = super::types::relationship_from_value(data).unwrap_or(super::types::ClientRelationship {
+                    id: user_id.clone(),
+                    kind: String::new(),
+                    ..super::types::ClientRelationship::default()
+                });
+                emit(ClientEvent::Relationships { relationships: vec![row], replace: false, removed: true });
                 emit(ClientEvent::FriendRemoved { user_id });
             }
             false
@@ -1239,6 +1270,7 @@ fn handle_dispatch(
                 .cloned()
                 .unwrap_or_default();
             let (custom, activity) = activity_parts(&activities);
+            let rich = super::types::primary_rich_activity(&activities);
             if !user_id.is_empty() {
                 emit(ClientEvent::Presence {
                     guild_id: json_str(data, "guild_id"),
@@ -1246,6 +1278,7 @@ fn handle_dispatch(
                     status: json_str(data, "status"),
                     custom,
                     activity,
+                    rich,
                 });
             }
             false

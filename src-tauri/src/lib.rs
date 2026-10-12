@@ -283,7 +283,22 @@ pub fn run() {
             start_scheduled_event,
             ack_bulk,
             fetch_mentions,
-            fetch_friend_requests
+            fetch_friend_requests,
+            fetch_relationships,
+            add_relationship,
+            add_friend_username,
+            remove_relationship,
+            block_user,
+            ignore_user,
+            set_friend_nickname,
+            close_dm,
+            create_group_dm,
+            rename_group_dm,
+            add_dm_recipient,
+            mute_dm,
+            create_channel_invite,
+            set_server_profile,
+            set_custom_status
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -2080,4 +2095,102 @@ fn list_stems(dir: &std::path::Path, ext: &str) -> Vec<String> {
     }
     names.sort();
     names
+}
+
+#[tauri::command]
+async fn fetch_relationships(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientRelationship>, String> {
+    rest(&state).await?.list_relationships().await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn add_relationship(state: State<'_, Shared>, user_id: String) -> Result<lark_core::discord::ClientRelationship, String> {
+    rest(&state).await?.add_relationship(&user_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn add_friend_username(state: State<'_, Shared>, username: String) -> Result<lark_core::discord::ClientRelationship, String> {
+    rest(&state).await?.send_friend_request(&username).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn remove_relationship(state: State<'_, Shared>, user_id: String) -> Result<(), String> {
+    rest(&state).await?.delete_relationship(&user_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn block_user(state: State<'_, Shared>, user_id: String) -> Result<lark_core::discord::ClientRelationship, String> {
+    rest(&state).await?.block_user(&user_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn ignore_user(state: State<'_, Shared>, user_id: String) -> Result<(), String> {
+    rest(&state).await?.ignore_relationship(&user_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_friend_nickname(state: State<'_, Shared>, user_id: String, nickname: String) -> Result<(), String> {
+    rest(&state).await?.set_friend_nickname(&user_id, &nickname).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn close_dm(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
+    rest(&state).await?.close_dm(&channel_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn create_group_dm(state: State<'_, Shared>, recipient_ids: Vec<String>) -> Result<lark_core::discord::ClientChannel, String> {
+    rest(&state).await?.create_group_dm(&recipient_ids).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn rename_group_dm(state: State<'_, Shared>, channel_id: String, name: String) -> Result<lark_core::discord::ClientChannel, String> {
+    rest(&state).await?.rename_group_dm(&channel_id, &name).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn add_dm_recipient(state: State<'_, Shared>, channel_id: String, user_id: String) -> Result<(), String> {
+    rest(&state).await?.add_dm_recipient(&channel_id, &user_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn mute_dm(state: State<'_, Shared>, channel_id: String, muted: bool) -> Result<(), String> {
+    rest(&state).await?.mute_dm(&channel_id, muted).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn create_channel_invite(state: State<'_, Shared>, channel_id: String) -> Result<String, String> {
+    rest(&state).await?.create_channel_invite(&channel_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_server_profile(
+    state: State<'_, Shared>,
+    guild_id: String,
+    nick: String,
+    bio: String,
+    avatar: Option<String>,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_server_profile(&guild_id, &nick, &bio, avatar.as_deref())
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_custom_status(
+    state: State<'_, Shared>,
+    status: String,
+    custom: String,
+    emoji: String,
+    expires_at: Option<i64>,
+) -> Result<(), String> {
+    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    let allowed = ["online", "idle", "dnd", "invisible"];
+    if !allowed.contains(&status.as_str()) {
+        return Err("Unknown status.".into());
+    }
+    gateway
+        .send(lark_core::discord::GatewayCommand::CustomStatus { status, custom, emoji, expires_at })
+        .map_err(|_| "Gateway is closed.".to_string())
 }

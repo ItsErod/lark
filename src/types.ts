@@ -190,6 +190,29 @@ export interface Person {
   color?: string;
   avatarUrl?: string | null;
   roleIds?: string[];
+  /** Friend nickname from the relationship, shown in place of the display name when set. */
+  friendNick?: string | null;
+  /** Clan / server tag. Up to four characters. */
+  serverTag?: { tag: string; guildId?: string; badgeUrl?: string | null } | null;
+  /** Rich presence. The activity string stays the one-line fallback. */
+  rich?: {
+    name: string;
+    type: number;
+    details?: string;
+    state?: string;
+    startedAt?: number | null;
+    endsAt?: number | null;
+    largeImage?: string | null;
+    largeText?: string;
+    smallImage?: string | null;
+    smallText?: string;
+    party?: string;
+    buttons?: string[];
+    live?: boolean;
+    applicationId?: string;
+  } | null;
+  statusEmoji?: string;
+  statusClearAt?: number | null;
 }
 
 export interface ChannelRecipient {
