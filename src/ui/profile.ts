@@ -111,6 +111,31 @@ export function profileSlotLabels(slots: ProfileActionSlot[] | undefined): strin
   return (slots ?? []).map((slot) => slot.label.trim()).filter(Boolean);
 }
 
+/** Demo popout, so the banner, roles, and about section are visible without Discord. */
+export function sampleProfile(person: Person): ProfileDetails {
+  const username = person.name.toLowerCase().replace(/[^a-z0-9]+/g, "") || "member";
+  return {
+    id: person.id,
+    name: person.name,
+    username,
+    accent: null,
+    bio: person.custom || person.activity || "Northwind",
+    pronouns: "",
+    mutualNames: ["Northwind"],
+    mutualGuilds: 1,
+    mutualFriends: 1,
+    badges: [{ id: "lark", description: "Lark" }],
+    widgets: [],
+  };
+}
+
+export function sampleRoles(): ProfileRole[] {
+  return [
+    { id: "design", name: "Design", color: "#e2a15a" },
+    { id: "voice", name: "Voice", color: "#23a55a" },
+  ];
+}
+
 function statusLabel(status: Person["status"]): string {
   if (status === "dnd") return "Do not disturb";
   if (status === "idle") return "Idle";
