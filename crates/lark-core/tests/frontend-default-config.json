@@ -30,14 +30,25 @@
   "notifications": {
     "default": "all",
     "guilds": {
-      "100000000000000011": { "level": "mentions" }
+      "100000000000000011": {
+        "level": "mentions"
+      }
     },
     "channels": {
-      "100000000000000025": { "muted": true }
+      "100000000000000025": {
+        "muted": true
+      }
     },
-    "keywords": ["wordmark"]
+    "keywords": [
+      "wordmark"
+    ]
   },
-  "plugins": { "enabled": ["highlight-mentions", "code-badge"] },
+  "plugins": {
+    "enabled": [
+      "highlight-mentions",
+      "code-badge"
+    ]
+  },
   "voice": {
     "mode": "vad",
     "sensitivity": 45,
@@ -55,7 +66,9 @@
     "share_app_audio": true,
     "share_encoder": "auto"
   },
-  "soundboard": { "clips": [] },
+  "soundboard": {
+    "clips": []
+  },
   "desktop": {
     "minimize_to_tray": true,
     "autostart": false,
@@ -65,13 +78,69 @@
     "detect_games": true,
     "game_mode": false
   },
-  "clips": { "game_capture": false, "compress": "ask", "fps": 60, "resolution": 1440 },
+  "clips": {
+    "game_capture": false,
+    "compress": "ask",
+    "fps": 60,
+    "resolution": 1440
+  },
   "games": {},
-  "privacy": { "streamer": false, "streamer_auto": false },
+  "privacy": {
+    "streamer": false,
+    "streamer_auto": false
+  },
   "accents": {},
   "display": {
     "developer_mode": false,
     "show_embeds": true,
     "show_spoilers": false
-  }
+  },
+  "preferences": {
+    "color_mode": "",
+    "app_icon": "blurple",
+    "show_media": true,
+    "underline_links": false,
+    "ui_density": "cozy",
+    "message_density": "cozy",
+    "group_spacing": 0,
+    "saturation": 100,
+    "high_contrast": false,
+    "explicit_filter": "everyone",
+    "spam_filter": "non_friends",
+    "dm_permission": "everyone",
+    "friend_requests": "everyone",
+    "improve_discord": true,
+    "personalize": true,
+    "desktop_notifications": true,
+    "message_sound": false,
+    "call_sound": false,
+    "unread_badge": true,
+    "email_notifications": false,
+    "share_activity": true,
+    "activity_status": true,
+    "language": "en",
+    "time_format": "auto"
+  },
+  "keybinds": {
+    "mark_server_read": "shift+escape",
+    "toggle_hotkeys": "mod+slash",
+    "return_previous_text": "alt+arrowleft",
+    "return_previous_audio": "alt+arrowright",
+    "toggle_pins": "mod+p",
+    "toggle_inbox": "mod+i",
+    "toggle_emoji_picker": "mod+e",
+    "toggle_gif_picker": "mod+g",
+    "toggle_sticker_picker": "mod+s",
+    "scroll_chat_up": "pageup",
+    "scroll_chat_down": "pagedown",
+    "create_or_join_server": "mod+shift+n",
+    "answer_call": "mod+enter",
+    "decline_call": "mod+shift+escape",
+    "create_group": "mod+shift+t",
+    "start_call": "mod+quote",
+    "upload_file": "mod+u",
+    "search": "mod+f",
+    "push_to_mute": "mod+shift+alt+b"
+  },
+  "sessions": []
 }

@@ -1,4 +1,5 @@
 import { fuzzyScore } from "../search";
+import { DISCORD_KEYBINDS } from "../user-settings";
 import { el, icon, paths } from "./dom";
 
 /**
@@ -53,11 +54,19 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
 ];
 
 export const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
-  { id: "account", label: "My Account", group: "user", description: "Profile, session, and where the token is stored." },
-  { id: "appearance", label: "Appearance", group: "app", description: "Theme, type, density, and which panes stay open." },
-  { id: "notifications", label: "Notifications", group: "app", description: "What reaches you, and words that light a message up." },
-  { id: "shortcuts", label: "Keybinds", group: "app", description: "Keyboard shortcuts. mod is Command on macOS and Ctrl on Windows." },
+  { id: "account", label: "My Account", group: "user", description: "Username, email, phone, devices, standing, and log out." },
+  { id: "messaging", label: "Messaging Permissions", group: "user", description: "Sensitive content, spam, direct messages, and friend requests." },
+  { id: "data", label: "Data & Privacy", group: "user", description: "How data is used, and a link to download yours." },
+  { id: "connections", label: "Connections", group: "user", description: "Accounts Discord has connected. Adding one opens Discord." },
+  { id: "activity", label: "Activity Privacy", group: "user", description: "Who can see what you are playing or listening to." },
+  { id: "notifications", label: "Notifications", group: "user", description: "Desktop alerts, sounds, the unread badge, and email." },
+  { id: "nitro", label: "Nitro & Billing", group: "user", description: "Nitro, boosts, subscriptions, gifts, and billing. Each one opens Discord." },
+  { id: "appearance", label: "Appearance", group: "app", description: "Light, Ash, Dark, Onyx, the theme gallery, and the app icon." },
+  { id: "accessibility", label: "Accessibility", group: "app", description: "Text size, contrast, density, links, and message groups." },
+  { id: "shortcuts", label: "Keybinds", group: "app", description: "Discord's shortcuts and Lark's. mod is Command on macOS and Ctrl on Windows." },
+  { id: "language", label: "Language & Time", group: "app", description: "Language and 12-hour or 24-hour time." },
   { id: "window", label: "Window", group: "app", description: "Tray, login, and how fast the window paints." },
+  { id: "advanced", label: "Advanced", group: "app", description: "Developer Mode shows ids on messages and menus." },
   { id: "voice", label: "Voice & Video", group: "lark", description: "Input mode, the speaking ring, noise suppression, devices, and the in-game HUD." },
   { id: "messages", label: "Messages", group: "lark", description: "Saved messages, reminders, and scheduled sends on this device." },
   { id: "privacy", label: "Privacy", group: "lark", description: "Streamer mode hides personal info on this screen." },
@@ -88,15 +97,52 @@ export const SHORTCUT_COPY: Record<string, ShortcutCopy> = {
 
 const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "account.session", section: "account", label: "Session", description: "Where this account's token is stored.", keywords: "keychain credential sign out forget token" },
-  { id: "appearance.theme", section: "appearance", label: "Theme", description: "Colour theme. One click applies it.", keywords: "gallery colours colors css json import export" },
+  { id: "account.username", section: "account", label: "Username", description: "The username Discord returns for this account.", keywords: "name handle" },
+  { id: "account.email", section: "account", label: "Email", description: "Shown when Discord returns it. Lark does not edit it.", keywords: "mail address" },
+  { id: "account.phone", section: "account", label: "Phone", description: "Shown when Discord returns it. Lark does not edit it.", keywords: "mobile number" },
+  { id: "account.password", section: "account", label: "Password", description: "Change it on Discord. Lark never asks for the password.", keywords: "change password" },
+  { id: "account.mfa", section: "account", label: "Two-factor authentication", description: "Manage authenticator codes on Discord. Lark never asks for the secret.", keywords: "mfa 2fa totp" },
+  { id: "account.devices", section: "account", label: "Devices", description: "Sessions Discord reports for this account.", keywords: "sessions logged in" },
+  { id: "account.standing", section: "account", label: "Account standing", description: "The standing Discord returns, when it returns one.", keywords: "safety" },
+  { id: "account.disable", section: "account", label: "Disable account", description: "Opens Discord. Lark does not send a disable request.", keywords: "deactivate" },
+  { id: "account.delete", section: "account", label: "Delete account", description: "Opens Discord. Lark does not send a delete confirmation.", keywords: "remove account" },
+  { id: "account.switch", section: "account", label: "Switch accounts", description: "Up to five accounts on this computer.", keywords: "add account sessions" },
+  { id: "account.logout", section: "account", label: "Log Out", description: "Sign out of this account. Other saved accounts stay.", keywords: "sign out forget token" },
+  { id: "messaging.explicit", section: "messaging", label: "Sensitive content", description: "Scan direct messages from no one, non-friends, or everyone.", keywords: "explicit filter nsfw" },
+  { id: "messaging.spam", section: "messaging", label: "Spam filter", description: "How aggressively to filter spam in direct messages.", keywords: "junk" },
+  { id: "messaging.dms", section: "messaging", label: "Direct messages", description: "Who can send you a direct message.", keywords: "dm permission" },
+  { id: "messaging.friends", section: "messaging", label: "Friend requests", description: "Who can send you a friend request.", keywords: "friends of friends server members" },
+  { id: "data.improve", section: "data", label: "Use data to improve Discord", description: "Saved on this device.", keywords: "telemetry" },
+  { id: "data.personalize", section: "data", label: "Use data to personalize Discord", description: "Saved on this device.", keywords: "customize" },
+  { id: "data.download", section: "data", label: "Request data", description: "Opens Discord to download your data.", keywords: "export privacy download" },
+  { id: "connections.list", section: "connections", label: "Connections", description: "YouTube, Spotify, and the other accounts Discord returns.", keywords: "youtube spotify steam xbox" },
+  { id: "connections.manage", section: "connections", label: "Manage connections", description: "Add a connection on Discord. Lark does not collect that login.", keywords: "link unlink" },
+  { id: "activity.share", section: "activity", label: "Share activity", description: "Let other people see the game or app you are using.", keywords: "playing listening" },
+  { id: "activity.status", section: "activity", label: "Display activity as status", description: "Show the current activity as a status message.", keywords: "status" },
+  { id: "nitro.nitro", section: "nitro", label: "Nitro", description: "Opens Discord's Nitro page. Lark has no plan picker.", keywords: "premium subscription" },
+  { id: "nitro.boost", section: "nitro", label: "Server Boost", description: "Opens Discord to boost a server. Lark has no checkout.", keywords: "boost" },
+  { id: "nitro.subscriptions", section: "nitro", label: "Subscriptions", description: "Opens Discord's subscription list.", keywords: "plans" },
+  { id: "nitro.gifts", section: "nitro", label: "Gift Inventory", description: "Opens Discord's gift inventory.", keywords: "gifts codes" },
+  { id: "nitro.billing", section: "nitro", label: "Billing", description: "Opens Discord's billing page. Lark has no payment form.", keywords: "payment card invoice" },
+  { id: "appearance.mode", section: "appearance", label: "Theme mode", description: "Light, Ash, Dark, or Onyx, beside the theme gallery.", keywords: "light ash dark onyx" },
+  { id: "appearance.theme", section: "appearance", label: "Theme", description: "Colour theme gallery. One click applies it.", keywords: "gallery colours colors css json import export" },
+  { id: "appearance.icon", section: "appearance", label: "App icon", description: "Blurple, dark, light, midnight, or dusk.", keywords: "dock icon favicon" },
+  { id: "appearance.embeds", section: "appearance", label: "Show embeds", description: "Show embeds and link previews in chat.", keywords: "preview links" },
+  { id: "appearance.media", section: "appearance", label: "Show media", description: "Show images, video, and audio attached to messages.", keywords: "images video" },
+  { id: "appearance.spoilers", section: "appearance", label: "Show spoiler content", description: "Reveal spoilers without a click.", keywords: "spoiler" },
   { id: "appearance.font", section: "appearance", label: "Font", description: "The face used for messages and the chrome.", keywords: "inter system serif mono typeface" },
-  { id: "appearance.size", section: "appearance", label: "Font size", description: "Interface size, from 12 to 20.", keywords: "text scale" },
-  { id: "appearance.density", section: "appearance", label: "Density", description: "How tightly messages sit.", keywords: "cozy compact irc" },
+  { id: "appearance.size", section: "appearance", label: "Font size", description: "Interface size, from 12 to 24.", keywords: "text scale" },
+  { id: "appearance.density", section: "appearance", label: "Density", description: "How tightly messages sit. IRC stays separate from cozy and compact.", keywords: "cozy compact irc" },
   { id: "appearance.channels", section: "appearance", label: "Channel list", description: "Which side the channel list uses, or hide it.", keywords: "left right hidden sidebar" },
   { id: "appearance.members", section: "appearance", label: "Member list", description: "Show the member list beside the chat." },
   { id: "appearance.rail", section: "appearance", label: "Server rail", description: "Show the server icons along the left edge." },
   { id: "appearance.accent", section: "appearance", label: "Server accent", description: "Colour for this server. It does not change the theme file.", keywords: "color picker hex" },
-  { id: "notifications.level", section: "notifications", label: "Default notifications", description: "What a new channel does until you set it.", keywords: "all mentions mute" },
+  { id: "notifications.desktop", section: "notifications", label: "Desktop notifications", description: "Banners while Lark is in the background.", keywords: "alerts toasts" },
+  { id: "notifications.level", section: "notifications", label: "Notify me when", description: "All messages, only mentions, or nothing.", keywords: "all mentions mute nothing" },
+  { id: "notifications.sounds", section: "notifications", label: "Message sound", description: "A short tone when a desktop notification fires.", keywords: "sounds message" },
+  { id: "notifications.call", section: "notifications", label: "Call sound", description: "A short tone for a call notification.", keywords: "call sound" },
+  { id: "notifications.badge", section: "notifications", label: "Unread badge", description: "The count on the dock or taskbar.", keywords: "badge dock" },
+  { id: "notifications.email", section: "notifications", label: "Email notifications", description: "Saved on this device. Discord sends the mail.", keywords: "email" },
   { id: "notifications.test", section: "notifications", label: "Test notification", description: "Send a sample so you can see where it lands." },
   { id: "notifications.keywords", section: "notifications", label: "Highlight keywords", description: "Messages that contain these words get a highlight.", keywords: "words ping" },
   { id: "shortcut.mark_read", section: "shortcuts", label: "Mark read", description: "Esc closes whatever is open first. With nothing open, it marks the channel read.", keywords: "escape" },
@@ -133,6 +179,17 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "gaming.hardware", section: "gaming", label: "Hardware in status", description: "GPU, CPU temperature, and the current game as your Discord custom status.", keywords: "sensors" },
   { id: "gaming.profiles", section: "gaming", label: "Game profiles", description: "Push to talk, Game Mode, and the HUD for each game you adjust.", keywords: "per game" },
   { id: "plugins.list", section: "plugins", label: "Plugins", description: "Reading tools stay on this device. The token never reaches a plugin.", keywords: "pack translate bookmarks" },
+  { id: "accessibility.size", section: "accessibility", label: "Text size", description: "From 12 to 24.", keywords: "font size scale" },
+  { id: "accessibility.underline", section: "accessibility", label: "Underline links", description: "Draw a line under links in messages.", keywords: "links" },
+  { id: "accessibility.ui", section: "accessibility", label: "UI density", description: "Cozy or compact chrome, separate from message density.", keywords: "compact cozy spacing" },
+  { id: "accessibility.messages", section: "accessibility", label: "Message display", description: "Cozy or compact messages. IRC is its own switch.", keywords: "cozy compact" },
+  { id: "accessibility.irc", section: "accessibility", label: "IRC layout", description: "One line per message. It does not replace cozy or compact.", keywords: "irc" },
+  { id: "accessibility.spacing", section: "accessibility", label: "Group spacing", description: "Extra space between message groups.", keywords: "gap margin" },
+  { id: "accessibility.saturation", section: "accessibility", label: "Saturation", description: "How strong the colours are.", keywords: "color colour vivid" },
+  { id: "accessibility.contrast", section: "accessibility", label: "High contrast", description: "Push muted text toward the main text colour.", keywords: "contrast" },
+  { id: "language.locale", section: "language", label: "Language", description: "The language used for dates and the document.", keywords: "locale english" },
+  { id: "language.time", section: "language", label: "Time format", description: "Automatic, 12-hour, or 24-hour clocks.", keywords: "12 24 hour clock" },
+  { id: "advanced.developer", section: "advanced", label: "Developer Mode", description: "Show ids you can copy from messages and menus.", keywords: "copy id debug" },
 ];
 
 const extraSections: SettingsSectionMeta[] = [];
@@ -173,12 +230,22 @@ export function settingsSections(): SettingsSectionMeta[] {
 export function settingEntries(dynamic: readonly SettingEntry[] = []): SettingEntry[] {
   const seen = new Set<string>();
   const out: SettingEntry[] = [];
-  for (const entry of [...SETTING_ENTRIES, ...shortcutSettingEntries(), ...extraEntries, ...dynamic]) {
+  for (const entry of [...SETTING_ENTRIES, ...shortcutSettingEntries(), ...discordKeybindEntries(), ...extraEntries, ...dynamic]) {
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
     out.push(entry);
   }
   return out;
+}
+
+export function discordKeybindEntries(): SettingEntry[] {
+  return DISCORD_KEYBINDS.map((row) => ({
+    id: `keybind.${row.id}`,
+    section: "shortcuts",
+    label: row.label,
+    description: row.description,
+    keywords: row.keywords,
+  }));
 }
 
 export function shortcutSettingEntries(): SettingEntry[] {

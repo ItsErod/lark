@@ -28,8 +28,18 @@ describe("settings catalog", () => {
       "Gaming",
       "Plugins",
     ]);
-    expect(groups.find((group) => group.id === "user")?.sections.map((section) => section.id)).toEqual(["account"]);
-    expect(groups.find((group) => group.id === "app")?.sections.map((section) => section.id)).toContain("appearance");
+    expect(groups.find((group) => group.id === "user")?.sections.map((section) => section.id)).toEqual([
+      "account",
+      "messaging",
+      "data",
+      "connections",
+      "activity",
+      "notifications",
+      "nitro",
+    ]);
+    const app = groups.find((group) => group.id === "app")?.sections.map((section) => section.id) ?? [];
+    expect(app).toEqual(["appearance", "accessibility", "shortcuts", "language", "window", "advanced"]);
+    expect(app).not.toContain("notifications");
   });
 
   it("searches across section names and individual options", () => {
@@ -59,6 +69,12 @@ describe("settings catalog", () => {
     expect(searchSettings("clip library").some((hit) => hit.id === "clips.library")).toBe(true);
     expect(searchSettings("1440").some((hit) => hit.id === "clips.resolution")).toBe(true);
     expect(searchSettings("240 fps").some((hit) => hit.id === "clips.fps")).toBe(true);
+    expect(searchSettings("developer mode").some((hit) => hit.id === "advanced.developer")).toBe(true);
+    expect(searchSettings("billing").some((hit) => hit.id === "nitro.billing")).toBe(true);
+    expect(searchSettings("gift").some((hit) => hit.id === "nitro.gifts")).toBe(true);
+    expect(searchSettings("ash").some((hit) => hit.id === "appearance.mode")).toBe(true);
+    expect(searchSettings("spoiler").some((hit) => hit.id === "appearance.spoilers")).toBe(true);
+    expect(searchSettings("log out").some((hit) => hit.id === "account.logout")).toBe(true);
   });
 
   it("accepts a later section without dropping the built-in pages", () => {

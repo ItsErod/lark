@@ -98,6 +98,9 @@ export function formatShortcut(shortcut: string, os: OsName): string {
       if (value === "arrowdown" || value === "down") return "↓";
       if (value === "arrowleft") return "←";
       if (value === "arrowright") return "→";
+      if (value === "pageup") return "Page Up";
+      if (value === "pagedown") return "Page Down";
+      if (value === "escape") return "Esc";
       if (value.length === 1) return value.toUpperCase();
       return value;
     })

@@ -32,6 +32,14 @@ Right-click someone in voice and the volume slider can go past 200%.
 
 The extra gain is only applied to that person's playback on this computer.
 
+## Better timestamps
+
+The clock under each message can read as `3m ago` or as a clock time.
+
+- **Relative** and **Absolute** switch the label. Hover or focus the time for the full local date, including seconds.
+- **12-hour** and **24-hour** choose the clock. The hover date uses the same choice.
+- The relative label refreshes about twice a minute.
+
 ## Panic Key
 
 A hotkey that instantly hides or minimizes Lark and mutes.
