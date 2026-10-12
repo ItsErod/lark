@@ -1,0 +1,132 @@
+/* Minimal Mono: dense, sharp, near-monochrome. Linear / Raycast. */
+html.theme-c {
+  --font: Inter, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+  --fs: 13px;
+  --lh: 1.35;
+  --track: -0.011em;
+  --icon: 15px;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --faint: #71717a;
+  --accent: #fafafa;
+  --accent-ink: #09090b;
+  --ok: #4ade80;
+  --idle: #facc15;
+  --dnd: #f87171;
+  --off: #52525b;
+  --danger: #e4e4e7;
+  --embed: #e4e4e7;
+  --link: #f4f4f5;
+  --line: #27272a;
+  --rule: #27272a;
+  --selected: #18181b;
+  --chip: #18181b;
+  --chip-on: #27272a;
+  --app-bg: #09090b;
+  --rail-bg: #09090b;
+  --chan-bg: #09090b;
+  --stage-bg: #09090b;
+  --mem-bg: #09090b;
+  --user-bg: #09090b;
+  --composer-bg: #09090b;
+  --composer-line: #3f3f46;
+  --card: #0c0c0e;
+  --code-bg: #0c0c0e;
+  --tile-bg: #0c0c0e;
+  --control-bg: #0c0c0e;
+  --ctl: #18181b;
+  --banner: #fafafa;
+  --dot-dash: #0c0c0e;
+  --rail-w: 56px;
+  --chan-w: 220px;
+  --mem-w: 220px;
+  --app-pad: 0px;
+  --app-gap: 0px;
+  --face-radius: 0px;
+  --server: 32px;
+  --server-radius: 6px;
+  --server-radius-on: 6px;
+  --avatar: 28px;
+  --avatar-radius: 50%;
+  --head-h: 42px;
+  --user-h: 48px;
+  --row-h: 28px;
+  --row-radius: 4px;
+  --msg-py: 6px;
+  --composer-h: 36px;
+  --composer-radius: 6px;
+  --pop-w: 280px;
+  --pop-radius: 6px;
+  --banner-h: 3px;
+  --code-radius: 4px;
+  --tile-radius: 4px;
+  --tile-gap: 8px;
+  --control-radius: 6px;
+  --ctl-radius: 4px;
+  --blur: 0px;
+  --sat: 1;
+  --panel-line: transparent;
+  --panel-shadow: none;
+  --shadow: none;
+}
+html.theme-c .rail { box-shadow: inset -1px 0 0 var(--line); }
+html.theme-c .channels { box-shadow: inset -1px 0 0 var(--line); }
+html.theme-c .members { box-shadow: inset 1px 0 0 var(--line); }
+html.theme-c .server.home {
+  background: transparent;
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px #3f3f46;
+}
+html.theme-c .server.north,
+html.theme-c .server.night { background: #18181b; color: #e4e4e7; }
+html.theme-c .server.active { background: #fafafa; color: #09090b; }
+html.theme-c .av-ethan,
+html.theme-c .av-maya,
+html.theme-c .av-jonah,
+html.theme-c .av-priya,
+html.theme-c .av-leo { background: #27272a; color: #fafafa; }
+html.theme-c .av-priya { background: #3f3f46; }
+html.theme-c .badge,
+html.theme-c .mention { background: #fafafa; color: #09090b; border-color: #09090b; }
+html.theme-c .pip { width: 2px; height: 16px; left: -12px; }
+html.theme-c .cat { letter-spacing: 0.08em; font-size: 10px; }
+html.theme-c .who time,
+html.theme-c .code,
+html.theme-c .code pre { font-family: var(--mono); }
+html.theme-c .tok-s,
+html.theme-c .tok-p,
+html.theme-c .tok-v { color: #d4d4d8; }
+html.theme-c .tok-p { color: #a1a1aa; }
+html.theme-c .hint { display: inline; border-radius: 3px; border-color: #3f3f46; color: #a1a1aa; }
+html.theme-c .composer { margin: 0 12px 12px; }
+html.theme-c .day { font-family: var(--mono); font-weight: 500; letter-spacing: 0.08em; }
+html.theme-c .popout { box-shadow: inset 0 0 0 1px #27272a; }
+html.theme-c .pop-ava {
+  width: 48px;
+  height: 48px;
+  margin: 12px 0 0 14px;
+  font-size: 16px;
+  box-shadow: none;
+  border-radius: 50%;
+  background: #27272a;
+}
+html.theme-c .pop-actions { margin-top: 0; }
+html.theme-c .msg-btn { background: #fafafa; color: #09090b; border-radius: 4px; }
+html.theme-c .banner { height: 1px; }
+html.theme-c .tile.speaking { box-shadow: inset 2px 0 0 #fafafa; }
+html.theme-c .tile-meta { background: transparent; padding: 0; border-radius: 0; }
+html.theme-c .tile-meta span { font-family: var(--mono); letter-spacing: 0.06em; text-transform: uppercase; font-size: 10px; }
+html.theme-c .controls { box-shadow: inset 0 0 0 1px #27272a; }
+html.theme-c .ctl { width: 36px; height: 36px; }
+html.theme-c .ctl.hang { width: 36px; background: #fafafa; color: #09090b; }
+html.theme-c .top-title strong { font-size: 13px; font-weight: 600; }
+html.theme-c .guild strong { font-size: 13px; }
+html.theme-c .member { padding: 3px 6px; }
+html.theme-c .member .avatar,
+html.theme-c .userbar .avatar { width: 22px; height: 22px; font-size: 9px; }
+html.theme-c .dot { width: 8px; height: 8px; }
+html.theme-c .embed-media { filter: grayscale(1); }
+html.theme-c .role::before { background: #fafafa; }
+html.theme-c .voice-panel { background: transparent; box-shadow: inset 0 1px 0 var(--line); border-radius: 0; margin: 0; }
+html.theme-c .vp-copy strong { color: var(--text); font-weight: 600; }

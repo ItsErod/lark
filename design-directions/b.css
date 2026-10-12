@@ -1,0 +1,109 @@
+/* Glass: translucent panels, blur, and a floating composer on an aurora. */
+html.theme-b {
+  --font: Inter, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+  --fs: 15px;
+  --lh: 1.5;
+  --track: -0.006em;
+  --icon: 18px;
+  --text: #f8f7ff;
+  --muted: #d5d3e4;
+  --faint: #b7b4c9;
+  --accent: #a78bfa;
+  --accent-ink: #1a1028;
+  --ok: #5eead4;
+  --idle: #fcd34d;
+  --dnd: #fb7185;
+  --off: #a1a1aa;
+  --danger: #fb7185;
+  --embed: #f0abfc;
+  --link: #c4b5fd;
+  --line: rgba(255, 255, 255, 0.1);
+  --rule: rgba(255, 255, 255, 0.16);
+  --selected: rgba(255, 255, 255, 0.1);
+  --chip: rgba(255, 255, 255, 0.08);
+  --chip-on: rgba(167, 139, 250, 0.22);
+  --app-bg:
+    radial-gradient(640px 420px at 12% -8%, rgba(139, 92, 246, 0.55), transparent 60%),
+    radial-gradient(520px 380px at 88% 8%, rgba(244, 114, 182, 0.28), transparent 62%),
+    radial-gradient(620px 460px at 92% 110%, rgba(45, 212, 191, 0.32), transparent 60%),
+    #09090f;
+  --rail-bg: rgba(18, 16, 32, 0.42);
+  --chan-bg: rgba(20, 18, 36, 0.5);
+  --stage-bg: rgba(14, 12, 26, 0.46);
+  --mem-bg: rgba(20, 18, 36, 0.5);
+  --user-bg: rgba(255, 255, 255, 0.04);
+  --composer-bg: rgba(255, 255, 255, 0.1);
+  --composer-line: rgba(255, 255, 255, 0.22);
+  --card: rgba(22, 18, 40, 0.72);
+  --code-bg: rgba(0, 0, 0, 0.28);
+  --tile-bg: rgba(255, 255, 255, 0.06);
+  --control-bg: rgba(16, 14, 28, 0.62);
+  --ctl: rgba(255, 255, 255, 0.08);
+  --banner: linear-gradient(120deg, rgba(167, 139, 250, 0.85), rgba(244, 114, 182, 0.65) 50%, rgba(94, 234, 212, 0.7));
+  --dot-dash: #1a1528;
+  --rail-w: 76px;
+  --chan-w: 244px;
+  --mem-w: 236px;
+  --app-pad: 14px;
+  --app-gap: 12px;
+  --face-radius: 22px;
+  --server: 46px;
+  --server-radius: 16px;
+  --server-radius-on: 16px;
+  --avatar: 40px;
+  --avatar-radius: 14px;
+  --head-h: 56px;
+  --user-h: 64px;
+  --row-h: 36px;
+  --row-radius: 12px;
+  --msg-py: 10px;
+  --composer-h: 54px;
+  --composer-radius: 18px;
+  --pop-w: 300px;
+  --pop-radius: 20px;
+  --banner-h: 76px;
+  --code-radius: 14px;
+  --tile-radius: 20px;
+  --tile-gap: 12px;
+  --control-radius: 22px;
+  --ctl-radius: 14px;
+  --blur: 28px;
+  --sat: 1.45;
+  --panel-line: rgba(255, 255, 255, 0.16);
+  --panel-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  --shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+}
+html.theme-b .orb { display: block; position: absolute; z-index: 0; pointer-events: none; filter: blur(10px); }
+html.theme-b .orb-a {
+  width: 280px;
+  height: 280px;
+  left: 280px;
+  top: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+html.theme-b .orb-b {
+  width: 220px;
+  height: 220px;
+  right: 260px;
+  bottom: 40px;
+  border-radius: 50%;
+  background: rgba(94, 234, 212, 0.16);
+}
+html.theme-b .composer {
+  margin: 4px 18px 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 16px 40px rgba(0, 0, 0, 0.28);
+}
+html.theme-b .tile.speaking {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 0 2px rgba(94, 234, 212, 0.95),
+    0 0 36px rgba(94, 234, 212, 0.35);
+}
+html.theme-b .msg-btn { color: #fff; background: linear-gradient(135deg, #8b5cf6, #22d3ee); }
+html.theme-b .server.active { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }

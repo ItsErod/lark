@@ -1,0 +1,98 @@
+/* Bold Rounded: large radii, a vivid accent, playful and iOS-like. */
+html.theme-d {
+  --font: Inter, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+  --fs: 15px;
+  --lh: 1.45;
+  --track: -0.014em;
+  --icon: 20px;
+  --text: #f7f4ff;
+  --muted: #c9c2de;
+  --faint: #9b94b3;
+  --accent: #7c5cff;
+  --accent-ink: #fff;
+  --ok: #3ddc97;
+  --idle: #ffc14d;
+  --dnd: #ff5d73;
+  --off: #8d88a3;
+  --danger: #ff4d6a;
+  --embed: #ff8bd2;
+  --link: #c4b5fd;
+  --line: rgba(255, 255, 255, 0.08);
+  --rule: rgba(255, 255, 255, 0.12);
+  --selected: rgba(124, 92, 255, 0.28);
+  --chip: rgba(255, 255, 255, 0.06);
+  --chip-on: rgba(124, 92, 255, 0.28);
+  --app-bg: radial-gradient(900px 420px at 100% -10%, rgba(124, 92, 255, 0.28), transparent 55%), #100e18;
+  --rail-bg: #171427;
+  --chan-bg: #171427;
+  --stage-bg: #211c36;
+  --mem-bg: #171427;
+  --user-bg: #120f20;
+  --composer-bg: #2a2444;
+  --composer-line: transparent;
+  --card: #241f3d;
+  --code-bg: #17132c;
+  --tile-bg: #17132c;
+  --control-bg: rgba(28, 24, 48, 0.92);
+  --ctl: rgba(255, 255, 255, 0.08);
+  --banner: linear-gradient(115deg, #7c5cff, #ff5d8f 70%, #ffc14d);
+  --dot-dash: #241f3d;
+  --rail-w: 84px;
+  --chan-w: 252px;
+  --mem-w: 240px;
+  --app-pad: 12px;
+  --app-gap: 10px;
+  --face-radius: 28px;
+  --server: 52px;
+  --server-radius: 18px;
+  --server-radius-on: 20px;
+  --avatar: 42px;
+  --avatar-radius: 16px;
+  --head-h: 60px;
+  --user-h: 68px;
+  --row-h: 40px;
+  --row-radius: 14px;
+  --msg-py: 8px;
+  --composer-h: 56px;
+  --composer-radius: 999px;
+  --pop-w: 292px;
+  --pop-radius: 24px;
+  --banner-h: 84px;
+  --code-radius: 16px;
+  --tile-radius: 28px;
+  --tile-gap: 12px;
+  --control-radius: 999px;
+  --ctl-radius: 50%;
+  --blur: 0px;
+  --sat: 1;
+  --panel-line: transparent;
+  --panel-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+html.theme-d .server.active { box-shadow: 0 8px 20px rgba(226, 161, 90, 0.35); }
+html.theme-d .channel { margin: 1px 0; font-weight: 500; }
+html.theme-d .composer { margin: 0 16px 16px; padding: 0 8px 0 8px; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22); }
+html.theme-d .plus {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+html.theme-d .gif { border-radius: 999px; background: rgba(255, 255, 255, 0.06); padding: 0 8px; }
+html.theme-d .msg-btn { border-radius: 999px; padding: 0 14px; }
+html.theme-d .role { background: rgba(124, 92, 255, 0.2); box-shadow: none; }
+html.theme-d .tile-meta { border-radius: 999px; padding: 6px 12px; }
+html.theme-d .ctl { width: 48px; height: 48px; }
+html.theme-d .ctl.hang { width: 64px; }
+html.theme-d .top-title strong { font-size: 18px; letter-spacing: -0.03em; }
+html.theme-d .guild strong { font-size: 16px; }
+html.theme-d .pop-ava { border-radius: 22px; }
+html.theme-d .av-maya { background: #7c8cff; }
+html.theme-d .av-jonah { background: #3ddc97; color: #06281a; }
+html.theme-d .av-priya { background: #ff6b8a; }
+html.theme-d .userbar { margin: 8px; height: 56px; border-radius: 18px; }
+html.theme-d .voice-panel { border-radius: 18px; background: rgba(61, 220, 151, 0.12); }
+html.theme-d .members { padding-top: 16px; }
+html.theme-d .reaction { height: 30px; padding: 0 10px; }

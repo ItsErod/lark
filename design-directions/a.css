@@ -1,0 +1,75 @@
+/* Refined Discord: familiar columns, softer surfaces, a modern composer. */
+html.theme-a {
+  --font: Inter, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+  --fs: 15px;
+  --lh: 1.45;
+  --track: 0em;
+  --icon: 18px;
+  --text: #f2f3f5;
+  --muted: #b5bac1;
+  --faint: #949ba4;
+  --accent: #5865f2;
+  --accent-ink: #fff;
+  --ok: #23a559;
+  --idle: #f0b232;
+  --dnd: #f23f43;
+  --off: #80848e;
+  --danger: #da373c;
+  --embed: #e2a15a;
+  --link: #00a8fc;
+  --line: rgba(255, 255, 255, 0.06);
+  --rule: rgba(255, 255, 255, 0.08);
+  --selected: rgba(255, 255, 255, 0.07);
+  --chip: rgba(255, 255, 255, 0.05);
+  --chip-on: rgba(88, 101, 242, 0.18);
+  --app-bg: #1e1f22;
+  --rail-bg: #1a1b1e;
+  --chan-bg: #232428;
+  --stage-bg: #2b2d31;
+  --mem-bg: #232428;
+  --user-bg: #1a1b1e;
+  --composer-bg: #383a40;
+  --composer-line: rgba(255, 255, 255, 0.04);
+  --card: #232428;
+  --code-bg: #1e1f22;
+  --tile-bg: #1a1b1e;
+  --control-bg: #111214;
+  --ctl: rgba(255, 255, 255, 0.06);
+  --banner: linear-gradient(100deg, #5865f2, #7c89ff 55%, #e2a15a);
+  --dot-dash: #232428;
+  --rail-w: 72px;
+  --chan-w: 248px;
+  --mem-w: 240px;
+  --app-pad: 0px;
+  --app-gap: 0px;
+  --face-radius: 0px;
+  --server: 48px;
+  --server-radius: 24px;
+  --server-radius-on: 16px;
+  --avatar: 40px;
+  --avatar-radius: 50%;
+  --head-h: 48px;
+  --user-h: 56px;
+  --row-h: 34px;
+  --row-radius: 6px;
+  --msg-py: 9px;
+  --composer-h: 52px;
+  --composer-radius: 16px;
+  --pop-w: 300px;
+  --pop-radius: 12px;
+  --banner-h: 68px;
+  --code-radius: 8px;
+  --tile-radius: 12px;
+  --tile-gap: 10px;
+  --control-radius: 999px;
+  --ctl-radius: 50%;
+  --blur: 0px;
+  --sat: 1;
+  --panel-line: transparent;
+  --panel-shadow: none;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+}
+html.theme-a .hint { display: inline; border-color: transparent; }
+html.theme-a .composer { margin: 0 16px 24px; padding-right: 8px; }
+html.theme-a .popout { box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45); }
