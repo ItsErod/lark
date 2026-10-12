@@ -7,6 +7,7 @@ import type { ScheduledSend } from "./schedule";
 import type { LogEntry } from "./logger";
 import { sanitizeLog } from "./logger";
 import { cleanWords } from "./keywords";
+import { defaultPrivacy, sanitizePrivacy, type PrivacyOptions } from "./privacy";
 
 export interface PackState {
   translateLang: Lang;
@@ -28,6 +29,7 @@ export interface PackState {
   messageLog: LogEntry[];
   logDeleted: boolean;
   logEdits: boolean;
+  privacy: PrivacyOptions;
 }
 
 export const PACK_IDS = [
@@ -46,6 +48,8 @@ export const PACK_IDS = [
   "call-timer",
   "volume-booster",
   "message-logger",
+  "panic-key",
+  "incognito",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -72,6 +76,7 @@ export function defaultPack(): PackState {
     messageLog: [],
     logDeleted: true,
     logEdits: true,
+    privacy: defaultPrivacy(),
   };
 }
 
@@ -98,6 +103,7 @@ export function sanitizePack(input: unknown): PackState {
   base.bookmarks = sanitizeBookmarks(raw.bookmarks);
   base.hiddenAuthors = sanitizeHidden(raw.hiddenAuthors);
   base.keywordChannels = sanitizeChannels(raw.keywordChannels);
+  base.privacy = sanitizePrivacy(raw.privacy);
   return base;
 }
 

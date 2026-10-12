@@ -31,3 +31,19 @@ Right-click someone in voice and the volume slider can go past 200%.
 - Turning the plugin off sends playback at 200% again. A higher level you already set is kept for the next time you turn it on.
 
 The extra gain is only applied to that person's playback on this computer.
+
+## Panic Key
+
+A hotkey that instantly hides or minimizes Lark and mutes.
+
+- **Hotkey.** Default is Ctrl+Shift+H, or Command+Shift+H on macOS. Click the key, then press a new chord. A shortcut without a modifier is ignored, so a letter in the composer cannot fire it.
+- **Window.** Hide covers the window. Minimize leaves it on the taskbar or dock. Either way the chat is blanked first, so a capture of the animation does not show messages.
+- **Mute and deafen.** On by default. A live call is muted and deafened through the same voice path as the mute button. With no call, only the window moves.
+- Press the hotkey again after Lark is visible to bring the chat back.
+
+## Incognito Mode
+
+Don't mark channels read until you choose, and hide your activity locally.
+
+- **Hold read receipts.** Opening a channel, following the bottom, or sending a message does not tell Discord the channel is read. The unread badge stays, including while the channel is open. **Mark read** in the header, or Esc when nothing else is open, is the choice that sends the receipt.
+- **Hide activity on this device.** The account chip says Incognito. Your custom status and activity line are blank on this screen. Lark does not send a typing indicator, and it does not publish an automatic status from auto away, now playing, or hardware. A status you set yourself still publishes.

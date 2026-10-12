@@ -54,6 +54,8 @@ export interface PluginHooks {
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
+  panicKey: boolean;
+  incognito: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -88,6 +90,8 @@ export function emptyHooks(): PluginHooks {
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
+    panicKey: false,
+    incognito: false,
   };
 }
 
@@ -268,6 +272,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;
+  hooks.panicKey = record.panicKey === true;
+  hooks.incognito = record.incognito === true;
   return hooks;
 }
 

@@ -104,6 +104,16 @@
       "id": "message-logger",
       "name": "Message logger",
       "description": "Keep deleted and edited messages on this device. Deleted lines stay, greyed out, with the earlier text."
+    },
+    {
+      "id": "panic-key",
+      "name": "Panic Key",
+      "description": "A hotkey that hides or minimizes Lark and mutes."
+    },
+    {
+      "id": "incognito",
+      "name": "Incognito Mode",
+      "description": "Don't mark channels read until you choose, and hide your activity on this device."
     }
   ]
 }

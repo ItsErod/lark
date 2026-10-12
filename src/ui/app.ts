@@ -48,6 +48,7 @@ import { boostedPlayback, volumeCeiling } from "../media/volume";
 import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
+import { holdRead as privacyHoldRead, panicPlan, publishActivity, visibleStatus } from "../pack/privacy";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -237,6 +238,7 @@ import { applyUserMix, applyVoiceState, hydrateMix, participantsIn, replaceGuild
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
+import { mountPrivacyPanel } from "./privacy-panels";
 import {
   DISCORD_LINKS,
   categoryContextItems,
@@ -1033,7 +1035,7 @@ class LarkApp {
       if (perf) perf.lastInput = performance.now();
       this.saveDraft();
       this.refreshSuggest();
-      if (this.demo || !this.channelId || this.hookOn("silentTyping")) return;
+      if (this.demo || !this.channelId || this.hookOn("silentTyping") || this.hideActivity()) return;
       const now = Date.now();
       if (now - this.typingSent > 8000) {
         this.typingSent = now;
@@ -2912,12 +2914,14 @@ class LarkApp {
     } else {
       this.loading = true;
     }
-    this.localUnread[id] = 0;
-    this.localMentions[id] = 0;
-    this.behind[id] = false;
-    if (!this.jumpId) {
-      const seen = this.pages[id]?.at(-1)?.id ?? this.channelById(id)?.lastMessageId ?? this.markers[id]?.lastMessageId ?? "";
-      this.markers[id] = { lastMessageId: seen, mentionCount: 0 };
+    if (!this.holdRead()) {
+      this.localUnread[id] = 0;
+      this.localMentions[id] = 0;
+      this.behind[id] = false;
+      if (!this.jumpId) {
+        const seen = this.pages[id]?.at(-1)?.id ?? this.channelById(id)?.lastMessageId ?? this.markers[id]?.lastMessageId ?? "";
+        this.markers[id] = { lastMessageId: seen, mentionCount: 0 };
+      }
     }
     this.refreshChannelBadge(id);
     this.scroll = this.jumpId ? "none" : "bottom";
@@ -3076,11 +3080,19 @@ class LarkApp {
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
     if (this.streamerOn()) row.append(el("span", "demo-pill", "Streamer"));
+    if (this.holdRead() || this.hideActivity()) row.append(el("span", "demo-pill", "Incognito"));
     title.append(row);
     if (channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
     const threadBar = parityThreadBar();
     if (threadBar) title.append(threadBar);
     const actions = el("div", "head-actions");
+    if (this.holdRead() && this.channelId) {
+      const mark = el("button", "text-button", "Mark read");
+      mark.type = "button";
+      const channelId = this.channelId;
+      mark.addEventListener("click", () => this.markRead([channelId]));
+      actions.append(mark);
+    }
     const search = el("button", "icon-button");
     search.type = "button";
     search.title = `Command palette (${formatShortcut(this.config.shortcuts.quick_switcher, this.platform.os)})`;
@@ -5326,6 +5338,7 @@ class LarkApp {
       this.renderSettings();
       return;
     }
+    if (this.tryPanic(event)) return;
     if (this.switcher) {
       if (event.key === "Escape") this.closeSwitcher();
       else if (event.key === "ArrowDown") this.moveSwitcher(1);
@@ -6467,6 +6480,10 @@ class LarkApp {
   }
 
   private notePresence(userId: string, status: Person["status"], custom: string, activity: string, rich?: Person["rich"]) {
+    if (userId === this.meId() && this.hideActivity()) {
+      custom = "";
+      activity = "";
+    }
     const apply = (person: Person) => {
       person.status = status;
       person.custom = custom;
@@ -6583,7 +6600,7 @@ class LarkApp {
 
   private paintConnection() {
     if (this.holdShell) return;
-    const next = this.me.custom || this.connection;
+    const next = visibleStatus(this.hideActivity(), this.hideActivity(), this.me.custom ?? "", this.connection);
     const label = this.channelPane.querySelector(".profile-chip .who span");
     if (label instanceof HTMLElement) {
       if (label.textContent !== next) label.textContent = next;
@@ -6830,12 +6847,12 @@ class LarkApp {
       const level = this.levelFor(guildId, message.channelId);
       const viewing = message.channelId === this.channelId;
       const follow = viewing && (this.pinnedToBottom || message.authorId === this.meId());
-      if (viewing && follow) {
+      if (viewing && follow && !this.holdRead()) {
         this.localUnread[message.channelId] = 0;
         this.localMentions[message.channelId] = 0;
         this.markers[message.channelId] = { lastMessageId: message.id, mentionCount: 0 };
         this.refreshChannelBadge(message.channelId);
-      } else if (!viewing && message.authorId !== this.meId() && bumpsUnread(level, mentionsMe, direct)) {
+      } else if ((!viewing || this.holdRead()) && message.authorId !== this.meId() && bumpsUnread(level, mentionsMe, direct)) {
         this.localUnread[message.channelId] = (this.localUnread[message.channelId] ?? 0) + 1;
         if (mentionsMe) this.localMentions[message.channelId] = (this.localMentions[message.channelId] ?? 0) + 1;
         if (message.id) this.channelLast[message.channelId] = message.id;
@@ -9406,6 +9423,57 @@ class LarkApp {
     return this.enabledPlugins().some((plugin) => plugin.hooks[flag] === true);
   }
 
+  private holdRead(): boolean {
+    return privacyHoldRead(this.hookOn("incognito"), this.pack.privacy.incognitoHoldRead);
+  }
+
+  private hideActivity(): boolean {
+    return this.hookOn("incognito") && this.pack.privacy.incognitoHideActivity;
+  }
+
+  private tryPanic(event: KeyboardEvent): boolean {
+    if (!this.hookOn("panicKey")) return false;
+    if (!matchShortcut(event, this.pack.privacy.panicKey, this.platform.os)) return false;
+    event.preventDefault();
+    void this.runPanic();
+    return true;
+  }
+
+  private async runPanic() {
+    const root = document.documentElement;
+    if (root.classList.contains("is-panic")) {
+      root.classList.remove("is-panic");
+      if (isTauri()) {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        await win.show();
+        await win.unminimize();
+        await win.setFocus();
+      }
+      return;
+    }
+    const plan = panicPlan(this.pack.privacy.panicAction, this.pack.privacy.panicMute);
+    if (plan.mute) this.forceMute();
+    root.classList.add("is-panic");
+    if (!isTauri()) return;
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    if (plan.action === "minimize") await win.minimize();
+    else await win.hide();
+  }
+
+  private forceMute() {
+    if (!this.voice || (this.voice.muted && this.voice.deafened)) return;
+    this.voice.muted = true;
+    this.voice.deafened = true;
+    this.mirrorSelfFlags();
+    this.refreshSpeaking();
+    this.pushVoiceState();
+    this.pushTransmit();
+    this.paintVoice();
+    this.paintChannels();
+  }
+
   private quickReactionEmoji(): string[] {
     for (const plugin of this.enabledPlugins()) {
       if (plugin.hooks.quickReactions.length) return plugin.hooks.quickReactions;
@@ -9487,6 +9555,20 @@ class LarkApp {
 
   private appendPluginPanel(wrap: HTMLElement, id: string) {
     if (renderMediaPanel(wrap, id, this.mediaHost())) return;
+    const privacy = mountPrivacyPanel(id, this.pack.privacy, {
+      save: (patch) => {
+        this.pack.privacy = { ...this.pack.privacy, ...patch };
+        this.savePack();
+        this.msgSig = "";
+        this.paint();
+      },
+      formatKey: (shortcut) => formatShortcut(shortcut, this.platform.os),
+      captureKey: (event) => shortcutFromEvent(event, this.platform.os),
+    });
+    if (privacy) {
+      wrap.append(privacy);
+      return;
+    }
     if (id === "message-translate") {
       const card = el("div", "plugin-card");
       card.append(el("div", "hint", "Phrase book language"));
@@ -9836,7 +9918,7 @@ class LarkApp {
   }
 
   private ackChannel(channelId: string, messageId: string) {
-    if (!channelId || !messageId) return;
+    if (!channelId || !messageId || this.holdRead()) return;
     this.lastRead[channelId] = messageId;
     this.behind[channelId] = false;
     this.localUnread[channelId] = 0;
@@ -10431,6 +10513,7 @@ class LarkApp {
   }
 
   private setStatus(status: NonNullable<Person["status"]>, custom: string, source: "user" | "plugin" = "user", extra?: { emoji: string; clearAfter: ClearAfter }) {
+    if (!publishActivity(this.hookOn("incognito"), this.pack.privacy.incognitoHideActivity, source)) return;
     if (source === "user") {
       this.hardware = noteHardwareEdit(this.hardware, custom);
       if (!custom.trim() && this.config.desktop.hardware_status) this.hardwareSampleAt = 0;
@@ -10504,7 +10587,7 @@ class LarkApp {
       marker: this.markers[channelId],
       localUnread: this.localUnread[channelId] ?? 0,
       localMentions: this.localMentions[channelId] ?? 0,
-      viewing: channelId === this.channelId,
+      viewing: channelId === this.channelId && !this.holdRead(),
     });
     if (flags.unread) this.unread[channelId] = flags.unread;
     else delete this.unread[channelId];

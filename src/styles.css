@@ -355,6 +355,9 @@ button.category:hover { color: var(--text); }
 .inline-code { background: var(--bg-0); border-radius: 5px; padding: 0 4px; }
 .codeblock { background: var(--bg-0); border-radius: 10px; padding: 10px 12px; overflow: auto; margin: 6px 0; }
 .quote { margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--muted); }
+html.is-panic,
+html.is-panic body { background: #000 !important; }
+html.is-panic body > * { visibility: hidden !important; }
 .spoiler { background: var(--text); color: transparent; border-radius: 4px; cursor: pointer; }
 .spoiler:not(.is-revealed) * { color: transparent !important; }
 .spoiler.is-revealed { background: var(--bg-4); color: inherit; }
