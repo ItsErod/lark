@@ -3,6 +3,7 @@ import "./styles.css";
 import "./design.css";
 import "./design-composer.css";
 import "./design-messages.css";
+import "./design-profile.css";
 import { installCrashHandlers, reportCrash } from "./crash";
 import { mount } from "./ui/app";
 import { mountCallPopout } from "./ui/call-popout";

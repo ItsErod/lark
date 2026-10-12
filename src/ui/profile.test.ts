@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setRelationshipIndex } from "../social";
-import { blockedIds, pendingFriendCount, profileSlotLabels } from "./profile";
+import { blockedIds, pendingFriendCount, profileSlotLabels, sampleProfile, sampleRoles } from "./profile";
 
 describe("profile contracts", () => {
   afterEach(() => setRelationshipIndex([]));
@@ -20,5 +20,13 @@ describe("profile contracts", () => {
       { id: "timeout", label: " Timeout ", onClick: () => undefined },
       { id: "blank", label: "  ", onClick: () => undefined },
     ])).toEqual(["Timeout"]);
+  });
+
+  it("fills a demo profile with about text, a badge, and role chips", () => {
+    const details = sampleProfile({ id: "1", name: "Maya Chen", custom: "At the desk" });
+    expect(details.username).toBe("mayachen");
+    expect(details.bio).toBe("At the desk");
+    expect(details.badges.map((badge) => badge.description)).toEqual(["Lark"]);
+    expect(sampleRoles().map((role) => role.name)).toEqual(["Design", "Voice"]);
   });
 });

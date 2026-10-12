@@ -430,7 +430,7 @@ import {
   type SlashCommand,
 } from "./composer-tools";
 import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
-import { renderProfileCard, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
+import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
   applyUserChrome,
@@ -2979,9 +2979,17 @@ class LarkApp {
       }
       this.openProfile(me, true);
     });
+    const gear = el("button", "icon-button user-settings");
+    gear.type = "button";
+    gear.title = "Settings";
+    gear.setAttribute("aria-label", "Open settings");
+    gear.append(icon(paths.settings));
+    gear.addEventListener("click", () => this.openSettings());
+    const dock = el("div", "user-dock");
+    dock.append(profile, gear);
     const panel = this.voicePanel();
     const player = this.spotifyPlayer();
-    const tail = [panel, player, profile].filter((node): node is HTMLElement => Boolean(node));
+    const tail = [panel, player, dock].filter((node): node is HTMLElement => Boolean(node));
     this.channelPane.append(head, scroll, ...tail);
     scroll.scrollTop = kept;
     this.bindSocialMenus();
@@ -12243,6 +12251,8 @@ class LarkApp {
     }
     const person = this.popout;
     const details = this.wireProfile?.id === person.id ? this.wireProfile : null;
+    const sample = this.demo && !details ? sampleProfile(person) : null;
+    const roles = this.profileRoles(person);
     const mutualNames = (details?.mutualGuilds ?? [])
       .map((guild) => this.guilds().find((item) => item.id === guild.id)?.name)
       .filter((name): name is string => Boolean(name))
@@ -12256,7 +12266,7 @@ class LarkApp {
       person: personView,
       self: person.id === this.meId(),
       statusPicker: this.statusOpen && person.id === this.meId(),
-      roles: this.profileRoles(person),
+      roles: roles.length ? roles : (sample ? sampleRoles() : []),
       placement: this.profileFull ? "full" : "modal",
       serverEditor: this.serverEditor && person.id === this.meId(),
       details: details ? {
@@ -12276,7 +12286,7 @@ class LarkApp {
         badges: (details.badges ?? []).map((badge) => ({ ...badge, description: this.maskText(badge.description) })),
         widgets: (details.widgets ?? []).map((widget) => ({ ...widget, name: this.maskText(widget.name) })),
         serverTag: details.serverTag ?? person.serverTag ?? null,
-      } : null,
+      } : sample,
     }, {
       onClose: () => {
         this.popout = null;
@@ -15415,11 +15425,13 @@ class LarkApp {
       }
     }
     const details = this.wireProfile?.id === person.id ? this.wireProfile : null;
+    const sample = this.demo && !details ? sampleProfile(person) : null;
+    const roles = this.profileRoles(person);
     renderProfileCard(panel, {
       person,
       self: false,
       statusPicker: false,
-      roles: this.profileRoles(person),
+      roles: roles.length ? roles : (sample ? sampleRoles() : []),
       placement: "panel",
       details: details ? {
         id: details.id,
@@ -15438,7 +15450,7 @@ class LarkApp {
         badges: details.badges ?? [],
         widgets: details.widgets ?? [],
         serverTag: details.serverTag ?? person.serverTag ?? null,
-      } : null,
+      } : sample,
     }, {
       onClose: () => {
         this.profilePanelOpen = false;
