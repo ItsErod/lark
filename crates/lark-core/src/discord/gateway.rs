@@ -362,6 +362,15 @@ pub enum GatewayCommand {
     StreamWatch { stream_key: String },
     /// Opcode 22.
     StreamSetPaused { stream_key: String, paused: bool },
+    /// Opcode 4 with camera video and an optional stage request-to-speak timestamp.
+    VoiceStateVideo {
+        guild_id: Option<String>,
+        channel_id: Option<String>,
+        mute: bool,
+        deaf: bool,
+        video: bool,
+        request_to_speak: Option<String>,
+    },
 }
 
 pub fn gateway_command_payload(command: &GatewayCommand) -> String {
@@ -416,6 +425,21 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
         GatewayCommand::CustomStatus { status, custom, emoji, expires_at } => {
             super::types::custom_status_payload(status, custom, emoji, *expires_at)
         }
+        GatewayCommand::VoiceStateVideo {
+            guild_id,
+            channel_id,
+            mute,
+            deaf,
+            video,
+            request_to_speak,
+        } => super::voice::main_voice_state_video(
+            guild_id.as_deref(),
+            channel_id.as_deref(),
+            *mute,
+            *deaf,
+            *video,
+            request_to_speak.as_deref(),
+        ),
     }
 }
 

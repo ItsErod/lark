@@ -487,9 +487,43 @@ pub fn main_voice_state(guild_id: Option<&str>, channel_id: Option<&str>, mute: 
     .to_string()
 }
 
+/// Voice state that also carries camera and a stage request-to-speak timestamp.
+/// `main_voice_state` stays the audio-only payload.
+pub fn main_voice_state_video(
+    guild_id: Option<&str>,
+    channel_id: Option<&str>,
+    mute: bool,
+    deaf: bool,
+    video: bool,
+    request_to_speak: Option<&str>,
+) -> String {
+    let mut data = serde_json::json!({
+        "guild_id": guild_id,
+        "channel_id": channel_id,
+        "self_mute": mute,
+        "self_deaf": deaf,
+        "self_video": video
+    });
+    if let Some(stamp) = request_to_speak {
+        data["request_to_speak_timestamp"] = serde_json::json!(stamp);
+    }
+    serde_json::json!({ "op": 4, "d": data }).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_voice_state_adds_the_camera_without_changing_the_audio_payload() {
+        let audio = main_voice_state(Some("1"), Some("2"), false, false);
+        assert!(audio.contains("\"self_mute\":false"));
+        assert!(!audio.contains("self_video"));
+        let video = main_voice_state_video(Some("1"), Some("2"), true, false, true, Some("2026-10-12T00:00:00.000Z"));
+        assert!(video.contains("\"self_video\":true"));
+        assert!(video.contains("request_to_speak_timestamp"));
+        assert!(video.contains("\"op\":4"));
+    }
 
     fn key() -> [u8; 32] {
         let mut key = [0u8; 32];

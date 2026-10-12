@@ -14,6 +14,7 @@ pub mod stream;
 pub mod stream_link;
 pub mod voice_link;
 pub mod voice_media;
+pub mod voice_camera;
 pub mod guild_admin;
 
 pub use gateway::{

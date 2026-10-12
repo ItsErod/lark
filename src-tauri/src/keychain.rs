@@ -69,6 +69,61 @@ pub fn load_token() -> Result<Option<String>, String> {
     }
 }
 
+/// Credential account for one saved Discord user. Never the active token slot.
+pub fn account_slot(user_id: &str) -> Result<String, String> {
+    let bytes = user_id.as_bytes();
+    if !(5..=22).contains(&bytes.len()) || !bytes.iter().all(|byte| byte.is_ascii_digit()) {
+        return Err("That account id is not a Discord user id.".into());
+    }
+    Ok(format!("discord-account-{user_id}"))
+}
+
+pub fn save_named(account: &str, secret: &str) -> Result<(), String> {
+    if !account.starts_with("discord-account-") {
+        return Err("Refusing to use that credential account.".into());
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        native_save_named(account, secret)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (account, secret);
+        Err(
+            "Lark stores the Discord token in the macOS Keychain or Windows Credential Manager. This operating system has no supported store, so the token was not saved."
+                .into(),
+        )
+    }
+}
+
+pub fn load_named(account: &str) -> Result<Option<String>, String> {
+    if !account.starts_with("discord-account-") {
+        return Err("Refusing to use that credential account.".into());
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        native_load_named(account)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Ok(None)
+    }
+}
+
+pub fn clear_named(account: &str) -> Result<(), String> {
+    if !account.starts_with("discord-account-") {
+        return Err("Refusing to use that credential account.".into());
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        native_clear_named(account)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Ok(())
+    }
+}
+
 pub fn clear_token() -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
@@ -173,8 +228,75 @@ fn decode_draft_key(encoded: &str) -> Result<[u8; 32], String> {
     Ok(key)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn named_entry(account: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICE, account).map_err(|err| store_error(&err))
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_save_named(account: &str, secret: &str) -> Result<(), String> {
+    named_entry(account)?
+        .set_password(secret)
+        .map_err(|err| store_error(&err))?;
+    let mut loaded = match named_entry(account)?.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => {
+            return Err(credential_unreadable_after_save_message(&store_label()));
+        }
+        Err(err) => {
+            return Err(format!(
+                "Couldn't read the token back after saving it. {}",
+                store_error(&err)
+            ));
+        }
+    };
+    let matches = loaded == secret;
+    loaded.zeroize();
+    if matches {
+        Ok(())
+    } else {
+        Err(credential_mismatch_after_save_message(&store_label()))
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_load_named(account: &str) -> Result<Option<String>, String> {
+    match named_entry(account)?.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(err) => Err(store_error(&err)),
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_clear_named(account: &str) -> Result<(), String> {
+    match named_entry(account)?.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(err) => Err(store_error(&err)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn account_slot_is_separate_from_the_active_token() {
+        assert_eq!(
+            super::account_slot("100000000000000002").as_deref(),
+            Ok("discord-account-100000000000000002")
+        );
+        assert!(super::account_slot("").is_err());
+        assert!(super::account_slot("abc").is_err());
+        assert!(super::account_slot("../token").is_err());
+        assert!(super::account_slot("100000000000000002")
+            .unwrap()
+            .starts_with("discord-account-"));
+        assert_ne!(
+            super::account_slot("100000000000000002").unwrap(),
+            "discord-user-token"
+        );
+    }
+
     #[test]
     fn draft_key_account_is_not_the_discord_token() {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
