@@ -11,6 +11,7 @@ type Entry = {
   durationMs: number | null;
   since: string | null;
   date: number;
+  notes?: string;
 };
 
 type History = {
@@ -24,22 +25,23 @@ type History = {
 };
 
 const api = new Function(
-  `${marked[1]}\nreturn { RELEASES_REFRESH_MS, formatDuration, buildVersionHistory, inProgressName };`,
+  `${marked[1]}\n  return { RELEASES_REFRESH_MS, formatDuration, buildVersionHistory, inProgressName, parseReleaseNotes };`,
 )() as {
   RELEASES_REFRESH_MS: number;
   formatDuration: (ms: number | null, live?: boolean) => string;
   inProgressName: (tags: string[]) => string;
   buildVersionHistory: (releases: Array<Record<string, unknown>>, now: number) => History;
+  parseReleaseNotes: (markdown: string) => { intro: string[]; sections: Array<{ kind: string; label: string; items: string[] }> } | null;
 };
 
-const { RELEASES_REFRESH_MS, formatDuration, buildVersionHistory, inProgressName } = api;
+const { RELEASES_REFRESH_MS, formatDuration, buildVersionHistory, inProgressName, parseReleaseNotes } = api;
 
 describe("version history", () => {
   it("refreshes visible pull requests once a minute and keeps the release list on a 10 minute cache", () => {
     expect(RELEASES_REFRESH_MS).toBe(10 * 60 * 1000);
     expect(html).toContain('const REFRESH_MS = 60000');
     expect(html).toContain("if (document.hidden && !manual) return;");
-    expect(html).toContain("lark30-version-history-v1");
+    expect(html).toContain("lark30-version-history-v2");
     expect(html).toContain("(Date.now() - savedReleases.fetchedAt) < RELEASES_REFRESH_MS");
     expect(html).toContain("https://api.github.com/repos/ItsErod/lark/releases?per_page=100");
   });
@@ -94,5 +96,37 @@ describe("version history", () => {
     expect(history.inProgress?.since).toBe("v3.0.0");
     expect(history.entries.some((entry) => entry.version === "v3.0.0" && entry.kind === "release")).toBe(true);
     expect(history.totalMs).toBe(now - Date.parse("2026-10-12T17:10:27Z"));
+  });
+
+  it("splits release notes into Added, Changed, Fixed, and Removed sections", () => {
+    const notes = parseReleaseNotes([
+      "Servers and settings land in 3.0.",
+      "",
+      "### ✨ Added",
+      "",
+      "- Server menus. ([#61](https://github.com/ItsErod/lark/pull/61))",
+      "",
+      "### 🔧 Changed",
+      "",
+      "- The README is shorter.",
+      "",
+      "### 🐛 Fixed",
+      "",
+      "- Settings can save.",
+      "",
+      "### 🗑️ Removed",
+      "",
+      "- The old screenshot scripts are gone.",
+    ].join("\n"));
+    expect(notes?.intro).toEqual(["Servers and settings land in 3.0."]);
+    expect(notes?.sections.map((section) => section.kind)).toEqual(["added", "changed", "fixed", "removed"]);
+    expect(notes?.sections.map((section) => section.label)).toEqual(["Added", "Changed", "Fixed", "Removed"]);
+    expect(notes?.sections[0].items[0]).toContain("[#61]");
+    expect(parseReleaseNotes("")).toBeNull();
+
+    const carried = buildVersionHistory([
+      { tag_name: "v2.4.5", published_at: "2026-10-12T17:10:27Z", body: "### 🐛 Fixed\n\n- Splash no longer sticks.\n" },
+    ], Date.parse("2026-10-12T18:00:00Z"));
+    expect(carried.entries[1].notes).toContain("Fixed");
   });
 });
