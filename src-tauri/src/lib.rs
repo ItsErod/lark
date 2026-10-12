@@ -6,10 +6,10 @@ mod login;
 mod overlay;
 mod paths;
 mod refresh;
+mod store;
 
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
@@ -107,6 +107,8 @@ struct SearchIn {
 pub fn run() {
     refresh::prepare_webview();
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -181,6 +183,13 @@ pub fn run() {
                 browser_stop: Mutex::new(None),
             };
             app.manage(shared);
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(err) = app.deep_link().register_all() {
+                    log::warn!("store link: {err}");
+                }
+            }
             overlay::sync_hotkeys(app.handle(), &overlay_voice, &overlay_perf, &overlay_game);
             if let Err(err) = install_clip_hotkey(app.handle(), &save_clip) {
                 log::warn!("clip hotkey: {err}");
@@ -245,6 +254,11 @@ pub fn run() {
             set_window_material,
             list_plugins,
             read_plugin,
+            store_index,
+            install_store_item,
+            uninstall_store_item,
+            installed_store,
+            open_store_page,
             join_voice,
             leave_voice,
             voice_diagnostics,
@@ -902,9 +916,7 @@ async fn typing(state: State<'_, Shared>, channel_id: String) -> Result<(), Stri
 
 #[tauri::command]
 fn read_theme(state: State<'_, Shared>, name: String) -> Result<String, String> {
-    lark_core::config::validate_theme_name(&name).map_err(|err| err.to_string())?;
-    let path = state.paths.themes_dir.join(format!("{name}.css"));
-    fs::read_to_string(path).map_err(|_| format!("Theme \"{name}\" was not found."))
+    store::read_verified_theme(&state.paths.themes_dir, &name)
 }
 
 #[tauri::command]
@@ -912,12 +924,18 @@ fn write_theme(state: State<'_, Shared>, name: String, css: String) -> Result<()
     lark_core::config::validate_theme_name(&name).map_err(|err| err.to_string())?;
     lark_core::config::validate_theme_css(&css).map_err(|err| err.to_string())?;
     let path = state.paths.themes_dir.join(format!("{name}.css"));
-    fs::write(path, css).map_err(|err| err.to_string())
+    fs::write(path, css).map_err(|err| err.to_string())?;
+    // A file the user imported is not a store download, so the store hash no longer applies.
+    let _ = fs::remove_file(state.paths.themes_dir.join(format!("{name}.json")));
+    Ok(())
 }
 
 #[tauri::command]
 fn list_themes(state: State<'_, Shared>) -> Vec<String> {
     list_stems(&state.paths.themes_dir, "css")
+        .into_iter()
+        .filter(|name| store::theme_readable(&state.paths.themes_dir, name))
+        .collect()
 }
 
 #[tauri::command]
@@ -971,26 +989,15 @@ fn native_effects() -> tauri::utils::config::WindowEffectsConfig {
 
 #[tauri::command]
 fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginInfo>, String> {
-    let mut on_disk = Vec::new();
-    let entries = fs::read_dir(&state.paths.plugins_dir).map_err(|err| err.to_string())?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("js") {
-            continue;
-        }
-        let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if lark_core::config::validate_theme_name(id).is_err() {
-            continue;
-        }
-        let (name, description) = plugin_header(&path, id);
-        on_disk.push(PluginInfo {
-            id: id.to_string(),
-            name,
-            description,
-        });
-    }
+    let mut on_disk: Vec<PluginInfo> = store::records(&state.paths.plugins_dir, &state.paths.themes_dir)
+        .into_iter()
+        .filter(|item| item.kind == "plugin")
+        .map(|item| PluginInfo {
+            id: item.id,
+            name: item.name,
+            description: item.description,
+        })
+        .collect();
     on_disk.sort_by(|a, b| a.id.cmp(&b.id));
     let order = manifest_order(&state.paths.plugins_dir.join("manifest.json"));
     if order.is_empty() {
@@ -1008,9 +1015,34 @@ fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginInfo>, String> {
 
 #[tauri::command]
 fn read_plugin(state: State<'_, Shared>, id: String) -> Result<String, String> {
-    lark_core::config::validate_theme_name(&id).map_err(|err| err.to_string())?;
-    let path = state.paths.plugins_dir.join(format!("{id}.js"));
-    fs::read_to_string(&path).map_err(|_| format!("Plugin \"{id}\" was not found."))
+    store::read_verified_plugin(&state.paths.plugins_dir, &id)
+}
+
+#[tauri::command]
+async fn store_index() -> Result<String, String> {
+    store::fetch_index().await
+}
+
+#[tauri::command]
+async fn install_store_item(state: State<'_, Shared>, id: String) -> Result<store::InstalledRecord, String> {
+    let plugins_dir = state.paths.plugins_dir.clone();
+    let themes_dir = state.paths.themes_dir.clone();
+    store::install(&plugins_dir, &themes_dir, &id).await
+}
+
+#[tauri::command]
+fn uninstall_store_item(state: State<'_, Shared>, id: String) -> Result<(), String> {
+    store::uninstall(&state.paths.plugins_dir, &state.paths.themes_dir, &id)
+}
+
+#[tauri::command]
+fn installed_store(state: State<'_, Shared>) -> Vec<store::InstalledRecord> {
+    store::records(&state.paths.plugins_dir, &state.paths.themes_dir)
+}
+
+#[tauri::command]
+fn open_store_page() -> Result<(), String> {
+    store::open_store_page()
 }
 
 #[derive(serde::Serialize)]
@@ -1018,34 +1050,6 @@ struct PluginInfo {
     id: String,
     name: String,
     description: String,
-}
-
-fn plugin_header(path: &std::path::Path, id: &str) -> (String, String) {
-    let mut name = id.to_string();
-    let mut description = String::new();
-    let Ok(mut file) = File::open(path) else {
-        return (name, description);
-    };
-    let mut buf = [0_u8; 1024];
-    let Ok(n) = file.read(&mut buf) else {
-        return (name, description);
-    };
-    let head = String::from_utf8_lossy(&buf[..n]);
-    for line in head.lines().take(12) {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("// @lark name:") {
-            let value = rest.trim();
-            if !value.is_empty() {
-                name = value.to_string();
-            }
-        } else if let Some(rest) = line.strip_prefix("// @lark description:") {
-            let value = rest.trim();
-            if !value.is_empty() {
-                description = value.to_string();
-            }
-        }
-    }
-    (name, description)
 }
 
 fn manifest_order(path: &std::path::Path) -> Vec<String> {
