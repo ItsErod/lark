@@ -1205,3 +1205,10 @@ button.guild-row:hover { background: var(--hover); }
 .voice-panel-timer {
   margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: var(--ok);
 }
+.message.is-deleted { opacity: 0.62; }
+.message.is-deleted .message-text,
+.message.is-deleted .compact-text,
+.message.is-deleted .irc-line { color: var(--faint); }
+.log-deleted { color: var(--faint); font-size: 12px; font-weight: 600; }
+.log-history { margin-top: 4px; display: grid; gap: 2px; color: var(--faint); font-size: 12px; }
+.log-history-label { font-weight: 600; }

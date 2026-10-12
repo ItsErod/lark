@@ -1,6 +1,15 @@
-# Lark media plugins
+# Lark plugins
 
-These plugins use the same pack as the others. They stay **off** until you turn them on in **Settings → Plugins**. They do not receive the token. The scripts in `plugins/` do not call the network.
+These plugins use the existing local plugin host. Each one stays **off** until you turn them on in **Settings → Plugins**, and each one has its own options there. A plugin never receives the token. The scripts in `plugins/` do not call the network.
+
+## Message logger
+
+Turn this on and Lark keeps a copy of edited and deleted messages on this device.
+
+- A deleted message stays in the channel, greyed out, with a Deleted label. It is not sent back to Discord.
+- An edited message keeps the earlier drafts under the current text.
+- **Show deleted messages** and **Show edit history** can be turned off without wiping the log. **Clear log** removes it.
+- The log stops at 200 messages, and each one keeps up to 8 earlier drafts.
 
 ## Call Timer
 
