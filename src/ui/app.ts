@@ -1,9 +1,9 @@
 import { channelIsBehind, firstUnreadId, mergeIncoming, outgoingNonce, sameOutgoing, sameReaction, shouldGroup, typingLine } from "../chat";
-import { outgoingError } from "../compose";
+import { composedError, spoilerUploadName } from "../compose";
 import { reportCrash } from "../crash";
 import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
-import { rememberEmoji, frecency, EMOJI, type EmojiUse } from "../emoji";
+import { bindEmojiLoader, expandShortcodes, rememberEmoji, frecency, EMOJI, setCustomEmojis, type EmojiUse } from "../emoji";
 import { applyMention, mentionHits, mentionQuery, plainPreview, type MentionHit } from "../mentions";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
 import {
@@ -52,6 +52,8 @@ import { holdRead as privacyHoldRead, obsDetected, panicPlan, publishActivity, r
 import { stripTrackingText, stripTrackingUrl } from "../pack/links";
 import type { HourCycle, TimeMode } from "../pack/time";
 import { typingLabel } from "../pack/typing-list";
+import { unseenChannels } from "../pack/unseen";
+import { openTarget, playerTrack } from "../pack/spotify";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -263,6 +265,7 @@ import {
   parseIdMap,
   serverContextItems,
   toggleId,
+  type MenuEntry,
   withMoveTargets,
 } from "../server-model";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
@@ -294,6 +297,58 @@ import { renderVoiceHud } from "./hud";
 import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
 import { renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
 import { bindLazyMedia, renderMessage } from "./messages";
+import {
+  APP_DIRECTORY_URL,
+  NITRO_URL,
+  armForward,
+  armStickers,
+  bindGifLoader,
+  bindSlashLoader,
+  bindSlashRunner,
+  clearForward,
+  clearStickers,
+  commandsFromPayload,
+  composerPanel,
+  ensureMessagingStyles,
+  filterLoadedMessages,
+  gifChoice,
+  gifHitsNow,
+  gifQueryText,
+  gifsFromPayload,
+  hasSearchCriteria,
+  interactionBody,
+  markUnreadPlan,
+  messageLink,
+  noteGifFocus,
+  openDiscordPage,
+  parseSearchQuery,
+  peekForward,
+  peekStickers,
+  pickQuickReactions,
+  readBlockedIds,
+  readDeveloperMode,
+  readRevealSpoilers,
+  readShowEmbeds,
+  renderComposerAccessories,
+  renderForwardPicker,
+  renderGifPicker,
+  renderStickerPicker,
+  requestCreatePoll,
+  requestCreateThread,
+  requestLaunchActivity,
+  resolveSearch,
+  scheduleGifLoad,
+  setComposerPanel,
+  setGifHits,
+  setGifQuery,
+  setSlashCommands,
+  setStickerHits,
+  stickerGuildNow,
+  stickerHitsNow,
+  takeGifFocus,
+  toggleComposerPanel,
+  type SlashCommand,
+} from "./composer-tools";
 import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
 import { renderProfileCard, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
@@ -368,6 +423,7 @@ interface LocalFile {
   url: string;
   clipName?: string;
   declaredBytes?: number;
+  spoiler?: boolean;
 }
 
 interface ClipAsk {
@@ -2544,7 +2600,7 @@ class LarkApp {
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
     const favs = (this.favorites[this.guildId ?? ""] ?? []).join(".");
     const timer = this.hookOn("callTimer") ? `${this.pack.callTimerFrom}:${this.pack.callTimerStyle}` : "";
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${bits.join(",")}`;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${this.hiddenStamp()}|${this.spotifyStamp()}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -2682,6 +2738,7 @@ class LarkApp {
         scroll.append(header);
         if (!collapsed) for (const channel of children) appendChannel(channel);
       }
+      this.appendHiddenChannels(scroll);
     }
     const me = this.demo ? people[0] : this.me;
     const profile = el("button", "profile-chip");
@@ -2702,8 +2759,9 @@ class LarkApp {
       this.openProfile(me, true);
     });
     const panel = this.voice ? this.voicePanel() : null;
-    if (panel) this.channelPane.append(head, scroll, panel, profile);
-    else this.channelPane.append(head, scroll, profile);
+    const player = this.spotifyPlayer();
+    const tail = [panel, player, profile].filter((node): node is HTMLElement => Boolean(node));
+    this.channelPane.append(head, scroll, ...tail);
     scroll.scrollTop = kept;
     this.bindSocialMenus();
     this.scheduleSocialChrome();
@@ -2931,6 +2989,61 @@ class LarkApp {
     return button;
   }
 
+  private hiddenStamp(): string {
+    if (!this.guildId || !this.hookOn("showHidden")) return "";
+    return unseenChannels(this.channelsOf(this.guildId), (channel) => this.canSeeChannel(this.guildId!, channel))
+      .map((channel) => `${channel.id}:${this.pack.hiddenTopics ? channel.topic ?? "" : ""}`)
+      .join(",");
+  }
+
+  private appendHiddenChannels(scroll: HTMLElement) {
+    if (!this.guildId || !this.hookOn("showHidden")) return;
+    const hidden = unseenChannels(this.channelsOf(this.guildId), (channel) => this.canSeeChannel(this.guildId!, channel));
+    if (!hidden.length) return;
+    scroll.append(el("div", "category", "Hidden"));
+    for (const channel of hidden) scroll.append(this.lockedChannelRow(channel));
+  }
+
+  private lockedChannelRow(channel: Channel): HTMLButtonElement {
+    const row = el("button", "channel-row is-locked");
+    row.type = "button";
+    row.title = "You can't view this channel";
+    row.append(el("span", "channel-lock", "🔒"));
+    const copy = el("span", "row-copy");
+    copy.append(el("span", "row-label", channel.name));
+    if (this.pack.hiddenTopics && channel.topic) copy.append(el("span", "dm-preview", channel.topic));
+    row.append(copy);
+    row.addEventListener("click", () => this.toast("Hidden channel", "You can't view this channel."));
+    return row;
+  }
+
+  private spotifyStamp(): string {
+    const track = this.currentSpotify();
+    return track ? `${track.title}:${track.artist}:${track.url}` : "";
+  }
+
+  private currentSpotify() {
+    if (!this.hookOn("spotify")) return null;
+    const me = this.demo ? people[0] : this.me;
+    const contents = this.pack.spotifyLinks && this.channelId ? (this.pages[this.channelId] ?? []).map((message) => message.content) : [];
+    return playerTrack(me.activity ?? "", contents, this.pack.spotifyPresence, this.pack.spotifyLinks);
+  }
+
+  private spotifyPlayer(): HTMLElement | null {
+    const track = this.currentSpotify();
+    if (!track) return null;
+    const panel = el("section", "spotify-player");
+    panel.setAttribute("aria-label", "Spotify");
+    panel.append(el("strong", "", this.maskText(track.title)));
+    if (track.artist) panel.append(el("span", "", this.maskText(track.artist)));
+    const open = el("a", "text-button", "Open");
+    open.href = openTarget(track);
+    open.target = "_blank";
+    open.rel = "noreferrer noopener";
+    panel.append(open);
+    return panel;
+  }
+
   private currentChannel(): Channel | undefined {
     const lists = this.demo ? Object.values(demoChannels) : Object.values(this.liveChannels);
     return [...this.visibleChannels(), ...this.dms(), ...lists.flat()].find((channel) => channel.id === this.channelId);
@@ -3155,6 +3268,7 @@ class LarkApp {
     search.addEventListener("click", () => this.openSwitcher());
     const find = el("button", "icon-button");
     find.type = "button";
+    find.title = "Search messages (from:, mentions:, has:, before:, after:, in:, pinned:)";
     find.setAttribute("aria-label", "Search messages");
     find.append(icon(paths.search));
     find.addEventListener("click", () => {
@@ -3569,6 +3683,7 @@ class LarkApp {
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
+      this.bindMessageMenu(node, message);
       parent.append(node);
       lastDay = day;
       previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
@@ -4117,30 +4232,140 @@ class LarkApp {
       this.paintScheduleBanner();
     }
     clear(this.composerMeta);
+    ensureMessagingStyles();
+    const emojiScope = `${this.guildId ?? ""}:${this.channelId ?? ""}`;
+    if (this.guildId) setCustomEmojis(this.guildEmojis[this.guildId] ?? []);
+    bindEmojiLoader(() => {
+      const apply = () => {
+        setCustomEmojis(this.guildId ? this.guildEmojis[this.guildId] ?? [] : []);
+        this.refreshSuggest();
+      };
+      if (this.guildId && !this.demo && !this.guildEmojis[this.guildId]) void this.ensureEmojis().then(apply);
+      else apply();
+    }, emojiScope);
+    bindSlashRunner((action) => {
+      if (action.op === "gif") {
+        setGifQuery(action.query);
+        setComposerPanel("gif");
+        scheduleGifLoad(action.query);
+        this.paintComposer();
+        return;
+      }
+      if (action.op === "send") {
+        if (!action.text) return;
+        this.composer.value = action.text;
+        void this.send();
+        return;
+      }
+      const channelId = this.channelId;
+      if (!channelId || this.demo) {
+        this.toast("Apps", this.demo ? "Demo mode doesn't run Discord apps." : "Open a channel first.");
+        return;
+      }
+      const body = interactionBody({
+        command: action.command,
+        channelId,
+        guildId: this.guildId,
+        args: action.args,
+        targetId: action.targetId,
+      });
+      if (!body) {
+        this.composer.value = `/${action.command.name} `;
+        this.composer.focus();
+        return;
+      }
+      void invoke("invoke_command", { payload: body }).then(() => {
+        this.toast("Apps", `/${action.command.name} sent.`);
+      }).catch((err) => {
+        this.toast("Apps", err instanceof Error ? err.message : "Discord refused the command.");
+      });
+    });
+    bindSlashLoader((query) => {
+      if (this.demo || !this.channelId) {
+        setSlashCommands([]);
+        return;
+      }
+      void invoke<unknown>("search_app_commands", {
+        guildId: this.guildId,
+        channelId: this.channelId,
+        query,
+        kind: 1,
+      }).then((payload) => {
+        setSlashCommands(commandsFromPayload(payload));
+        this.refreshSuggest();
+      }).catch(() => undefined);
+    }, emojiScope);
+    bindGifLoader((query) => {
+      if (this.demo) {
+        setGifHits([]);
+        return;
+      }
+      void invoke<unknown>("search_gifs", { query }).then((payload) => {
+        setGifHits(gifsFromPayload(payload));
+        if (composerPanel() === "gif") this.paintComposer();
+      }).catch(() => {
+        setGifHits([]);
+        if (composerPanel() === "gif") this.paintComposer();
+      });
+    });
     const tools = el("div", "composer-tools");
     const file = el("input");
     file.type = "file";
     file.multiple = true;
     file.hidden = true;
-    const attach = el("button", "icon-button");
-    attach.type = "button";
-    attach.setAttribute("aria-label", "Attach files");
-    attach.append(icon(paths.paperclip));
-    attach.addEventListener("click", () => file.click());
     file.addEventListener("change", () => {
       void this.takeFiles(file.files);
       file.value = "";
     });
-    const emoji = el("button", "icon-button", "☺");
-    emoji.type = "button";
-    emoji.setAttribute("aria-label", "Emoji");
-    emoji.addEventListener("click", () => {
-      this.pickerFor = this.pickerFor === "composer" ? null : "composer";
-      this.emojiQuery = "";
-      if (this.pickerFor) void this.ensureEmojis();
-      this.paintComposer();
-    });
-    tools.append(attach, file, emoji);
+    tools.append(renderComposerAccessories({
+      fileInput: file,
+      onUpload: () => file.click(),
+      onThread: () => {
+        if (!this.channelId || !requestCreateThread(this.channelId, null)) this.toast("Create Thread", "Threads aren't available yet.");
+      },
+      onPoll: () => {
+        if (!this.channelId || !requestCreatePoll(this.channelId)) this.toast("Create Poll", "Polls aren't available yet.");
+      },
+      onAppsLink: () => {
+        void openDiscordPage(APP_DIRECTORY_URL).then((ok) => {
+          if (!ok) this.toast("Use Apps", "Couldn't open the app directory.");
+        });
+      },
+      onGift: () => {
+        void openDiscordPage(NITRO_URL).then((ok) => {
+          if (!ok) this.toast("Gift", "Couldn't open Discord Nitro.");
+        });
+      },
+      onGif: () => {
+        toggleComposerPanel("gif");
+        if (composerPanel() === "gif") scheduleGifLoad(gifQueryText());
+        this.paintComposer();
+      },
+      onStickers: () => {
+        toggleComposerPanel("stickers");
+        const guildId = this.guildId;
+        if (composerPanel() === "stickers" && guildId && !this.demo && stickerGuildNow() !== guildId) {
+          void invoke<{ id: string; name: string; url?: string | null }[]>("fetch_stickers", { guildId }).then((list) => {
+            setStickerHits(guildId, list.map((item) => ({ id: item.id, name: item.name, url: item.url ?? null })));
+            if (composerPanel() === "stickers") this.paintComposer();
+          }).catch(() => {
+            setStickerHits(guildId, []);
+            if (composerPanel() === "stickers") this.paintComposer();
+          });
+        }
+        this.paintComposer();
+      },
+      onEmoji: () => {
+        this.pickerFor = this.pickerFor === "composer" ? null : "composer";
+        this.emojiQuery = "";
+        if (this.pickerFor) void this.ensureEmojis();
+        this.paintComposer();
+      },
+      onActivity: () => {
+        if (!requestLaunchActivity(this.channelId)) this.toast("Apps", "Activities open from a voice channel.");
+      },
+      onRepaint: () => this.paintComposer(),
+    }));
     const later = el("button", "text-button", "Later");
     later.type = "button";
     later.setAttribute("aria-label", "Send later");
@@ -4151,12 +4376,21 @@ class LarkApp {
     });
     tools.append(later);
     for (const item of this.files) {
-      const chip = el("button", "text-button", item.name);
-      chip.type = "button";
-      chip.addEventListener("click", () => {
+      const chip = el("span", "file-chip");
+      const name = el("button", "text-button", item.name);
+      name.type = "button";
+      name.addEventListener("click", () => {
         this.files = this.files.filter((candidate) => candidate !== item);
         this.paintComposer();
       });
+      const spoiler = el("button", item.spoiler ? "text-button file-spoiler is-on" : "text-button file-spoiler", "Spoiler");
+      spoiler.type = "button";
+      spoiler.setAttribute("aria-label", item.spoiler ? "Remove spoiler" : "Mark as spoiler");
+      spoiler.addEventListener("click", () => {
+        item.spoiler = !item.spoiler;
+        this.paintComposer();
+      });
+      chip.append(name, spoiler);
       tools.append(chip);
     }
     this.countEl = el("span", "count", `${[...this.composer.value].length} / 2000`);
@@ -4167,6 +4401,88 @@ class LarkApp {
       this.composerMeta.append(bar);
     }
     this.composerMeta.append(tools, hint, this.countEl);
+    if (composerPanel() === "gif") {
+      this.composerMeta.append(renderGifPicker({
+        query: gifQueryText(),
+        hits: gifHitsNow(),
+        onQuery: (query) => {
+          setGifQuery(query);
+          noteGifFocus();
+          scheduleGifLoad(query);
+        },
+        onPick: (hit, shift) => {
+          const choice = gifChoice(hit.url, shift);
+          if (!choice) return;
+          if (choice.mode === "insert") {
+            const caret = this.composer.selectionStart ?? this.composer.value.length;
+            this.composer.value = `${this.composer.value.slice(0, caret)}${choice.text}${this.composer.value.slice(caret)}`;
+          } else {
+            this.composer.value = choice.text;
+          }
+          setComposerPanel(null);
+          if (choice.mode === "send") void this.send();
+          else this.paintComposer();
+        },
+      }));
+      if (takeGifFocus()) {
+        const field = this.composerMeta.querySelector(".gif-picker input");
+        if (field instanceof HTMLInputElement) field.focus();
+      }
+    }
+    if (composerPanel() === "stickers") {
+      this.composerMeta.append(renderStickerPicker({
+        hits: stickerHitsNow(),
+        onPick: (id) => {
+          if (this.editing) {
+            this.toast("Stickers", "Finish editing before sending a sticker.");
+            return;
+          }
+          armStickers([id]);
+          setComposerPanel(null);
+          void this.send();
+        },
+      }));
+    }
+    const pendingForward = peekForward();
+    if (pendingForward) {
+      const channels = [...this.dms(), ...this.guilds().flatMap((guild) => this.channelsOf(guild.id))];
+      const seen = new Set<string>();
+      this.composerMeta.append(renderForwardPicker({
+        preview: this.maskText(pendingForward.preview || pendingForward.authorName),
+        channels: channels.filter((channel) => {
+          if (seen.has(channel.id)) return false;
+          seen.add(channel.id);
+          return true;
+        }).map((channel) => ({ id: channel.id, name: this.maskText(channel.name), kind: channel.kind })),
+        onCancel: () => {
+          clearForward();
+          this.paintComposer();
+        },
+        onPick: (dest) => {
+          const draft = peekForward();
+          clearForward();
+          this.paintComposer();
+          if (!draft) return;
+          if (this.demo) {
+            this.toast("Forward", "Demo mode keeps the message here.");
+            return;
+          }
+          void invoke("send_message", {
+            channelId: dest,
+            content: "",
+            replyTo: null,
+            nonce: null,
+            files: [],
+            stickerIds: [],
+            forward: { messageId: draft.messageId, channelId: draft.channelId, guildId: draft.guildId },
+          }).then(() => {
+            this.toast("Forwarded", "Message forwarded.");
+          }).catch((err) => {
+            this.toast("Couldn't forward", err instanceof Error ? err.message : "Discord refused the forward.");
+          });
+        },
+      }));
+    }
     if (this.pickerFor === "composer") {
       this.composerMeta.append(this.emojiPicker((glyph, emojiId, animated, name) => this.insertEmoji(glyph, emojiId, animated, name)));
     }
@@ -4200,8 +4516,9 @@ class LarkApp {
     if (!id) return;
     const ready = await this.prepareOutgoingFiles();
     if (!ready) return;
-    const content = this.cleanOutgoing(this.composer.value);
-    const error = outgoingError(content, this.files.length, this.files.reduce((sum, file) => sum + this.fileBytes(file), 0), uploadLimitBytes(this.premiumType));
+    const stickers = this.editing ? [] : peekStickers();
+    const content = this.cleanOutgoing(expandShortcodes(this.composer.value));
+    const error = composedError(content, this.files.length, this.files.reduce((sum, file) => sum + this.fileBytes(file), 0), stickers.length, uploadLimitBytes(this.premiumType));
     if (error) {
       this.toast("Can't send", error);
       return;
@@ -4254,11 +4571,15 @@ class LarkApp {
         kind: this.reply ? "reply" : "default",
         attachments: this.files.map((file, index) => ({
           id: `file-${index}`,
-          name: file.name,
+          name: spoilerUploadName(file.name, Boolean(file.spoiler)),
           url: file.url,
           contentType: file.mime,
           size: this.fileBytes(file),
         })),
+        stickers: stickers.map((stickerId) => {
+          const hit = stickerHitsNow().find((item) => item.id === stickerId);
+          return { id: stickerId, name: hit?.name ?? "Sticker", url: hit?.url ?? null };
+        }),
       };
       this.storeEcho(id, message);
       this.scroll = "bottom";
@@ -4271,7 +4592,8 @@ class LarkApp {
             content,
             replyTo: this.reply?.id ?? null,
             nonce: localId,
-            files: this.files.map((file) => ({ name: file.name, mime: file.mime, bytes: Array.from(file.bytes) })),
+            files: this.files.map((file) => ({ name: spoilerUploadName(file.name, Boolean(file.spoiler)), mime: file.mime, bytes: Array.from(file.bytes) })),
+            stickerIds: stickers,
           }));
           this.storeEcho(id, { ...sent, nonce: sent.nonce || localId });
           this.absorbMessage(sent);
@@ -4290,6 +4612,7 @@ class LarkApp {
       }
       this.reply = null;
     }
+    clearStickers();
     this.composer.value = "";
     if (id) delete this.drafts[id];
     void this.writeDrafts();
@@ -9544,14 +9867,14 @@ class LarkApp {
     clear(overlay);
     const card = el("div", "switcher-card");
     const input = el("input");
-    input.placeholder = this.guildId && !this.demo ? "Search this server" : "Search loaded messages";
+    input.placeholder = "Search — from: mentions: has: before: after: in: pinned:";
     input.setAttribute("aria-label", "Search messages");
     const results = el("div", "switcher-results");
     let timer = 0;
     const show = (hits: RawMessage[], note: string) => {
       clear(results);
-      if (!input.value.trim()) results.append(el("div", "empty", note));
-      else if (!hits.length) results.append(el("div", "empty", "No matches."));
+      if (!hits.length) results.append(el("div", "empty", note || "No matches."));
+      else if (note) results.append(el("div", "hint", note));
       for (const hit of hits) {
         const button = el("button", "switcher-hit");
         button.type = "button";
@@ -9566,19 +9889,39 @@ class LarkApp {
     };
     const render = () => {
       const query = input.value.trim();
+      const ctx = this.renderContext();
+      const resolved = resolveSearch(parseSearchQuery(query), { users: ctx.users, channels: ctx.channels, meId: this.meId() });
       const local = this.localSearch(query);
-      show(local, this.guildId && !this.demo ? "Searching Discord…" : "Type to search messages that are already loaded.");
-      if (!query || this.demo || !this.guildId) return;
+      const unmatched = resolved.unresolved.length ? `Couldn't match ${resolved.unresolved.join(", ")}.` : "";
+      const idle = "Filters: from:, mentions:, has:, before:, after:, in:, pinned:";
+      show(local, !query ? idle : unmatched);
+      if (!hasSearchCriteria(resolved) || this.demo) return;
+      const guildId = this.guildId;
+      const channelId = this.channelId;
+      if (!guildId && !channelId) return;
       window.clearTimeout(timer);
       const token = ++this.searchToken;
       timer = window.setTimeout(() => {
-        void invoke<RawMessage[]>("search_messages", { guildId: this.guildId, query }).then((messages) => {
+        void invoke<RawMessage[]>("search_filtered", {
+          guildId: guildId || null,
+          channelId: guildId ? null : channelId,
+          search: {
+            content: resolved.content,
+            authorIds: resolved.authorIds,
+            mentionIds: resolved.mentionIds,
+            has: resolved.has,
+            beforeId: resolved.beforeId,
+            afterId: resolved.afterId,
+            channelIds: resolved.channelIds,
+            pinned: resolved.pinned,
+          },
+        }).then((messages) => {
           if (token !== this.searchToken || !this.searchOpen) return;
           const hits = messages.map(normalizeMessage);
           for (const message of hits) this.absorbMessage(message);
-          show(hits, "");
+          show(hits, unmatched);
         }).catch(() => {
-          if (token === this.searchToken) show(local, "Discord search missed. Showing loaded messages.");
+          if (token === this.searchToken) show(local, unmatched || "Discord search missed. Showing loaded messages.");
         });
       }, 280);
     };
@@ -9599,10 +9942,11 @@ class LarkApp {
   }
 
   private localSearch(query: string): RawMessage[] {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return [];
+    const ctx = this.renderContext();
+    const resolved = resolveSearch(parseSearchQuery(query), { users: ctx.users, channels: ctx.channels, meId: this.meId() });
+    if (!hasSearchCriteria(resolved)) return [];
     const pools = this.demo ? Object.values(history).flat() : Object.values(this.pages).flat();
-    return pools.filter((message) => message.content.toLowerCase().includes(needle)).slice(0, 20);
+    return filterLoadedMessages(pools, resolved);
   }
 
   private paintPins() {
@@ -9640,7 +9984,8 @@ class LarkApp {
     }
   }
 
-  private pinRow(message: RawMessage): HTMLButtonElement {
+  private pinRow(message: RawMessage): HTMLElement {
+    const row = el("div", "pin-row");
     const button = el("button", "bookmark-row");
     button.type = "button";
     button.append(el("strong", "", this.maskText(message.authorName)), el("span", "", this.previewLine(message, 140)));
@@ -9649,7 +9994,16 @@ class LarkApp {
       this.paintPins();
       void this.jumpToMessage(message.channelId || this.channelId || "", message.id);
     });
-    return button;
+    const unpin = el("button", "text-button", "Unpin");
+    unpin.type = "button";
+    unpin.setAttribute("aria-label", "Unpin message");
+    unpin.addEventListener("click", (event) => {
+      event.stopPropagation();
+      message.pinned = true;
+      void this.pinMessage(message);
+    });
+    row.append(button, unpin);
+    return row;
   }
 
   private paintTheme() {
@@ -9871,18 +10225,160 @@ class LarkApp {
   }
 
   private messageChrome(message: RawMessage, view: ViewMessage) {
+    const roles = this.guildId ? this.rolesByGuild[this.guildId] ?? [] : [];
+    const member = [this.me, ...this.liveMembers].find((person) => person.id === message.authorId);
+    const roleIds = message.authorRoleIds?.length ? message.authorRoleIds : member?.roleIds;
+    const copy = (title: string, text: string) => {
+      const write = navigator.clipboard?.writeText(text);
+      if (!write) {
+        this.toast(title, "Couldn't copy that.");
+        return;
+      }
+      void write.then(() => this.toast(title, "Copied.")).catch(() => this.toast(title, "Couldn't copy that."));
+    };
     return {
       now: this.clock,
-      quickReactions: this.quickReactionEmoji(),
+      quickReactions: pickQuickReactions(this.quickReactionEmoji(), frecency(this.emojiUses, this.clock || Date.now()).map((item) => item.emoji.split(":")[0])),
       bookmarked: isBookmarked(this.pack.bookmarks, message.channelId, message.id),
       quiet: this.gameMode,
       reminded: Boolean(reminderFor(this.reminders, message.channelId, message.id)),
       translated: Boolean(this.translated[message.id]),
+      authorColor: roleColor(roleIds, roles) || member?.color || null,
+      blocked: readBlockedIds().has(message.authorId),
+      developerMode: readDeveloperMode(this.config),
+      pinned: Boolean(message.pinned),
+      showEmbeds: readShowEmbeds(this.config),
+      revealSpoilers: readRevealSpoilers(this.config),
       onBookmark: () => this.onBookmark(message),
       onRemind: () => this.beginReminder(message),
       onTranslate: view.effects.includes("translate") ? () => void this.onTranslate(message) : undefined,
       onHideAuthor: this.hookOn("hideUsers") ? () => this.onHideAuthor(message) : undefined,
+      onForward: () => {
+        armForward({
+          messageId: message.id,
+          channelId: message.channelId,
+          guildId: message.guildId ?? this.guildId,
+          authorName: message.authorName,
+          preview: plainPreview(message.content, this.renderContext(), 80),
+        });
+        this.paintComposer();
+      },
+      onCopyText: () => copy("Copy Text", message.content || ""),
+      onCopyLink: () => copy("Copy Message Link", messageLink(message.guildId ?? this.guildId, message.channelId, message.id)),
+      onSpeak: () => {
+        const text = (message.content || "").replace(/<a?:(\w+):\d+>/g, "$1").trim();
+        if (!text || typeof speechSynthesis === "undefined") {
+          this.toast("Speak Message", "Nothing to read aloud.");
+          return;
+        }
+        speechSynthesis.cancel();
+        speechSynthesis.speak(new SpeechSynthesisUtterance(text.slice(0, 500)));
+      },
+      onCopyId: () => copy("Copy Message ID", message.id),
+      onMarkUnread: () => {
+        const channelId = message.channelId;
+        const ids = (this.pages[channelId] ?? []).map((item) => item.id);
+        const plan = markUnreadPlan(ids, message.id);
+        this.divider[channelId] = message.id;
+        this.lastRead[channelId] = plan.ackId;
+        this.markers[channelId] = { lastMessageId: plan.ackId, mentionCount: this.markers[channelId]?.mentionCount ?? 0 };
+        this.localUnread[channelId] = plan.count;
+        this.unread[channelId] = plan.count;
+        this.msgSig = "";
+        this.paintMessages();
+        if (!this.demo && /^\d{5,22}$/.test(plan.ackId)) void invoke("ack_message", { channelId, messageId: plan.ackId }).catch(() => undefined);
+      },
+      onCreateThread: () => {
+        if (!requestCreateThread(message.channelId, message.id)) this.toast("Create Thread", "Threads aren't available yet.");
+      },
+      onShowPins: () => {
+        this.pinsOpen = true;
+        this.paintPins();
+      },
+      loadApps: async () => {
+        if (this.demo || !message.channelId) return [];
+        const payload = await invoke<unknown>("search_app_commands", {
+          guildId: message.guildId ?? this.guildId,
+          channelId: message.channelId,
+          query: "",
+          kind: 3,
+        });
+        return commandsFromPayload(payload).filter((command) => (command.type || 1) === 3);
+      },
+      onRunApp: (command: SlashCommand) => {
+        const body = interactionBody({
+          command,
+          channelId: message.channelId,
+          guildId: message.guildId ?? this.guildId,
+          args: "",
+          targetId: message.id,
+        });
+        if (!body || this.demo) {
+          this.toast("Apps", "That app command isn't available here.");
+          return;
+        }
+        void invoke("invoke_command", { payload: body }).catch((err) => {
+          this.toast("Apps", err instanceof Error ? err.message : "Discord refused the command.");
+        });
+      },
+      loadReactors: async (emoji: string, emojiId?: string | null) => {
+        if (this.demo) {
+          const reaction = message.reactions?.find((item) => item.emoji === emoji);
+          return reaction?.me ? [{ id: this.meId(), name: this.me.name || "You" }] : [];
+        }
+        return invoke<{ id: string; name: string }[]>("reaction_users", {
+          channelId: message.channelId,
+          messageId: message.id,
+          emoji,
+          emojiId: emojiId ?? null,
+        });
+      },
     };
+  }
+
+  private messageMenuItems(message: RawMessage): MenuEntry[] {
+    const items: MenuEntry[] = [];
+    if (this.hookOn("inlineTranslate")) items.push({ id: "translate", label: this.translated[message.id] ? "Show original" : "Translate" });
+    return items;
+  }
+
+  private bindMessageMenu(node: HTMLElement, message: RawMessage) {
+    const items = this.messageMenuItems(message);
+    if (!items.length) return;
+    node.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      this.showMenu(event.clientX, event.clientY, items, (id) => {
+        void this.onMessageMenu(message, id);
+      });
+    });
+  }
+
+  private async onMessageMenu(message: RawMessage, id: string) {
+    if (id === "translate") await this.onInlineTranslate(message);
+  }
+
+  private async onInlineTranslate(message: RawMessage) {
+    if (this.translated[message.id]) {
+      delete this.translated[message.id];
+      this.msgSig = "";
+      this.paintMessages();
+      return;
+    }
+    const { translateInline } = await import("../pack/inline-translate");
+    const result = await translateInline({
+      text: message.content,
+      source: this.pack.inlineSource,
+      target: this.pack.inlineLang,
+      glossary: this.pack.glossary,
+      prefer: this.pack.inlinePrefer,
+    });
+    if (result.via === "original") {
+      this.toast("Translate", "No translation for that line.");
+      return;
+    }
+    this.translated[message.id] = result.text;
+    this.msgSig = "";
+    this.paintMessages();
   }
 
   private messageExtras(message: RawMessage): { log?: { deleted: boolean; history: string[] } } {
@@ -10176,6 +10672,52 @@ class LarkApp {
         this.paintChannels();
       }));
       card.append(el("p", "hint", "A row says typing while someone is typing there. Hover the label for the names. Silent typing, above, stops your own indicator."));
+      wrap.append(card);
+    } else if (id === "inline-translate") {
+      const card = el("div", "plugin-card");
+      const langs = ["en", "es", "fr", "de", "ja"];
+      const labels = { en: "English", es: "Spanish", fr: "French", de: "German", ja: "Japanese" };
+      card.append(el("div", "hint", "Translate into"));
+      card.append(this.choice(langs, this.pack.inlineLang, (value) => {
+        this.pack.inlineLang = value as PackState["inlineLang"];
+        this.translated = {};
+        this.savePack();
+        this.msgSig = "";
+      }, labels));
+      card.append(el("div", "hint", "Source language"));
+      card.append(this.choice(langs, this.pack.inlineSource, (value) => {
+        this.pack.inlineSource = value as PackState["inlineSource"];
+        this.savePack();
+      }, labels));
+      card.append(el("div", "hint", "Prefer"));
+      card.append(this.choice(["remote", "local"], this.pack.inlinePrefer, (value) => {
+        this.pack.inlinePrefer = value as PackState["inlinePrefer"];
+        this.savePack();
+      }, { remote: "Free endpoint", local: "Phrase book" }));
+      card.append(el("p", "hint", "Right-click a message. The free endpoint is tried first unless you prefer the phrase book. No key is stored."));
+      wrap.append(card);
+    } else if (id === "show-hidden") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Show topics", this.pack.hiddenTopics, (value) => {
+        this.pack.hiddenTopics = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(el("p", "hint", "Locked channels stay in the list. Opening one is refused, and nothing is fetched from them."));
+      wrap.append(card);
+    } else if (id === "spotify-controls") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Listening status", this.pack.spotifyPresence, (value) => {
+        this.pack.spotifyPresence = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(this.toggle("Spotify links", this.pack.spotifyLinks, (value) => {
+        this.pack.spotifyLinks = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(el("p", "hint", "The player uses the listening line already on a profile, plus Spotify links in the open channel. No login and no key."));
       wrap.append(card);
     }
   }
@@ -10705,16 +11247,23 @@ class LarkApp {
   }
 
   private async pinMessage(message: RawMessage) {
+    const unpin = Boolean(message.pinned);
     if (this.demo) {
-      this.toast("Pinned", "Demo pins stay in the sample data.");
+      this.toast(unpin ? "Unpinned" : "Pinned", "Demo pins stay in the sample data.");
       return;
     }
     try {
-      await invoke("pin_message", { channelId: message.channelId, messageId: message.id });
+      await invoke(unpin ? "unpin_message" : "pin_message", { channelId: message.channelId, messageId: message.id });
+      message.pinned = !unpin;
+      const stored = (this.pages[message.channelId] ?? []).find((item) => item.id === message.id);
+      if (stored) stored.pinned = message.pinned;
       delete this.pinCache[message.channelId];
-      this.toast("Pinned", "Message pinned.");
+      this.msgSig = "";
+      this.toast(unpin ? "Unpinned" : "Pinned", unpin ? "Message unpinned." : "Message pinned.");
+      if (this.pinsOpen) this.paintPins();
+      this.paintMessages();
     } catch (err) {
-      this.toast("Couldn't pin", err instanceof Error ? err.message : "Discord refused the pin.");
+      this.toast(unpin ? "Couldn't unpin" : "Couldn't pin", err instanceof Error ? err.message : "Discord refused the pin.");
     }
   }
 

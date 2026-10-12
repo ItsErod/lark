@@ -1,7 +1,7 @@
 import { keywordHits } from "../keywords";
 import { applyPlugins, describePlugin, type PluginApplyContext, type PluginSource } from "../plugins";
 import type { RawEmbed, RawMessage } from "../types";
-import { attachmentKind, attachmentMediaUrl, parseContent, safeMediaUrl, type Block, type RenderContext } from "./content";
+import { attachmentKind, attachmentMediaUrl, displayFileName, isSpoilerFile, parseContent, safeMediaUrl, type Block, type RenderContext } from "./content";
 
 export interface ViewAttachment {
   id: string;
@@ -11,6 +11,7 @@ export interface ViewAttachment {
   bytes: number;
   width?: number;
   height?: number;
+  spoiler: boolean;
 }
 
 export interface ViewEmbed {
@@ -64,6 +65,10 @@ export interface ViewMessage {
   stickers: { name: string; url: string | null }[];
   thread: { id: string; name: string; count: number } | null;
   effects: string[];
+  messageType: number;
+  callEnded: string | null;
+  forwarded: { id: string; authorName: string; preview: string } | null;
+  pinned: boolean;
 }
 
 export function buildViewMessage(
@@ -126,6 +131,10 @@ export function buildViewMessage(
     stickers: (raw.stickers ?? []).map((sticker) => ({ name: sticker.name, url: sticker.url ? safeMediaUrl(sticker.url) : null })),
     thread: raw.thread ?? null,
     effects: transformed.effects,
+    messageType: raw.messageType ?? (raw.kind === "join" ? 7 : 0),
+    callEnded: raw.callEnded ?? null,
+    forwarded: raw.forwarded ?? null,
+    pinned: Boolean(raw.pinned),
   };
 }
 
@@ -134,12 +143,13 @@ function toAttachment(att: NonNullable<RawMessage["attachments"]>[number]): View
   const url = attachmentMediaUrl(att.url, att.proxyUrl);
   return {
     id: att.id,
-    name: att.name,
+    name: displayFileName(att.name),
     url,
     kind: url ? kind : "file",
     bytes: att.size ?? 0,
     width: att.width,
     height: att.height,
+    spoiler: isSpoilerFile(att.name),
   };
 }
 
