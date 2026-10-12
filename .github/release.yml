@@ -1,0 +1,35 @@
+# Section order is the match priority: the first matching label wins.
+# The release-notes script still prints sections as Added, Changed, Fixed,
+# Removed, Performance, then Security, and it drops any section with no items.
+# A pull request labeled `release` or `ignore-for-release` is left out.
+changelog:
+  exclude:
+    labels:
+      - release
+      - ignore-for-release
+  categories:
+    - title: "🔒 Security"
+      labels:
+        - security
+    - title: "⚡ Performance"
+      labels:
+        - performance
+    - title: "🗑️ Removed"
+      labels:
+        - removal
+        - removed
+    - title: "🐛 Fixed"
+      labels:
+        - bug
+        - fix
+    - title: "✨ Added"
+      labels:
+        - enhancement
+        - feature
+    - title: "🔧 Changed"
+      labels:
+        - change
+        - documentation
+    - title: "🔧 Changed"
+      labels:
+        - "*"

@@ -13,7 +13,8 @@ on:
         default: ""
 
 # Fork pull requests must not receive write access or repository secrets.
-# The release job below opts into contents: write for tags and manual runs only.
+# Release notes and installer jobs opt into contents: write, and only on tags
+# and manual runs. Pull requests keep the read-only default.
 permissions:
   contents: read
 
@@ -27,6 +28,79 @@ env:
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
+  release-notes:
+    name: Release notes
+    # Runs in parallel with tests. The installer job waits for both.
+    # A notes failure falls back to the static installer blurb so the
+    # build job still publishes.
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      body: ${{ steps.notes.outputs.body || steps.fallback.outputs.body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate release notes
+        id: notes
+        continue-on-error: true
+        env:
+          LARK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/release-notes.mjs --github-output
+      - name: Fall back to the installer blurb
+        id: fallback
+        if: steps.notes.outcome != 'success' || steps.notes.outputs.body == ''
+        run: |
+          delimiter="LARK_FALLBACK_$(uuidgen | tr -d '-')"
+          {
+            echo "body<<${delimiter}"
+            echo "Unsigned installers for this tag."
+            echo ""
+            echo "- macOS: universal build (Apple Silicon and Intel), \`.dmg\`"
+            echo "- Windows: \`.msi\` and \`.exe\`"
+            echo ""
+            echo "On first launch, macOS users should right-click the app and choose Open."
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Prepend the notes to CHANGELOG.md
+        if: steps.notes.outcome == 'success' && steps.notes.outputs.body != ''
+        continue-on-error: true
+        env:
+          LARK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$LARK_TAG" | grep -Eq '^v[0-9]+(\.[0-9]+)*$'
+          test -s /tmp/lark-release-notes.md
+          git fetch origin main
+          git worktree add --detach /tmp/lark-changelog origin/main
+          node .github/scripts/release-notes.mjs --prepend /tmp/lark-changelog/CHANGELOG.md \
+            --notes /tmp/lark-release-notes.md \
+            --date "$(git log -1 --format=%cs "$LARK_TAG")"
+          git -C /tmp/lark-changelog add CHANGELOG.md
+          if git -C /tmp/lark-changelog diff --cached --quiet; then
+            echo "CHANGELOG.md already includes ${LARK_TAG}"
+            exit 0
+          fi
+          git -C /tmp/lark-changelog \
+            -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Add ${LARK_TAG} to the changelog."
+          git -C /tmp/lark-changelog pull --rebase origin main
+          git -C /tmp/lark-changelog push origin HEAD:main
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -56,11 +130,17 @@ jobs:
         run: cargo check -p lark
 
   build:
-    needs: test
+    needs: [test, release-notes]
     # Installer builds are the expensive jobs (macOS minutes in particular).
     # Pull requests only run the test job. Publishing stays on version tags
     # and on a manual run, which only maintainers can start.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    # release-notes is skipped on those pull requests; a skipped notes job
+    # must not skip this job when a tag or a manual run really is publishing.
+    if: >-
+      !cancelled() &&
+      needs.test.result == 'success' &&
+      (needs.release-notes.result == 'success' || needs.release-notes.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')))
     permissions:
       contents: write
     strategy:
@@ -127,13 +207,7 @@ jobs:
           tauriScript: npx tauri
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           releaseName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
-          releaseBody: |
-            Unsigned installers for this tag.
-
-            - macOS: universal build (Apple Silicon and Intel), `.dmg`
-            - Windows: `.msi` and `.exe`
-
-            On first launch, macOS users should right-click the app and choose Open.
+          releaseBody: ${{ needs.release-notes.outputs.body || 'Unsigned installers for this tag.' }}
           releaseDraft: false
           prerelease: false
           retryAttempts: 3
