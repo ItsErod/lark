@@ -185,19 +185,6 @@ pub fn run() {
                 browser_stop: Mutex::new(None),
             };
             app.manage(shared);
-            #[cfg(any(windows, target_os = "linux"))]
-            {
-                use tauri_plugin_deep_link::DeepLinkExt;
-                if let Err(err) = app.deep_link().register_all() {
-                    log::warn!("store link: {err}");
-                }
-            }
-            overlay::sync_hotkeys(app.handle(), &overlay_voice, &overlay_perf, &overlay_game);
-            if let Err(err) = install_clip_hotkey(app.handle(), &save_clip) {
-                log::warn!("clip hotkey: {err}");
-            }
-            let sound_clips = app.state::<Shared>().config.blocking_lock().soundboard.clips.clone();
-            sync_sound_hotkeys(app.handle(), &sound_clips);
             if let Some(window) = app.get_webview_window("main") {
                 refresh::prefer_native_refresh(&window);
                 let hide = hide_on_close.clone();
@@ -211,10 +198,30 @@ pub fn run() {
                     }
                 });
             }
-            install_tray(app.handle());
-            let handle = app.handle().clone();
+            let deferred = app.handle().clone();
+            let watcher = deferred.clone();
+            let clip_shortcut = save_clip.clone();
+            let voice_shortcut = overlay_voice.clone();
+            let perf_shortcut = overlay_perf.clone();
+            let game_shortcut = overlay_game.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(err) = install_watcher(handle).await {
+                let _ = deferred.run_on_main_thread(move || {
+                    #[cfg(any(windows, target_os = "linux"))]
+                    {
+                        use tauri_plugin_deep_link::DeepLinkExt;
+                        if let Err(err) = deferred.deep_link().register_all() {
+                            log::warn!("store link: {err}");
+                        }
+                    }
+                    overlay::sync_hotkeys(&deferred, &voice_shortcut, &perf_shortcut, &game_shortcut);
+                    if let Err(err) = install_clip_hotkey(&deferred, &clip_shortcut) {
+                        log::warn!("clip hotkey: {err}");
+                    }
+                    let sound_clips = deferred.state::<Shared>().config.blocking_lock().soundboard.clips.clone();
+                    sync_sound_hotkeys(&deferred, &sound_clips);
+                    install_tray(&deferred);
+                });
+                if let Err(err) = install_watcher(watcher).await {
                     log::warn!("config watcher: {err}");
                 }
             });
