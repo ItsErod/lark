@@ -95,6 +95,17 @@ describe("message view", () => {
       "function onMessage(message){ message.authorId = 'other'; return message }",
       "spoof",
     );
+    const spoiler = buildViewMessage(raw({
+      attachments: [{ id: "s", name: "SPOILER_secret.png", url: "https://cdn.discordapp.com/attachments/1/secret.png", contentType: "image/png", size: 10 }],
+      messageType: 3,
+      callEnded: "2026-10-06T12:05:00.000Z",
+      forwarded: { id: "9", authorName: "Jonah", preview: "earlier" },
+      pinned: true,
+    }), ctx, []);
+    expect(spoiler?.attachments[0]).toMatchObject({ name: "secret.png", spoiler: true });
+    expect(spoiler?.messageType).toBe(3);
+    expect(spoiler?.forwarded?.preview).toBe("earlier");
+    expect(spoiler?.pinned).toBe(true);
     expect(buildViewMessage(raw({ authorId: "7" }), ctx, [spoof])?.authorId).toBe("7");
     const throwing = describePlugin("function onMessage() { throw new Error('nope'); }", "boom");
     expect(buildViewMessage(raw({ content: "still here" }), ctx, [throwing])?.raw).toBe("still here");

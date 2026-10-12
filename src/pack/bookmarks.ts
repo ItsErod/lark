@@ -17,3 +17,8 @@ export function toggleBookmark(list: readonly Bookmark[], item: Bookmark): Bookm
 export function isBookmarked(list: readonly Bookmark[], channelId: string, messageId: string): boolean {
   return list.some((entry) => entry.channelId === channelId && entry.messageId === messageId);
 }
+
+/** Label for the message menu. The saved list itself stays local. */
+export function bookmarkMenuLabel(bookmarked: boolean): string {
+  return bookmarked ? "Remove Bookmark" : "Bookmark Message";
+}

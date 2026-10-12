@@ -236,6 +236,14 @@ export interface RawMessage {
   kind?: "default" | "reply" | "join" | "system";
   stickers?: { id?: string; name: string; url?: string | null }[];
   thread?: { id: string; name: string; count: number } | null;
+  /** Discord message type. 0 is a normal message. */
+  messageType?: number;
+  pinned?: boolean;
+  authorRoleIds?: string[];
+  /** ISO timestamp from a call's `ended_timestamp`, when the message is a call. */
+  callEnded?: string | null;
+  forwarded?: { id: string; authorName: string; preview: string } | null;
+  poll?: unknown;
 }
 
 export interface Person {
