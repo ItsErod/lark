@@ -31,3 +31,11 @@ Right-click someone in voice and the volume slider can go past 200%.
 - Turning the plugin off sends playback at 200% again. A higher level you already set is kept for the next time you turn it on.
 
 The extra gain is only applied to that person's playback on this computer.
+
+## Better timestamps
+
+The clock under each message can read as `3m ago` or as a clock time.
+
+- **Relative** and **Absolute** switch the label. Hover or focus the time for the full local date, including seconds.
+- **12-hour** and **24-hour** choose the clock. The hover date uses the same choice.
+- The relative label refreshes about twice a minute.

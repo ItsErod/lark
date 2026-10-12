@@ -104,6 +104,11 @@
       "id": "message-logger",
       "name": "Message logger",
       "description": "Keep deleted and edited messages on this device. Deleted lines stay, greyed out, with the earlier text."
+    },
+    {
+      "id": "better-timestamps",
+      "name": "Better timestamps",
+      "description": "Absolute or relative time, with a 12-hour or 24-hour clock. Hover the time for the full date."
     }
   ]
 }

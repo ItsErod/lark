@@ -48,6 +48,7 @@ import { boostedPlayback, volumeCeiling } from "../media/volume";
 import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
+import type { HourCycle, TimeMode } from "../pack/time";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -3541,6 +3542,7 @@ class LarkApp {
         },
         ...this.messageChrome(message, shown),
         ...this.messageExtras(message),
+        clock: this.timeClock(),
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
@@ -3585,7 +3587,7 @@ class LarkApp {
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
     if (id && this.hookOn("messageLog") && this.pack.logDeleted) list = overlayDeletes(list, this.pack.messageLog, id);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.relativeClock() ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.pack.timeMode}:${this.pack.timeHours}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -9428,6 +9430,7 @@ class LarkApp {
           },
           ...this.messageChrome(message, shown),
           ...this.messageExtras(message),
+          clock: this.timeClock(),
         }));
       }
     }
@@ -9743,6 +9746,15 @@ class LarkApp {
     return view ? { log: view } : {};
   }
 
+  private timeClock(): { mode: TimeMode; hours: HourCycle } | undefined {
+    if (!this.hookOn("betterTime")) return undefined;
+    return { mode: this.pack.timeMode, hours: this.pack.timeHours };
+  }
+
+  private relativeClock(): boolean {
+    return this.hookOn("relativeTime") || (this.hookOn("betterTime") && this.pack.timeMode === "relative");
+  }
+
   private logStamp(): string {
     if (!this.hookOn("messageLog")) return "";
     return this.pack.messageLog.map((entry) => `${entry.id}:${entry.deleted ? 1 : 0}:${entry.edits.length}`).join(".");
@@ -9973,6 +9985,24 @@ class LarkApp {
         this.renderSettings();
       });
       card.append(clearLog, el("p", "hint", this.pack.messageLog.length ? `${this.pack.messageLog.length} saved on this device. Nothing is sent back to Discord.` : "Deleted and edited messages stay on this device."));
+      wrap.append(card);
+    } else if (id === "better-timestamps") {
+      const card = el("div", "plugin-card");
+      card.append(el("div", "hint", "Label"));
+      card.append(this.choice(["relative", "absolute"], this.pack.timeMode, (value) => {
+        this.pack.timeMode = value as PackState["timeMode"];
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      }));
+      card.append(el("div", "hint", "Clock"));
+      card.append(this.choice(["12", "24"], this.pack.timeHours, (value) => {
+        this.pack.timeHours = value as PackState["timeHours"];
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      }, { "12": "12-hour", "24": "24-hour" }));
+      card.append(el("p", "hint", "Hover a time for the full date. Relative labels refresh about twice a minute."));
       wrap.append(card);
     }
   }
@@ -10535,7 +10565,7 @@ class LarkApp {
   }
 
   private tickClock() {
-    if (!this.hookOn("relativeTime") || this.view !== "app") return;
+    if (!this.relativeClock() || this.view !== "app") return;
     this.clock = Date.now();
     this.msgSig = "";
     this.paintMessages();
