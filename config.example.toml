@@ -33,6 +33,8 @@ toggle_perf_overlay = "mod+shift+p"
 toggle_game_mode = "mod+shift+g"
 # Global on macOS and Windows. Needs a modifier (or a function key). Writes a local clip; it does not upload.
 save_clip = "mod+shift+c"
+# Open or close the call grid. Esc returns to the text channel.
+toggle_call = "mod+shift+v"
 
 [notifications]
 default = "all"                # all | mentions | mute

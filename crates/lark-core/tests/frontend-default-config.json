@@ -1,0 +1,72 @@
+{
+  "appearance": {
+    "theme": "discord",
+    "density": "cozy",
+    "font_family": "inter",
+    "font_size": 16,
+    "channel_list": "left",
+    "show_member_list": true,
+    "show_server_rail": true
+  },
+  "shortcuts": {
+    "quick_switcher": "mod+k",
+    "open_settings": "mod+comma",
+    "toggle_members": "mod+shift+m",
+    "toggle_channels": "mod+b",
+    "focus_composer": "mod+l",
+    "next_unread": "alt+shift+down",
+    "previous_channel": "alt+up",
+    "next_channel": "alt+down",
+    "edit_last": "arrowup",
+    "toggle_mute": "mod+shift+alt+m",
+    "toggle_deafen": "mod+shift+d",
+    "push_to_talk": "backquote",
+    "toggle_voice_overlay": "mod+shift+o",
+    "toggle_perf_overlay": "mod+shift+p",
+    "toggle_game_mode": "mod+shift+g",
+    "save_clip": "mod+shift+c",
+    "toggle_call": "mod+shift+v"
+  },
+  "notifications": {
+    "default": "all",
+    "guilds": {
+      "100000000000000011": { "level": "mentions" }
+    },
+    "channels": {
+      "100000000000000025": { "muted": true }
+    },
+    "keywords": ["wordmark"]
+  },
+  "plugins": { "enabled": ["highlight-mentions", "code-badge"] },
+  "voice": {
+    "mode": "vad",
+    "sensitivity": 45,
+    "noise_suppression": true,
+    "input_device": "",
+    "output_device": "",
+    "video_device": "",
+    "overlay": false,
+    "overlay_opacity": 70,
+    "overlay_click_through": true,
+    "speak_color": "#23a559",
+    "levels": {},
+    "share_resolution": "1080",
+    "share_fps": 30,
+    "share_app_audio": true,
+    "share_encoder": "auto"
+  },
+  "soundboard": { "clips": [] },
+  "desktop": {
+    "minimize_to_tray": true,
+    "autostart": false,
+    "frame_cap": 240,
+    "hardware_status": false,
+    "perf_overlay": false,
+    "detect_games": true,
+    "game_mode": false
+  },
+  "clips": { "game_capture": false, "compress": "ask", "fps": 60, "resolution": 1440 },
+  "games": {},
+  "privacy": { "streamer": false, "streamer_auto": false },
+  "accents": {}
+}

@@ -21,7 +21,7 @@ pub mod secretbox;
 pub mod soundboard;
 pub mod token;
 
-pub use config::{global_accelerator, parse_config, Config, ConfigError};
+pub use config::{global_accelerator, parse_config, prepare_saved_config, Config, ConfigError};
 #[cfg(windows)]
 pub use host_win::{open_folder, reveal_file, set_run_at_login};
 pub use platform::{
