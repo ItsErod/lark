@@ -168,6 +168,9 @@ pub struct DiscordMessage {
     pub call: Option<DiscordCall>,
     #[serde(default)]
     pub message_snapshots: Vec<DiscordSnapshot>,
+    /// Discord poll object. Kept raw so the client mapper can read answer counts.
+    #[serde(default)]
+    pub poll: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -562,6 +565,8 @@ pub struct ClientMessage {
     pub call_ended: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forwarded: Option<ClientReply>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll: Option<ClientPoll>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1080,6 +1085,13 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
             count: thread.message_count,
         }),
         nonce: message.nonce.clone().filter(|nonce| !nonce.is_empty()),
+        poll: message.poll.as_ref().and_then(|poll| {
+            poll_from_message(&serde_json::json!({
+                "id": message.id,
+                "channel_id": message.channel_id,
+                "poll": poll,
+            }))
+        }),
     }
 }
 
@@ -3555,7 +3567,37 @@ mod messaging_fields {
         assert_eq!(client.call_ended.as_deref(), Some("2026-10-06T12:05:00.000Z"));
         assert!(client.reply.is_none());
         assert_eq!(client.forwarded.as_ref().unwrap().preview, "earlier");
+        assert!(client.poll.is_none());
         assert!(validate_composed("", 0, 0, 10_000, 1).is_ok());
         assert!(validate_composed("", 0, 0, 10_000, 0).is_err());
+    }
+
+    #[test]
+    fn poll_messages_keep_the_poll_on_the_client_message() {
+        let raw = r#"{
+            "id": "100000000000000300",
+            "channel_id": "100000000000000022",
+            "content": "",
+            "timestamp": "2026-10-12T18:00:00.000Z",
+            "author": {"id": "7", "username": "maya"},
+            "poll": {
+                "question": { "text": "Lunch?" },
+                "expiry": "2026-10-13T18:00:00.000Z",
+                "allow_multiselect": false,
+                "layout_type": 1,
+                "answers": [
+                    { "answer_id": 1, "poll_media": { "text": "Yes" } },
+                    { "answer_id": 2, "poll_media": { "text": "No" } }
+                ],
+                "results": { "is_finalized": false, "answer_counts": [{ "id": 1, "count": 2, "me_voted": true }] }
+            }
+        }"#;
+        let client = message_to_client(&serde_json::from_str(raw).unwrap());
+        let poll = client.poll.expect("poll");
+        assert_eq!(poll.question, "Lunch?");
+        assert_eq!(poll.message_id, "100000000000000300");
+        assert_eq!(poll.answers[0].count, 2);
+        assert!(poll.answers[0].me_voted);
+        assert_eq!(poll.expiry.as_deref(), Some("2026-10-13T18:00:00.000Z"));
     }
 }
