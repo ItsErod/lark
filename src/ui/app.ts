@@ -56,6 +56,9 @@ import type { HourCycle, TimeMode } from "../pack/time";
 import { typingLabel } from "../pack/typing-list";
 import { unseenChannels } from "../pack/unseen";
 import { openTarget, playerTrack } from "../pack/spotify";
+import { messageMarkdown } from "../pack/markdown";
+import { addTemplate, insertTemplate, removeTemplate } from "../pack/replies";
+import { nextZoom } from "../pack/zoom";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -482,6 +485,7 @@ class LarkApp {
   private narrow = false;
   private drawer = false;
   private lightbox: string | null = null;
+  private lightboxZoom = 1;
   private catalog: PluginCatalogItem[] = [];
   private loaded = new Map<string, PluginSource>();
   private pack: PackState = defaultPack();
@@ -3773,10 +3777,7 @@ class LarkApp {
           }
           this.toggleReaction(message, emoji, emojiId);
         },
-        onImage: (url) => {
-          this.lightbox = url;
-          this.paintLightbox();
-        },
+        onImage: (url) => this.openImage(url),
         ...this.messageChrome(message, shown),
         ...this.messageExtras(message),
         clock: this.timeClock(),
@@ -4475,6 +4476,7 @@ class LarkApp {
       this.paintComposer();
     });
     tools.append(later);
+    if (this.hookOn("quickReply")) tools.append(this.repliesButton());
     for (const item of this.files) {
       const chip = el("span", "file-chip");
       const name = el("button", "text-button", item.name);
@@ -6140,13 +6142,37 @@ class LarkApp {
     this.ensureQr();
   }
 
+  private openImage(url: string) {
+    if (this.lightbox !== url) this.lightboxZoom = 1;
+    this.lightbox = url;
+    this.paintLightbox();
+  }
+
   private paintLightbox() {
     this.lightboxEl.hidden = !this.lightbox;
     clear(this.lightboxEl);
-    if (!this.lightbox) return;
+    if (!this.lightbox) {
+      this.lightboxZoom = 1;
+      return;
+    }
     const img = el("img");
     img.src = this.lightbox;
     img.alt = "Attachment";
+    if (this.hookOn("imageZoom")) {
+      img.classList.add("is-zoomable");
+      if (this.lightboxZoom > 1) img.classList.add("is-zoomed");
+      img.style.transform = `scale(${this.lightboxZoom})`;
+      img.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.lightboxZoom = nextZoom(this.lightboxZoom, 1, this.pack.zoomMax);
+        this.paintLightbox();
+      });
+      img.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        this.lightboxZoom = nextZoom(this.lightboxZoom, event.deltaY > 0 ? -1 : 1, this.pack.zoomMax);
+        this.paintLightbox();
+      }, { passive: false });
+    }
     this.lightboxEl.append(img);
   }
 
@@ -10925,10 +10951,7 @@ class LarkApp {
           onEdit: () => undefined,
           onDelete: () => undefined,
           onReact: () => undefined,
-          onImage: (url) => {
-            this.lightbox = url;
-            this.paintLightbox();
-          },
+          onImage: (url) => this.openImage(url),
           ...this.messageChrome(message, shown),
           ...this.messageExtras(message),
           clock: this.timeClock(),
@@ -11434,6 +11457,7 @@ class LarkApp {
   private messageMenuItems(message: RawMessage): MenuEntry[] {
     const items: MenuEntry[] = [];
     if (this.hookOn("inlineTranslate")) items.push({ id: "translate", label: this.translated[message.id] ? "Show original" : "Translate" });
+    if (this.hookOn("copyMarkdown")) items.push({ id: "copy-md", label: "Copy Markdown" });
     return items;
   }
 
@@ -11450,6 +11474,41 @@ class LarkApp {
 
   private async onMessageMenu(message: RawMessage, id: string) {
     if (id === "translate") await this.onInlineTranslate(message);
+    if (id === "copy-md") await this.copyMessageMarkdown(message);
+  }
+
+  private repliesButton(): HTMLButtonElement {
+    const replies = el("button", "text-button", "Replies");
+    replies.type = "button";
+    replies.setAttribute("aria-label", "Insert a saved reply");
+    replies.addEventListener("click", () => {
+      if (!this.pack.templates.length) {
+        this.toast("Replies", "Save one in the plugin settings.");
+        return;
+      }
+      const rect = replies.getBoundingClientRect();
+      this.showMenu(rect.left, rect.bottom + 4, this.pack.templates.map((item) => ({ id: item.id, label: item.label })), (id) => {
+        const template = this.pack.templates.find((item) => item.id === id);
+        if (!template) return;
+        const start = this.composer.selectionStart ?? this.composer.value.length;
+        const end = this.composer.selectionEnd ?? start;
+        const next = insertTemplate(this.composer.value, start, end, template.body);
+        this.composer.value = next.text;
+        this.composer.focus();
+        this.composer.setSelectionRange(next.caret, next.caret);
+      });
+    });
+    return replies;
+  }
+
+  private async copyMessageMarkdown(message: RawMessage) {
+    const text = messageMarkdown(message, this.pack.copyMeta);
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast("Copied", "Message markdown is on the clipboard.");
+    } catch {
+      this.toast("Copy", "Couldn't copy that message.");
+    }
   }
 
   private async onInlineTranslate(message: RawMessage) {
@@ -11814,8 +11873,62 @@ class LarkApp {
       }));
       card.append(el("p", "hint", "The player uses the listening line already on a profile, plus Spotify links in the open channel. No login and no key."));
       wrap.append(card);
+    } else if (id === "quick-replies") {
+      wrap.append(this.repliesPanel());
+    } else if (id === "copy-markdown") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Include author and time", this.pack.copyMeta, (value) => {
+        this.pack.copyMeta = value;
+        this.savePack();
+      }));
+      card.append(el("p", "hint", "Right-click a message and choose Copy Markdown."));
+      wrap.append(card);
+    } else if (id === "image-zoom") {
+      const card = el("div", "plugin-card");
+      card.append(el("div", "hint", "Largest zoom"));
+      card.append(this.choice(["2", "3", "4"], String(this.pack.zoomMax), (value) => {
+        this.pack.zoomMax = Number(value) as PackState["zoomMax"];
+        this.savePack();
+      }, { "2": "2×", "3": "3×", "4": "4×" }));
+      card.append(el("p", "hint", "Click an opened image to zoom in. Scroll to zoom in or out."));
+      wrap.append(card);
     }
     this.appendChatPluginPanel(wrap, id);
+  }
+
+  private repliesPanel(): HTMLElement {
+    const card = el("div", "plugin-card");
+    const label = el("input");
+    label.placeholder = "Name";
+    label.setAttribute("aria-label", "Reply name");
+    const body = el("input");
+    body.placeholder = "Reply";
+    body.setAttribute("aria-label", "Reply text");
+    const add = el("button", "text-button", "Save reply");
+    add.type = "button";
+    add.addEventListener("click", () => {
+      const next = addTemplate(this.pack.templates, label.value, body.value);
+      if (next === this.pack.templates) return;
+      this.pack.templates = next;
+      this.savePack();
+      this.renderSettings();
+    });
+    card.append(label, body, add);
+    if (!this.pack.templates.length) card.append(el("p", "hint", "Saved replies show up as Replies in the composer."));
+    for (const template of this.pack.templates) {
+      const row = el("div", "shortcut-row");
+      row.append(el("span", "", template.label));
+      const remove = el("button", "text-button", "Remove");
+      remove.type = "button";
+      remove.addEventListener("click", () => {
+        this.pack.templates = removeTemplate(this.pack.templates, template.id);
+        this.savePack();
+        this.renderSettings();
+      });
+      row.append(remove);
+      card.append(row);
+    }
+    return card;
   }
 
   private paintScheduleBanner() {

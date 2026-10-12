@@ -58,6 +58,9 @@ export interface PluginHooks {
   inlineTranslate: boolean;
   showHidden: boolean;
   spotify: boolean;
+  quickReply: boolean;
+  copyMarkdown: boolean;
+  imageZoom: boolean;
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
@@ -107,6 +110,9 @@ export function emptyHooks(): PluginHooks {
     inlineTranslate: false,
     showHidden: false,
     spotify: false,
+    quickReply: false,
+    copyMarkdown: false,
+    imageZoom: false,
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
@@ -308,6 +314,9 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.inlineTranslate = record.inlineTranslate === true;
   hooks.showHidden = record.showHidden === true;
   hooks.spotify = record.spotify === true;
+  hooks.quickReply = record.quickReply === true;
+  hooks.copyMarkdown = record.copyMarkdown === true;
+  hooks.imageZoom = record.imageZoom === true;
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;

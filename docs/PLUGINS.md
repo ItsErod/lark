@@ -92,7 +92,6 @@ The highlight is the same wash as other keyword highlights.
 
 Right-click a direct message and choose **Pin**. While this plugin is on, pinned conversations move into a **Pinned** category above **Direct messages**, in the order you pinned them. **Unpin** in the plugin’s settings, or **Unpin** on the conversation, puts it back. The list is the same local pin list Lark already keeps. Discord’s own pin list is unchanged. With the plugin off, pinned conversations still sit at the top of **Direct messages**.
 
-
 ## Panic Key
 
 A hotkey that instantly hides or minimizes Lark and mutes.
@@ -142,3 +141,15 @@ Fully hide blocked people's messages instead of a Blocked message row.
 - Discord tells Lark who is blocked (relationship type 2). With the plugin on, those messages are not drawn.
 - With the plugin off, the same people leave a one-line Blocked message so the gap is visible.
 - Hiding is local. It does not unblock anyone, and it does not call the API.
+
+## Quick reply templates
+
+Save a name and a line in the plugin settings. **Replies** in the composer inserts that line at the caret. The list stays on this device, up to 30 replies.
+
+## Copy message markdown
+
+Right-click a message and choose **Copy Markdown**. The message text is copied. **Include author and time** adds a bold name and the timestamp above it.
+
+## Image zoom
+
+Open an image, then click it to zoom in or scroll to zoom in and out. **Largest zoom** is 2×, 3×, or 4×. Clicking the dim area around the image still closes it.

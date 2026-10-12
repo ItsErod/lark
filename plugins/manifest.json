@@ -169,6 +169,21 @@
       "id": "hide-blocked",
       "name": "Hide Blocked Messages",
       "description": "Fully hide messages from blocked people instead of a blocked-message row."
+    },
+    {
+      "id": "quick-replies",
+      "name": "Quick reply templates",
+      "description": "Save canned replies and insert one from the composer."
+    },
+    {
+      "id": "copy-markdown",
+      "name": "Copy message markdown",
+      "description": "Right-click a message to copy its markdown. The author line is optional."
+    },
+    {
+      "id": "image-zoom",
+      "name": "Image zoom",
+      "description": "Click or scroll an opened image to zoom. The max size is a setting."
     }
   ]
 }
