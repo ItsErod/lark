@@ -50,6 +50,7 @@ import "../media/call-volume";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
 import type { HourCycle, TimeMode } from "../pack/time";
 import { typingLabel } from "../pack/typing-list";
+import { unseenChannels } from "../pack/unseen";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -2593,7 +2594,7 @@ class LarkApp {
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
     const favs = (this.favorites[this.guildId ?? ""] ?? []).join(".");
     const timer = this.hookOn("callTimer") ? `${this.pack.callTimerFrom}:${this.pack.callTimerStyle}` : "";
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${bits.join(",")}`;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${this.hiddenStamp()}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -2731,6 +2732,7 @@ class LarkApp {
         scroll.append(header);
         if (!collapsed) for (const channel of children) appendChannel(channel);
       }
+      this.appendHiddenChannels(scroll);
     }
     const me = this.demo ? people[0] : this.me;
     const profile = el("button", "profile-chip");
@@ -2978,6 +2980,34 @@ class LarkApp {
       });
     }
     return button;
+  }
+
+  private hiddenStamp(): string {
+    if (!this.guildId || !this.hookOn("showHidden")) return "";
+    return unseenChannels(this.channelsOf(this.guildId), (channel) => this.canSeeChannel(this.guildId!, channel))
+      .map((channel) => `${channel.id}:${this.pack.hiddenTopics ? channel.topic ?? "" : ""}`)
+      .join(",");
+  }
+
+  private appendHiddenChannels(scroll: HTMLElement) {
+    if (!this.guildId || !this.hookOn("showHidden")) return;
+    const hidden = unseenChannels(this.channelsOf(this.guildId), (channel) => this.canSeeChannel(this.guildId!, channel));
+    if (!hidden.length) return;
+    scroll.append(el("div", "category", "Hidden"));
+    for (const channel of hidden) scroll.append(this.lockedChannelRow(channel));
+  }
+
+  private lockedChannelRow(channel: Channel): HTMLButtonElement {
+    const row = el("button", "channel-row is-locked");
+    row.type = "button";
+    row.title = "You can't view this channel";
+    row.append(el("span", "channel-lock", "🔒"));
+    const copy = el("span", "row-copy");
+    copy.append(el("span", "row-label", channel.name));
+    if (this.pack.hiddenTopics && channel.topic) copy.append(el("span", "dm-preview", channel.topic));
+    row.append(copy);
+    row.addEventListener("click", () => this.toast("Hidden channel", "You can't view this channel."));
+    return row;
   }
 
   private currentChannel(): Channel | undefined {
@@ -10492,6 +10522,15 @@ class LarkApp {
         this.savePack();
       }, { remote: "Free endpoint", local: "Phrase book" }));
       card.append(el("p", "hint", "Right-click a message. The free endpoint is tried first unless you prefer the phrase book. No key is stored."));
+      wrap.append(card);
+    } else if (id === "show-hidden") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Show topics", this.pack.hiddenTopics, (value) => {
+        this.pack.hiddenTopics = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(el("p", "hint", "Locked channels stay in the list. Opening one is refused, and nothing is fetched from them."));
       wrap.append(card);
     }
   }
