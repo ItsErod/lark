@@ -68,3 +68,11 @@ Channels you cannot view stay in the channel list under **Hidden**, with a lock.
 - The topic is shown under the name when **Show topics** is on.
 - Clicking one does not open it and does not fetch its messages. Lark says you cannot view it.
 - Categories are left out. A channel you can already open is unchanged.
+
+## Spotify controls
+
+A small player sits above your name in the user panel.
+
+- It reads the listening line already on a profile (`Listening to …`). It does not sign in to Spotify and it does not store a key.
+- A Spotify track, album, or playlist link in the open channel fills in an **Open** link. Without a link, **Open** searches Spotify for the title.
+- **Listening status** and **Spotify links** can be turned off on their own.
