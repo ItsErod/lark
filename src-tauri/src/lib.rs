@@ -1389,17 +1389,26 @@ async fn fetch_soundboard(state: State<'_, Shared>, guild_id: String) -> Result<
 }
 
 #[tauri::command]
-async fn play_guild_sound(state: State<'_, Shared>, channel_id: String, sound_id: String, guild_id: String) -> Result<(), String> {
-    rest(&state)
-        .await?
+async fn play_guild_sound(
+    state: State<'_, Shared>,
+    channel_id: String,
+    sound_id: String,
+    guild_id: String,
+    volume: Option<f64>,
+) -> Result<(), String> {
+    let client = rest(&state).await?;
+    client
         .send_soundboard_sound(&channel_id, &sound_id, &guild_id)
         .await
         .map_err(|err| err.to_string())?;
+    let pcm = load_guild_pcm(&client, &state, &sound_id).await?;
+    let gain = volume.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
+    let gained: Vec<f32> = pcm.into_iter().map(|sample| (sample * gain).clamp(-1.0, 1.0)).collect();
     state
         .sound_mix
         .lock()
         .map_err(|_| "Soundboard is busy.".to_string())?
-        .push_guild(lark_core::soundboard::SoundMix::guild_tone());
+        .push_guild(gained);
     Ok(())
 }
 
@@ -2636,4 +2645,22 @@ async fn start_forum_post(
         )
         .await
         .map_err(|err| err.to_string())
+}
+
+/// Cached guild sound, or a fresh CDN download, as 48 kHz mono. Not the local chime.
+async fn load_guild_pcm(client: &DiscordRest, state: &Shared, sound_id: &str) -> Result<Vec<f32>, String> {
+    let dir = soundboard_dir(&state.paths.config_file).join("guild");
+    let path = lark_core::soundboard::guild_cache_path(&dir, sound_id)?;
+    if let Ok(bytes) = fs::read(&path) {
+        if let Ok(pcm) = lark_core::soundboard::decode_guild_audio(&bytes) {
+            return Ok(pcm);
+        }
+    }
+    let downloaded = client.download_soundboard_sound(sound_id).await.map_err(|err| err.to_string())?;
+    let pcm = lark_core::soundboard::decode_guild_audio(&downloaded)?;
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, &downloaded);
+    Ok(pcm)
 }

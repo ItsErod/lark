@@ -37,7 +37,7 @@ impl SoundMix {
         self.guild.extend(pcm.into_iter().take(room));
     }
 
-    /// A short tone so a guild sound is audible on this computer while Discord plays it for the channel.
+    /// Legacy placeholder. Guild playback uses the downloaded file, not this tone.
     pub fn guild_tone() -> Vec<f32> {
         let count = SAMPLE_RATE as usize / 5;
         (0..count)
@@ -206,6 +206,85 @@ fn resample(input: &[f32], out_len: usize) -> Vec<f32> {
     out
 }
 
+/// Discord snowflake used as a sound id and as a cache file name.
+pub fn guild_sound_id_ok(id: &str) -> bool {
+    let len = id.len();
+    (5..=22).contains(&len) && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub fn guild_cdn_host(host: &str) -> bool {
+    host == "cdn.discordapp.com" || host == "media.discordapp.net"
+}
+
+/// CDN locations for one guild sound. The file is usually MP3 with no extension.
+pub fn guild_sound_urls(sound_id: &str) -> Result<Vec<String>, String> {
+    if !guild_sound_id_ok(sound_id) {
+        return Err("That sound id is not a Discord snowflake.".into());
+    }
+    Ok(vec![
+        format!("https://cdn.discordapp.com/soundboard-sounds/{sound_id}"),
+        format!("https://cdn.discordapp.com/soundboard-sounds/{sound_id}.mp3"),
+    ])
+}
+
+/// Cache file for a downloaded guild sound. The id is the whole file name.
+pub fn guild_cache_path(dir: &std::path::Path, sound_id: &str) -> Result<std::path::PathBuf, String> {
+    if !guild_sound_id_ok(sound_id) {
+        return Err("That sound id is not a Discord snowflake.".into());
+    }
+    Ok(dir.join(format!("{sound_id}.bin")))
+}
+
+/// WAV or MP3 bytes to 48 kHz mono. This is the guild file, not the local chime.
+pub fn decode_guild_audio(bytes: &[u8]) -> Result<Vec<f32>, String> {
+    if bytes.len() > MAX_BYTES {
+        return Err("That sound file is larger than 8 MB.".into());
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" {
+        return decode_wav_mono(bytes);
+    }
+    decode_mp3_mono(bytes)
+}
+
+fn decode_mp3_mono(bytes: &[u8]) -> Result<Vec<f32>, String> {
+    if bytes.is_empty() {
+        return Err("That guild sound is empty.".into());
+    }
+    let mut decoder = minimp3::Decoder::new(std::io::Cursor::new(bytes));
+    let mut mono = Vec::new();
+    let mut rate = 0i32;
+    loop {
+        match decoder.next_frame() {
+            Ok(frame) => {
+                if frame.channels == 0 || frame.sample_rate <= 0 {
+                    return Err("That MP3 uses a sample rate Lark cannot play.".into());
+                }
+                rate = frame.sample_rate;
+                let channels = frame.channels;
+                let frames = frame.data.len() / channels;
+                for index in 0..frames {
+                    let mut sum = 0f32;
+                    for channel in 0..channels {
+                        let sample = frame.data[index * channels + channel] as f32 / 32_768.0;
+                        sum += sample;
+                    }
+                    mono.push((sum / channels as f32).clamp(-1.0, 1.0));
+                }
+            }
+            Err(minimp3::Error::Eof) => break,
+            Err(_) => return Err("That guild sound is not a WAV or MP3 Lark can play.".into()),
+        }
+    }
+    if mono.is_empty() || !(8_000..=96_000).contains(&rate) {
+        return Err("That guild sound has no audio Lark can play.".into());
+    }
+    let samples = to_48k(&mono, rate as u32);
+    if samples.len() > MAX_SAMPLES {
+        return Err("That clip is longer than 15 seconds.".into());
+    }
+    Ok(samples)
+}
+
 fn read_u16(bytes: &[u8], at: usize) -> Option<u16> {
     bytes.get(at..at + 2).map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
 }
@@ -276,6 +355,36 @@ mod tests {
         assert!((frame[2] - 0.4).abs() < 0.001);
         assert_eq!(frame[3], 0.0);
         assert!(!mix.mix_into(&mut frame));
+    }
+
+    #[test]
+    fn a_guild_file_is_cached_by_id_and_mixed_instead_of_the_chime() {
+        assert!(guild_sound_urls("../x").is_err());
+        assert!(guild_cache_path(std::path::Path::new("/tmp"), "../x").is_err());
+        let urls = guild_sound_urls("100000000000000201").unwrap();
+        assert_eq!(urls[0], "https://cdn.discordapp.com/soundboard-sounds/100000000000000201");
+        assert!(guild_cdn_host("cdn.discordapp.com"));
+        assert!(!guild_cdn_host("evil.example"));
+        let path = guild_cache_path(std::path::Path::new("guild"), "100000000000000201").unwrap();
+        assert_eq!(path, std::path::PathBuf::from("guild/100000000000000201.bin"));
+
+        let wav = wav_pcm16(48_000, 1, &[8_192, -8_192]);
+        let pcm = decode_guild_audio(&wav).unwrap();
+        let tone = SoundMix::guild_tone();
+        assert_ne!(pcm.len(), tone.len());
+        let mut mix = SoundMix::new();
+        mix.push_guild(pcm);
+        let mut frame = [0f32; 2];
+        assert!(mix.mix_into(&mut frame));
+        assert!((frame[0] - 0.25).abs() < 0.02);
+        assert!(frame[1] < -0.2);
+
+        let mp3 = include_bytes!("../tests/fixtures/guild-tone.mp3");
+        let decoded = decode_guild_audio(mp3).unwrap();
+        assert!(decoded.len() > 400);
+        let energy: f32 = decoded.iter().map(|sample| sample * sample).sum();
+        assert!(energy > 1.0, "mp3 energy {energy}");
+        assert!(decoded.iter().any(|sample| sample.abs() > 0.05));
     }
 
     #[test]

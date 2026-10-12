@@ -36,6 +36,7 @@ urlencoding = "2"
 xsalsa20poly1305 = "0.9"
 zeroize = "1"
 nnnoiseless = "0.5.2"
+minimp3 = "0.6.1"
 
 [dev-dependencies]
 openmls = { version = "0.9", features = ["js"] }

@@ -10648,7 +10648,7 @@ class LarkApp {
       return;
     }
     try {
-      await invoke("play_guild_sound", { channelId: this.voice.channelId, soundId: sound.id, guildId: sound.guildId });
+      await invoke("play_guild_sound", { channelId: this.voice.channelId, soundId: sound.id, guildId: sound.guildId, volume: sound.volume });
     } catch (err) {
       this.toast("Soundboard", err instanceof Error ? err.message : "Couldn't play that sound.");
     }
