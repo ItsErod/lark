@@ -43,6 +43,7 @@ import { ListSync, applyRemoteLists, flattenFavoriteIds, mapToPins, readIdList, 
 import { noteActivity, stepAway, type AwayClock } from "../pack/away";
 import { isBookmarked, toggleBookmark, type Bookmark } from "../pack/bookmarks";
 import { mergeSaved, rowsFromPayload } from "../saved-sync";
+import { localizeTree, setLocale } from "../i18n";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
 import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
 import { orderDms } from "../pack/pin-dms";
@@ -1734,6 +1735,7 @@ class LarkApp {
       this.gate.hidden = true;
       this.shell.hidden = !this.shellShown;
       this.syncSplash();
+      localizeTree(this.root);
       return;
     }
     this.revealShell();
@@ -1757,9 +1759,11 @@ class LarkApp {
     this.paintInvite();
     this.publishVoiceHud();
     if (!this.splashLeaving) this.splashEl.hidden = true;
+    localizeTree(this.root);
   }
 
   private applyAppearance() {
+    setLocale(this.config.preferences.language || "en");
     const appearance = this.config.appearance;
     document.documentElement.classList.toggle("is-game-mode", this.gameMode);
     document.documentElement.style.setProperty("--speak", speakColor(this.config.voice.speak_color));
@@ -5493,6 +5497,7 @@ class LarkApp {
       persist: () => { void this.persist(); },
       refresh: () => { if (this.settings) this.renderSettings(); },
       apply: () => this.applyAppearance(),
+      repaint: () => this.paint(),
       logout: () => { void this.logoutAccount(); },
       switchAccount: (id: string) => { void this.switchTo(id); },
       removeAccount: (id: string) => { void this.removeAccount(id); },
