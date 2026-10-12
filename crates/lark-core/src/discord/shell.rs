@@ -815,11 +815,22 @@ pub fn read_markers(read_state: &Value) -> Vec<ReadMarker> {
         .collect()
 }
 
+/// Guild default: 0 all messages, 1 only mentions, 2 nothing.
 pub fn notify_level(value: Option<i64>) -> Option<&'static str> {
     match value {
         Some(0) => Some("all"),
         Some(1) => Some("mentions"),
         Some(2) => Some("mute"),
+        _ => None,
+    }
+}
+
+/// Channel override integers the client writes: 0 inherit, 1 all, 2 mentions, 3 nothing.
+pub fn channel_notify_level(value: Option<i64>) -> Option<&'static str> {
+    match value {
+        Some(1) => Some("all"),
+        Some(2) => Some("mentions"),
+        Some(3) => Some("mute"),
         _ => None,
     }
 }
@@ -843,11 +854,7 @@ fn pref_from_entry(value: &Value) -> Option<ClientGuildPref> {
         .and_then(|item| item.as_str())
         .filter(|id| snowflake_ok(id))
         .map(|id| id.to_string());
-    let channels: Vec<ClientChannelPref> = value
-        .get("channel_overrides")
-        .and_then(|item| item.as_array())
-        .map(|list| list.iter().filter_map(channel_pref).collect())
-        .unwrap_or_default();
+    let channels = channel_overrides(value);
     if guild_id.is_none() && channels.is_empty() && !value.get("muted").is_some() {
         return None;
     }
@@ -879,6 +886,29 @@ fn pref_from_entry(value: &Value) -> Option<ClientGuildPref> {
     })
 }
 
+fn channel_overrides(value: &Value) -> Vec<ClientChannelPref> {
+    let Some(raw) = value.get("channel_overrides") else {
+        return Vec::new();
+    };
+    if let Some(list) = raw.as_array() {
+        return list.iter().filter_map(channel_pref).collect();
+    }
+    let Some(map) = raw.as_object() else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(id, item)| {
+            let mut owned = item.clone();
+            if let Some(object) = owned.as_object_mut() {
+                object
+                    .entry("channel_id")
+                    .or_insert_with(|| Value::String(id.clone()));
+            }
+            channel_pref(&owned)
+        })
+        .collect()
+}
+
 fn channel_pref(value: &Value) -> Option<ClientChannelPref> {
     let channel_id = value
         .get("channel_id")
@@ -894,7 +924,7 @@ fn channel_pref(value: &Value) -> Option<ClientChannelPref> {
     Some(ClientChannelPref {
         channel_id: channel_id.to_string(),
         muted: mute_active(muted, end),
-        level: notify_level(
+        level: channel_notify_level(
             value
                 .get("message_notifications")
                 .and_then(|item| item.as_i64()),
@@ -1216,6 +1246,14 @@ mod tests {
                     "muted": false,
                     "collapsed": true,
                     "message_notifications": 2
+                }, {
+                    "channel_id": "100000000000000029",
+                    "muted": true,
+                    "message_notifications": 3
+                }, {
+                    "channel_id": "100000000000000030",
+                    "muted": false,
+                    "message_notifications": 1
                 }]
             }]
         });
@@ -1224,7 +1262,21 @@ mod tests {
         assert_eq!(prefs[0].level.as_deref(), Some("mentions"));
         assert!(prefs[0].suppress_everyone);
         assert!(prefs[0].channels[0].collapsed);
-        assert_eq!(prefs[0].channels[0].level.as_deref(), Some("mute"));
+        assert_eq!(prefs[0].channels[0].level.as_deref(), Some("mentions"));
+        assert!(prefs[0].channels[1].muted);
+        assert_eq!(prefs[0].channels[1].level.as_deref(), Some("mute"));
+        assert_eq!(prefs[0].channels[2].level.as_deref(), Some("all"));
+        let mapped = json!({
+            "guild_id": "100000000000000010",
+            "muted": false,
+            "message_notifications": 0,
+            "channel_overrides": {
+                "100000000000000031": { "muted": false, "message_notifications": 0 }
+            }
+        });
+        let from_map = guild_prefs(&mapped);
+        assert_eq!(from_map[0].channels[0].channel_id, "100000000000000031");
+        assert_eq!(from_map[0].channels[0].level, None);
         assert!(!mute_active(true, Some("2000-01-01T00:00:00.000Z")));
         assert!(mute_active(true, None));
     }
