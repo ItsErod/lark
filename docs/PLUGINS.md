@@ -40,6 +40,18 @@ The clock under each message can read as `3m ago` or as a clock time.
 - **12-hour** and **24-hour** choose the clock. The hover date uses the same choice.
 - The relative label refreshes about twice a minute.
 
+## Silent typing
+
+While this is on, the composer does not send a typing indicator. Incoming typing lines are unchanged. The switch is the only option.
+
+## Typing indicators
+
+A channel row and a direct-message row can show that someone is typing there.
+
+- The label reads `typing`, or `2 typing` when more than one person is going. Hover it for the names.
+- **Channel list** and **Direct messages** turn each list off on its own.
+- The label clears about eight seconds after the last typing event, the same window as the line under the composer.
+
 ## Panic Key
 
 A hotkey that instantly hides or minimizes Lark and mutes.
@@ -55,3 +67,4 @@ Don't mark channels read until you choose, and hide your activity locally.
 
 - **Hold read receipts.** Opening a channel, following the bottom, or sending a message does not tell Discord the channel is read. The unread badge stays, including while the channel is open. **Mark read** in the header, or Esc when nothing else is open, is the choice that sends the receipt.
 - **Hide activity on this device.** The account chip says Incognito. Your custom status and activity line are blank on this screen. Lark does not send a typing indicator, and it does not publish an automatic status from auto away, now playing, or hardware. A status you set yourself still publishes.
+

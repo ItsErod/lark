@@ -52,6 +52,7 @@ export interface PluginHooks {
   relativeTime: boolean;
   messageLog: boolean;
   betterTime: boolean;
+  typingList: boolean;
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
@@ -89,6 +90,7 @@ export function emptyHooks(): PluginHooks {
     relativeTime: false,
     messageLog: false,
     betterTime: false,
+    typingList: false,
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
@@ -272,6 +274,7 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.relativeTime = record.relativeTime === true;
   hooks.messageLog = record.messageLog === true;
   hooks.betterTime = record.betterTime === true;
+  hooks.typingList = record.typingList === true;
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;
