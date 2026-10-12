@@ -119,6 +119,11 @@ pub struct VoiceAudio {
     pub noise_suppression: bool,
     pub input_device: String,
     pub output_device: String,
+    pub echo_cancellation: bool,
+    pub agc: bool,
+    /// 100 is unity. 0 is silence. 200 is twice as loud.
+    pub input_volume: u8,
+    pub output_volume: u8,
 }
 
 impl Default for VoiceAudio {
@@ -130,7 +135,80 @@ impl Default for VoiceAudio {
             noise_suppression: true,
             input_device: String::new(),
             output_device: String::new(),
+            echo_cancellation: true,
+            agc: true,
+            input_volume: 100,
+            output_volume: 100,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AecState {
+    coeff: f32,
+}
+
+impl Default for AecState {
+    fn default() -> Self {
+        Self { coeff: 0.0 }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AgcState {
+    gain: f32,
+}
+
+impl Default for AgcState {
+    fn default() -> Self {
+        Self { gain: 1.0 }
+    }
+}
+
+/// Microphone gain before noise suppression. Unity leaves the samples alone.
+pub fn apply_input_gain(frame: &mut [f32], volume: u8) {
+    if volume == 100 {
+        return;
+    }
+    let gain = (f32::from(volume) / 100.0).clamp(0.0, 2.0);
+    for sample in frame.iter_mut() {
+        *sample = (*sample * gain).clamp(-1.0, 1.0);
+    }
+}
+
+/// One-tap echo canceller. `reference` is the playback mix for this frame.
+pub fn apply_aec(frame: &mut [f32], reference: &[f32], state: &mut AecState) {
+    let count = frame.len().min(reference.len());
+    if count == 0 {
+        return;
+    }
+    let mut power = 1.0e-4;
+    for sample in reference.iter().take(count) {
+        power += sample * sample;
+    }
+    for index in 0..count {
+        let echo = state.coeff * reference[index];
+        let err = frame[index] - echo;
+        state.coeff += 0.5 * err * reference[index] / power;
+        frame[index] = err.clamp(-1.0, 1.0);
+    }
+    state.coeff = state.coeff.clamp(-2.0, 2.0);
+}
+
+/// Lifts a quiet voice toward a steady level. Exact silence stays silence.
+pub fn apply_agc(frame: &mut [f32], state: &mut AgcState) {
+    if frame.is_empty() {
+        return;
+    }
+    let energy: f32 = frame.iter().map(|sample| sample * sample).sum();
+    let rms = (energy / frame.len() as f32).sqrt();
+    if rms < 0.0008 {
+        return;
+    }
+    let desired = (0.05 / rms).clamp(0.25, 8.0);
+    state.gain = (state.gain * 0.7 + desired * 0.3).clamp(0.25, 8.0);
+    for sample in frame.iter_mut() {
+        *sample = (*sample * state.gain).clamp(-1.0, 1.0);
     }
 }
 
@@ -158,6 +236,8 @@ pub struct Playback {
     pub deafened: bool,
     pub rate: u32,
     pub channels: u16,
+    pub output_gain: f32,
+    pub last_render: Vec<f32>,
 }
 
 /// Playback gain ceiling. The voice slider uses 2.0. The volume booster plugin uses 4.0.
@@ -177,6 +257,8 @@ impl Playback {
             deafened: false,
             rate: SAMPLE_RATE,
             channels: 2,
+            output_gain: 1.0,
+            last_render: Vec::new(),
         }
     }
 
@@ -201,10 +283,18 @@ impl Playback {
             }
         }
         if !self.deafened {
+            let gain = self.output_gain;
             for sample in &mut mixed {
-                *sample = sample.clamp(-1.0, 1.0);
+                *sample = (*sample * gain).clamp(-1.0, 1.0);
             }
         }
+        let mut echo = mixed.clone();
+        if echo.len() > FRAME_SAMPLES {
+            echo.truncate(FRAME_SAMPLES);
+        } else {
+            echo.resize(FRAME_SAMPLES, 0.0);
+        }
+        self.last_render = echo;
         if rate == SAMPLE_RATE && src_frames == device_frames {
             mixed
         } else {
@@ -389,6 +479,8 @@ fn run_media(args: MediaArgs) {
     let mut opus_buf = [0u8; 1_500];
     let mut last_sweep = Instant::now();
     let mut denoiser = NoiseSuppressor::new();
+    let mut aec = AecState::default();
+    let mut agc = AgcState::default();
 
     loop {
         if args.cancel.load(Ordering::Relaxed) {
@@ -404,6 +496,7 @@ fn run_media(args: MediaArgs) {
         }
         if let Ok(mut play) = args.playback.lock() {
             play.deafened = controls.deafened;
+            play.output_gain = (f32::from(controls.output_volume) / 100.0).clamp(0.0, 2.0);
         }
         let wait = next_frame.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
         match args.inbound.recv_timeout(wait) {
@@ -419,6 +512,8 @@ fn run_media(args: MediaArgs) {
                 &args,
                 &controls,
                 &mut denoiser,
+                &mut aec,
+                &mut agc,
                 &mut encoder,
                 &mut pcm,
                 &mut opus_buf,
@@ -453,6 +548,8 @@ fn produce_frame(
     args: &MediaArgs,
     controls: &VoiceAudio,
     denoiser: &mut NoiseSuppressor,
+    aec: &mut AecState,
+    agc: &mut AgcState,
     encoder: &mut Option<OpusEncoder>,
     pcm: &mut [i16],
     opus_buf: &mut [u8],
@@ -470,8 +567,20 @@ fn produce_frame(
     let frame = args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf));
     let have_audio = frame.is_some();
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
+    apply_input_gain(&mut owned, controls.input_volume);
+    if controls.echo_cancellation && have_audio {
+        let reference = args.playback.lock().ok().map(|play| play.last_render.clone()).unwrap_or_default();
+        let mut reference = reference;
+        if reference.len() < FRAME_SAMPLES {
+            reference.resize(FRAME_SAMPLES, 0.0);
+        }
+        apply_aec(&mut owned, &reference[..FRAME_SAMPLES], aec);
+    }
     if controls.noise_suppression && have_audio {
         denoiser.process(&mut owned);
+    }
+    if controls.agc && have_audio {
+        apply_agc(&mut owned, agc);
     }
     let transmit = *args.transmit.borrow();
     let active = voice_active(&owned, controls.sensitivity);
@@ -799,6 +908,39 @@ mod tests {
         assert!(decoded.len() >= FRAME_SAMPLES / 2);
         let energy: f32 = decoded.iter().map(|sample| sample * sample).sum();
         assert!(energy > 1.0, "energy {energy}");
+    }
+
+    #[test]
+    fn input_gain_unity_is_unchanged_and_half_scales() {
+        let mut frame = vec![0.5, -0.5];
+        apply_input_gain(&mut frame, 100);
+        assert!((frame[0] - 0.5).abs() < 0.0001);
+        apply_input_gain(&mut frame, 50);
+        assert!((frame[0] - 0.25).abs() < 0.0001);
+    }
+
+    #[test]
+    fn echo_cancellation_removes_a_matching_reference() {
+        let reference = vec![0.4; 64];
+        let mut state = AecState::default();
+        let mut frame = reference.clone();
+        for _ in 0..12 {
+            frame.clone_from(&reference);
+            apply_aec(&mut frame, &reference, &mut state);
+        }
+        let energy: f32 = frame.iter().map(|sample| sample * sample).sum();
+        assert!(energy < 1.0, "energy {energy}");
+    }
+
+    #[test]
+    fn agc_lifts_a_quiet_tone_and_leaves_silence() {
+        let mut quiet = vec![0.01; 64];
+        apply_agc(&mut quiet, &mut AgcState::default());
+        let rms = (quiet.iter().map(|sample| sample * sample).sum::<f32>() / quiet.len() as f32).sqrt();
+        assert!(rms > 0.02, "rms {rms}");
+        let mut silence = vec![0.0; 64];
+        apply_agc(&mut silence, &mut AgcState::default());
+        assert!(silence.iter().all(|sample| *sample == 0.0));
     }
 
     #[test]
