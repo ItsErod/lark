@@ -1,0 +1,17 @@
+{
+  "note": "Set done to true and finishedAt to an ISO time to mark a stream or plugin track finished. That flag is the source of truth: the page shows 100% and Done at finishedAt, with no ETA. Leave done false and the page still finishes an agent on its own once it has no open pull request and its latest pull request merged. Times below are America/New_York (EDT, UTC-4).",
+  "streams": {
+    "A": { "done": true, "finishedAt": "2026-10-12T15:43:00-04:00" },
+    "B": { "done": true, "finishedAt": "2026-10-12T15:19:10-04:00" },
+    "C": { "done": true, "finishedAt": "2026-10-12T15:24:00-04:00" },
+    "D": { "done": true, "finishedAt": "2026-10-12T15:32:00-04:00" },
+    "E": { "done": true, "finishedAt": "2026-10-12T16:03:00-04:00" },
+    "F": { "done": true, "finishedAt": "2026-10-12T15:14:41-04:00" }
+  },
+  "tracks": {
+    "starter": { "done": false, "finishedAt": null },
+    "privacy": { "done": false, "finishedAt": null },
+    "chat": { "done": false, "finishedAt": null },
+    "media": { "done": false, "finishedAt": null }
+  }
+}

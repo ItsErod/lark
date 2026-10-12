@@ -1179,7 +1179,7 @@
 
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded. Each workstream and plugin track also shows the current task: the title of its latest open pull request, or else the latest commit message on its branch, plus the last three commit messages. Working time starts at the earliest commit or pull request on that task and counts up every second. Total time starts at the agent’s first commit or pull request. A finished agent shows Done and freezes that total at the last merge. An agent with nothing open and no recent push shows Idle. Branch names and recent pushes are saved for 15 minutes. The current branch is compared with main so the commits on that task come back in one request. If the branch is already in main, only its latest commit message is kept. Those lookups stop when fewer than 12 GitHub requests remain. The activity refresh itself is skipped below 18, so the page stays inside the unauthenticated hourly limit.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% while a pull request is open. Once nothing is open and the latest pull request merged, it reads 100%, even when fewer merged than the planned count. status.json beside this page can mark a stream or plugin track done and set its finish time. A done flag is the source of truth: the page shows 100% and Done at that time, with no ETA. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded. Each workstream and plugin track also shows the current task: the title of its latest open pull request, or else the latest commit message on its branch, plus the last three commit messages. Working time starts at the earliest commit or pull request on that task and counts up every second. Total time starts at the agent’s first commit or pull request. A finished agent shows Done and freezes that total at the last merge. An agent with nothing open and no recent push shows Idle. Branch names and recent pushes are saved for 15 minutes. The current branch is compared with main so the commits on that task come back in one request. If the branch is already in main, only its latest commit message is kept. Those lookups stop when fewer than 12 GitHub requests remain. The activity refresh itself is skipped below 18, so the page stays inside the unauthenticated hourly limit.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -1305,6 +1305,7 @@
     const RELEASES_CACHE_KEY = "lark30-version-history-v2";
     const REFRESH_MS = 60000;
     const CACHE_KEY = "lark30-progress-v1";
+    let workStatus = { streams: {}, tracks: {} };
     const SEEN_KEY = "lark30-progress-seen-v1";
     const LIMIT_KEY = "lark30-progress-limit-v1";
     const EXE_NAME = "Lark_3.0.0_x64-setup.exe";
@@ -1341,15 +1342,92 @@
       };
     }
 
+    /* status-api */
+    function normalizeStatus(json) {
+      const source = json && typeof json === "object" ? json : {};
+      const read = (bucket) => {
+        const out = {};
+        const raw = source[bucket] && typeof source[bucket] === "object" ? source[bucket] : {};
+        Object.keys(raw).forEach((id) => {
+          const entry = raw[id] || {};
+          const finishedAt = Date.parse(entry.finishedAt);
+          out[id] = {
+            done: entry.done === true,
+            finishedAt: Number.isFinite(finishedAt) ? finishedAt : null
+          };
+        });
+        return out;
+      };
+      return { streams: read("streams"), tracks: read("tracks") };
+    }
+
+    function statusEntry(status, kind, id) {
+      const bucket = status && status[kind];
+      if (!bucket || !Object.prototype.hasOwnProperty.call(bucket, id)) return null;
+      return bucket[id];
+    }
+
+    function finishedFromPulls(prs) {
+      const list = prs || [];
+      const open = list.some((pr) => pr && !pr.merged_at && pr.state === "open");
+      if (open) return null;
+      const merged = list.filter((pr) => pr && pr.merged_at);
+      if (!merged.length) return null;
+      const stamp = (pr) => {
+        const value = Date.parse(pr.merged_at || pr.closed_at || pr.updated_at || pr.created_at || "");
+        return Number.isFinite(value) ? value : 0;
+      };
+      const last = list.slice().sort((a, b) => stamp(b) - stamp(a))[0];
+      if (!last || !last.merged_at) return null;
+      const finishedAt = Date.parse(last.merged_at);
+      return { finishedAt: Number.isFinite(finishedAt) ? finishedAt : null };
+    }
+
+    function resolveWork(progress, prs, entry) {
+      const base = progress || { expected: 0, ratio: 0, status: "coding" };
+      if (entry && entry.done === true) {
+        const fromFile = Number.isFinite(entry.finishedAt) ? entry.finishedAt : null;
+        const fromPulls = finishedFromPulls(prs);
+        return {
+          expected: base.expected,
+          ratio: 1,
+          status: "done",
+          finishedAt: fromFile != null ? fromFile : (fromPulls ? fromPulls.finishedAt : null)
+        };
+      }
+      const finished = finishedFromPulls(prs);
+      if (finished) {
+        return {
+          expected: base.expected,
+          ratio: 1,
+          status: "done",
+          finishedAt: finished.finishedAt
+        };
+      }
+      return {
+        expected: base.expected,
+        ratio: base.ratio,
+        status: base.status,
+        finishedAt: null
+      };
+    }
+    /* status-api-end */
+
     function ratioFor(estimate, merged, open) {
       const actual = merged + open;
       const expected = Math.max(estimate, actual);
       if (actual === 0) return { expected, ratio: 0.05, status: "coding" };
-      if (open === 0 && merged >= estimate) return { expected, ratio: 1, status: "done" };
+      if (open > 0) {
+        return {
+          expected,
+          ratio: Math.min(0.95, (merged + 0.5 * open) / expected),
+          status: "review"
+        };
+      }
       return {
         expected,
-        ratio: Math.min(0.95, (merged + 0.5 * open) / expected),
-        status: open > 0 ? "review" : "merged"
+        ratio: Math.min(1, merged / expected),
+        status: "merged"
       };
     }
 
@@ -1358,7 +1436,11 @@
         const hit = pluginGroupFor(ref);
         return !!(hit && hit.id === group.id);
       });
-      const progress = ratioFor(group.estimate, bucket.mergedPrs.length, bucket.openPrs.length);
+      const progress = resolveWork(
+        ratioFor(group.estimate, bucket.mergedPrs.length, bucket.openPrs.length),
+        bucket.list,
+        statusEntry(workStatus, "tracks", group.id)
+      );
       const landed = group.plugins.filter((name) => bucket.mergedPrs.some((pr) => mentionsPlugin(pr.title, name)));
       return {
         id: group.id,
@@ -1373,6 +1455,7 @@
         ratio: progress.ratio,
         percent: Math.round(progress.ratio * 100),
         status: progress.status,
+        finishedAt: progress.finishedAt,
         mergedPrs: bucket.mergedPrs,
         openPrs: bucket.openPrs,
         closedPrs: bucket.closedPrs,
@@ -1426,23 +1509,11 @@
       const closedPrs = list.filter((pr) => !pr.merged_at && pr.state !== "open");
       const merged = mergedPrs.length;
       const open = openPrs.length;
-      const actual = merged + open;
-      const expected = Math.max(stream.estimate, actual);
-      let ratio;
-      let status;
-      if (actual === 0) {
-        ratio = 0.05;
-        status = "coding";
-      } else {
-        const done = open === 0 && merged >= stream.estimate;
-        if (done) {
-          ratio = 1;
-          status = "done";
-        } else {
-          ratio = Math.min(0.95, (merged + 0.5 * open) / expected);
-          status = open > 0 ? "review" : "merged";
-        }
-      }
+      const progress = resolveWork(
+        ratioFor(stream.estimate, merged, open),
+        list,
+        statusEntry(workStatus, "streams", stream.id)
+      );
       return {
         id: stream.id,
         name: stream.name,
@@ -1452,11 +1523,12 @@
         estimate: stream.estimate,
         merged,
         open,
-        expected,
-        ratio,
-        percent: Math.round(ratio * 100),
-        status,
-        active: status !== "done",
+        expected: progress.expected,
+        ratio: progress.ratio,
+        percent: Math.round(progress.ratio * 100),
+        status: progress.status,
+        finishedAt: progress.finishedAt,
+        active: progress.status !== "done",
         mergedPrs,
         openPrs,
         closedPrs,
@@ -2168,12 +2240,13 @@
       paintHistoryFromCache();
 
       const cached = readJson(CACHE_KEY);
-      if (cached && Array.isArray(cached.pulls)) {
-        sawAllDone = STREAMS.every((stream) => computeStream(stream, cached.pulls).status === "done");
-        applyPayload(cached, { fromCache: true, quiet: true });
-      }
-
-      refresh(false);
+      loadWorkStatus().finally(() => {
+        if (cached && Array.isArray(cached.pulls)) {
+          sawAllDone = STREAMS.every((stream) => computeStream(stream, cached.pulls).status === "done");
+          applyPayload(cached, { fromCache: true, quiet: true });
+        }
+        refresh(false);
+      });
       window.setInterval(tick, 1000);
       tick();
 
@@ -2306,23 +2379,33 @@
         return null;
       }
 
+      async function loadWorkStatus() {
+        try {
+          const url = new URL("status.json", window.location.href);
+          url.searchParams.set("t", String(Math.floor(Date.now() / 60000)));
+          const res = await fetch(url.href, { cache: "no-store" });
+          if (!res.ok) return;
+          workStatus = normalizeStatus(await res.json());
+        } catch (err) { /* pull requests still decide */ }
+      }
+
       async function refresh(manual) {
         if (inflight) return;
         if (document.hidden && !manual) return;
+        inflight = true;
+        document.getElementById("refresh").disabled = true;
+        await loadWorkStatus();
         const blocked = limitBlock();
         if (blocked) {
           nextAt = blocked.resetMs;
           showLimitNotice(blocked.resetMs, false);
-          document.getElementById("refresh").disabled = true;
-          if (!current) {
-            const saved = readJson(CACHE_KEY);
-            if (saved && Array.isArray(saved.pulls)) applyPayload(saved, { fromCache: true, quiet: true });
-          }
+          const saved = readJson(CACHE_KEY);
+          if (saved && Array.isArray(saved.pulls)) applyPayload(saved, { fromCache: true, quiet: true });
           paintHistoryFromCache();
+          inflight = false;
+          tick();
           return;
         }
-        inflight = true;
-        document.getElementById("refresh").disabled = true;
         tick();
         try {
           const pullsRes = await fetch(PULLS_URL);
@@ -2869,7 +2952,8 @@
         const nextSignature = JSON.stringify({
           pulls: payload.pulls.map((pr) => [pr.number, pr.state, pr.merged_at, pr.title, pr.head && pr.head.ref, pr.draft]),
           tag: payload.release && payload.release.tag_name,
-          activity: activitySnapshot && activitySnapshot.fetchedAt ? activitySnapshot.fetchedAt : 0
+          activity: activitySnapshot && activitySnapshot.fetchedAt ? activitySnapshot.fetchedAt : 0,
+          status: workStatus
         });
         const changed = nextSignature !== signature;
         signature = nextSignature;
@@ -3045,7 +3129,7 @@
         countUp(pct, "stream-" + item.id, item.percent);
         const est = document.createElement("span");
         est.className = "est";
-        est.textContent = "estimate";
+        est.textContent = item.status === "done" ? "done" : "estimate";
         side.append(pct, est);
         top.append(icon, titles, side);
 
@@ -3070,7 +3154,7 @@
         if (item.groups) bits.push(item.groups.length + " tracks");
         if (item.merged) bits.push(item.merged + " merged");
         if (item.open) bits.push(item.open + " in review");
-        if (!item.groups) bits.push(item.expected + " expected");
+        if (!item.groups && item.status !== "done") bits.push(item.expected + " expected");
         const meta = document.createElement("p");
         meta.className = "meta";
         meta.textContent = bits.join(" · ");
@@ -3086,7 +3170,7 @@
 
         const prs = item.all.slice().sort(comparePrs);
         if (!prs.length) {
-          if (item.groups) return card;
+          if (item.groups || item.status === "done") return card;
           const note = document.createElement("p");
           note.className = "empty-note";
           note.textContent = "No pull requests yet. This stays near 5% while the code is being written.";
@@ -3151,7 +3235,7 @@
         countUp(pct, "plugin-" + group.id, group.percent);
         const est = document.createElement("span");
         est.className = "plugin-est";
-        est.textContent = "estimate";
+        est.textContent = group.status === "done" ? "done" : "estimate";
         score.append(pct, est);
         head.append(title, score);
         const bar = progressBar({
@@ -3166,7 +3250,7 @@
         const bits = [];
         if (group.merged) bits.push(group.merged + " merged");
         if (group.open) bits.push(group.open + " in review");
-        bits.push(group.expected + " expected");
+        if (group.status !== "done") bits.push(group.expected + " expected");
         const meta = document.createElement("p");
         meta.className = "meta";
         meta.textContent = STATUS_LABEL[group.status] + " · " + bits.join(" · ");
@@ -3385,9 +3469,9 @@
         const lead = prefix || "";
         node.dataset.etaPrefix = lead;
         node.classList.toggle("is-done", !!(eta && eta.state === "done"));
-        if (eta && eta.state === "done" && Number.isFinite(eta.finishedAt)) {
+        if (eta && eta.state === "done") {
           node.removeAttribute("data-eta-finish");
-          node.textContent = lead + "Done · " + formatStamp(eta.finishedAt);
+          node.textContent = lead + (Number.isFinite(eta.finishedAt) ? "Done · " + formatStamp(eta.finishedAt) : "Done");
           return;
         }
         if (!eta || eta.state !== "eta" || !Number.isFinite(eta.finishAt)) {
@@ -3399,15 +3483,22 @@
         node.textContent = lead + formatEta(eta.finishAt - Date.now());
       }
 
+      function etaFor(item, now) {
+        const eta = workEta((item.mergedPrs || []).concat(item.openPrs || []), item.ratio, now);
+        if (item.status !== "done") return eta;
+        const finishedAt = Number.isFinite(item.finishedAt) ? item.finishedAt : eta.finishedAt;
+        return { state: "done", finishedAt: Number.isFinite(finishedAt) ? finishedAt : null };
+      }
+
       function refreshEtas(results) {
         const now = Date.now();
         const etas = [];
         (results || []).forEach((item) => {
-          const eta = workEta((item.mergedPrs || []).concat(item.openPrs || []), item.ratio, now);
+          const eta = etaFor(item, now);
           etas.push(eta);
           renderEta(document.querySelector('[data-eta-for="' + item.id + '"]'), eta, "");
           (item.groups || []).forEach((group) => {
-            const trackEta = workEta((group.mergedPrs || []).concat(group.openPrs || []), group.ratio, now);
+            const trackEta = etaFor(group, now);
             etas.push(trackEta);
             renderEta(document.querySelector('[data-eta-for="track-' + group.id + '"]'), trackEta, "");
           });
@@ -3465,7 +3556,7 @@
         pct.textContent = item.percent + "%";
         const est = document.createElement("span");
         est.className = "est";
-        est.textContent = "estimate";
+        est.textContent = item.status === "done" ? "done" : "estimate";
         side.append(pct, est);
         top.append(icon, titles, side);
         const pill = document.createElement("span");
