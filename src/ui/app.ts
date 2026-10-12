@@ -260,6 +260,7 @@ import {
   parseIdMap,
   serverContextItems,
   toggleId,
+  type MenuEntry,
   withMoveTargets,
 } from "../server-model";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
@@ -3554,6 +3555,7 @@ class LarkApp {
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
+      this.bindMessageMenu(node, message);
       parent.append(node);
       lastDay = day;
       previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
@@ -9755,6 +9757,51 @@ class LarkApp {
     };
   }
 
+  private messageMenuItems(message: RawMessage): MenuEntry[] {
+    const items: MenuEntry[] = [];
+    if (this.hookOn("inlineTranslate")) items.push({ id: "translate", label: this.translated[message.id] ? "Show original" : "Translate" });
+    return items;
+  }
+
+  private bindMessageMenu(node: HTMLElement, message: RawMessage) {
+    const items = this.messageMenuItems(message);
+    if (!items.length) return;
+    node.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      this.showMenu(event.clientX, event.clientY, items, (id) => {
+        void this.onMessageMenu(message, id);
+      });
+    });
+  }
+
+  private async onMessageMenu(message: RawMessage, id: string) {
+    if (id === "translate") await this.onInlineTranslate(message);
+  }
+
+  private async onInlineTranslate(message: RawMessage) {
+    if (this.translated[message.id]) {
+      delete this.translated[message.id];
+      this.msgSig = "";
+      this.paintMessages();
+      return;
+    }
+    const { translateInline } = await import("../pack/inline-translate");
+    const result = await translateInline({
+      text: message.content,
+      source: this.pack.inlineSource,
+      target: this.pack.inlineLang,
+      glossary: this.pack.glossary,
+      prefer: this.pack.inlinePrefer,
+    });
+    if (result.via === "original") {
+      this.toast("Translate", "No translation for that line.");
+      return;
+    }
+    this.translated[message.id] = result.text;
+    this.msgSig = "";
+    this.paintMessages();
+  }
+
   private messageExtras(message: RawMessage): { log?: { deleted: boolean; history: string[] } } {
     if (!this.hookOn("messageLog")) return {};
     const view = logView(findLog(this.pack.messageLog, message.channelId, message.id), this.pack.logDeleted, this.pack.logEdits);
@@ -10032,6 +10079,29 @@ class LarkApp {
         this.paintChannels();
       }));
       card.append(el("p", "hint", "A row says typing while someone is typing there. Hover the label for the names. Silent typing, above, stops your own indicator."));
+      wrap.append(card);
+    } else if (id === "inline-translate") {
+      const card = el("div", "plugin-card");
+      const langs = ["en", "es", "fr", "de", "ja"];
+      const labels = { en: "English", es: "Spanish", fr: "French", de: "German", ja: "Japanese" };
+      card.append(el("div", "hint", "Translate into"));
+      card.append(this.choice(langs, this.pack.inlineLang, (value) => {
+        this.pack.inlineLang = value as PackState["inlineLang"];
+        this.translated = {};
+        this.savePack();
+        this.msgSig = "";
+      }, labels));
+      card.append(el("div", "hint", "Source language"));
+      card.append(this.choice(langs, this.pack.inlineSource, (value) => {
+        this.pack.inlineSource = value as PackState["inlineSource"];
+        this.savePack();
+      }, labels));
+      card.append(el("div", "hint", "Prefer"));
+      card.append(this.choice(["remote", "local"], this.pack.inlinePrefer, (value) => {
+        this.pack.inlinePrefer = value as PackState["inlinePrefer"];
+        this.savePack();
+      }, { remote: "Free endpoint", local: "Phrase book" }));
+      card.append(el("p", "hint", "Right-click a message. The free endpoint is tried first unless you prefer the phrase book. No key is stored."));
       wrap.append(card);
     }
   }
