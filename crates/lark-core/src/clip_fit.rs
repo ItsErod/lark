@@ -285,7 +285,9 @@ pub fn resolve_ffmpeg(hints: &[PathBuf]) -> Option<PathBuf> {
             return Some(path.clone());
         }
     }
-    if Command::new("ffmpeg")
+    let mut probe = Command::new("ffmpeg");
+    crate::proc::hide_console(&mut probe);
+    if probe
         .arg("-version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -304,7 +306,9 @@ pub fn run_ffmpeg(
     duration_ms: u64,
     on_progress: &mut dyn FnMut(u8),
 ) -> Result<(), String> {
-    let mut child = Command::new(bin)
+    let mut command = Command::new(bin);
+    crate::proc::hide_console(&mut command);
+    let mut child = command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

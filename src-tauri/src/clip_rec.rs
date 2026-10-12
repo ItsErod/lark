@@ -522,7 +522,9 @@ impl ClipEngine {
         .ok_or_else(|| {
             "Lark couldn't find ffmpeg. Add the ffmpeg sidecar next to the app, or install ffmpeg.".to_string()
         })?;
-        let listing = std::process::Command::new(&ffmpeg)
+        let mut encoders = std::process::Command::new(&ffmpeg);
+        lark_core::hide_console(&mut encoders);
+        let listing = encoders
             .args(["-hide_banner", "-encoders"])
             .output()
             .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
@@ -982,7 +984,9 @@ pub fn capture_backend() -> &'static str {
 pub fn reveal_path(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let status = std::process::Command::new("open")
+        let mut command = std::process::Command::new("open");
+        lark_core::hide_console(&mut command);
+        let status = command
             .args(["-R", &path.display().to_string()])
             .status()
             .map_err(|err| err.to_string())?;
@@ -1007,7 +1011,9 @@ pub fn open_dir(dir: &Path) -> Result<(), String> {
     let _ = std::fs::create_dir_all(dir);
     #[cfg(target_os = "macos")]
     {
-        let status = std::process::Command::new("open")
+        let mut command = std::process::Command::new("open");
+        lark_core::hide_console(&mut command);
+        let status = command
             .arg(dir)
             .status()
             .map_err(|err| err.to_string())?;

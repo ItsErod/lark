@@ -14,6 +14,7 @@ pub mod hardware;
 mod host_win;
 mod mp4mux;
 pub mod platform;
+pub mod proc;
 pub mod ratelimit;
 pub mod readstate;
 pub mod redact;
@@ -25,6 +26,7 @@ pub mod token;
 pub use config::{global_accelerator, parse_config, prepare_saved_config, Config, ConfigError};
 #[cfg(windows)]
 pub use host_win::{open_folder, reveal_file, set_run_at_login};
+pub use proc::{creation_flags, hide_console, CREATE_NO_WINDOW};
 pub use platform::{
     config_dir_hint, credential_failure_message, credential_mismatch_after_save_message,
     credential_not_saved_message, credential_store_label, credential_unreadable_after_save_message,

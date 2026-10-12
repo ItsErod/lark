@@ -130,6 +130,7 @@ fn open_system_browser(url: &str) -> Result<(), String> {
 
 fn spawn_detached(program: &str, url: &str) -> Result<(), String> {
     let mut command = Command::new(program);
+    lark_core::hide_console(&mut command);
     command.arg(url);
     command
         .stdin(Stdio::null())

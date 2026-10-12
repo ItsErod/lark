@@ -192,6 +192,7 @@ fn encode_with_ffmpeg_encoder(
     let fps = plan.fps.max(1).to_string();
     let rate = bitrate.to_string();
     let mut command = Command::new(ffmpeg);
+    crate::proc::hide_console(&mut command);
     command
         .arg("-hide_banner")
         .arg("-loglevel")
@@ -233,7 +234,7 @@ fn encode_with_ffmpeg_encoder(
     {
         use std::os::windows::process::CommandExt;
         const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
-        command.creation_flags(BELOW_NORMAL_PRIORITY_CLASS);
+        command.creation_flags(crate::proc::creation_flags(BELOW_NORMAL_PRIORITY_CLASS));
     }
     #[cfg(unix)]
     {
@@ -709,7 +710,9 @@ mod tests {
         }
         let path = std::env::temp_dir().join(format!("lark-clip-soft-{}.mp4", std::process::id()));
         std::fs::write(&path, &encoded.bytes).unwrap();
-        let decoded = Command::new(&ffmpeg)
+        let mut decode = Command::new(&ffmpeg);
+        crate::proc::hide_console(&mut decode);
+        let decoded = decode
             .args(["-v", "error", "-i"])
             .arg(&path)
             .args(["-f", "null", "-"])
@@ -738,7 +741,9 @@ mod tests {
         assert!(mp4mux::moov_before_mdat(&encoded.bytes));
         let path = std::env::temp_dir().join(format!("lark-clip-test-{}.mp4", std::process::id()));
         std::fs::write(&path, &encoded.bytes).unwrap();
-        let decoded = Command::new(&ffmpeg)
+        let mut decode = Command::new(&ffmpeg);
+        crate::proc::hide_console(&mut decode);
+        let decoded = decode
             .args(["-v", "error", "-i"])
             .arg(&path)
             .args(["-f", "null", "-"])
