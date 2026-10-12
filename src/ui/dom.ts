@@ -1,3 +1,5 @@
+import { knownPhrase, t } from "../i18n";
+
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -5,7 +7,10 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 ): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text && knownPhrase(text)) {
+    node.dataset.i18n = text;
+    node.textContent = t(text);
+  } else if (text !== undefined) node.textContent = text;
   return node;
 }
 

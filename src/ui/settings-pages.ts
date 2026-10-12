@@ -31,6 +31,7 @@ export interface SettingsHost {
   persist: () => void;
   refresh: () => void;
   apply: () => void;
+  repaint?: () => void;
   logout: () => void;
   switchAccount: (id: string) => void;
   removeAccount: (id: string) => void;
@@ -381,7 +382,7 @@ export function renderNitroPane(host: SettingsHost): HTMLElement {
 
 export function renderLanguagePane(host: SettingsHost): HTMLElement {
   const wrap = el("div", "settings-stack");
-  wrap.append(settingHead("Language & Time", "Dates follow this language. The rest of Lark stays in English."));
+  wrap.append(settingHead("Language & Time", "The interface follows this language."));
   const card = settingCard("Locale");
   const select = el("select");
   select.setAttribute("aria-label", "Language");
@@ -395,6 +396,8 @@ export function renderLanguagePane(host: SettingsHost): HTMLElement {
     host.config.preferences.language = select.value;
     host.persist();
     host.apply();
+    host.repaint?.();
+    host.refresh();
   });
   card.append(settingRow("language.locale", "Language", "Used for clocks and the document language.", select, true));
   card.append(settingRow(
