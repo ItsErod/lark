@@ -186,6 +186,20 @@ import {
 } from "../scroll";
 import { commandError, gateQr, QR_CAPTION } from "../signin";
 import { activeFriends, clampNote, friendGlance } from "../social";
+import * as socialApi from "../social";
+import {
+  applyThreadIndex,
+  bindParityHost,
+  isMediaChannel,
+  mergeThreadChannels,
+  onCreateEvent as openCreateEventHook,
+  onCreatePoll as openCreatePollHook,
+  onCreateThread as openCreateThreadHook,
+  readPendingFriendCount,
+  type ParityHost,
+  type ThreadIndexWire,
+} from "../threads";
+import { mountChannelPolls, parityHeaderButtons, parityThreadBar, renderForumSurface } from "./threads-forums";
 import { clipForHotkey, soundHotkeyIsGlobal } from "../soundboard";
 import { applyUserMix, applyVoiceState, hydrateMix, participantsIn, playbackVolume, replaceGuildVoice, setSpeaking, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
@@ -603,6 +617,9 @@ class LarkApp {
   constructor(private root: HTMLElement) {}
 
   async start() {
+    (globalThis as { larkCreateEvent?: (guildId: string) => void }).larkCreateEvent = (guildId) => {
+      this.onCreateEvent(guildId);
+    };
     installShareSettings();
     this.narrow = this.root.clientWidth < 880;
     const saved = localStorage.getItem("lark.config.v1");
@@ -2881,6 +2898,7 @@ class LarkApp {
 
   private paintHeader() {
     if (this.holdShell) return;
+    bindParityHost(this.parityHost());
     clear(this.chatHead);
     const channel = this.currentChannel();
     const title = el("div", "chat-title");
@@ -2907,6 +2925,8 @@ class LarkApp {
     if (this.streamerOn()) row.append(el("span", "demo-pill", "Streamer"));
     title.append(row);
     if (channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
+    const threadBar = parityThreadBar();
+    if (threadBar) title.append(threadBar);
     const actions = el("div", "head-actions");
     const search = el("button", "icon-button");
     search.type = "button";
@@ -2965,7 +2985,8 @@ class LarkApp {
       this.bookmarksOpen = !this.bookmarksOpen;
       this.paintBookmarks();
     });
-    const headerButtons = [search, find, pin, saved, split, theme, members, bell];
+    const parityButtons = parityHeaderButtons();
+    const headerButtons = [search, find, pin, ...parityButtons, saved, split, theme, members, bell];
     actions.append(...headerButtons);
     const help = el("button", "icon-button");
     help.type = "button";
@@ -2975,6 +2996,7 @@ class LarkApp {
     help.addEventListener("click", () => externalLink(DISCORD_LINKS.help));
     actions.append(help);
     this.chatHead.append(title, actions);
+    mountChannelPolls(this.messagesEl);
   }
 
   private cycleNotify() {
@@ -9603,8 +9625,8 @@ class LarkApp {
   }
 
   private threadsFor(parentId: string): Channel[] {
-    if (!this.guildId) return [];
-    return this.channelsOf(this.guildId).filter((channel) => channel.kind === "thread" && channel.parentId === parentId);
+    const live = !this.guildId ? [] : this.channelsOf(this.guildId).filter((channel) => channel.kind === "thread" && channel.parentId === parentId);
+    return mergeThreadChannels(parentId, live);
   }
 
   private mergeThreads(guildId: string, parentId: string, threads: Channel[]) {
@@ -9619,12 +9641,52 @@ class LarkApp {
   }
 
   private async loadThreads(channelId: string) {
+    bindParityHost(this.parityHost());
     if (this.demo || !this.guildId) return;
     try {
       const threads = await invoke<Channel[]>("fetch_threads", { channelId });
       this.mergeThreads(this.guildId, channelId, threads.map(normalizeChannel));
     } catch {
       /* Active threads are optional. */
+    }
+    try {
+      const index = await invoke<ThreadIndexWire>("fetch_thread_index", { channelId });
+      applyThreadIndex(index);
+      const threads = index.threads.map((thread) => normalizeChannel({
+        id: thread.id,
+        name: thread.name,
+        kind: "thread",
+        parentId: thread.parentId || channelId,
+        position: 0,
+        rawKind: thread.rawKind,
+        archived: thread.archived,
+        locked: thread.locked,
+        invitable: thread.invitable,
+        autoArchiveDuration: thread.autoArchiveDuration,
+        messageCount: thread.messageCount,
+        memberCount: thread.memberCount,
+        lastMessageId: thread.lastMessageId,
+        ownerId: thread.ownerId,
+        flags: thread.flags,
+        appliedTags: thread.appliedTags,
+        starterContent: thread.starterContent,
+        starterImage: thread.starterImage,
+      }));
+      this.mergeThreads(this.guildId, channelId, threads);
+      if (index.parent?.rawKind) {
+        const parent = this.channelById(channelId);
+        if (parent) Object.assign(parent, {
+          rawKind: index.parent.rawKind,
+          flags: index.parent.flags,
+          topic: index.parent.topic || parent.topic,
+          availableTags: index.parent.availableTags,
+          defaultSortOrder: index.parent.defaultSortOrder,
+        });
+      }
+      this.msgSig = "";
+      if (this.channelId === channelId) this.paintMessages();
+    } catch {
+      /* Archived threads and forum tags are optional. */
     }
   }
 
@@ -9639,19 +9701,99 @@ class LarkApp {
   }
 
   private forumBoard(channelId: string): HTMLElement | null {
+    bindParityHost(this.parityHost());
     const channel = this.currentChannel();
-    if (!channel || channel.kind !== "forum" || channel.id !== channelId) return null;
-    const board = el("div", "forum-board");
-    board.append(el("h3", "", "Posts"));
-    const threads = this.threadsFor(channelId);
-    if (!threads.length) board.append(el("p", "empty", "No active posts in this forum."));
-    for (const thread of threads) {
-      const button = el("button", "forum-post", thread.name);
-      button.type = "button";
-      button.addEventListener("click", () => void this.openChannel(thread.id));
-      board.append(button);
-    }
-    return board;
+    if (!channel || channel.id !== channelId) return null;
+    if (channel.kind !== "forum" && !isMediaChannel(channel)) return null;
+    return renderForumSurface(channelId);
+  }
+
+  /** Stream A: + Create Thread. */
+  onCreateThread(input?: unknown) {
+    bindParityHost(this.parityHost());
+    openCreateThreadHook(input ?? { channelId: this.channelId });
+  }
+
+  /** Stream A: + Create Poll. */
+  onCreatePoll(input?: unknown) {
+    bindParityHost(this.parityHost());
+    openCreatePollHook(input ?? { channelId: this.channelId });
+  }
+
+  /** Stream B: Create Event, and the events list behind the sidebar row. */
+  onCreateEvent(input?: unknown) {
+    bindParityHost(this.parityHost());
+    openCreateEventHook(input ?? this.guildId ?? "");
+  }
+
+  openEvents(input?: unknown) {
+    bindParityHost(this.parityHost());
+    void import("../threads").then((mod) => mod.openEvents(input ?? this.guildId ?? ""));
+  }
+
+  private parityHost(): ParityHost {
+    const pending = readPendingFriendCount(socialApi, (globalThis as { __larkPendingFriends?: unknown }).__larkPendingFriends);
+    return {
+      channelId: this.channelId,
+      guildId: this.guildId,
+      meId: this.meId(),
+      demo: this.demo,
+      channel: (id) => this.channelById(id),
+      channels: () => (this.guildId ? this.channelsOf(this.guildId) : []),
+      messages: (id) => (this.pages[id] ?? []).map((message) => ({
+        id: message.id,
+        content: message.content,
+        authorName: message.authorName,
+        authorId: message.authorId,
+      })),
+      bookmarks: this.pack.bookmarks,
+      reminders: this.reminders,
+      pendingFriendCount: pending,
+      unreads: () => {
+        const channels = [...(this.guildId ? this.channelsOf(this.guildId) : []), ...this.dms()];
+        return channels
+          .map((channel) => ({
+            id: channel.id,
+            name: channel.name,
+            kind: channel.kind,
+            unread: this.unread[channel.id] ?? channel.unread ?? 0,
+            mentions: this.mentions[channel.id] ?? channel.mentions ?? 0,
+            lastMessageId: channel.lastMessageId ?? this.channelLast[channel.id] ?? this.markers[channel.id]?.lastMessageId ?? null,
+          }))
+          .filter((channel) => channel.unread > 0 || channel.mentions > 0);
+      },
+      mask: (text) => this.maskText(text),
+      invoke: (command, args) => invoke(command, args),
+      openChannel: (id) => {
+        void this.openChannel(id);
+      },
+      jump: (channelId, messageId) => {
+        void this.jumpToMessage(channelId, messageId);
+      },
+      toast: (title, body) => this.toast(title, body),
+      markAllRead: (states) => {
+        for (const state of states) {
+          this.lastRead[state.channelId] = state.messageId;
+          this.behind[state.channelId] = false;
+          this.localUnread[state.channelId] = 0;
+          this.localMentions[state.channelId] = 0;
+          this.markers[state.channelId] = { lastMessageId: state.messageId, mentionCount: 0 };
+          this.refreshChannelBadge(state.channelId);
+        }
+        this.syncBadge();
+        this.paintChannels();
+        this.paintRail();
+      },
+      refresh: () => {
+        this.msgSig = "";
+        this.paint();
+      },
+      rememberThread: (thread) => {
+        const guild = this.guildId || (thread.parentId ? this.guildForChannel(thread.parentId) : "") || "";
+        if (!guild) return;
+        this.mergeThreads(guild, thread.parentId ?? "", [normalizeChannel(thread)]);
+      },
+    };
   }
 
   private async ensureEmojis() {
@@ -10450,7 +10592,7 @@ class LarkApp {
 
   private openEventsEntry() {
     if (!this.guildId) return;
-    if (openCreateEvent(this.guildId) === "missing") this.toast("Events", "Scheduled events will show here.");
+    this.openEvents(this.guildId);
   }
 
   private openAddServer() {
