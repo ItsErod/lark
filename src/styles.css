@@ -1263,3 +1263,9 @@ button.guild-row:hover { background: var(--hover); }
 }
 .whois-card strong { font-size: 13px; }
 .whois-card p { margin: 0; color: var(--muted); font-size: 12px; }
+.message.is-jumbo .message-text,
+.message.is-jumbo .compact-text,
+.message.is-jumbo .irc-line { font-size: var(--lark-jumbo, 48px); line-height: 1.15; }
+.message.is-jumbo .message-text .emoji,
+.message.is-jumbo .compact-text .emoji,
+.message.is-jumbo .irc-line .emoji { width: var(--lark-jumbo, 48px); height: var(--lark-jumbo, 48px); }

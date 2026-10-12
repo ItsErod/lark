@@ -26,6 +26,14 @@ export interface ChatPluginHost {
   schedulePreset: string;
   setSchedulePreset: (value: string) => void;
   liveWaiting: number;
+  imageLens: boolean;
+  imageTineye: boolean;
+  imageYandex: boolean;
+  setImageLens: (value: boolean) => void;
+  setImageTineye: (value: boolean) => void;
+  setImageYandex: (value: boolean) => void;
+  jumboSize: number;
+  setJumboSize: (value: number) => void;
 }
 
 /** Extra settings cards for chat plugins. Unknown ids are ignored. */
@@ -36,6 +44,8 @@ export function mountChatPluginPanel(wrap: HTMLElement, id: string, host: ChatPl
   else if (id === "user-whois") wrap.append(whoisCard(host));
   else if (id === "emote-cloner") wrap.append(emoteCard(host));
   else if (id === "message-scheduler") wrap.append(scheduleCard(host));
+  else if (id === "reverse-image") wrap.append(imageCard(host));
+  else if (id === "bigger-emoji") wrap.append(jumboCard(host));
 }
 
 function highlightCard(host: ChatPluginHost): HTMLElement {
@@ -104,6 +114,28 @@ function scheduleCard(host: ChatPluginHost): HTMLElement {
     card.append(button);
   }
   card.append(el("p", "hint", host.liveWaiting ? `${host.liveWaiting} waiting in this session.` : "Use Schedule in the composer. The queue lives in memory. Closing Lark drops it, and Lark never sends a message you did not write."));
+  return card;
+}
+
+function imageCard(host: ChatPluginHost): HTMLElement {
+  const card = el("div", "plugin-card");
+  card.append(flagButton("Google Lens", host.imageLens, host.setImageLens));
+  card.append(flagButton("TinEye", host.imageTineye, host.setImageTineye));
+  card.append(flagButton("Yandex", host.imageYandex, host.setImageYandex));
+  card.append(el("p", "hint", "Right-click an image in a message. Lark opens the search in your browser. Only an https image address is sent, and only because you chose it."));
+  return card;
+}
+
+function jumboCard(host: ChatPluginHost): HTMLElement {
+  const card = el("div", "plugin-card");
+  card.append(el("div", "hint", "Emoji size"));
+  for (const size of [32, 48, 64, 96]) {
+    const button = el("button", `text-button${host.jumboSize === size ? " is-on" : ""}`, `${size}px`);
+    button.type = "button";
+    button.addEventListener("click", () => host.setJumboSize(size));
+    card.append(button);
+  }
+  card.append(el("p", "hint", "A message that is only emoji, up to 27 of them, uses this size. Text messages stay the normal size."));
   return card;
 }
 

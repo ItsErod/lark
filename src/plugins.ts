@@ -76,6 +76,8 @@ export interface PluginHooks {
   userWhois: boolean;
   emoteClone: boolean;
   liveSchedule: boolean;
+  imageSearch: boolean;
+  jumboEmoji: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -132,6 +134,8 @@ export function emptyHooks(): PluginHooks {
     userWhois: false,
     emoteClone: false,
     liveSchedule: false,
+    imageSearch: false,
+    jumboEmoji: false,
   };
 }
 
@@ -340,6 +344,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.userWhois = record.userWhois === true;
   hooks.emoteClone = record.emoteClone === true;
   hooks.liveSchedule = record.liveSchedule === true;
+  hooks.imageSearch = record.imageSearch === true;
+  hooks.jumboEmoji = record.jumboEmoji === true;
   return hooks;
 }
 
