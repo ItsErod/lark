@@ -46,6 +46,9 @@ import { cloneTargets, discordMedia, emojiCloneBody, stickerCloneRequest } from 
 import { dropDue, presetLead, queueDraft } from "../pack/live-schedule";
 import { enabledEngines, engineLabel, searchHref, httpsImage, type ImageEngine } from "../pack/image-search";
 import { isJumbo } from "../pack/jumbo";
+import { atOrBefore, noteSeen } from "../pack/receipts";
+import { digestRows, digestTotal } from "../pack/digest";
+import { composerCount } from "../pack/words";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
@@ -784,6 +787,8 @@ class LarkApp {
   private emojiUses: EmojiUse[] = [];
   private searchOpen = false;
   private pinsOpen = false;
+  private digestOpen = false;
+  private receiptNote = false;
   private themeOpen = false;
   private themeFilter = "";
   private extraThemeIds: string[] = [];
@@ -1193,7 +1198,7 @@ class LarkApp {
     this.composer.addEventListener("input", () => {
       this.composer.style.height = "auto";
       this.composer.style.height = `${Math.min(this.composer.scrollHeight, 160)}px`;
-      if (this.countEl) this.countEl.textContent = `${[...this.composer.value].length} / 2000`;
+      if (this.countEl) this.countEl.textContent = composerCount(this.composer.value, this.hookOn("wordCount"));
       const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
       if (perf) perf.lastInput = performance.now();
       this.saveDraft();
@@ -1262,6 +1267,7 @@ class LarkApp {
       this.messageFrame = requestAnimationFrame(() => {
         this.messageFrame = 0;
         this.syncMessageWindow();
+        this.noteLocalReceipts();
       });
     }, { passive: true });
   }
@@ -3392,6 +3398,17 @@ class LarkApp {
       mark.addEventListener("click", () => this.markRead([channelId]));
       actions.append(mark);
     }
+    if (this.hookOn("mentionDigest")) {
+      const total = digestTotal(this.mentionDigestRows());
+      const digest = el("button", "text-button", total ? `Mentions ${total}` : "Mentions");
+      digest.type = "button";
+      digest.setAttribute("aria-label", "Mention digest");
+      digest.addEventListener("click", () => {
+        this.digestOpen = !this.digestOpen;
+        this.paintDigest();
+      });
+      actions.append(digest);
+    }
     const search = el("button", "icon-button");
     search.type = "button";
     search.title = `Command palette (${formatShortcut(this.config.shortcuts.quick_switcher, this.platform.os)})`;
@@ -3817,6 +3834,7 @@ class LarkApp {
         ...this.messageChrome(message, shown),
         ...this.messageExtras(message),
         clock: this.timeClock(),
+        seen: this.messageSeen(channelId, message.id),
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
@@ -3873,7 +3891,8 @@ class LarkApp {
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
     if (id && this.hookOn("messageLog") && this.pack.logDeleted) list = overlayDeletes(list, this.pack.messageLog, id);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.blockedIds.size}:${this.pack.privacy.spoilerDefault}:${this.channelId ? this.pack.privacy.spoilerChannels[this.channelId] ?? "" : ""}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.relativeClock() ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.pack.timeMode}:${this.pack.timeHours}:${this.pack.voiceDownloadScope}:${this.pack.originalImageAction}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
+    const receiptCursor = this.channelId ? this.pack.seenCursors[this.channelId] ?? "" : "";
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.blockedIds.size}:${this.pack.privacy.spoilerDefault}:${this.channelId ? this.pack.privacy.spoilerChannels[this.channelId] ?? "" : ""}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.relativeClock() ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.pack.timeMode}:${this.pack.timeHours}:${this.pack.voiceDownloadScope}:${this.pack.originalImageAction}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}:${receiptCursor}:${this.pack.showReceipts ? 1 : 0}:${this.pack.wordMin}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -3887,6 +3906,7 @@ class LarkApp {
         this.pinnedToBottom = true;
       }
       this.scroll = "none";
+      this.noteLocalReceipts();
       return;
     }
     const intent = this.scroll;
@@ -3912,6 +3932,7 @@ class LarkApp {
       });
       this.watchMessageLayout();
       this.msgSig = sig;
+      this.noteLocalReceipts();
       return;
     }
     if (plan === "append" && column instanceof HTMLElement && id && list.length && list.length <= VIRTUAL_MIN) {
@@ -3922,6 +3943,7 @@ class LarkApp {
       });
       this.watchMessageLayout();
       this.msgSig = sig;
+      this.noteLocalReceipts();
       return;
     }
     this.noteMessagePaint("replace");
@@ -3990,6 +4012,7 @@ class LarkApp {
     });
     this.watchMessageLayout();
     this.msgSig = sig;
+    this.noteLocalReceipts();
   }
 
   private renderContext() {
@@ -4554,7 +4577,7 @@ class LarkApp {
       chip.append(name, spoiler);
       tools.append(chip);
     }
-    this.countEl = el("span", "count", `${[...this.composer.value].length} / 2000`);
+    this.countEl = el("span", "count", composerCount(this.composer.value, this.hookOn("wordCount")));
     const hint = el("span", "hint", "Enter to send");
     if (this.upload > 0 && this.upload < 100) {
       const bar = el("div", "upload");
@@ -6404,6 +6427,9 @@ class LarkApp {
       } else if (this.pinsOpen) {
         this.pinsOpen = false;
         this.paintPins();
+      } else if (this.digestOpen) {
+        this.digestOpen = false;
+        this.paintDigest();
       } else if (this.bookmarksOpen) {
         this.bookmarksOpen = false;
         this.paintBookmarks();
@@ -11079,6 +11105,7 @@ class LarkApp {
           ...this.messageChrome(message, shown),
           ...this.messageExtras(message),
           clock: this.timeClock(),
+          seen: this.messageSeen(this.splitId, message.id),
         }));
         const last = body.lastElementChild;
         if (last instanceof HTMLElement && this.hookOn("userWhois")) this.watchMessageWhois(last, message);
@@ -11194,6 +11221,95 @@ class LarkApp {
     if (!hasSearchCriteria(resolved)) return [];
     const pools = this.demo ? Object.values(history).flat() : Object.values(this.pages).flat();
     return filterLoadedMessages(pools, resolved);
+  }
+
+  private messageSeen(channelId: string, messageId: string): boolean {
+    if (!this.hookOn("readReceipts") || !this.pack.showReceipts) return false;
+    return atOrBefore(this.pack.seenCursors[channelId] ?? "", messageId);
+  }
+
+  private newestVisibleId(): string {
+    const view = this.messagesEl.getBoundingClientRect();
+    let newest = "";
+    for (const wrap of this.messagesEl.querySelectorAll<HTMLElement>(".message-wrap")) {
+      const id = wrap.dataset.mid ?? "";
+      if (!id) continue;
+      const box = wrap.getBoundingClientRect();
+      if (box.bottom < view.top || box.top > view.bottom) continue;
+      newest = noteSeen({ here: newest }, "here", id).here ?? newest;
+    }
+    return newest;
+  }
+
+  private noteLocalReceipts() {
+    if (!this.hookOn("readReceipts") || !this.channelId || this.scrollLock > 0 || this.receiptNote) return;
+    const newest = this.newestVisibleId();
+    if (!newest) return;
+    const next = noteSeen(this.pack.seenCursors, this.channelId, newest);
+    if ((next[this.channelId] ?? "") === (this.pack.seenCursors[this.channelId] ?? "")) return;
+    this.pack.seenCursors = next;
+    this.savePack();
+    this.msgSig = "";
+    this.receiptNote = true;
+    queueMicrotask(() => {
+      this.receiptNote = false;
+      this.paintMessages();
+    });
+  }
+
+  private mentionDigestRows() {
+    const rows: { channelId: string; name: string; where: string; mentions: number; kind: string }[] = [];
+    for (const guild of this.guilds()) {
+      for (const channel of this.channelsOf(guild.id)) {
+        rows.push({
+          channelId: channel.id,
+          name: channel.name,
+          where: guild.name,
+          mentions: this.mentions[channel.id] ?? channel.mentions ?? 0,
+          kind: channel.kind,
+        });
+      }
+    }
+    for (const channel of this.dms()) {
+      rows.push({
+        channelId: channel.id,
+        name: channel.name,
+        where: "Direct messages",
+        mentions: this.mentions[channel.id] ?? channel.mentions ?? 0,
+        kind: channel.kind,
+      });
+    }
+    return digestRows(rows, this.pack.digestDms);
+  }
+
+  private paintDigest() {
+    let panel = document.getElementById("lark-digest");
+    if (!this.digestOpen || !this.hookOn("mentionDigest")) {
+      panel?.remove();
+      return;
+    }
+    if (!panel) {
+      panel = el("aside", "pins");
+      panel.id = "lark-digest";
+      this.stage.append(panel);
+    }
+    clear(panel);
+    panel.append(el("h2", "", "Mentions"));
+    const rows = this.mentionDigestRows();
+    if (!rows.length) panel.append(el("p", "empty", "No mentions waiting."));
+    for (const row of rows) {
+      const button = el("button", "bookmark-row");
+      button.type = "button";
+      const where = row.where ? `${row.where} · ` : "";
+      button.append(el("strong", "", this.maskText(row.name)), el("span", "", `${where}${row.mentions} mention${row.mentions === 1 ? "" : "s"}`));
+      button.addEventListener("click", () => {
+        this.digestOpen = false;
+        this.paintDigest();
+        void this.openChannel(row.channelId);
+      });
+      panel.append(button);
+    }
+    panel.append(el("p", "hint", "Counts already on this device. Nothing is fetched."));
   }
 
   private paintPins() {
@@ -12062,6 +12178,36 @@ class LarkApp {
         this.savePack();
       }, { "2": "2×", "3": "3×", "4": "4×" }));
       card.append(el("p", "hint", "Click an opened image to zoom in. Scroll to zoom in or out."));
+      wrap.append(card);
+    } else if (id === "read-receipts") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Show Seen", this.pack.showReceipts, (value) => {
+        this.pack.showReceipts = value;
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      }));
+      card.append(el("p", "hint", "A message you scroll past gets a Seen mark on this device. Lark does not tell Discord."));
+      wrap.append(card);
+    } else if (id === "mention-digest") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Include direct messages", this.pack.digestDms, (value) => {
+        this.pack.digestDms = value;
+        this.savePack();
+        if (this.digestOpen) this.paintDigest();
+      }));
+      card.append(el("p", "hint", "Mentions in the header lists counts Lark already has. It does not fetch history."));
+      wrap.append(card);
+    } else if (id === "word-counter") {
+      const card = el("div", "plugin-card");
+      card.append(el("div", "hint", "Badge a message"));
+      card.append(this.choice(["0", "40", "100", "280"], String(this.pack.wordMin), (value) => {
+        this.pack.wordMin = Number(value) as PackState["wordMin"];
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      }, { "0": "Off", "40": "40 words", "100": "100 words", "280": "280 words" }));
+      card.append(el("p", "hint", "The composer always shows the word count while this is on. A badge appears only at the size you pick."));
       wrap.append(card);
     }
     this.appendChatPluginPanel(wrap, id);

@@ -480,6 +480,7 @@ html.is-panic body > * { visibility: hidden !important; }
 }
 .composer-meta { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.seen-mark { color: var(--faint); font-size: 11px; margin-left: 6px; }
 .empty, .error-state, .skeleton-wrap { padding: 32px 24px; color: var(--muted); }
 .skeleton { height: 14px; border-radius: 7px; background: linear-gradient(90deg, var(--bg-3), var(--bg-4), var(--bg-3)); background-size: 200% 100%; animation: shine 1.2s linear infinite; margin: 10px 0; }
 @keyframes shine { to { background-position: -200% 0; } }

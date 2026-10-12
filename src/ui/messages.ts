@@ -55,6 +55,7 @@ export function renderMessage(
     onCopyLink?: () => void;
     onSpeak?: () => void;
     onCopyId?: () => void;
+    seen?: boolean;
     onMarkUnread?: () => void;
     onCreateThread?: () => void;
     onShowPins?: () => void;
@@ -107,10 +108,12 @@ export function renderMessage(
     article.classList.add("is-irc");
   } else if (options.density === "compact") {
     article.append(timeStamp(view, options, "gutter"));
+    if (options.seen) article.append(seenMark());
   } else if (!options.grouped) {
     article.append(portrait(view.authorName, view.authorId, view.authorAvatar));
   } else {
     article.append(timeStamp(view, options, "gutter hover-time"));
+    if (options.seen) article.append(seenMark());
   }
   const body = el("div", "message-body");
   if (options.density === "cozy" && !options.grouped) {
@@ -120,6 +123,7 @@ export function renderMessage(
     head.append(name);
     if (view.authorBot) head.append(el("span", "bot-tag", "Bot"));
     head.append(timeStamp(view, options, "stamp"));
+    if (options.seen) head.append(seenMark());
     if (view.edited) head.append(el("span", "edited", "edited"));
     body.append(head);
   }
@@ -139,6 +143,7 @@ export function renderMessage(
   if (options.density === "irc") {
     const line = el("div", "irc-line");
     line.append(timeStamp(view, options, "gutter"));
+    if (options.seen) line.append(seenMark());
     const name = el("span", "author", view.authorName);
     name.style.color = nameColor;
     line.append(name);
@@ -371,6 +376,12 @@ async function openReactors(
     for (const person of people) list.append(el("div", "forward-hit", person.name));
     pop.append(list);
   }
+}
+
+function seenMark(): HTMLElement {
+  const mark = el("span", "seen-mark", "Seen");
+  mark.title = "Seen on this device. Discord is not told.";
+  return mark;
 }
 
 function timeStamp(view: ViewMessage, options: { now?: number; clock?: { mode: TimeMode; hours: HourCycle } }, className: string): HTMLElement {

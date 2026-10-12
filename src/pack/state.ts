@@ -15,6 +15,8 @@ import { cleanWords } from "./keywords";
 import { cleanPinnedDms } from "./pin-dms";
 import { cleanPatterns, patternsFor } from "./patterns";
 import { defaultPrivacy, sanitizePrivacy, spoilerMode, type PrivacyOptions } from "./privacy";
+import { sanitizeCursors } from "./receipts";
+import { wordMin, type WordMin } from "./words";
 
 export interface PackState {
   translateLang: Lang;
@@ -73,6 +75,10 @@ export interface PackState {
   gameActivity: "show" | "hide";
   mediaStatusSource: "game" | "spotify" | "either";
   mediaStatusReplace: boolean;
+  seenCursors: Record<string, string>;
+  showReceipts: boolean;
+  digestDms: boolean;
+  wordMin: WordMin;
 }
 
 export const PACK_IDS = [
@@ -119,6 +125,9 @@ export const PACK_IDS = [
   "clip-share",
   "game-activity",
   "media-status",
+  "read-receipts",
+  "mention-digest",
+  "word-counter",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -182,6 +191,10 @@ export function defaultPack(): PackState {
     gameActivity: "show",
     mediaStatusSource: "either",
     mediaStatusReplace: false,
+    seenCursors: {},
+    showReceipts: true,
+    digestDms: true,
+    wordMin: 0,
   };
 }
 
@@ -247,6 +260,10 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.imageTineye === "boolean") base.imageTineye = raw.imageTineye;
   if (typeof raw.imageYandex === "boolean") base.imageYandex = raw.imageYandex;
   if (raw.jumboSize === 32 || raw.jumboSize === 48 || raw.jumboSize === 64 || raw.jumboSize === 96) base.jumboSize = raw.jumboSize;
+  base.seenCursors = sanitizeCursors(raw.seenCursors);
+  if (typeof raw.showReceipts === "boolean") base.showReceipts = raw.showReceipts;
+  if (typeof raw.digestDms === "boolean") base.digestDms = raw.digestDms;
+  if (raw.wordMin !== undefined) base.wordMin = wordMin(raw.wordMin);
   return base;
 }
 
@@ -268,6 +285,7 @@ export function settingsFor(pack: PackState, pluginId: string, channelId: string
   if (pluginId === "clip-share") return { hotkey: pack.clipShareKey };
   if (pluginId === "game-activity") return { visibility: pack.gameActivity };
   if (pluginId === "media-status") return { source: pack.mediaStatusSource, replace: pack.mediaStatusReplace ? "replace" : "keep" };
+  if (pluginId === "word-counter") return { min: String(pack.wordMin) };
   return {};
 }
 

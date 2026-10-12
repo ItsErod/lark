@@ -1,0 +1,12 @@
+{
+  "id": "word-counter",
+  "name": "Word counter",
+  "description": "Count words in the composer, and badge a long message.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "pencil",
+  "changelog": "The composer shows a word count next to the character count. Long messages can wear a word badge."
+}
