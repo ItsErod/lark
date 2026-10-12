@@ -78,6 +78,8 @@ export interface PluginHooks {
   liveSchedule: boolean;
   imageSearch: boolean;
   jumboEmoji: boolean;
+  voiceDownload: boolean;
+  originalImage: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -91,6 +93,8 @@ export const EFFECTS = [
   "bookmark",
   "translate",
   "spoiler-media",
+  "voice-download",
+  "original-image",
 ] as const;
 
 const EFFECT_SET = new Set<string>(EFFECTS);
@@ -136,6 +140,8 @@ export function emptyHooks(): PluginHooks {
     liveSchedule: false,
     imageSearch: false,
     jumboEmoji: false,
+    voiceDownload: false,
+    originalImage: false,
   };
 }
 
@@ -346,6 +352,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.liveSchedule = record.liveSchedule === true;
   hooks.imageSearch = record.imageSearch === true;
   hooks.jumboEmoji = record.jumboEmoji === true;
+  hooks.voiceDownload = record.voiceDownload === true;
+  hooks.originalImage = record.originalImage === true;
   return hooks;
 }
 

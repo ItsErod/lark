@@ -1269,3 +1269,5 @@ button.guild-row:hover { background: var(--hover); }
 .message.is-jumbo .message-text .emoji,
 .message.is-jumbo .compact-text .emoji,
 .message.is-jumbo .irc-line .emoji { width: var(--lark-jumbo, 48px); height: var(--lark-jumbo, 48px); }
+.media-file { display: grid; gap: 4px; width: fit-content; margin-top: 8px; }
+.media-file .file-chip, .media-file .image-frame, .media-file video, .media-file audio { margin-top: 0; }
