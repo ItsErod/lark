@@ -7,7 +7,7 @@ import type { ScheduledSend } from "./schedule";
 import type { LogEntry } from "./logger";
 import { sanitizeLog } from "./logger";
 import { cleanWords } from "./keywords";
-import { defaultPrivacy, sanitizePrivacy, type PrivacyOptions } from "./privacy";
+import { defaultPrivacy, sanitizePrivacy, spoilerMode, type PrivacyOptions } from "./privacy";
 
 export interface PackState {
   translateLang: Lang;
@@ -52,6 +52,8 @@ export const PACK_IDS = [
   "incognito",
   "streamer-safe",
   "clean-links",
+  "spoiler-everything",
+  "hide-blocked",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -112,6 +114,7 @@ export function sanitizePack(input: unknown): PackState {
 export function settingsFor(pack: PackState, pluginId: string, channelId: string): Record<string, string> {
   if (pluginId === "message-translate") return { lang: pack.translateLang };
   if (pluginId === "quiet-media") return { previews: pack.mediaPreviews, compact: pack.mediaCompact };
+  if (pluginId === "spoiler-everything") return { mode: spoilerMode(pack.privacy, channelId) };
   if (pluginId === "keyword-ping") {
     const local = pack.keywordChannels[channelId]?.words ?? [];
     const words = local.length ? local : pack.keywordGlobal;

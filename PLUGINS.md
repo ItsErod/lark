@@ -79,6 +79,14 @@ Off until you turn it on. While it is active, emails, phone numbers, and long ac
 
 Off until you turn it on. Links you send and links you open lose `utm_*`, `fbclid`, `gclid`, `si`, and the other common click ids. The rest of the query string stays. **Clean links you send** and **Clean links you open** can be turned off separately.
 
+## Spoiler Everything
+
+Off until you turn it on. Images, videos, and embeds are blurred until you click them. **Every channel** can blur or show. The open channel can override that. Text stays readable.
+
+## Hide Blocked Messages
+
+Off until you turn it on. Messages from people you have blocked are removed from the list. With the plugin off, Lark leaves a Blocked message row so you know something was there. The block on Discord is unchanged.
+
 ## Samples that were already here
 
 | Plugin | Default | What it does |

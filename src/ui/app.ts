@@ -291,7 +291,7 @@ import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKe
 import { renderVoiceHud } from "./hud";
 import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
 import { renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
-import { bindLazyMedia, renderMessage } from "./messages";
+import { bindLazyMedia, renderBlockedMessage, renderMessage } from "./messages";
 import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
 import { renderProfileCard, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
@@ -407,6 +407,7 @@ class LarkApp {
   private hardwarePushAt = 0;
   private detectedGame: string | null = null;
   private frontApp: string | null = null;
+  private blockedIds = new Set<string>();
   private gameMode = false;
   private perfSample: PerfSample = emptyPerfSample();
   private fpsMarks: number[] = [];
@@ -3460,9 +3461,16 @@ class LarkApp {
     }
     for (let index = from; index < to; index += 1) {
       const message = list[index];
+      if (this.blockedIds.has(message.authorId) && !this.hookOn("hideBlocked")) {
+        parent.append(renderBlockedMessage());
+        lastDay = new Date(message.timestamp).toDateString();
+        previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
+        continue;
+      }
       const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
         settings,
         hiddenAuthors: hidden,
+        blockedAuthors: this.blockedIds,
         displayContent: this.translated[message.id],
       });
       if (!view) continue;
@@ -3558,7 +3566,7 @@ class LarkApp {
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
     if (id && this.hookOn("messageLog") && this.pack.logDeleted) list = overlayDeletes(list, this.pack.messageLog, id);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.blockedIds.size}:${this.pack.privacy.spoilerDefault}:${this.channelId ? this.pack.privacy.spoilerChannels[this.channelId] ?? "" : ""}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -6754,6 +6762,16 @@ class LarkApp {
       const friends = ((event as { friends?: RawMember[] }).friends ?? []).map(personFromMember).filter((person): person is Person => Boolean(person));
       this.storeFriends(friends);
       this.schedulePeoplePaint();
+    } else if (event.kind === "blocked") {
+      const ids = ((event as { userIds?: unknown }).userIds ?? []) as unknown[];
+      const next = ids.filter((id): id is string => typeof id === "string" && id.length > 0);
+      const replace = Boolean((event as { replace?: boolean }).replace);
+      const removed = Boolean((event as { removed?: boolean }).removed);
+      if (replace) this.blockedIds = new Set(next);
+      else if (removed) for (const id of next) this.blockedIds.delete(id);
+      else for (const id of next) this.blockedIds.add(id);
+      this.msgSig = "";
+      if (this.view === "app") this.paintMessages();
     } else if (event.kind === "friendRemoved") {
       const userId = String((event as { userId?: string }).userId ?? "");
       this.friends = this.friends.filter((person) => person.id !== userId);
@@ -9172,9 +9190,14 @@ class LarkApp {
       const hidden = hiddenIds(this.pack.hiddenAuthors);
       const settings = this.pluginSettings(this.splitId);
       for (const message of list.slice(-30)) {
+        if (this.blockedIds.has(message.authorId) && !this.hookOn("hideBlocked")) {
+          body.append(renderBlockedMessage());
+          continue;
+        }
         const view = buildViewMessage(message, ctx, plugins, this.config.notifications.keywords, {
           settings,
           hiddenAuthors: hidden,
+          blockedAuthors: this.blockedIds,
           displayContent: this.translated[message.id],
         });
         if (!view) continue;
@@ -9626,7 +9649,7 @@ class LarkApp {
       },
       formatKey: (shortcut) => formatShortcut(shortcut, this.platform.os),
       captureKey: (event) => shortcutFromEvent(event, this.platform.os),
-    });
+    }, this.currentChannel() ? { id: this.currentChannel()!.id, name: this.currentChannel()!.name } : null);
     if (privacy) {
       wrap.append(privacy);
       return;

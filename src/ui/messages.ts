@@ -46,6 +46,18 @@ export function renderMessage(
   const effects = new Set(view.effects ?? []);
   const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}${options.jumped ? " is-jump" : ""}${effects.has("compact-media") ? " is-compact-media" : ""}${options.log?.deleted ? " is-deleted" : ""}`);
   article.dataset.id = view.id;
+  if (effects.has("spoiler-media")) {
+    article.classList.add("is-spoiler-media");
+    article.addEventListener("click", (event) => {
+      if (article.classList.contains("is-revealed")) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest(".image-frame, .embed, .sticker, .attachment-video, .attachment-audio")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      article.classList.add("is-revealed");
+    }, true);
+  }
   if (options.density === "irc") {
     article.classList.add("is-irc");
   } else if (options.density === "compact") {
@@ -515,6 +527,12 @@ function renderInlines(parent: HTMLElement, nodes: Inline[], remoteEmoji: boolea
       }
     }
   }
+}
+
+export function renderBlockedMessage(): HTMLElement {
+  const wrap = el("div", "message-wrap");
+  wrap.append(el("div", "system-line", "Blocked message"));
+  return wrap;
 }
 
 export { avatar, icon, paths };

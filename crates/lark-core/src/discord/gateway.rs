@@ -14,7 +14,7 @@ use super::shell::{
     ClientFolder, ClientGuildAccess, ClientGuildPref,
 };
 use super::types::{
-    activity_parts, channel_kind_name, channel_to_client, friends_from_relationships,
+    activity_parts, blocked_user_ids, channel_kind_name, channel_to_client, friends_from_relationships,
     guild_to_client, message_to_client, parse_guild_voice_states, parse_voice_state, role_to_client,
     roster_from_chunk, roster_from_guild, user_to_client, ClientChannel, ClientGuild, ClientMember,
     ClientMessage, ClientRole, ClientUser, ClientVoiceState, DiscordChannel, DiscordGuild,
@@ -206,6 +206,12 @@ pub enum ClientEvent {
     },
     FriendRemoved {
         user_id: String,
+    },
+    /// Relationship type 2. `replace` is the full set from READY.
+    Blocked {
+        user_ids: Vec<String>,
+        replace: bool,
+        removed: bool,
     },
     /// A note stored on the signed-in account. Other people cannot read it.
     UserNote {
@@ -960,6 +966,11 @@ fn handle_dispatch(
                     if !rows.is_empty() {
                         emit(ClientEvent::Relationships { relationships: rows, replace: true, removed: false });
                     }
+                    emit(ClientEvent::Blocked {
+                        user_ids: blocked_user_ids(relationships),
+                        replace: true,
+                        removed: false,
+                    });
                 }
                 for (index, guild) in ready.guilds.iter().enumerate() {
                     let roles = my_roles_from_merged(&ready.merged_members, index);
@@ -1123,14 +1134,34 @@ fn handle_dispatch(
             if let Some(row) = super::types::relationship_from_value(data) {
                 emit(ClientEvent::Relationships { relationships: vec![row], replace: false, removed: false });
             }
+            let blocked = blocked_user_ids(&Value::Array(vec![data.clone()]));
+            if !blocked.is_empty() {
+                emit(ClientEvent::Blocked {
+                    user_ids: blocked.clone(),
+                    replace: false,
+                    removed: false,
+                });
+            }
             let friends = friends_from_relationships(&Value::Array(vec![data.clone()]), None);
             if let Some(friend) = friends.into_iter().next() {
+                emit(ClientEvent::Blocked {
+                    user_ids: vec![friend.id.clone()],
+                    replace: false,
+                    removed: true,
+                });
                 emit(ClientEvent::Friends { friends: vec![friend] });
             } else if let Some(user_id) = data
                 .get("id")
                 .and_then(|v| v.as_str())
                 .filter(|id| !id.is_empty())
             {
+                if blocked.is_empty() {
+                    emit(ClientEvent::Blocked {
+                        user_ids: vec![user_id.to_string()],
+                        replace: false,
+                        removed: true,
+                    });
+                }
                 emit(ClientEvent::FriendRemoved {
                     user_id: user_id.to_string(),
                 });
@@ -1155,6 +1186,11 @@ fn handle_dispatch(
                     ..super::types::ClientRelationship::default()
                 });
                 emit(ClientEvent::Relationships { relationships: vec![row], replace: false, removed: true });
+                emit(ClientEvent::Blocked {
+                    user_ids: vec![user_id.clone()],
+                    replace: false,
+                    removed: true,
+                });
                 emit(ClientEvent::FriendRemoved { user_id });
             }
             false

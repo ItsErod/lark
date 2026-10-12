@@ -11,6 +11,7 @@ import {
   publishActivity,
   redactStreamerText,
   sanitizePrivacy,
+  spoilerMode,
   streamerSafeActive,
   visibleStatus,
 } from "./privacy";
@@ -160,5 +161,51 @@ describe("clean links", () => {
     expect(cleaned?.content).toBe("https://example.com/a?id=4");
     const kept = plugin.run(message, { settings: { receive: "0" }, hiddenAuthors: new Set() });
     expect(kept?.content).toContain("utm_source");
+  });
+});
+
+describe("spoiler everything", () => {
+  it("blurs media unless the channel opts out", () => {
+    expect(spoilerMode(defaultPrivacy(), "c1")).toBe("on");
+    expect(spoilerMode({ ...defaultPrivacy(), spoilerDefault: "off", spoilerChannels: { c1: "on" } }, "c1")).toBe("on");
+    expect(spoilerMode({ ...defaultPrivacy(), spoilerChannels: { c1: "off" } }, "c1")).toBe("off");
+    expect(sanitizePrivacy({ spoilerChannels: { "bad id": "on", c1: "off", c2: "maybe" } }).spoilerChannels).toEqual({ c1: "off" });
+    const plugin = describePlugin(readFileSync("plugins/spoiler-everything.js", "utf8"), "spoiler-everything");
+    expect(plugin.hooks.spoilerMedia).toBe(true);
+    const message = {
+      id: "m",
+      content: "photo",
+      authorName: "Maya",
+      authorId: "7",
+      timestamp: "2026-10-06T15:00:00.000Z",
+      mentionsMe: false,
+      kind: "default",
+      highlights: [],
+      badges: [],
+      effects: [],
+    };
+    expect(plugin.run(message, { settings: { mode: "on" }, hiddenAuthors: new Set() })?.effects).toEqual(["spoiler-media"]);
+    expect(plugin.run(message, { settings: { mode: "off" }, hiddenAuthors: new Set() })?.effects).toEqual([]);
+  });
+});
+
+describe("hide blocked messages", () => {
+  it("drops a blocked author and leaves everyone else", () => {
+    const plugin = describePlugin(readFileSync("plugins/hide-blocked.js", "utf8"), "hide-blocked");
+    expect(plugin.hooks.hideBlocked).toBe(true);
+    const message = {
+      id: "m",
+      content: "hello",
+      authorName: "Maya",
+      authorId: "7",
+      timestamp: "2026-10-06T15:00:00.000Z",
+      mentionsMe: false,
+      kind: "default",
+      highlights: [],
+      badges: [],
+      effects: [],
+    };
+    expect(plugin.run(message, { settings: {}, hiddenAuthors: new Set(), blockedAuthors: new Set(["7"]) })).toBeNull();
+    expect(plugin.run(message, { settings: {}, hiddenAuthors: new Set(), blockedAuthors: new Set(["8"]) })?.content).toBe("hello");
   });
 });

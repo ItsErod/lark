@@ -65,3 +65,19 @@ Strip tracking parameters from links you send and links you click.
 - **Clean links you send** rewrites the composer text before it goes out.
 - **Clean links you open** rewrites links in messages and the address you actually open.
 - A link that is not http(s), and every other query parameter, stays as it is.
+
+## Spoiler Everything
+
+Blur all images and embeds until you click them, with a choice per channel.
+
+- **Every channel** is Blur or Show. Blur is the default once the plugin is on.
+- The channel you have open can follow that default, or blur, or show, on its own.
+- A click on the image, video, sticker, or embed reveals that message. Another click opens the image.
+
+## Hide Blocked Messages
+
+Fully hide blocked people's messages instead of a Blocked message row.
+
+- Discord tells Lark who is blocked (relationship type 2). With the plugin on, those messages are not drawn.
+- With the plugin off, the same people leave a one-line Blocked message so the gap is visible.
+- Hiding is local. It does not unblock anyone, and it does not call the API.
