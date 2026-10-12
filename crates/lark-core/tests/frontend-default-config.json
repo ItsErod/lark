@@ -68,5 +68,10 @@
   "clips": { "game_capture": false, "compress": "ask", "fps": 60, "resolution": 1440 },
   "games": {},
   "privacy": { "streamer": false, "streamer_auto": false },
-  "accents": {}
+  "accents": {},
+  "display": {
+    "developer_mode": false,
+    "show_embeds": true,
+    "show_spoilers": false
+  }
 }

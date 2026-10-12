@@ -102,6 +102,12 @@ export interface AppConfig {
   games: Record<string, GameProfile>;
   privacy: { streamer: boolean; streamer_auto: boolean };
   accents: Record<string, string>;
+  /** Developer Mode, embeds, and spoiler reveal. Other streams read these. */
+  display: {
+    developer_mode: boolean;
+    show_embeds: boolean;
+    show_spoilers: boolean;
+  };
 }
 
 export interface RawAttachment {
