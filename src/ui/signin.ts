@@ -1,12 +1,18 @@
 import { signInCopy, signInErrorVisible, type SignInCopy } from "../signin";
 import { clear, el } from "./dom";
 
+export interface SignInAccount {
+  id: string;
+  name: string;
+}
+
 export interface SignInState {
   error: string;
   qrSvg: string;
   qrStatus: string;
   store: string;
   busy: string;
+  accounts?: readonly SignInAccount[];
 }
 
 export interface SignInActions {
@@ -14,6 +20,7 @@ export interface SignInActions {
   onBrowser: () => void;
   onPreview: () => void;
   onSave: (token: string) => void;
+  onSwitch?: (id: string) => void;
 }
 
 export function renderSignIn(host: HTMLElement, state: SignInState, actions: SignInActions) {
@@ -25,6 +32,8 @@ export function renderSignIn(host: HTMLElement, state: SignInState, actions: Sig
     el("h1", "", "Lark"),
     el("p", "lede", "A small Discord client for one account, on macOS and Windows. Fast enough to leave open."),
   );
+  const accounts = (state.accounts ?? []).slice(0, 5);
+  if (accounts.length && actions.onSwitch) card.append(renderAccountSwitcher(accounts, actions.onSwitch));
   const warning = el("div", "warning");
   warning.append(
     el("strong", "", "This can ban the account"),
@@ -99,6 +108,18 @@ export function patchSignIn(host: HTMLElement, state: SignInState) {
   } else if (busy) {
     busy.remove();
   }
+}
+
+function renderAccountSwitcher(accounts: readonly SignInAccount[], onSwitch: (id: string) => void): HTMLElement {
+  const block = el("section", "account-switch");
+  block.append(el("h2", "", "Saved accounts"));
+  for (const account of accounts) {
+    const button = el("button", "ghost signin-account", account.name);
+    button.type = "button";
+    button.addEventListener("click", () => onSwitch(account.id));
+    block.append(button);
+  }
+  return block;
 }
 
 function cardNote(host: HTMLElement): Element | null {

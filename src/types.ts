@@ -108,6 +108,64 @@ export interface AppConfig {
     show_embeds: boolean;
     show_spoilers: boolean;
   };
+  preferences: UserPreferences;
+  keybinds: DiscordKeybinds;
+  /** Account switcher metadata. Tokens stay in the credential store. */
+  sessions: SavedSession[];
+}
+
+export interface SavedSession {
+  id: string;
+  name: string;
+}
+
+export interface UserPreferences {
+  color_mode: string;
+  app_icon: string;
+  show_media: boolean;
+  underline_links: boolean;
+  ui_density: string;
+  message_density: string;
+  group_spacing: number;
+  saturation: number;
+  high_contrast: boolean;
+  explicit_filter: string;
+  spam_filter: string;
+  dm_permission: string;
+  friend_requests: string;
+  improve_discord: boolean;
+  personalize: boolean;
+  desktop_notifications: boolean;
+  message_sound: boolean;
+  call_sound: boolean;
+  unread_badge: boolean;
+  email_notifications: boolean;
+  share_activity: boolean;
+  activity_status: boolean;
+  language: string;
+  time_format: string;
+}
+
+export interface DiscordKeybinds {
+  mark_server_read: string;
+  toggle_hotkeys: string;
+  return_previous_text: string;
+  return_previous_audio: string;
+  toggle_pins: string;
+  toggle_inbox: string;
+  toggle_emoji_picker: string;
+  toggle_gif_picker: string;
+  toggle_sticker_picker: string;
+  scroll_chat_up: string;
+  scroll_chat_down: string;
+  create_or_join_server: string;
+  answer_call: string;
+  decline_call: string;
+  create_group: string;
+  start_call: string;
+  upload_file: string;
+  search: string;
+  push_to_mute: string;
 }
 
 export interface RawAttachment {

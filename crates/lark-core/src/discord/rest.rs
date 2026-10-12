@@ -732,8 +732,52 @@ impl DiscordRest {
         }
         let channel: DiscordChannel = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read that channel".into()))?;
-        serde_json::to_value(channel_to_client(&channel))
-            .map_err(|_| RestError::Message("Could not read that channel".into()))
+        Ok(serde_json::to_value(channel_to_client(&channel))
+            .map_err(|_| RestError::Message("Could not read that channel".into()))?)
+    }
+
+    /// Account, devices, connections, and standing. Password and MFA secrets are dropped.
+    pub async fn account_overview(&self) -> Result<Value, RestError> {
+        let me = strip_account_secrets(
+            self.send_json(Method::GET, "GET /users/@me", "me", "/users/@me", None)
+                .await?,
+        );
+        let sessions = self.optional_get("GET /auth/sessions", "/auth/sessions").await;
+        let connections = self
+            .optional_get("GET /users/@me/connections", "/users/@me/connections")
+            .await;
+        let standing = self
+            .optional_get("GET /safety-hub/@me", "/safety-hub/@me")
+            .await;
+        Ok(json!({
+            "me": me,
+            "sessions": sessions,
+            "connections": connections,
+            "standing": standing,
+        }))
+    }
+
+    pub async fn remove_connection(&self, kind: &str, id: &str) -> Result<(), RestError> {
+        if !connection_token_ok(kind) || !connection_token_ok(id) {
+            return Err(RestError::Message("That connection id is not valid.".into()));
+        }
+        let path = format!("/users/@me/connections/{kind}/{id}");
+        self.send_json(
+            Method::DELETE,
+            "DELETE /users/@me/connections/{type}/{id}",
+            "me",
+            &path,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn optional_get(&self, route: &str, path: &str) -> Value {
+        match self.send_json(Method::GET, route, "me", path, None).await {
+            Ok(value) => value,
+            Err(_) => Value::Null,
+        }
     }
 
     pub async fn list_relationships(&self) -> Result<Vec<super::types::ClientRelationship>, RestError> {
@@ -1459,6 +1503,35 @@ pub fn messages_path(channel_id: &str, before: Option<&str>) -> String {
     }
 }
 
+pub fn connection_token_ok(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-')
+}
+
+pub fn discord_settings_url_ok(url: &str) -> bool {
+    let Some(rest) = url.trim().strip_prefix("https://discord.com/") else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.contains("://")
+        && !rest.contains('\\')
+        && !rest.contains("..")
+        && !rest.chars().any(|ch| ch.is_whitespace() || ch.is_control())
+}
+
+fn strip_account_secrets(mut me: Value) -> Value {
+    if let Some(obj) = me.as_object_mut() {
+        for key in ["password", "token", "totp", "secret", "mfa_secret", "backup_codes"] {
+            obj.remove(key);
+        }
+    }
+    me
+}
+
 pub fn api_url(path: &str) -> Result<String, RestError> {
     if !path.starts_with('/') || path.contains("://") || path.contains("..") {
         return Err(RestError::Message(
@@ -1591,6 +1664,30 @@ mod tests {
         assert!(is_discord_api_host("discord.com"));
         assert!(!is_discord_api_host("discord.com.evil.example"));
         assert!(!is_discord_api_host("example.com"));
+    }
+
+    #[test]
+    fn connection_ids_and_discord_links_stay_narrow() {
+        assert!(connection_token_ok("youtube"));
+        assert!(connection_token_ok("abc_12"));
+        assert!(!connection_token_ok(""));
+        assert!(!connection_token_ok("../me"));
+        assert!(!connection_token_ok("a/b"));
+        assert!(discord_settings_url_ok("https://discord.com/settings/account"));
+        assert!(!discord_settings_url_ok("https://discord.com.evil/settings"));
+        assert!(!discord_settings_url_ok("https://example.com/settings/account"));
+        assert!(!discord_settings_url_ok("https://discord.com/settings/../login"));
+        let cleaned = strip_account_secrets(json!({
+            "id": "1",
+            "email": "a@b.co",
+            "password": "nope",
+            "token": "secret",
+            "totp": "123456"
+        }));
+        assert!(cleaned.get("password").is_none());
+        assert!(cleaned.get("token").is_none());
+        assert!(cleaned.get("totp").is_none());
+        assert_eq!(cleaned["email"], "a@b.co");
     }
 
     #[test]

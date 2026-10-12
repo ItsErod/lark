@@ -292,6 +292,32 @@ import { bindLazyMedia, renderMessage } from "./messages";
 import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
 import { renderProfileCard, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
+import {
+  applyUserChrome,
+  dropSession,
+  matchingKeybind,
+  parseAccountOverview,
+  playSoftTone,
+  rememberSession,
+  shortcutOk,
+  type AccountOverview,
+} from "../user-settings";
+import {
+  appIconCard,
+  colorModeCard,
+  discordKeybindCard,
+  mediaCard,
+  notificationExtras,
+  renderAccessibilityPane,
+  renderAccountDetails,
+  renderActivityPane,
+  renderAdvancedPane,
+  renderConnectionsPane,
+  renderDataPane,
+  renderLanguagePane,
+  renderMessagingPane,
+  renderNitroPane,
+} from "./settings-pages";
 
 interface VoiceMember {
   id: string;
@@ -616,6 +642,13 @@ class LarkApp {
     capNote?: string;
   } | null = null;
   private pttHeld = false;
+  private pushMuted = false;
+  private mutedByPush = false;
+  private discordRebind: string | null = null;
+  private hotkeysOff = false;
+  private accountOverview: AccountOverview | null = null;
+  private accountNote = "";
+  private gateAccountSig = "";
   private recent: string[] = [];
   private drafts: DraftMap = {};
   private draftTicket = 0;
@@ -1529,6 +1562,7 @@ class LarkApp {
       this.appliedTheme = appearance.theme;
       void this.applyTheme();
     }
+    applyUserChrome(this.root, this.config);
   }
 
   private async applyTheme() {
@@ -1551,6 +1585,7 @@ class LarkApp {
       }
       document.documentElement.dataset.theme = name;
       this.syncMaterial(parseThemeCss(css).material);
+      applyUserChrome(this.root, this.config);
     } catch {
       /* Keep the last good theme. */
     }
@@ -1614,6 +1649,7 @@ class LarkApp {
     if (!THEME_ID.test(id)) return;
     for (const name of ["--bg-0", "--bg-2", "--text"]) this.root.style.removeProperty(name);
     this.config.appearance.theme = id;
+    this.config.preferences.color_mode = "";
     this.persist();
     this.paint();
     if (this.settings && this.section === "appearance") this.paintThemeGallery();
@@ -1634,7 +1670,7 @@ class LarkApp {
   }
 
   private themeCard(theme: { id: string; title: string; blurb: string }): HTMLButtonElement {
-    const on = this.config.appearance.theme === theme.id;
+    const on = !this.config.preferences.color_mode && this.config.appearance.theme === theme.id;
     const card = el("button", `theme-card${on ? " is-on" : ""}`);
     card.type = "button";
     card.setAttribute("aria-label", `Apply ${theme.title}`);
@@ -1749,14 +1785,19 @@ class LarkApp {
       this.qrSvg = initial.svg;
       this.qrStatus = initial.status;
     }
+    const accounts = this.config.sessions ?? [];
+    const sig = accounts.map((account) => `${account.id}:${account.name}`).join(",");
     const existing = this.gate.querySelector(".gate-card");
-    if (!existing) {
-      renderSignIn(this.gate, this.signInState(), {
-        onDiscord: () => void this.openDiscordLogin(),
-        onBrowser: () => void this.openBrowserLogin(),
-        onPreview: () => this.enterDemo(),
-        onSave: (token) => void this.saveToken(token),
-      });
+    const actions = {
+      onDiscord: () => void this.openDiscordLogin(),
+      onBrowser: () => void this.openBrowserLogin(),
+      onPreview: () => this.enterDemo(),
+      onSave: (token: string) => void this.saveToken(token),
+      onSwitch: (id: string) => void this.switchTo(id),
+    };
+    if (!existing || sig !== this.gateAccountSig) {
+      this.gateAccountSig = sig;
+      renderSignIn(this.gate, this.signInState(), actions);
     } else {
       patchSignIn(this.gate, this.signInState());
     }
@@ -1769,6 +1810,7 @@ class LarkApp {
       qrStatus: this.qrStatus,
       store: this.platform.credentialStore,
       busy: this.signInBusy,
+      accounts: this.config.sessions ?? [],
     };
   }
 
@@ -4417,6 +4459,7 @@ class LarkApp {
     if (!this.settings) return;
     this.settings = false;
     this.rebinding = null;
+    this.discordRebind = null;
     this.settingsQuery = "";
     this.settingsAnchor = "";
     this.settingsEntered = "";
@@ -4439,6 +4482,7 @@ class LarkApp {
   private afterSettingsSection() {
     if (!this.settings) return;
     if (this.section === "appearance") void this.refreshThemeIndex();
+    if (this.section === "account" || this.section === "connections") void this.loadAccountOverview();
     if (this.section === "clips") {
       void this.pullClipStatus().then(() => {
         if (this.settings && this.section === "clips") this.renderSettings();
@@ -4538,6 +4582,10 @@ class LarkApp {
     }
     navScroll.append(nav);
     sidebar.append(navScroll);
+    const logout = el("button", "settings-link", "Log Out");
+    logout.type = "button";
+    logout.addEventListener("click", () => void this.logoutAccount());
+    sidebar.append(logout);
 
     const stage = el("div", "settings-stage");
     const body = el("div", "settings-body");
@@ -4578,10 +4626,18 @@ class LarkApp {
   private settingsPane(): HTMLElement {
     switch (this.section) {
       case "account": return this.paneAccount();
+      case "messaging": return renderMessagingPane(this.settingsHost());
+      case "data": return renderDataPane(this.settingsHost());
+      case "connections": return renderConnectionsPane(this.settingsHost());
+      case "activity": return renderActivityPane(this.settingsHost());
+      case "nitro": return renderNitroPane(this.settingsHost());
       case "appearance": return this.paneAppearance();
+      case "accessibility": return renderAccessibilityPane(this.settingsHost());
       case "notifications": return this.paneNotifications();
       case "shortcuts": return this.paneShortcuts();
+      case "language": return renderLanguagePane(this.settingsHost());
       case "window": return this.paneWindow();
+      case "advanced": return renderAdvancedPane(this.settingsHost());
       case "voice": return this.paneVoice();
       case "messages": return this.paneMessages();
       case "privacy": return this.panePrivacy();
@@ -4622,21 +4678,47 @@ class LarkApp {
     grid.append(this.platformCard("Windows", "Windows Credential Manager", "%APPDATA%\\dev.lark.desktop"));
     session.append(grid);
     session.append(el("p", "setting-help", `This session: ${this.platform.credentialStore}. Config folder: ${this.platform.configDir}`));
-    if (isTauri()) {
-      const forget = el("button", "ghost", "Forget token");
-      forget.type = "button";
-      forget.addEventListener("click", () => void this.forgetToken());
-      const actions = el("div", "settings-actions");
-      actions.append(forget);
-      session.append(actions);
-    }
-    wrap.append(who, session);
+    wrap.append(who, session, ...renderAccountDetails(this.settingsHost()));
     return wrap;
+  }
+
+  private settingsHost() {
+    return {
+      config: this.config,
+      streamer: this.streamerOn(),
+      tauri: isTauri(),
+      os: this.platform.os,
+      meName: this.me.name,
+      meId: this.me.id,
+      meCustom: this.me.custom || "",
+      credentialStore: this.platform.credentialStore,
+      configDir: this.platform.configDir,
+      account: this.accountOverview,
+      accountNote: this.accountNote,
+      discordRebind: this.discordRebind,
+      mask: (value: string) => this.maskText(value),
+      persist: () => { void this.persist(); },
+      refresh: () => { if (this.settings) this.renderSettings(); },
+      apply: () => this.applyAppearance(),
+      logout: () => { void this.logoutAccount(); },
+      switchAccount: (id: string) => { void this.switchTo(id); },
+      removeAccount: (id: string) => { void this.removeAccount(id); },
+      addAccount: () => { void this.addAccount(); },
+      unlink: (type: string, id: string) => { void this.unlinkConnection(type, id); },
+      rebindDiscord: (id: string) => {
+        this.discordRebind = id;
+        this.rebinding = null;
+        if (this.settings) this.renderSettings();
+      },
+      formatShortcut: (shortcut: string) => formatShortcut(shortcut, this.platform.os),
+      open: (url: string) => this.openDiscord(url),
+    };
   }
 
   private paneAppearance(): HTMLElement {
     const wrap = el("div", "settings-stack");
     wrap.append(settingHead("Appearance", "Each card is that theme's own colours. One click applies it."));
+    wrap.append(colorModeCard(this.settingsHost()));
     const themes = settingCard("Themes");
     themes.dataset.setting = "appearance.theme";
     const filter = el("input", "theme-filter");
@@ -4686,7 +4768,7 @@ class LarkApp {
         this.paint();
       },
     ));
-    text.append(this.sliderRow("appearance.size", "Font size", "Interface size, from 12 to 20.", this.config.appearance.font_size, 12, 20, (value) => {
+    text.append(this.sliderRow("appearance.size", "Font size", "Interface size, from 12 to 24.", this.config.appearance.font_size, 12, 24, (value) => {
       this.config.appearance.font_size = value;
       this.persist();
       this.applyAppearance();
@@ -4730,7 +4812,7 @@ class LarkApp {
       this.paint();
     }));
     display.append(this.accentRow());
-    wrap.append(themes, text, display);
+    wrap.append(themes, text, display, appIconCard(this.settingsHost()), mediaCard(this.settingsHost()));
     this.paintThemeGallery(wrap);
     return wrap;
   }
@@ -4768,10 +4850,10 @@ class LarkApp {
     const card = settingCard("Alerts");
     card.append(this.segmentRow(
       "notifications.level",
-      "Default",
-      "What a new channel does until you set it.",
+      "Notify me when",
+      "All messages, only mentions, or nothing.",
       ["all", "mentions", "mute"],
-      { all: "All", mentions: "Mentions", mute: "Mute" },
+      { all: "All messages", mentions: "Mentions", mute: "Nothing" },
       this.config.notifications.default,
       (value) => {
         this.config.notifications.default = value as NotifyLevel;
@@ -4795,6 +4877,7 @@ class LarkApp {
     grid.append(this.platformCard("macOS", "Banners and Notification Center", "⌘"));
     grid.append(this.platformCard("Windows", "Toasts in Action Center", "Ctrl"));
     card.append(grid);
+    card.append(...notificationExtras(this.settingsHost()));
     wrap.append(card);
     return wrap;
   }
@@ -4816,7 +4899,7 @@ class LarkApp {
       });
       card.append(settingRow(`shortcut.${action}`, copy.label, copy.description, button));
     }
-    wrap.append(card);
+    wrap.append(card, discordKeybindCard(this.settingsHost()));
     return wrap;
   }
 
@@ -5244,6 +5327,193 @@ class LarkApp {
     return this.switchRow(id || "setting", label, description, on, change);
   }
 
+  private runDiscordKeybind(event: KeyboardEvent, os: ReturnType<typeof browserPlatform>["os"]): boolean {
+    const id = matchingKeybind(event, this.config.keybinds, os);
+    if (!id) return false;
+    if (event.repeat && id !== "scroll_chat_up" && id !== "scroll_chat_down") return true;
+    if (id === "push_to_mute") {
+      this.holdPushMute();
+      return true;
+    }
+    if (id === "toggle_hotkeys") {
+      this.hotkeysOff = true;
+      this.toast("Keybinds", "Hotkeys are off.");
+      return true;
+    }
+    if (id === "mark_server_read") {
+      const ids = this.visibleChannels().filter((channel) => channel.kind !== "category").map((channel) => channel.id);
+      if (ids.length) this.markRead(ids);
+      return true;
+    }
+    if (id === "return_previous_text") {
+      this.cycle(-1);
+      return true;
+    }
+    if (id === "return_previous_audio") {
+      if (this.voice?.channelId) void this.openChannel(this.voice.channelId);
+      return true;
+    }
+    if (id === "toggle_pins") {
+      this.pinsOpen = !this.pinsOpen;
+      this.paintPins();
+      return true;
+    }
+    if (id === "toggle_emoji_picker") {
+      this.pickerFor = this.pickerFor === "composer" ? null : "composer";
+      this.emojiQuery = "";
+      if (this.pickerFor) void this.ensureEmojis();
+      this.paintComposer();
+      return true;
+    }
+    if (id === "scroll_chat_up" || id === "scroll_chat_down") {
+      const delta = id === "scroll_chat_up" ? -1 : 1;
+      this.messagesEl.scrollBy({ top: delta * Math.max(120, this.messagesEl.clientHeight * 0.8) });
+      return true;
+    }
+    if (id === "upload_file") {
+      this.composerMeta.querySelector<HTMLInputElement>("input[type=file]")?.click();
+      return true;
+    }
+    if (id === "search") {
+      this.searchOpen = true;
+      this.paintSearch();
+      return true;
+    }
+    if (id === "create_or_join_server") {
+      this.openDiscord("https://discord.com/channels/@me");
+      return true;
+    }
+    window.dispatchEvent(new CustomEvent("lark-keybind", { detail: { id } }));
+    return true;
+  }
+
+  private holdPushMute() {
+    if (this.pushMuted) return;
+    this.pushMuted = true;
+    if (this.voice && !this.voice.muted) {
+      this.mutedByPush = true;
+      this.toggleMute();
+    }
+  }
+
+  private releasePushMute() {
+    if (!this.pushMuted) return;
+    this.pushMuted = false;
+    if (this.mutedByPush) {
+      this.mutedByPush = false;
+      if (this.voice?.muted) this.toggleMute();
+    }
+  }
+
+  private openDiscord(url: string) {
+    if (!url.startsWith("https://discord.com/")) return;
+    if (!isTauri()) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    void invoke("open_discord_link", { url }).catch((err) => {
+      this.toast("Discord", commandError(err, "Couldn't open Discord."));
+    });
+  }
+
+  private async rememberCurrentAccount(id: string, name: string) {
+    if (this.demo || !isTauri() || id === ME) return;
+    const next = rememberSession(this.config.sessions, { id, name });
+    this.config.sessions = next.sessions;
+    this.persist();
+    try {
+      await invoke("remember_account", { userId: id });
+      for (const dropped of next.dropped) {
+        await invoke("forget_account", { userId: dropped }).catch(() => undefined);
+      }
+    } catch {
+      /* The credential store is unavailable in this preview. */
+    }
+  }
+
+  private async loadAccountOverview() {
+    if (!isTauri() || this.demo) return;
+    try {
+      this.accountOverview = parseAccountOverview(await invoke("account_overview"));
+      this.accountNote = "";
+    } catch (err) {
+      this.accountNote = commandError(err, "Couldn't load the account from Discord.");
+    }
+    if (this.settings && (this.section === "account" || this.section === "connections")) this.renderSettings();
+  }
+
+  private async unlinkConnection(type: string, id: string) {
+    if (!isTauri()) return;
+    try {
+      await invoke("remove_connection", { kind: type, id });
+      await this.loadAccountOverview();
+    } catch (err) {
+      this.accountNote = commandError(err, "Couldn't remove that connection.");
+      if (this.settings) this.renderSettings();
+    }
+  }
+
+  private async switchTo(id: string) {
+    if (!isTauri()) {
+      this.toast("Accounts", "Switching accounts runs in the desktop app.");
+      return;
+    }
+    try {
+      await invoke("switch_account", { userId: id });
+      this.accountOverview = null;
+      this.closeSettings();
+      this.beginStartup(true);
+      await invoke("connect");
+    } catch (err) {
+      this.abortStartup();
+      this.toast("Accounts", commandError(err, "Couldn't switch to that account."));
+    }
+  }
+
+  private async addAccount() {
+    this.closeSettings();
+    await this.forgetToken();
+  }
+
+  private async removeAccount(id: string) {
+    const current = id === this.me.id;
+    this.config.sessions = dropSession(this.config.sessions, id);
+    this.persist();
+    if (isTauri()) {
+      try {
+        await invoke("forget_account", { userId: id });
+      } catch (err) {
+        this.toast("Accounts", commandError(err, "Couldn't remove that account."));
+      }
+    }
+    if (current) await this.logoutAccount();
+    else if (this.settings) this.renderSettings();
+  }
+
+  private async logoutAccount() {
+    const current = this.me.id;
+    if (current && current !== ME) {
+      this.config.sessions = dropSession(this.config.sessions, current);
+      this.persist();
+      if (isTauri()) await invoke("forget_account", { userId: current }).catch(() => undefined);
+    }
+    const next = this.config.sessions[0];
+    if (next && isTauri()) {
+      try {
+        await invoke("switch_account", { userId: next.id });
+        this.accountOverview = null;
+        this.closeSettings();
+        this.beginStartup(true);
+        await invoke("connect");
+        return;
+      } catch (err) {
+        this.abortStartup();
+        this.toast("Log Out", commandError(err, "Couldn't switch accounts."));
+      }
+    }
+    await this.forgetToken();
+  }
+
   private async forgetToken() {
     try {
       await invoke("clear_token");
@@ -5310,11 +5580,23 @@ class LarkApp {
       this.renderSettings();
       return;
     }
-    if (this.rebinding || this.rebindingGame) {
+    if (this.rebinding || this.rebindingGame || this.discordRebind) {
       event.preventDefault();
+      if (this.discordRebind && (event.key === "Backspace" || event.key === "Delete")) {
+        this.config.keybinds[this.discordRebind as keyof typeof this.config.keybinds] = "";
+        this.discordRebind = null;
+        this.persist();
+        this.renderSettings();
+        return;
+      }
       const shortcut = shortcutFromEvent(event, this.platform.os);
       if (!shortcut) return;
-      if (this.rebindingGame) {
+      if (this.discordRebind) {
+        const id = this.discordRebind as keyof typeof this.config.keybinds;
+        if (shortcutOk(shortcut)) this.config.keybinds[id] = shortcut;
+        this.discordRebind = null;
+        this.persist();
+      } else if (this.rebindingGame) {
         const name = this.rebindingGame;
         this.rebindingGame = null;
         this.patchProfile(name, { ptt_key: shortcut });
@@ -5394,6 +5676,14 @@ class LarkApp {
     }
     const os = this.platform.os;
     const shortcuts = this.config.shortcuts;
+    if (this.hotkeysOff) {
+      if (matchShortcut(event, this.config.keybinds.toggle_hotkeys, os)) {
+        event.preventDefault();
+        this.hotkeysOff = false;
+        this.toast("Keybinds", "Hotkeys are on.");
+      }
+      return;
+    }
     if (matchShortcut(event, shortcuts.quick_switcher, os)) {
       event.preventDefault();
       this.openSwitcher();
@@ -5445,6 +5735,9 @@ class LarkApp {
       this.refreshSpeaking();
       this.pushTransmit();
     } else if (this.matchSound(event, typing)) {
+      event.preventDefault();
+    }
+    else if (this.runDiscordKeybind(event, os)) {
       event.preventDefault();
     }
     else if (target === this.composer && matchShortcut(event, shortcuts.edit_last, os) && !this.composer.value) {
@@ -6665,6 +6958,7 @@ class LarkApp {
         status: "online",
         avatarUrl: event.user.avatarUrl,
       };
+      if (isTauri() && event.user.id && event.user.id !== ME) void this.rememberCurrentAccount(event.user.id, event.user.name);
       const premium = (event.user as { premiumType?: number }).premiumType;
       if (typeof premium === "number" && Number.isFinite(premium)) this.premiumType = premium;
       this.userNames[this.me.id] = this.me.name;
@@ -6858,7 +7152,10 @@ class LarkApp {
         direct,
       });
       const body = this.notifyBody(message, direct);
-      if (alreadyNotified) void this.notify(this.streamerOn() && direct ? "Direct message" : this.maskText(message.authorName), body);
+      if (alreadyNotified && this.config.preferences.desktop_notifications !== false) {
+        void this.notify(this.streamerOn() && direct ? "Direct message" : this.maskText(message.authorName), body);
+        if (this.config.preferences.message_sound) playSoftTone("message");
+      }
       this.considerKeyword(message, level, mentionsMe, alreadyNotified);
       if (viewing) {
         if (follow) this.pinnedToBottom = true;
@@ -7014,6 +7311,9 @@ class LarkApp {
   }
 
   private onKeyUp(event: KeyboardEvent) {
+    if (this.pushMuted && matchShortcut(event, this.config.keybinds.push_to_mute, this.platform.os)) {
+      this.releasePushMute();
+    }
     if (!this.voice || this.voiceMode() !== "ptt") return;
     if (matchShortcut(event, this.pttShortcut(), this.platform.os)) {
       this.pttHeld = false;
@@ -10491,7 +10791,7 @@ class LarkApp {
         entries.push({ mentions: this.mentions[channel.id] ?? 0, unread: this.unread[channel.id] ?? 0, dm: false });
       }
     }
-    const count = dockBadge(entries);
+    const count = this.config.preferences.unread_badge === false ? 0 : dockBadge(entries);
     if (count === this.badgeSent) return;
     this.badgeSent = count;
     if (isTauri()) void invoke("set_unread", { count }).catch(() => undefined);

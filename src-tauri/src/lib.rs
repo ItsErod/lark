@@ -298,7 +298,13 @@ pub fn run() {
             mute_dm,
             create_channel_invite,
             set_server_profile,
-            set_custom_status
+            set_custom_status,
+            remember_account,
+            switch_account,
+            forget_account,
+            account_overview,
+            remove_connection,
+            open_discord_link
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -1570,6 +1576,64 @@ async fn guild_admin(
         .guild_admin(request)
         .await
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn remember_account(app: AppHandle, user_id: String) -> Result<(), String> {
+    let slot = keychain::account_slot(&user_id)?;
+    let token = keychain::on_main(&app, keychain::load_token)??
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "No token saved.".to_string())?;
+    keychain::on_main(&app, move || {
+        let result = keychain::save_named(&slot, &token);
+        let mut token = token;
+        token.zeroize();
+        result
+    })?
+}
+
+#[tauri::command]
+async fn switch_account(app: AppHandle, state: State<'_, Shared>, user_id: String) -> Result<(), String> {
+    let slot = keychain::account_slot(&user_id)?;
+    let token = keychain::on_main(&app, move || keychain::load_named(&slot))??
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "That account is not saved on this computer.".to_string())?;
+    disconnect_inner(&state).await;
+    keychain::on_main(&app, move || {
+        let result = keychain::save_token(&token);
+        let mut token = token;
+        token.zeroize();
+        result
+    })?
+}
+
+#[tauri::command]
+async fn forget_account(app: AppHandle, user_id: String) -> Result<(), String> {
+    let slot = keychain::account_slot(&user_id)?;
+    keychain::on_main(&app, move || keychain::clear_named(&slot))?
+}
+
+#[tauri::command]
+async fn account_overview(state: State<'_, Shared>) -> Result<serde_json::Value, String> {
+    rest(&state)
+        .await?
+        .account_overview()
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn remove_connection(state: State<'_, Shared>, kind: String, id: String) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .remove_connection(&kind, &id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn open_discord_link(url: String) -> Result<(), String> {
+    browser_login::open_discord_https(&url)
 }
 
 #[tauri::command]
