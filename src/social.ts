@@ -125,6 +125,33 @@ export function setRelationshipIndex(list: SocialRelationship[]) {
   indexed.splice(0, indexed.length, ...list.filter((row) => row.id && relationshipKindName(row.kind)));
 }
 
+/**
+ * Accept turns an incoming request into a friend. Ignore drops it.
+ * `pendingFriendCount` and `blockedIds` read the same index.
+ */
+export function decideFriendRequest(id: string, action: "accept" | "ignore"): void {
+  if (!id) return;
+  const prior = indexed.find((row) => row.id === id);
+  const rest = indexed.filter((row) => row.id !== id);
+  if (action === "ignore") {
+    setRelationshipIndex(rest);
+    return;
+  }
+  setRelationshipIndex([
+    ...rest,
+    {
+      id,
+      kind: "friend",
+      name: prior?.name ?? "",
+      username: prior?.username ?? "",
+      nickname: prior?.nickname ?? "",
+      avatarUrl: prior?.avatarUrl,
+      bot: prior?.bot,
+      serverTag: prior?.serverTag,
+    },
+  ]);
+}
+
 function relationshipKindName(kind: string): kind is RelationshipKind {
   return kind === "friend" || kind === "blocked" || kind === "incoming" || kind === "outgoing";
 }
