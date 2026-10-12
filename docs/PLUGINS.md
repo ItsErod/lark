@@ -226,3 +226,21 @@ One hotkey sends the newest clip in the clips folder to the channel you have ope
 - **Ctrl/Cmd Shift X** is the default. **Ctrl/Cmd Shift K** and **Ctrl/Cmd Alt X** are the other choices. Save clip stays on Ctrl/Cmd Shift C.
 - The newest clip is the one with the latest modified time.
 - If the file is over the upload limit, Lark uses the existing Clips compression setting: send, compress, ask, or block.
+
+## Game Activity Toggle
+
+**Show** puts the detected game on your profile as what you are playing. **Hide** takes it off.
+
+- The game is a playing activity. It is not written into your custom status.
+- Hiding it sends the next presence without that activity. A status you typed stays.
+- With the plugin off, Lark does not add a game activity.
+
+## Now Playing Status
+
+Your custom status can follow the detected game or whatever this computer is playing.
+
+- **Game or player** uses a track when one is playing, and the game otherwise.
+- **Current game** reads `Playing Hades II`.
+- **System player** reads `Listening to Apricot — Maya`. That player is the system media session, including Spotify. Lark does not sign in.
+- **Keep a status you wrote** leaves a custom status alone. **Replace it** overwrites it.
+- This is separate from the Now playing plugin. Both share the same short wait between status writes.

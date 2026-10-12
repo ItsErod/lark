@@ -82,6 +82,8 @@ export interface PluginHooks {
   originalImage: boolean;
   youtubePip: boolean;
   clipShare: boolean;
+  gameActivity: boolean;
+  mediaStatus: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -147,6 +149,8 @@ export function emptyHooks(): PluginHooks {
     originalImage: false,
     youtubePip: false,
     clipShare: false,
+    gameActivity: false,
+    mediaStatus: false,
   };
 }
 
@@ -361,6 +365,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.originalImage = record.originalImage === true;
   hooks.youtubePip = record.youtubePip === true;
   hooks.clipShare = record.clipShare === true;
+  hooks.gameActivity = record.gameActivity === true;
+  hooks.mediaStatus = record.mediaStatus === true;
   return hooks;
 }
 

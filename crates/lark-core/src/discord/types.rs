@@ -2148,8 +2148,24 @@ pub fn clamp_server_bio(bio: &str) -> String {
     bio.chars().filter(|ch| *ch != '\0').take(190).collect()
 }
 
+/// Gateway opcode 3. A non-empty game is a playing activity and stays off the custom status.
+pub fn presence_payload(status: &str, custom: &str, game: &str) -> String {
+    let custom: String = custom.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(128).collect();
+    let mut activities = if custom.trim().is_empty() {
+        Vec::<serde_json::Value>::new()
+    } else {
+        vec![serde_json::json!({
+            "name": "Custom Status",
+            "type": 4,
+            "state": custom.trim()
+        })]
+    };
+    push_game(&mut activities, game);
+    presence_body(status, activities)
+}
+
 /// Gateway opcode 3 with a custom-status emoji and an optional clear-after timestamp.
-pub fn custom_status_payload(status: &str, custom: &str, emoji: &str, expires_at: Option<i64>) -> String {
+pub fn custom_status_payload(status: &str, custom: &str, emoji: &str, expires_at: Option<i64>, game: &str) -> String {
     let custom: String = custom.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(128).collect();
     let emoji: String = emoji.chars().filter(|ch| !ch.is_control()).take(32).collect::<String>().trim().to_string();
     let activities = if custom.trim().is_empty() && emoji.is_empty() {
@@ -2168,6 +2184,20 @@ pub fn custom_status_payload(status: &str, custom: &str, emoji: &str, expires_at
         }
         vec![activity]
     };
+    let mut activities = activities;
+    push_game(&mut activities, game);
+    presence_body(status, activities)
+}
+
+fn push_game(activities: &mut Vec<serde_json::Value>, game: &str) {
+    let name: String = game.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(128).collect::<String>().trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    activities.push(serde_json::json!({ "name": name, "type": 0 }));
+}
+
+fn presence_body(status: &str, activities: Vec<serde_json::Value>) -> String {
     serde_json::json!({
         "op": 3,
         "d": {
@@ -2640,15 +2670,24 @@ mod tests {
         assert!(profile.server_tag.is_none());
         assert_eq!(profile.widgets[0].kind, "spotify");
         assert!(profile.widgets[0].verified);
-        let payload: serde_json::Value = serde_json::from_str(&custom_status_payload("online", "At the desk", "😀", Some(1_700_000_000_000))).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&custom_status_payload("online", "At the desk", "😀", Some(1_700_000_000_000), "")).unwrap();
         assert_eq!(payload["op"], 3);
         assert_eq!(payload["d"]["status"], "online");
         assert_eq!(payload["d"]["activities"][0]["type"], 4);
         assert_eq!(payload["d"]["activities"][0]["state"], "At the desk");
         assert_eq!(payload["d"]["activities"][0]["emoji"]["name"], "😀");
         assert_eq!(payload["d"]["activities"][0]["timestamps"]["end"], 1_700_000_000_000_i64);
-        let cleared: serde_json::Value = serde_json::from_str(&custom_status_payload("idle", "", "", None)).unwrap();
+        let cleared: serde_json::Value = serde_json::from_str(&custom_status_payload("idle", "", "", None, "")).unwrap();
         assert!(cleared["d"]["activities"].as_array().unwrap().is_empty());
+        let playing: serde_json::Value = serde_json::from_str(&presence_payload("online", "At the desk", "Hades II")).unwrap();
+        assert_eq!(playing["d"]["activities"][0]["type"], 4);
+        assert_eq!(playing["d"]["activities"][1]["type"], 0);
+        assert_eq!(playing["d"]["activities"][1]["name"], "Hades II");
+        let hidden: serde_json::Value = serde_json::from_str(&presence_payload("online", "At the desk", "")).unwrap();
+        assert_eq!(hidden["d"]["activities"].as_array().unwrap().len(), 1);
+        let only_game: serde_json::Value = serde_json::from_str(&presence_payload("dnd", "", "Hades II")).unwrap();
+        assert_eq!(only_game["d"]["activities"].as_array().unwrap().len(), 1);
+        assert_eq!(only_game["d"]["activities"][0]["type"], 0);
     }
 }
 

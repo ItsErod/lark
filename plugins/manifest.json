@@ -234,6 +234,16 @@
       "id": "clip-share",
       "name": "Quick Clip Share",
       "description": "Send the last saved clip to the current channel with one hotkey."
+    },
+    {
+      "id": "game-activity",
+      "name": "Game Activity Toggle",
+      "description": "One click hides or shows the game you are playing."
+    },
+    {
+      "id": "media-status",
+      "name": "Now Playing Status",
+      "description": "Set your custom status from the current game or from what the system is playing."
     }
   ]
 }
