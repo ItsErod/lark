@@ -52,7 +52,7 @@ export const FORUM_ATTACHMENT_MAX = 10;
 export type ThreadRoute = "from-message" | "standalone" | "forum-post";
 export type ForumSort = "latest" | "creation";
 export type EventFrequency = "none" | "daily" | "weekly" | "monthly" | "yearly";
-export type InboxTab = "mentions" | "unreads" | "bookmarks" | "reminders" | "requests";
+export type InboxTab = "mentions" | "unreads" | "bookmarks" | "reminders" | "requests" | "messages";
 
 export interface ParentChannelInfo {
   id?: string;
@@ -882,6 +882,11 @@ export interface ParityHost {
   voiceChannelId: string | null;
   channel(id: string): Channel | undefined;
   channels(): Channel[];
+  /** Direct messages before the message-request hold. Absent on older hosts. */
+  dms?(): { id: string; name: string; kind: string; recipientIds?: string[]; preview?: string }[];
+  /** null until the relationship index has loaded. Empty means no friends. */
+  friendIds?(): string[] | null;
+  spamFilter?: string;
   messages(channelId: string): { id: string; content: string; authorName: string; authorId: string; poll?: unknown }[];
   bookmarks: readonly Bookmark[];
   reminders: readonly Reminder[];

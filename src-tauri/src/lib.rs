@@ -344,6 +344,9 @@ pub fn run() {
             ack_bulk,
             fetch_mentions,
             fetch_friend_requests,
+            fetch_message_requests,
+            accept_message_request,
+            ignore_message_request,
             fetch_relationships,
             add_relationship,
             add_friend_username,
@@ -2428,6 +2431,21 @@ async fn fetch_mentions(state: State<'_, Shared>) -> Result<Vec<lark_core::disco
 #[tauri::command]
 async fn fetch_friend_requests(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientFriendRequest>, String> {
     rest(&state).await?.friend_requests().await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_message_requests(state: State<'_, Shared>, spam: bool) -> Result<Vec<lark_core::discord::ClientMessageRequest>, String> {
+    rest(&state).await?.list_message_requests(spam).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn accept_message_request(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
+    rest(&state).await?.accept_message_request(&channel_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn ignore_message_request(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
+    rest(&state).await?.ignore_message_request(&channel_id).await.map_err(|err| err.to_string())
 }
 
 async fn apply_saved_clip_settings(app: &AppHandle) {

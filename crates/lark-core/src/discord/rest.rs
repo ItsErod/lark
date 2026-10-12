@@ -1564,6 +1564,39 @@ impl DiscordRest {
             .await?;
         Ok(super::types::friend_requests_from_value(&value))
     }
+
+    /// Discord's client message-request inbox. `spam` selects the spam folder.
+    pub async fn list_message_requests(&self, spam: bool) -> Result<Vec<super::types::ClientMessageRequest>, RestError> {
+        let flag = if spam { "true" } else { "false" };
+        let path = format!("/users/@me/message-requests?spam={flag}&include_message=true");
+        let value = self
+            .send_json(Method::GET, "GET /users/@me/message-requests", "me", &path, None)
+            .await?;
+        Ok(super::types::message_requests_from_value(&value, spam))
+    }
+
+    /// Accept keeps the DM and does not add a friend.
+    pub async fn accept_message_request(&self, channel_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/users/@me/message-requests/{channel_id}");
+        let _ = self
+            .send_json(
+                Method::PUT,
+                "PUT /users/@me/message-requests/{channel.id}",
+                "me",
+                &path,
+                Some(json!({})),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Ignore dismisses the request. Callers fall back to closing the DM when this route is missing.
+    pub async fn ignore_message_request(&self, channel_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/users/@me/message-requests/{channel_id}");
+        self.send_empty(Method::DELETE, "DELETE /users/@me/message-requests/{channel.id}", &path).await
+    }
 }
 
 pub fn soundboard_from_json(value: &Value) -> Vec<Value> {
