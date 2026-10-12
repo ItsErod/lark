@@ -1114,6 +1114,292 @@ pub fn invite_code_ok(code: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
 }
 
+/// Discord's preloaded settings stop at field 26. Field 500 is Lark's pin rail
+/// so a later Discord field does not collide. Discord may drop unknown fields;
+/// the client also keeps these lists in local storage.
+const LARK_RAIL_FIELD: u32 = 500;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GuildChannelPins {
+    pub guild_id: String,
+    pub channel_ids: Vec<String>,
+}
+
+/// `None` means that proto field was absent. An empty list means the field was present and empty.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UserLists {
+    pub favorites: Option<Vec<String>>,
+    pub favorites_muted: Option<bool>,
+    /// Map entries Lark does not treat as channels (favorite categories). Base64 protobuf.
+    pub favorite_extras: Option<Vec<String>>,
+    pub pinned_dms: Option<Vec<String>>,
+    pub channel_pins: Option<Vec<GuildChannelPins>>,
+}
+
+pub fn user_lists_from_b64(encoded: Option<&str>) -> UserLists {
+    let Some(encoded) = encoded.map(str::trim).filter(|value| !value.is_empty()) else {
+        return UserLists::default();
+    };
+    let Some(bytes) = decode_proto(encoded) else {
+        return UserLists::default();
+    };
+    user_lists_from_proto(&bytes)
+}
+
+pub fn user_lists_from_proto(bytes: &[u8]) -> UserLists {
+    let mut lists = UserLists::default();
+    for field in walk(bytes) {
+        if field.wire != 2 {
+            continue;
+        }
+        if field.number == 15 {
+            let (ids, muted, extras) = favorites_from_body(field.bytes);
+            lists.favorites = Some(ids);
+            lists.favorites_muted = Some(muted);
+            lists.favorite_extras = Some(extras);
+        } else if field.number == LARK_RAIL_FIELD {
+            let (dms, pins) = rail_from_body(field.bytes);
+            lists.pinned_dms = Some(dms);
+            lists.channel_pins = Some(pins);
+        }
+    }
+    lists
+}
+
+/// Favorites are preloaded settings field 15. DM pins and pin-to-top are field 500.
+pub fn encode_user_lists(
+    favorites: &[String],
+    favorites_muted: bool,
+    favorite_extras: &[String],
+    pinned_dms: &[String],
+    channel_pins: &[GuildChannelPins],
+) -> Result<String, String> {
+    let favorites = sanitize_snowflakes(favorites, 200, "Too many favorites.")?;
+    if favorite_extras.len() > 50 {
+        return Err("Too many favorite categories.".into());
+    }
+    let pinned_dms = sanitize_snowflakes(pinned_dms, 40, "Too many pinned conversations.")?;
+    if channel_pins.len() > 200 {
+        return Err("Too many servers with pinned channels.".into());
+    }
+    let mut pins = Vec::new();
+    let mut seen_guilds = HashSet::new();
+    for row in channel_pins {
+        if !snowflake_ok(row.guild_id.trim()) {
+            return Err("A server id is not valid.".into());
+        }
+        let guild_id = row.guild_id.trim().to_string();
+        if !seen_guilds.insert(guild_id.clone()) {
+            return Err("A server is pinned twice.".into());
+        }
+        let channel_ids = sanitize_snowflakes(&row.channel_ids, 40, "Too many pinned channels.")?;
+        if channel_ids.is_empty() {
+            continue;
+        }
+        pins.push(GuildChannelPins { guild_id, channel_ids });
+    }
+    let mut bytes = encode_favorites_field(&favorites, favorites_muted, favorite_extras)?;
+    bytes.extend(encode_rail_field(&pinned_dms, &pins));
+    if bytes.len() > 24_000 {
+        return Err("List settings are too large.".into());
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+fn sanitize_snowflakes(ids: &[String], cap: usize, too_many: &str) -> Result<Vec<String>, String> {
+    if ids.len() > cap {
+        return Err(too_many.into());
+    }
+    let mut out = Vec::new();
+    for id in ids {
+        let text = id.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if !snowflake_ok(text) {
+            return Err("A channel id is not valid.".into());
+        }
+        if !out.iter().any(|seen: &String| seen == text) {
+            out.push(text.to_string());
+        }
+    }
+    Ok(out)
+}
+
+fn favorites_from_body(bytes: &[u8]) -> (Vec<String>, bool, Vec<String>) {
+    let mut rows = Vec::new();
+    let mut extras = Vec::new();
+    let mut muted = false;
+    for field in walk(bytes) {
+        match (field.number, field.wire) {
+            (1, 2) => match favorite_entry(field.bytes) {
+                Some(row) => rows.push(row),
+                None => extras.push(base64::engine::general_purpose::STANDARD.encode(field.bytes)),
+            },
+            (2, 0) => muted = field.varint.unwrap_or(0) != 0,
+            _ => {}
+        }
+    }
+    rows.sort_by_key(|row| row.0);
+    let mut ids = Vec::new();
+    for (_, id) in rows {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    (ids, muted, extras)
+}
+
+fn favorite_entry(bytes: &[u8]) -> Option<(u32, String)> {
+    let mut key = None;
+    let mut position = 0u32;
+    let mut kind = 0u64;
+    for field in walk(bytes) {
+        match (field.number, field.wire) {
+            (1, 1) => key = fixed64(field.bytes),
+            (1, 0) => key = field.varint,
+            (2, 2) => {
+                for inner in walk(field.bytes) {
+                    match (inner.number, inner.wire) {
+                        (2, 0) => kind = inner.varint.unwrap_or(0),
+                        (3, 0) => position = inner.varint.unwrap_or(0) as u32,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if kind == 2 {
+        return None;
+    }
+    let value = key.filter(|id| *id != 0)?;
+    let text = value.to_string();
+    if !snowflake_ok(&text) {
+        return None;
+    }
+    Some((position, text))
+}
+
+fn rail_from_body(bytes: &[u8]) -> (Vec<String>, Vec<GuildChannelPins>) {
+    let mut dms = Vec::new();
+    let mut pins: Vec<GuildChannelPins> = Vec::new();
+    for field in walk(bytes) {
+        match (field.number, field.wire) {
+            (1, 1) => {
+                if let Some(value) = fixed64(field.bytes) {
+                    push_id(&mut dms, value);
+                }
+            }
+            (1, 0) => {
+                if let Some(value) = field.varint {
+                    push_id(&mut dms, value);
+                }
+            }
+            (2, 2) => {
+                if let Some(row) = guild_pins_from_body(field.bytes) {
+                    if !pins.iter().any(|seen| seen.guild_id == row.guild_id) {
+                        pins.push(row);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (dms, pins)
+}
+
+fn guild_pins_from_body(bytes: &[u8]) -> Option<GuildChannelPins> {
+    let mut guild_id = None;
+    let mut channel_ids = Vec::new();
+    for field in walk(bytes) {
+        match (field.number, field.wire) {
+            (1, 1) => guild_id = fixed64(field.bytes),
+            (1, 0) => guild_id = field.varint,
+            (2, 1) => {
+                if let Some(value) = fixed64(field.bytes) {
+                    push_id(&mut channel_ids, value);
+                }
+            }
+            (2, 0) => {
+                if let Some(value) = field.varint {
+                    push_id(&mut channel_ids, value);
+                }
+            }
+            _ => {}
+        }
+    }
+    let guild = guild_id.filter(|id| *id != 0)?;
+    let guild_id = guild.to_string();
+    if !snowflake_ok(&guild_id) || channel_ids.is_empty() {
+        return None;
+    }
+    Some(GuildChannelPins { guild_id, channel_ids })
+}
+
+fn encode_favorites_field(ids: &[String], muted: bool, extras: &[String]) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    for (index, id) in ids.iter().enumerate() {
+        let value = id.parse::<u64>().unwrap_or(0);
+        if value == 0 {
+            continue;
+        }
+        let mut channel = proto_key(2, 0);
+        channel.extend(proto_varint(1));
+        channel.extend(proto_key(3, 0));
+        channel.extend(proto_varint(index as u64));
+        let mut entry = proto_key(1, 1);
+        entry.extend(value.to_le_bytes());
+        entry.extend(proto_len(2, &channel));
+        body.extend(proto_len(1, &entry));
+    }
+    for extra in extras {
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(extra.trim())
+            .map_err(|_| "A favorite category could not be read.".to_string())?;
+        if raw.len() > 512 || walk(&raw).is_empty() {
+            return Err("A favorite category could not be read.".into());
+        }
+        body.extend(proto_len(1, &raw));
+    }
+    if muted {
+        body.extend(proto_key(2, 0));
+        body.extend(proto_varint(1));
+    }
+    Ok(proto_len(15, &body))
+}
+
+fn encode_rail_field(dms: &[String], pins: &[GuildChannelPins]) -> Vec<u8> {
+    let mut body = Vec::new();
+    for id in dms {
+        let value = id.parse::<u64>().unwrap_or(0);
+        if value == 0 {
+            continue;
+        }
+        body.extend(proto_key(1, 1));
+        body.extend(value.to_le_bytes());
+    }
+    for pin in pins {
+        let guild = pin.guild_id.parse::<u64>().unwrap_or(0);
+        if guild == 0 {
+            continue;
+        }
+        let mut guild_body = proto_key(1, 1);
+        guild_body.extend(guild.to_le_bytes());
+        for id in &pin.channel_ids {
+            let value = id.parse::<u64>().unwrap_or(0);
+            if value == 0 {
+                continue;
+            }
+            guild_body.extend(proto_key(2, 1));
+            guild_body.extend(value.to_le_bytes());
+        }
+        body.extend(proto_len(2, &guild_body));
+    }
+    proto_len(LARK_RAIL_FIELD, &body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1332,5 +1618,74 @@ mod tests {
             guild_ids: vec!["nope".into()],
         }])
         .is_err());
+    }
+
+    #[test]
+    fn user_lists_round_trip_favorites_and_pins() {
+        let favorites = vec![
+            "100000000000000030".to_string(),
+            "100000000000000031".to_string(),
+        ];
+        let pins = vec![GuildChannelPins {
+            guild_id: "100000000000000010".into(),
+            channel_ids: vec!["100000000000000021".into(), "100000000000000022".into()],
+        }];
+        let dms = vec!["100000000000000040".to_string()];
+        let encoded = encode_user_lists(&favorites, true, &[], &dms, &pins).unwrap();
+        let lists = user_lists_from_b64(Some(&encoded));
+        assert_eq!(lists.favorites.as_deref(), Some(favorites.as_slice()));
+        assert_eq!(lists.favorites_muted, Some(true));
+        assert_eq!(lists.pinned_dms.as_deref(), Some(dms.as_slice()));
+        assert_eq!(lists.channel_pins.as_deref(), Some(pins.as_slice()));
+        let again = encode_user_lists(
+            lists.favorites.as_deref().unwrap(),
+            true,
+            lists.favorite_extras.as_deref().unwrap(),
+            lists.pinned_dms.as_deref().unwrap(),
+            lists.channel_pins.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(again, encoded);
+
+        let mut body = favorite_map_entry(100000000000000032, 5, 1);
+        body.extend(favorite_map_entry(100000000000000099, 0, 2));
+        body.extend(favorite_map_entry(100000000000000033, 0, 1));
+        let parsed = user_lists_from_proto(&proto_len(15, &body));
+        assert_eq!(
+            parsed.favorites.unwrap(),
+            vec!["100000000000000033".to_string(), "100000000000000032".to_string()]
+        );
+        assert_eq!(parsed.favorite_extras.as_ref().map(Vec::len), Some(1));
+        assert_eq!(parsed.favorites_muted, Some(false));
+        assert!(parsed.pinned_dms.is_none());
+
+        let folders_only = encode_guild_folders(&[ClientFolder {
+            id: None,
+            name: None,
+            color: None,
+            guild_ids: vec!["100000000000000010".into()],
+        }])
+        .unwrap();
+        let absent = user_lists_from_b64(Some(&folders_only));
+        assert!(absent.favorites.is_none());
+        assert!(absent.pinned_dms.is_none());
+        assert!(absent.channel_pins.is_none());
+        assert!(encode_user_lists(&["nope".into()], false, &[], &[], &[]).is_err());
+        let cleared = encode_user_lists(&[], false, &[], &[], &[]).unwrap();
+        let empty = user_lists_from_b64(Some(&cleared));
+        assert_eq!(empty.favorites.as_deref(), Some(&[][..]));
+        assert_eq!(empty.pinned_dms.as_deref(), Some(&[][..]));
+        assert_eq!(empty.channel_pins.as_deref(), Some(&[][..]));
+    }
+
+    fn favorite_map_entry(id: u64, position: u64, kind: u64) -> Vec<u8> {
+        let mut channel = proto_key(2, 0);
+        channel.extend(proto_varint(kind));
+        channel.extend(proto_key(3, 0));
+        channel.extend(proto_varint(position));
+        let mut entry = proto_key(1, 1);
+        entry.extend(id.to_le_bytes());
+        entry.extend(proto_len(2, &channel));
+        proto_len(1, &entry)
     }
 }

@@ -36,6 +36,7 @@ import {
   type GuildPref,
   type ReadMarker,
 } from "../shell";
+import { ListSync, applyRemoteLists, flattenFavoriteIds, mapToPins, readIdList, refileFavorites, toggleListed, uniqueSnowflakes, type ListPayload, type RemoteLists } from "../user-lists";
 import { noteActivity, stepAway, type AwayClock } from "../pack/away";
 import { isBookmarked, toggleBookmark, type Bookmark } from "../pack/bookmarks";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
@@ -883,6 +884,12 @@ class LarkApp {
   private inviteEl!: HTMLElement;
   private contextMenuEl: HTMLElement | null = null;
   private favorites: Record<string, string[]> = {};
+  private favoriteIds: string[] = [];
+  private favoritesMuted = false;
+  private favoriteExtras: string[] = [];
+  private favoritesMigrated = false;
+  private pinsMigrated = false;
+  private listSync: ListSync | null = null;
   private pinnedChannels: Record<string, string[]> = {};
   private hideMuted = false;
   private viewAsRoleId: string | null = null;
@@ -939,6 +946,7 @@ class LarkApp {
     this.folderOpen = readStringMap("lark.folders.v1");
     this.favorites = parseIdMap(localStorage.getItem("lark.favorites.v1"));
     this.pinnedChannels = parseIdMap(localStorage.getItem("lark.channel-pins.v1"));
+    this.bootLists();
     this.hideMuted = parseFlag(localStorage.getItem("lark.hide-muted.v1"));
     const params = new URLSearchParams(location.search);
     this.bench = params.has("bench");
@@ -8411,6 +8419,7 @@ class LarkApp {
         for (const channel of incoming) byId.set(channel.id, channel);
         this.liveChannels[event.guildId] = [...byId.values()];
       } else this.liveChannels[event.guildId] = incoming;
+      this.refileLists();
       this.wakeChannelWaiters(event.guildId);
       for (const channel of this.liveChannels[event.guildId] ?? []) {
         this.noteChannel(channel);
@@ -8445,6 +8454,8 @@ class LarkApp {
       if (!this.ensureFolderSync().acceptRemote(folders)) return;
       this.folders = folders;
       this.paintRail();
+    } else if (event.kind === "userLists") {
+      this.applyUserLists(event as RemoteLists);
     } else if (event.kind === "guildAccess") {
       const access = (event as { access?: { guildId?: string; owner?: boolean; permissions?: string; roles?: { id: string; permissions: string }[]; myRoles?: string[] } }).access;
       if (access?.guildId) {
@@ -13709,11 +13720,7 @@ class LarkApp {
         if (this.settings) this.renderSettings();
       },
       unpinDm: (dmId) => {
-        this.ensureDmPins();
-        this.dmPins = togglePin(this.dmPins, dmId);
-        this.saveDmPins();
-        this.paintChannels();
-        if (this.settings) this.renderSettings();
+        this.toggleDmPin(dmId, true);
       },
       readAllMuted: this.pack.readAllMuted,
       readAllDms: this.pack.readAllDms,
@@ -14644,9 +14651,7 @@ class LarkApp {
       return;
     }
     if (id === "favorite" && guildId) {
-      this.favorites[guildId] = toggleId(this.favorites[guildId], channel.id);
-      localStorage.setItem("lark.favorites.v1", JSON.stringify(this.favorites));
-      this.paintChannels();
+      this.toggleFavorite(channel.id);
       return;
     }
     if (id === "invite" && guildId) {
@@ -14654,9 +14659,7 @@ class LarkApp {
       return;
     }
     if (id === "pin-top" && guildId) {
-      this.pinnedChannels[guildId] = toggleId(this.pinnedChannels[guildId], channel.id);
-      localStorage.setItem("lark.channel-pins.v1", JSON.stringify(this.pinnedChannels));
-      this.paintChannels();
+      this.toggleChannelPin(guildId, channel.id);
       return;
     }
     if (id === "copy-link" && guildId) {
@@ -15036,6 +15039,7 @@ class LarkApp {
     this.showSocialMenu(x, y, dmContextMenu({
       developerMode: developerModeOn(this.config),
       pinned: this.dmPins.has(channel.id),
+      favorite: this.favoriteIds.includes(channel.id),
       muted: this.levelFor(null, channel.id) === "mute",
       friend,
       group: channel.kind === "group",
@@ -15044,13 +15048,11 @@ class LarkApp {
 
   private runDmMenu(channel: Channel, userId: string, id: string) {
     if (id === "read") this.markDmRead(channel);
-    else if (id === "pin") {
-      this.ensureDmPins();
-      this.dmPins = togglePin(this.dmPins, channel.id);
-      this.saveDmPins();
-      this.paintChannels();
-    } else if (id === "favorite") {
-      this.toast("Favorites", requestAddFavorite(channel.id) === "called" ? "Added to Favorites." : "Favorites are not available yet.");
+    else if (id === "pin") this.toggleDmPin(channel.id);
+    else if (id === "favorite") {
+      const had = this.favoriteIds.includes(channel.id);
+      const saved = requestAddFavorite(channel.id) === "called";
+      this.toast("Favorites", saved ? (had ? "Removed from Favorites." : "Added to Favorites.") : "Favorites are not available yet.");
     } else if (id === "profile") {
       const person = userId ? this.personFromRelationship(userId) : null;
       if (person) this.openProfile(person);
@@ -15751,6 +15753,109 @@ class LarkApp {
       this.sendingLive = false;
       this.paintComposer();
     }
+  }
+
+  private bootLists() {
+    this.ensureDmPins();
+    const stored = readIdList(localStorage.getItem("lark.favorite-ids.v1"));
+    this.favoriteIds = stored.length ? stored : flattenFavoriteIds(this.favorites);
+    (globalThis as { larkFavorites?: { addFavoriteChannel: (id: string) => void } }).larkFavorites = {
+      addFavoriteChannel: (id) => this.toggleFavorite(id),
+    };
+  }
+
+  private ensureListSync(): ListSync {
+    if (this.listSync) return this.listSync;
+    this.listSync = new ListSync({
+      send: async (payload) => {
+        if (this.demo || !isTauri()) throw new Error("offline");
+        await invoke("set_user_lists", {
+          favorites: payload.favorites,
+          favoritesMuted: payload.favoritesMuted,
+          favoriteExtras: payload.favoriteExtras,
+          pinnedDms: payload.pinnedDms,
+          channelPins: payload.channelPins,
+        });
+      },
+      schedule: (ms, fn) => window.setTimeout(fn, ms),
+      cancel: (id) => window.clearTimeout(id),
+      onError: () => this.toast("Lists", "Discord didn't save pins and favorites. Lark kept them on this device."),
+    });
+    return this.listSync;
+  }
+
+  private listPayload(): ListPayload {
+    return {
+      favorites: uniqueSnowflakes(this.favoriteIds, 200),
+      favoritesMuted: this.favoritesMuted,
+      favoriteExtras: this.favoriteExtras.slice(0, 50),
+      pinnedDms: uniqueSnowflakes([...this.dmPins], 40),
+      channelPins: mapToPins(this.pinnedChannels),
+    };
+  }
+
+  private refileLists() {
+    const known = this.demo ? demoChannels : this.liveChannels;
+    if (!Object.keys(known).length) return;
+    this.favorites = refileFavorites(this.favoriteIds, known);
+  }
+
+  private persistLists() {
+    localStorage.setItem("lark.favorite-ids.v1", JSON.stringify(this.favoriteIds));
+    localStorage.setItem("lark.favorites.v1", JSON.stringify(this.favorites));
+    localStorage.setItem("lark.channel-pins.v1", JSON.stringify(this.pinnedChannels));
+    this.saveDmPins();
+  }
+
+  private toggleFavorite(channelId: string) {
+    this.favoriteIds = toggleListed(this.favoriteIds, channelId);
+    this.refileLists();
+    this.persistLists();
+    if (!this.demo) this.ensureListSync().edit(this.listPayload());
+    this.paintChannels();
+  }
+
+  private toggleChannelPin(guildId: string, channelId: string) {
+    this.pinnedChannels[guildId] = toggleId(this.pinnedChannels[guildId], channelId);
+    if (!this.pinnedChannels[guildId]?.length) delete this.pinnedChannels[guildId];
+    this.persistLists();
+    if (!this.demo) this.ensureListSync().edit(this.listPayload());
+    this.paintChannels();
+  }
+
+  private toggleDmPin(channelId: string, repaintSettings = false) {
+    this.ensureDmPins();
+    this.dmPins = togglePin(this.dmPins, channelId);
+    this.persistLists();
+    if (!this.demo) this.ensureListSync().edit(this.listPayload());
+    this.paintChannels();
+    if (repaintSettings && this.settings) this.renderSettings();
+  }
+
+  private applyUserLists(event: RemoteLists) {
+    if (this.demo) return;
+    const sync = this.ensureListSync();
+    const applied = applyRemoteLists({
+      favorites: this.favoriteIds,
+      favoritesMuted: this.favoritesMuted,
+      favoriteExtras: this.favoriteExtras,
+      pinnedDms: [...this.dmPins],
+      channelPins: this.pinnedChannels,
+      favoritesMigrated: this.favoritesMigrated,
+      pinsMigrated: this.pinsMigrated,
+    }, event, !sync.acceptRemote());
+    this.favoriteIds = applied.next.favorites;
+    this.favoritesMuted = applied.next.favoritesMuted;
+    this.favoriteExtras = applied.next.favoriteExtras;
+    this.dmPins = new Set(applied.next.pinnedDms);
+    this.dmPinsReady = true;
+    this.pinnedChannels = applied.next.channelPins;
+    this.favoritesMigrated = applied.next.favoritesMigrated;
+    this.pinsMigrated = applied.next.pinsMigrated;
+    this.refileLists();
+    this.persistLists();
+    this.paintChannels();
+    if (applied.push) sync.edit(this.listPayload());
   }
 }
 

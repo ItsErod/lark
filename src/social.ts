@@ -327,11 +327,12 @@ export function dmContextMenu(options: {
   muted: boolean;
   friend: boolean;
   group: boolean;
+  favorite?: boolean;
 }): MenuItem[] {
   const items: MenuItem[] = [
     { id: "read", label: "Mark As Read" },
     { id: "pin", label: options.pinned ? "Unpin" : "Pin" },
-    { id: "favorite", label: "Add to Favorites" },
+    { id: "favorite", label: options.favorite ? "Remove from Favorites" : "Add to Favorites" },
     { id: "profile", label: "Profile" },
     { id: "call", label: "Start a Call" },
     { id: "note", label: "Note" },

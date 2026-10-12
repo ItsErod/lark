@@ -2334,6 +2334,30 @@ impl DiscordRest {
         let _ = Self::json_body(response, &self.token).await?;
         Ok(())
     }
+
+    /// Favorites and Lark pin lists. Only fields 15 and 500 are sent, so other settings stay put.
+    pub async fn set_user_lists(
+        &self,
+        favorites: &[String],
+        favorites_muted: bool,
+        favorite_extras: &[String],
+        pinned_dms: &[String],
+        channel_pins: &[super::shell::GuildChannelPins],
+    ) -> Result<(), RestError> {
+        let settings = super::shell::encode_user_lists(favorites, favorites_muted, favorite_extras, pinned_dms, channel_pins)
+            .map_err(RestError::Message)?;
+        let path = "/users/@me/settings-proto/1";
+        let route = route_key("PATCH", "/users/@me/settings-proto/1", "me");
+        self.send_json(
+            Method::PATCH,
+            &route,
+            "me",
+            path,
+            Some(json!({ "settings": settings })),
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 fn messages_from_search(value: &Value) -> Vec<ClientMessage> {
