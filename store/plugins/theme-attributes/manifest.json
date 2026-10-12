@@ -1,0 +1,12 @@
+{
+  "id": "theme-attributes",
+  "name": "Theme attributes",
+  "description": "Show the colour tokens of the theme you are using.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "palette",
+  "changelog": "Lists the theme colours already on the page, and copies them. The theme file is not changed."
+}

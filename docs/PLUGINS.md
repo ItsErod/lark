@@ -305,3 +305,20 @@ Hover a folder to see the server names inside it.
 
 - **Unread first** moves servers with an unread or a mention to the top of the folder on this screen.
 - Discord’s saved order is not changed.
+
+## Auto-reply when away
+
+Write one line, then turn on **Reply while away**.
+
+- It answers a direct message only. Group chats and servers are skipped.
+- Nothing is sent while that conversation is open.
+- Each conversation gets one reply until you turn the switch off.
+- Sends stay 30 seconds apart. Bots and your own messages are skipped.
+- The line is the one you wrote. It is off until you turn it on.
+
+## Theme attributes
+
+The plugin’s settings list the colour tokens already painted on the page.
+
+- **Copy** puts those names and values on the clipboard.
+- The theme file is not changed.
