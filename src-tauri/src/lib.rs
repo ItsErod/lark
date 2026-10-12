@@ -2190,7 +2190,9 @@ fn open_discord_page(url: String) -> Result<(), String> {
     let Some(program) = browser.child_program() else {
         return Err("Open this Discord page from the app window.".into());
     };
-    std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    lark_core::hide_console(&mut command);
+    command
         .arg(&url)
         .spawn()
         .map(|_| ())

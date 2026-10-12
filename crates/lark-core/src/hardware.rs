@@ -316,6 +316,7 @@ static GPU_CACHE: Mutex<Option<GpuCache>> = Mutex::new(None);
 
 fn capture(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
     let mut command = Command::new(program);
+    crate::proc::hide_console(&mut command);
     command
         .args(args)
         .stdin(Stdio::null())
