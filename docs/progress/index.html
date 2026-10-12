@@ -881,6 +881,62 @@
     a.version-name:hover { text-decoration: underline; }
     .version-body .pill { margin: 0 0 0 8px; vertical-align: 2px; }
     .version-meta { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .release-notes { margin-top: 8px; }
+    .release-notes summary {
+      min-height: 36px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      list-style: none;
+      color: var(--secondary);
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .release-notes summary::-webkit-details-marker { display: none; }
+    .release-notes summary::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      margin: 0 4px 2px 2px;
+      flex: 0 0 auto;
+    }
+    .release-notes[open] summary::before { transform: rotate(45deg) translateY(-2px); }
+    .note-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .note-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      line-height: 1.4;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--secondary);
+    }
+    .note-pill[data-kind="added"] { background: rgba(35, 165, 90, 0.18); color: #3ecf78; }
+    .note-pill[data-kind="changed"] { background: rgba(226, 161, 90, 0.2); color: #f0c27a; }
+    .note-pill[data-kind="fixed"] { background: rgba(88, 101, 242, 0.22); color: #c9d0ff; }
+    .note-pill[data-kind="removed"] { background: rgba(237, 66, 69, 0.18); color: #ffb4b4; }
+    .note-pill[data-kind="performance"] { background: rgba(240, 178, 50, 0.16); color: #f0b232; }
+    .note-pill[data-kind="security"] { background: rgba(155, 132, 255, 0.18); color: #d4c9ff; }
+    .note-body { padding: 4px 0 2px 16px; }
+    .note-copy, .note-list { margin: 8px 0 0; color: var(--secondary); font-size: 14px; }
+    .note-list { padding-left: 1.1em; }
+    .note-list li { margin: 4px 0; }
+    .note-section { margin-top: 12px; }
+    .note-section .note-pill { font-size: 12px; padding: 3px 10px; }
+    .note-copy a, .note-list a { font-weight: 700; }
+    .note-copy code, .note-list code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      color: var(--amber-2);
+    }
     .event .version-duration {
       color: var(--amber-2);
       font-size: 15px;
@@ -1017,7 +1073,7 @@
     <section aria-labelledby="history-title">
       <div class="section-head">
         <h2 id="history-title">Version history</h2>
-        <p>Update time runs from the previous release’s publish time to this one. The version still in progress counts live from the latest release.</p>
+        <p>Update time runs from the previous release’s publish time to this one. The version still in progress counts live from the latest release. Open a version for its release notes.</p>
       </div>
       <div class="history-total">
         <p class="eyebrow">Total update time</p>
@@ -1158,7 +1214,7 @@
     const PULLS_URL = "https://api.github.com/repos/ItsErod/lark/pulls?state=all&per_page=100";
     const RELEASE_URL = "https://api.github.com/repos/ItsErod/lark/releases/latest";
     const RELEASES_URL = "https://api.github.com/repos/ItsErod/lark/releases?per_page=100";
-    const RELEASES_CACHE_KEY = "lark30-version-history-v1";
+    const RELEASES_CACHE_KEY = "lark30-version-history-v2";
     const REFRESH_MS = 60000;
     const CACHE_KEY = "lark30-progress-v1";
     const SEEN_KEY = "lark30-progress-seen-v1";
@@ -1406,6 +1462,7 @@
         html_url: safeGithubUrl(release.html_url, "https://github.com/ItsErod/lark/releases"),
         published_at: published ? String(published) : null,
         prerelease: !!release.prerelease,
+        body: release.body ? String(release.body).slice(0, 20000) : "",
         assets
       };
     }
@@ -1450,6 +1507,63 @@
       return parts.join(" ");
     }
 
+    function noteSection(title) {
+      const raw = String(title || "").replace(/^#+\s*/, "").trim();
+      const name = raw.toLowerCase();
+      const kinds = [
+        ["added", "Added", /\badded\b/],
+        ["changed", "Changed", /\bchanged\b/],
+        ["fixed", "Fixed", /\bfixed\b/],
+        ["removed", "Removed", /\bremoved\b/],
+        ["performance", "Performance", /\bperformance\b/],
+        ["security", "Security", /\bsecurity\b/]
+      ];
+      for (let i = 0; i < kinds.length; i += 1) {
+        if (kinds[i][2].test(name)) return { kind: kinds[i][0], label: kinds[i][1] };
+      }
+      const label = raw.replace(/^[^A-Za-z]+/, "").trim() || raw || "Notes";
+      return { kind: "other", label: label };
+    }
+
+    function parseReleaseNotes(markdown) {
+      const text = String(markdown || "").replace(/\r\n/g, "\n").trim();
+      if (!text) return null;
+      const intro = [];
+      const sections = [];
+      let current = null;
+      text.split(/\n{2,}/).forEach((chunk) => {
+        const lines = chunk.split("\n").map((line) => line.trim()).filter(Boolean);
+        if (!lines.length) return;
+        const heading = lines[0].match(/^#{1,3}\s+(.+)$/);
+        if (heading) {
+          const section = noteSection(heading[1]);
+          current = { kind: section.kind, label: section.label, items: [] };
+          sections.push(current);
+          const rest = lines.slice(1);
+          if (rest.length && rest.every((line) => /^[-*]\s+/.test(line))) {
+            rest.forEach((line) => current.items.push(line.replace(/^[-*]\s+/, "")));
+          } else if (rest.length) {
+            current.items.push(rest.join(" "));
+          }
+          return;
+        }
+        const list = lines.every((line) => /^[-*]\s+/.test(line));
+        if (list) {
+          const items = lines.map((line) => line.replace(/^[-*]\s+/, ""));
+          if (!current) {
+            current = { kind: "other", label: "Notes", items: [] };
+            sections.push(current);
+          }
+          items.forEach((item) => current.items.push(item));
+          return;
+        }
+        const paragraph = lines.join(" ");
+        if (current) current.items.push(paragraph);
+        else intro.push(paragraph);
+      });
+      return { intro: intro, sections: sections };
+    }
+
     function buildVersionHistory(releases, now) {
       const nowMs = Number.isFinite(now) ? now : Date.now();
       const list = (releases || [])
@@ -1461,7 +1575,8 @@
             tag,
             published,
             url: release.html_url ? String(release.html_url) : "",
-            prerelease: !!(release && release.prerelease)
+            prerelease: !!(release && release.prerelease),
+            body: release && release.body ? String(release.body) : ""
           };
         })
         .filter(Boolean)
@@ -1474,7 +1589,8 @@
         durationMs: index === 0 ? null : item.published - list[index - 1].published,
         since: index === 0 ? null : list[index - 1].tag,
         url: item.url,
-        prerelease: item.prerelease
+        prerelease: item.prerelease,
+        notes: item.body
       }));
       const latest = list.length ? list[list.length - 1] : null;
       const completedMs = versions.reduce((sum, item) => sum + (item.durationMs || 0), 0);
@@ -1488,7 +1604,8 @@
           durationMs: Math.max(0, nowMs - latest.published),
           since: latest.tag,
           url: "",
-          prerelease: false
+          prerelease: false,
+          notes: ""
         };
       }
       return {
@@ -2030,7 +2147,7 @@
 
       function paintHistory(releases) {
         const signature = (releases || []).map((item) => {
-          return [item && item.tag_name, item && item.published_at, item && item.prerelease ? 1 : 0].join("|");
+          return [item && item.tag_name, item && item.published_at, item && item.prerelease ? 1 : 0, item && item.body].join("|");
         }).join("\n");
         if (signature === historySignature && historyModel) return;
         historySignature = signature;
@@ -2105,6 +2222,8 @@
           if (entry.prerelease) meta.append(document.createTextNode(" · pre-release"));
           meta.append(document.createTextNode(entry.since ? " · from " + entry.since : " · first release"));
           body.append(link, meta);
+          const notes = releaseNotes(entry.notes);
+          if (notes) body.append(notes);
         }
         const duration = document.createElement("time");
         duration.className = "version-duration";
@@ -2119,6 +2238,95 @@
         }
         li.append(dot, body, duration);
         return li;
+      }
+
+      function releaseLink(url) {
+        return safeGithubUrl(url, "");
+      }
+
+      function appendInline(parent, source) {
+        const text = String(source || "");
+        const pattern = /\[([^\]]+)\]\((https:\/\/[^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+        let last = 0;
+        let match;
+        while ((match = pattern.exec(text))) {
+          if (match.index > last) parent.append(document.createTextNode(text.slice(last, match.index)));
+          if (match[1] != null && match[2]) {
+            const href = releaseLink(match[2]);
+            if (href) {
+              const link = document.createElement("a");
+              link.href = href;
+              link.target = "_blank";
+              link.rel = "noreferrer";
+              link.textContent = match[1];
+              parent.append(link);
+            } else {
+              parent.append(document.createTextNode(match[1]));
+            }
+          } else if (match[3] != null) {
+            const code = document.createElement("code");
+            code.textContent = match[3];
+            parent.append(code);
+          } else if (match[4] != null) {
+            const strong = document.createElement("strong");
+            strong.textContent = match[4];
+            parent.append(strong);
+          } else if (match[5] != null) {
+            const em = document.createElement("em");
+            em.textContent = match[5];
+            parent.append(em);
+          }
+          last = pattern.lastIndex;
+        }
+        if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+      }
+
+      function notePill(kind, label) {
+        const pill = document.createElement("span");
+        pill.className = "note-pill";
+        pill.dataset.kind = kind;
+        pill.textContent = label;
+        return pill;
+      }
+
+      function releaseNotes(markdown) {
+        const parsed = parseReleaseNotes(markdown);
+        if (!parsed) return null;
+        const details = document.createElement("details");
+        details.className = "release-notes";
+        const summary = document.createElement("summary");
+        summary.append(document.createTextNode("Release notes"));
+        if (parsed.sections.length) {
+          const pills = document.createElement("span");
+          pills.className = "note-pills";
+          parsed.sections.forEach((section) => pills.append(notePill(section.kind, section.label)));
+          summary.append(pills);
+        }
+        const wrap = document.createElement("div");
+        wrap.className = "note-body";
+        parsed.intro.forEach((paragraph) => {
+          const p = document.createElement("p");
+          p.className = "note-copy";
+          appendInline(p, paragraph);
+          wrap.append(p);
+        });
+        parsed.sections.forEach((section) => {
+          const block = document.createElement("section");
+          block.className = "note-section";
+          const heading = document.createElement("h4");
+          heading.append(notePill(section.kind, section.label));
+          const list = document.createElement("ul");
+          list.className = "note-list";
+          section.items.forEach((item) => {
+            const li = document.createElement("li");
+            appendInline(li, item);
+            list.append(li);
+          });
+          block.append(heading, list);
+          wrap.append(block);
+        });
+        details.append(summary, wrap);
+        return details;
       }
 
       function isRateLimited(status, info) {
