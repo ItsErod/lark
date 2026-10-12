@@ -1,6 +1,7 @@
 //! Shared logic for Lark: config, rate limits, and the Discord connection.
 //! The desktop shell (macOS and Windows) is a thin Tauri wrapper around this crate.
 
+pub mod boot;
 pub mod cache;
 pub mod clip;
 mod clip_encode;

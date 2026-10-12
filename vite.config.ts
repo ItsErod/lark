@@ -18,5 +18,8 @@ export default defineConfig({
       },
     },
   },
-  test: { environment: "node", include: ["src/**/*.test.ts"] },
+  test: {
+    environment: "node",
+    include: process.env.LARK_BENCH ? ["src/bench/harness.bench.ts"] : ["src/**/*.test.ts"],
+  },
 });

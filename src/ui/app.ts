@@ -3,6 +3,7 @@ import { composedError, spoilerUploadName } from "../compose";
 import { reportCrash } from "../crash";
 import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
+import { benchHistory, benchPeople } from "../bench/corpus";
 import { bindEmojiLoader, expandShortcodes, rememberEmoji, frecency, EMOJI, setCustomEmojis, type EmojiUse } from "../emoji";
 import { applyMention, mentionHits, mentionQuery, plainPreview, type MentionHit } from "../mentions";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
@@ -459,6 +460,8 @@ interface PerfMarks {
   ready: number;
   lastSwitch: number;
   lastInput: number;
+  lastLoad: number;
+  switchAt: number;
   displayHz: number;
   benchFrames: (ms: number) => Promise<{ paints: number; hz: number }>;
 }
@@ -495,6 +498,7 @@ class LarkApp {
   private platform: PlatformInfo = browserPlatform();
   private view: "gate" | "app" = "gate";
   private demo = false;
+  private bench = false;
   private guildId: string | null = NORTHWIND;
   private channelId: string | null = null;
   private pages: Record<string, RawMessage[]> = {};
@@ -862,6 +866,16 @@ class LarkApp {
   constructor(private root: HTMLElement) {}
 
   async start() {
+    const perf: PerfMarks = {
+      ready: 0,
+      lastSwitch: 0,
+      lastInput: 0,
+      lastLoad: 0,
+      switchAt: 0,
+      displayHz: 0,
+      benchFrames: (ms) => this.frames.bench(ms),
+    };
+    (window as unknown as { __lark: PerfMarks }).__lark = perf;
     (globalThis as { larkCreateEvent?: (guildId: string) => void }).larkCreateEvent = (guildId) => {
       this.onCreateEvent(guildId);
     };
@@ -893,6 +907,7 @@ class LarkApp {
     this.pinnedChannels = parseIdMap(localStorage.getItem("lark.channel-pins.v1"));
     this.hideMuted = parseFlag(localStorage.getItem("lark.hide-muted.v1"));
     const params = new URLSearchParams(location.search);
+    this.bench = params.has("bench");
     if (!params.has("demo")) {
       const stored = this.ensureFolderSync().load();
       if (stored) this.folders = stored.folders;
@@ -959,14 +974,7 @@ class LarkApp {
       this.paint();
     }
     if (isTauri()) await this.bootDesktop();
-    const perf: PerfMarks = {
-      ready: performance.now(),
-      lastSwitch: 0,
-      lastInput: 0,
-      displayHz: 0,
-      benchFrames: (ms) => this.frames.bench(ms),
-    };
-    (window as unknown as { __lark: PerfMarks }).__lark = perf;
+    perf.ready = performance.now();
     void this.frames.measureDisplay().then((hz) => {
       perf.displayHz = hz;
       if (this.settings && this.section === "window") this.renderSettings();
@@ -3259,6 +3267,10 @@ class LarkApp {
     return panel;
   }
 
+  private historyLimit(): number {
+    return this.bench ? 80 : HISTORY_PAGE;
+  }
+
   private currentChannel(): Channel | undefined {
     const lists = this.demo ? Object.values(demoChannels) : Object.values(this.liveChannels);
     return [...this.visibleChannels(), ...this.dms(), ...lists.flat()].find((channel) => channel.id === this.channelId);
@@ -3269,7 +3281,10 @@ class LarkApp {
     this.revealShell();
     this.prefetchToken += 1;
     const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
-    if (perf) perf.lastSwitch = -1;
+    if (perf) {
+      perf.lastSwitch = -1;
+      perf.switchAt = performance.now();
+    }
     const started = performance.now();
     this.channelId = id;
     this.error = null;
@@ -3285,12 +3300,12 @@ class LarkApp {
     this.closeSuggest();
     const cached = this.pages[id];
     if (cached?.length) {
-      const visible = initialHistory(cached);
+      const visible = initialHistory(cached, this.historyLimit());
       if (visible.length !== cached.length) {
         this.pages[id] = visible;
         this.more[id] = true;
       } else if (this.more[id] === undefined) {
-        this.more[id] = visible.length >= HISTORY_PAGE;
+        this.more[id] = visible.length >= this.historyLimit();
       }
       this.loading = false;
     } else {
@@ -3360,7 +3375,7 @@ class LarkApp {
     try {
       if (this.demo && id === ARCHIVE) throw new Error("Couldn't load messages in #archive.");
       const page = this.demo
-        ? pageMessages(history[id] ?? [], undefined, HISTORY_PAGE)
+        ? pageMessages(this.bench ? benchHistory(id) : (history[id] ?? []), undefined, this.historyLimit())
         : await this.livePage(id);
       const next = reconcileHistory(this.pages[id] ?? [], page.messages);
       this.pages[id] = next;
@@ -3378,6 +3393,8 @@ class LarkApp {
       if (this.channelId !== id) return;
       if (!this.jumpId && this.pinnedToBottom) this.scroll = "bottom";
       this.paintMessages();
+      const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
+      if (perf && perf.switchAt) perf.lastLoad = performance.now() - perf.switchAt;
       const last = next.at(-1);
       if (!this.jumpId && last) this.ackChannel(id, last.id);
     } catch (err) {
@@ -4207,7 +4224,7 @@ class LarkApp {
     const roles = this.rolesByGuild[guildId] ?? [];
     const list = this.demo ? null : this.currentMemberList();
     const wire = list && list.rows.size ? visibleRows(list, roles) : null;
-    const roster = this.demo ? people : this.liveMembers;
+    const roster = this.demo ? (this.bench ? benchPeople() : people) : this.liveMembers;
     const sections = wire ? null : groupMembers(roster, roles);
     const rows: PaintedRow[] = [];
     if (wire) rows.push(...wire);
