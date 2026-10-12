@@ -1850,3 +1850,797 @@ mod tests {
         assert_eq!(friends[0].activity, "Playing Figma");
     }
 }
+
+// Stream F. Thread, poll, and scheduled-event payloads. Append-only: existing
+// channel kinds stay in `channel_kind_name`.
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientForumTag {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub moderated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientThreadRecord {
+    pub id: String,
+    pub name: String,
+    pub raw_kind: i32,
+    pub parent_id: Option<String>,
+    pub guild_id: Option<String>,
+    pub owner_id: Option<String>,
+    pub archived: bool,
+    pub locked: bool,
+    pub invitable: bool,
+    pub auto_archive_duration: i32,
+    pub message_count: u32,
+    pub member_count: u32,
+    pub last_message_id: Option<String>,
+    pub applied_tags: Vec<String>,
+    pub flags: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starter_content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starter_image: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientForumParent {
+    pub id: String,
+    pub raw_kind: i32,
+    pub topic: String,
+    pub flags: i32,
+    pub available_tags: Vec<ClientForumTag>,
+    pub default_sort_order: Option<i32>,
+    pub default_forum_layout: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientThreadIndex {
+    pub parent: ClientForumParent,
+    pub threads: Vec<ClientThreadRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientThreadMember {
+    pub id: String,
+    pub user_id: String,
+    pub join_timestamp: String,
+    pub flags: i32,
+    pub name: String,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientPollAnswer {
+    pub answer_id: i64,
+    pub text: String,
+    pub emoji_name: Option<String>,
+    pub emoji_id: Option<String>,
+    pub count: u32,
+    pub me_voted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientPoll {
+    pub message_id: String,
+    pub channel_id: String,
+    pub question: String,
+    pub answers: Vec<ClientPollAnswer>,
+    pub expiry: Option<String>,
+    pub allow_multiselect: bool,
+    pub layout_type: i32,
+    pub finalized: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientPollVoter {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientScheduledEvent {
+    pub id: String,
+    pub guild_id: String,
+    pub name: String,
+    pub description: String,
+    pub channel_id: Option<String>,
+    pub creator_id: Option<String>,
+    pub scheduled_start_time: String,
+    pub scheduled_end_time: Option<String>,
+    pub privacy_level: i32,
+    pub status: i32,
+    pub entity_type: i32,
+    pub location: Option<String>,
+    pub image: Option<String>,
+    pub user_count: u32,
+    pub recurrence_rule: Option<ClientEventRecurrence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientEventRecurrence {
+    pub start: String,
+    pub frequency: i32,
+    pub interval: i32,
+    pub by_weekday: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientFriendRequest {
+    pub id: String,
+    pub name: String,
+    pub incoming: bool,
+    pub avatar_url: Option<String>,
+}
+
+fn value_str<'a>(value: &'a serde_json::Value, key: &str) -> &'a str {
+    value.get(key).and_then(|item| item.as_str()).unwrap_or("")
+}
+
+fn value_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    let text = value_str(value, key);
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+fn value_i32(value: &serde_json::Value, key: &str) -> i32 {
+    value.get(key).and_then(|item| item.as_i64()).unwrap_or(0) as i32
+}
+
+fn forum_tag_from_value(value: &serde_json::Value) -> Option<ClientForumTag> {
+    let id = value_str(value, "id");
+    if !snowflake_ok(id) {
+        return None;
+    }
+    let emoji = value.get("emoji");
+    Some(ClientForumTag {
+        id: id.to_string(),
+        name: value_str(value, "name").to_string(),
+        moderated: value.get("moderated").and_then(|item| item.as_bool()).unwrap_or(false),
+        emoji_id: emoji.and_then(|item| value_string(item, "id")).or_else(|| value_string(value, "emoji_id")),
+        emoji_name: emoji
+            .and_then(|item| value_string(item, "name"))
+            .or_else(|| value_string(value, "emoji_name")),
+    })
+}
+
+fn starter_from_thread(value: &serde_json::Value) -> (Option<String>, Option<String>) {
+    let Some(message) = value.get("message") else {
+        return (None, None);
+    };
+    let content = value_string(message, "content");
+    let image = message
+        .get("attachments")
+        .and_then(|item| item.as_array())
+        .and_then(|list| list.first())
+        .and_then(|attachment| {
+            value_string(attachment, "proxy_url").or_else(|| value_string(attachment, "url"))
+        });
+    (content, image)
+}
+
+pub fn thread_record_from_value(value: &serde_json::Value) -> Option<ClientThreadRecord> {
+    let id = value_str(value, "id");
+    if !snowflake_ok(id) {
+        return None;
+    }
+    let raw_kind = value_i32(value, "type");
+    let meta = value.get("thread_metadata");
+    let name = value_str(value, "name");
+    let (starter_content, starter_image) = starter_from_thread(value);
+    let applied_tags = value
+        .get("applied_tags")
+        .and_then(|item| item.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|tag| tag.as_str())
+                .filter(|tag| snowflake_ok(tag))
+                .map(|tag| tag.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(ClientThreadRecord {
+        id: id.to_string(),
+        name: if name.is_empty() { "Thread".into() } else { name.to_string() },
+        raw_kind,
+        parent_id: value_string(value, "parent_id").filter(|item| snowflake_ok(item)),
+        guild_id: value_string(value, "guild_id").filter(|item| snowflake_ok(item)),
+        owner_id: value_string(value, "owner_id").filter(|item| snowflake_ok(item)),
+        archived: meta.and_then(|item| item.get("archived")).and_then(|item| item.as_bool()).unwrap_or(false),
+        locked: meta.and_then(|item| item.get("locked")).and_then(|item| item.as_bool()).unwrap_or(false),
+        invitable: meta.and_then(|item| item.get("invitable")).and_then(|item| item.as_bool()).unwrap_or(true),
+        auto_archive_duration: meta
+            .map(|item| value_i32(item, "auto_archive_duration"))
+            .filter(|item| *item > 0)
+            .unwrap_or(1440),
+        message_count: value.get("message_count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+        member_count: value.get("member_count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+        last_message_id: value_string(value, "last_message_id").filter(|item| snowflake_ok(item)),
+        applied_tags,
+        flags: value_i32(value, "flags"),
+        starter_content,
+        starter_image,
+    })
+}
+
+pub fn forum_parent_from_value(value: &serde_json::Value) -> Option<ClientForumParent> {
+    let id = value_str(value, "id");
+    if !snowflake_ok(id) {
+        return None;
+    }
+    let tags = value
+        .get("available_tags")
+        .and_then(|item| item.as_array())
+        .map(|list| list.iter().filter_map(forum_tag_from_value).collect())
+        .unwrap_or_default();
+    Some(ClientForumParent {
+        id: id.to_string(),
+        raw_kind: value_i32(value, "type"),
+        topic: value_str(value, "topic").to_string(),
+        flags: value_i32(value, "flags"),
+        available_tags: tags,
+        default_sort_order: value.get("default_sort_order").and_then(|item| item.as_i64()).map(|item| item as i32),
+        default_forum_layout: value
+            .get("default_forum_layout")
+            .and_then(|item| item.as_i64())
+            .map(|item| item as i32),
+    })
+}
+
+pub fn thread_list_from_value(value: &serde_json::Value) -> Vec<ClientThreadRecord> {
+    value
+        .get("threads")
+        .and_then(|item| item.as_array())
+        .map(|list| list.iter().filter_map(thread_record_from_value).collect())
+        .unwrap_or_default()
+}
+
+/// Guild active-thread payloads include every parent. Keep the ones for this channel.
+pub fn threads_for_parent(value: &serde_json::Value, parent_id: &str) -> Vec<ClientThreadRecord> {
+    thread_list_from_value(value)
+        .into_iter()
+        .filter(|thread| thread.parent_id.as_deref() == Some(parent_id))
+        .collect()
+}
+
+pub fn thread_member_from_value(value: &serde_json::Value) -> Option<ClientThreadMember> {
+    let user_id = value_str(value, "user_id");
+    if !snowflake_ok(user_id) {
+        return None;
+    }
+    let member = value.get("member");
+    let user = member.and_then(|item| item.get("user"));
+    let nick = member.and_then(|item| value_string(item, "nick"));
+    let global = user.and_then(|item| value_string(item, "global_name"));
+    let username = user.and_then(|item| value_string(item, "username"));
+    let name = nick.or(global).or(username).unwrap_or_else(|| "Member".into());
+    let avatar = user.and_then(|item| item.get("avatar")).and_then(|item| item.as_str()).map(|item| item.to_string());
+    Some(ClientThreadMember {
+        id: value_str(value, "id").to_string(),
+        user_id: user_id.to_string(),
+        join_timestamp: value_str(value, "join_timestamp").to_string(),
+        flags: value_i32(value, "flags"),
+        avatar_url: avatar_url(user_id, &avatar),
+        name,
+    })
+}
+
+pub fn poll_from_message(value: &serde_json::Value) -> Option<ClientPoll> {
+    let poll = value.get("poll")?;
+    let question = poll.pointer("/question/text").and_then(|item| item.as_str()).unwrap_or("").trim();
+    if question.is_empty() {
+        return None;
+    }
+    let counts = poll
+        .pointer("/results/answer_counts")
+        .and_then(|item| item.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let answers: Vec<ClientPollAnswer> = poll
+        .get("answers")
+        .and_then(|item| item.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|answer| {
+                    let answer_id = answer.get("answer_id").and_then(|item| item.as_i64())?;
+                    let text = answer.pointer("/poll_media/text").and_then(|item| item.as_str()).unwrap_or("").trim();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    let tally = counts.iter().find(|item| item.get("id").and_then(|id| id.as_i64()) == Some(answer_id));
+                    Some(ClientPollAnswer {
+                        answer_id,
+                        text: text.to_string(),
+                        emoji_name: answer.pointer("/poll_media/emoji/name").and_then(|item| item.as_str()).map(|item| item.to_string()),
+                        emoji_id: answer
+                            .pointer("/poll_media/emoji/id")
+                            .and_then(|item| item.as_str())
+                            .filter(|item| snowflake_ok(item))
+                            .map(|item| item.to_string()),
+                        count: tally.and_then(|item| item.get("count")).and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+                        me_voted: tally.and_then(|item| item.get("me_voted")).and_then(|item| item.as_bool()).unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if answers.is_empty() {
+        return None;
+    }
+    Some(ClientPoll {
+        message_id: value_str(value, "id").to_string(),
+        channel_id: value_str(value, "channel_id").to_string(),
+        question: question.to_string(),
+        answers,
+        expiry: poll.get("expiry").and_then(|item| item.as_str()).map(|item| item.to_string()),
+        allow_multiselect: poll.get("allow_multiselect").and_then(|item| item.as_bool()).unwrap_or(false),
+        layout_type: value_i32(poll, "layout_type"),
+        finalized: poll.pointer("/results/is_finalized").and_then(|item| item.as_bool()).unwrap_or(false),
+    })
+}
+
+pub fn poll_voters_from_value(value: &serde_json::Value) -> Vec<ClientPollVoter> {
+    value
+        .get("users")
+        .and_then(|item| item.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|user| {
+                    let id = value_str(user, "id");
+                    if !snowflake_ok(id) {
+                        return None;
+                    }
+                    let avatar = user.get("avatar").and_then(|item| item.as_str()).map(|item| item.to_string());
+                    let name = value_string(user, "global_name")
+                        .or_else(|| value_string(user, "username"))
+                        .unwrap_or_else(|| "Someone".into());
+                    Some(ClientPollVoter {
+                        avatar_url: avatar_url(id, &avatar),
+                        id: id.to_string(),
+                        name,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn event_from_value(value: &serde_json::Value) -> Option<ClientScheduledEvent> {
+    let id = value_str(value, "id");
+    let guild_id = value_str(value, "guild_id");
+    if !snowflake_ok(id) || !snowflake_ok(guild_id) {
+        return None;
+    }
+    let name = value_str(value, "name").trim();
+    if name.is_empty() {
+        return None;
+    }
+    let recurrence = value.get("recurrence_rule").and_then(|rule| {
+        let start = value_str(rule, "start");
+        if start.is_empty() {
+            return None;
+        }
+        Some(ClientEventRecurrence {
+            start: start.to_string(),
+            frequency: value_i32(rule, "frequency"),
+            interval: value_i32(rule, "interval").max(1),
+            by_weekday: rule
+                .get("by_weekday")
+                .and_then(|item| item.as_array())
+                .map(|list| list.iter().filter_map(|day| day.as_i64()).map(|day| day as i32).collect())
+                .unwrap_or_default(),
+        })
+    });
+    Some(ClientScheduledEvent {
+        id: id.to_string(),
+        guild_id: guild_id.to_string(),
+        name: name.to_string(),
+        description: value_str(value, "description").to_string(),
+        channel_id: value_string(value, "channel_id").filter(|item| snowflake_ok(item)),
+        creator_id: value_string(value, "creator_id").filter(|item| snowflake_ok(item)),
+        scheduled_start_time: value_str(value, "scheduled_start_time").to_string(),
+        scheduled_end_time: value_string(value, "scheduled_end_time"),
+        privacy_level: value_i32(value, "privacy_level"),
+        status: value_i32(value, "status"),
+        entity_type: value_i32(value, "entity_type"),
+        location: value.pointer("/entity_metadata/location").and_then(|item| item.as_str()).map(|item| item.to_string()),
+        image: value_string(value, "image"),
+        user_count: value.get("user_count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+        recurrence_rule: recurrence,
+    })
+}
+
+pub fn events_from_value(value: &serde_json::Value) -> Vec<ClientScheduledEvent> {
+    value.as_array().map(|list| list.iter().filter_map(event_from_value).collect()).unwrap_or_default()
+}
+
+/// Relationship type 3 is an incoming request. Type 4 is outgoing.
+pub fn friend_requests_from_value(value: &serde_json::Value) -> Vec<ClientFriendRequest> {
+    let Some(list) = value.as_array() else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|item| {
+            let kind = value_i32(item, "type");
+            if kind != 3 && kind != 4 {
+                return None;
+            }
+            let user = item.get("user")?;
+            let id = value_str(user, "id");
+            if !snowflake_ok(id) {
+                return None;
+            }
+            let avatar = user.get("avatar").and_then(|part| part.as_str()).map(|part| part.to_string());
+            let name = value_string(user, "global_name")
+                .or_else(|| value_string(user, "username"))
+                .unwrap_or_else(|| "Someone".into());
+            Some(ClientFriendRequest {
+                incoming: kind == 3,
+                avatar_url: avatar_url(id, &avatar),
+                id: id.to_string(),
+                name,
+            })
+        })
+        .collect()
+}
+
+const ARCHIVE_MINUTES: [i32; 4] = [60, 1440, 4320, 10080];
+const POLL_HOURS: [i32; 6] = [1, 4, 8, 24, 72, 168];
+
+#[derive(Debug)]
+pub struct ThreadCreateRequest {
+    pub path: String,
+    pub body: serde_json::Value,
+}
+
+pub fn thread_create_request(
+    channel_id: &str,
+    message_id: Option<&str>,
+    name: &str,
+    kind: Option<i32>,
+    auto_archive_duration: Option<i32>,
+    invitable: Option<bool>,
+    content: Option<&str>,
+    applied_tags: &[String],
+    route: &str,
+    parent_kind: Option<i32>,
+    parent_flags: i32,
+    has_attachment: bool,
+) -> Result<ThreadCreateRequest, String> {
+    if !snowflake_ok(channel_id) {
+        return Err("Open a channel first.".into());
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Name the thread.".into());
+    }
+    if name.chars().count() > 100 {
+        return Err("Thread names can be 100 characters.".into());
+    }
+    let duration = auto_archive_duration.unwrap_or(1440);
+    if !ARCHIVE_MINUTES.contains(&duration) {
+        return Err("That archive time isn't one Discord offers.".into());
+    }
+    let tags: Vec<&str> = applied_tags.iter().map(String::as_str).filter(|tag| snowflake_ok(tag)).collect();
+    match route {
+        "from-message" => {
+            let Some(message_id) = message_id.filter(|id| snowflake_ok(id)) else {
+                return Err("That message is missing.".into());
+            };
+            if kind == Some(12) {
+                return Err("Private threads start on their own.".into());
+            }
+            Ok(ThreadCreateRequest {
+                path: format!("/channels/{channel_id}/messages/{message_id}/threads"),
+                body: serde_json::json!({ "name": name, "auto_archive_duration": duration }),
+            })
+        }
+        "standalone" => {
+            let thread_type = kind.unwrap_or(if parent_kind == Some(5) { 10 } else { 11 });
+            if thread_type != 10 && thread_type != 11 && thread_type != 12 {
+                return Err("Pick a public, private, or announcement thread.".into());
+            }
+            if thread_type == 10 && parent_kind != Some(5) {
+                return Err("Announcement threads belong in an announcement channel.".into());
+            }
+            let mut body = serde_json::json!({
+                "name": name,
+                "auto_archive_duration": duration,
+                "type": thread_type
+            });
+            if thread_type == 12 {
+                body["invitable"] = serde_json::json!(invitable.unwrap_or(true));
+            }
+            Ok(ThreadCreateRequest {
+                path: format!("/channels/{channel_id}/threads"),
+                body,
+            })
+        }
+        "forum-post" => {
+            if parent_flags & (1 << 4) != 0 && tags.is_empty() {
+                return Err("Pick a tag before posting.".into());
+            }
+            if tags.len() > 5 {
+                return Err("Five tags is the limit.".into());
+            }
+            let text = content.unwrap_or("").trim();
+            if text.chars().count() > 2000 {
+                return Err("Posts can be 2,000 characters.".into());
+            }
+            if parent_kind == Some(16) && !has_attachment {
+                return Err("Media posts need an image or video.".into());
+            }
+            if text.is_empty() && !has_attachment {
+                return Err("A post needs a message.".into());
+            }
+            Ok(ThreadCreateRequest {
+                path: format!("/channels/{channel_id}/threads"),
+                body: serde_json::json!({
+                    "name": name,
+                    "auto_archive_duration": duration,
+                    "applied_tags": tags,
+                    "message": { "content": text }
+                }),
+            })
+        }
+        _ => Err("That thread type is not supported.".into()),
+    }
+}
+
+pub fn poll_message_body(
+    question: &str,
+    answers: &[(String, Option<String>)],
+    duration: i32,
+    allow_multiselect: bool,
+) -> Result<serde_json::Value, String> {
+    let question = question.trim();
+    if question.is_empty() {
+        return Err("Ask a question.".into());
+    }
+    if question.chars().count() > 300 {
+        return Err("Questions can be 300 characters.".into());
+    }
+    if !POLL_HOURS.contains(&duration) {
+        return Err("That poll length isn't one Discord offers.".into());
+    }
+    let mut answers_json = Vec::new();
+    for (text, emoji) in answers {
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if text.chars().count() > 55 {
+            return Err("Answers can be 55 characters.".into());
+        }
+        let mut media = serde_json::json!({ "text": text });
+        if let Some(emoji) = emoji.as_deref().map(str::trim).filter(|item| !item.is_empty()) {
+            media["emoji"] = serde_json::json!({ "name": emoji });
+        }
+        answers_json.push(serde_json::json!({ "poll_media": media }));
+    }
+    let answers = answers_json;
+    if answers.len() < 2 {
+        return Err("Add at least two answers.".into());
+    }
+    if answers.len() > 10 {
+        return Err("Ten answers is the limit.".into());
+    }
+    Ok(serde_json::json!({
+        "content": "",
+        "poll": {
+            "question": { "text": question },
+            "answers": answers,
+            "duration": duration,
+            "allow_multiselect": allow_multiselect,
+            "layout_type": 1
+        }
+    }))
+}
+
+pub fn ack_bulk_body(states: &[(String, String)]) -> Result<serde_json::Value, String> {
+    if states.is_empty() {
+        return Err("Nothing is unread.".into());
+    }
+    if states.len() > 100 {
+        return Err("Mark read in smaller batches.".into());
+    }
+    let read_states: Vec<serde_json::Value> = states
+        .iter()
+        .map(|(channel_id, message_id)| {
+            if !snowflake_ok(channel_id) || !snowflake_ok(message_id) {
+                return Err("That channel is missing.".to_string());
+            }
+            Ok(serde_json::json!({
+                "channel_id": channel_id,
+                "message_id": message_id,
+                "read_state_type": 0
+            }))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(serde_json::json!({ "read_states": read_states }))
+}
+
+#[cfg(test)]
+mod parity_stream_f {
+    use super::*;
+
+    #[test]
+    fn parses_a_thread_a_forum_and_a_poll() {
+        let thread = thread_record_from_value(&serde_json::json!({
+            "id": "100000000000000036",
+            "type": 11,
+            "name": "Wordmark",
+            "parent_id": "100000000000000029",
+            "guild_id": "100000000000000010",
+            "owner_id": "100000000000000002",
+            "message_count": 3,
+            "member_count": 2,
+            "thread_metadata": { "archived": false, "auto_archive_duration": 1440, "locked": false },
+            "applied_tags": ["100000000000000901"],
+            "message": {
+                "content": "The new mark",
+                "attachments": [{ "url": "https://cdn.discordapp.com/a.png", "proxy_url": "https://media.discordapp.net/a.png" }]
+            }
+        }))
+        .unwrap();
+        assert_eq!(thread.raw_kind, 11);
+        assert!(!thread.archived);
+        assert_eq!(thread.applied_tags, vec!["100000000000000901"]);
+        assert_eq!(thread.starter_content.as_deref(), Some("The new mark"));
+        assert_eq!(thread.starter_image.as_deref(), Some("https://media.discordapp.net/a.png"));
+
+        let parent = forum_parent_from_value(&serde_json::json!({
+            "id": "100000000000000029",
+            "type": 15,
+            "topic": "One post per frame",
+            "flags": 16,
+            "default_sort_order": 0,
+            "available_tags": [{ "id": "100000000000000901", "name": "Wordmark", "moderated": false, "emoji_name": "pencil" }]
+        }))
+        .unwrap();
+        assert_eq!(parent.flags, 16);
+        assert_eq!(parent.available_tags[0].name, "Wordmark");
+        assert_eq!(parent.raw_kind, 15);
+        let kept = threads_for_parent(
+            &serde_json::json!({
+                "threads": [
+                    { "id": "100000000000000036", "name": "Here", "type": 11, "parent_id": "100000000000000022" },
+                    { "id": "100000000000000037", "name": "Elsewhere", "type": 11, "parent_id": "100000000000000023" }
+                ]
+            }),
+            "100000000000000022",
+        );
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].name, "Here");
+
+        let poll = poll_from_message(&serde_json::json!({
+            "id": "100000000000000220",
+            "channel_id": "100000000000000022",
+            "poll": {
+                "question": { "text": "Lunch?" },
+                "answers": [
+                    { "answer_id": 1, "poll_media": { "text": "Yes", "emoji": { "name": "👍" } } },
+                    { "answer_id": 2, "poll_media": { "text": "No" } }
+                ],
+                "expiry": "2026-10-13T18:00:00.000Z",
+                "allow_multiselect": false,
+                "layout_type": 1,
+                "results": {
+                    "is_finalized": false,
+                    "answer_counts": [{ "id": 1, "count": 2, "me_voted": true }]
+                }
+            }
+        }))
+        .unwrap();
+        assert_eq!(poll.question, "Lunch?");
+        assert!(poll.answers[0].me_voted);
+        assert_eq!(poll.answers[0].count, 2);
+        assert_eq!(poll.answers[1].count, 0);
+    }
+
+    #[test]
+    fn parses_events_requests_and_refuses_a_private_from_message_route() {
+        let event = event_from_value(&serde_json::json!({
+            "id": "100000000000000077",
+            "guild_id": "100000000000000010",
+            "name": "Ship review",
+            "description": "Look",
+            "channel_id": "100000000000000026",
+            "scheduled_start_time": "2026-10-13T18:00:00.000Z",
+            "privacy_level": 2,
+            "status": 1,
+            "entity_type": 2,
+            "user_count": 4,
+            "recurrence_rule": { "start": "2026-10-13T18:00:00.000Z", "frequency": 2, "interval": 1, "by_weekday": [1] }
+        }))
+        .unwrap();
+        assert_eq!(event.entity_type, 2);
+        assert_eq!(event.recurrence_rule.unwrap().frequency, 2);
+
+        let requests = friend_requests_from_value(&serde_json::json!([
+            { "type": 1, "user": { "id": "100000000000000002", "username": "maya", "global_name": "Maya" } },
+            { "type": 3, "user": { "id": "100000000000000004", "username": "ada", "global_name": "Ada" } },
+            { "type": 4, "user": { "id": "100000000000000005", "username": "jon" } }
+        ]));
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].incoming);
+        assert_eq!(requests[0].name, "Ada");
+        assert!(!requests[1].incoming);
+
+        let made = thread_create_request(
+            "100000000000000022",
+            Some("100000000000000220"),
+            "Notes",
+            None,
+            Some(1440),
+            None,
+            None,
+            &[],
+            "from-message",
+            Some(0),
+            0,
+            false,
+        )
+        .unwrap();
+        assert_eq!(made.path, "/channels/100000000000000022/messages/100000000000000220/threads");
+        assert!(made.body.get("type").is_none());
+        assert!(thread_create_request(
+            "100000000000000022",
+            Some("100000000000000220"),
+            "Quiet",
+            Some(12),
+            None,
+            None,
+            None,
+            &[],
+            "from-message",
+            Some(0),
+            0,
+            false,
+        )
+        .is_err());
+
+        let media = thread_create_request(
+            "100000000000000029",
+            None,
+            "Poster",
+            None,
+            None,
+            None,
+            Some("Look"),
+            &[],
+            "forum-post",
+            Some(16),
+            0,
+            false,
+        );
+        assert!(media.unwrap_err().contains("image"));
+
+        let body = poll_message_body("Lunch?", &[("Yes".into(), Some("👍".into())), ("No".into(), None)], 24, false).unwrap();
+        assert_eq!(body["poll"]["layout_type"], 1);
+        assert_eq!(body["poll"]["answers"][0]["poll_media"]["emoji"]["name"], "👍");
+        let bulk = ack_bulk_body(&[("100000000000000022".into(), "100000000000000220".into())]).unwrap();
+        assert_eq!(bulk["read_states"][0]["read_state_type"], 0);
+    }
+}

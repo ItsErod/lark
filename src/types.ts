@@ -213,6 +213,25 @@ export interface Channel {
   userLimit?: number;
   videoQualityMode?: number;
   rtcRegion?: string | null;
+  /** Discord channel type. Threads are 10, 11, or 12. Media is 16. */
+  rawKind?: number;
+  archived?: boolean;
+  locked?: boolean;
+  invitable?: boolean;
+  autoArchiveDuration?: number;
+  messageCount?: number;
+  memberCount?: number;
+  ownerId?: string | null;
+  threadFlags?: number;
+  appliedTags?: string[];
+  availableTags?: ForumTag[];
+  defaultSortOrder?: number | null;
+  defaultForumLayout?: number | null;
+  /** Channel flags. Bit 4 (16) is REQUIRE_TAG. */
+  flags?: number;
+  followed?: boolean;
+  starterContent?: string | null;
+  starterImage?: string | null;
 }
 
 export interface Guild {
@@ -223,4 +242,74 @@ export interface Guild {
   iconUrl?: string | null;
   unread?: number;
   mentions?: number;
+}
+
+export interface ForumTag {
+  id: string;
+  name: string;
+  moderated?: boolean;
+  emojiId?: string | null;
+  emojiName?: string | null;
+}
+
+export interface ThreadMember {
+  id: string;
+  userId: string;
+  joinTimestamp?: string;
+  flags: number;
+  name?: string;
+  avatarUrl?: string | null;
+}
+
+export interface PollAnswer {
+  answerId: number;
+  text: string;
+  emojiName?: string | null;
+  emojiId?: string | null;
+  count: number;
+  meVoted: boolean;
+}
+
+export interface Poll {
+  messageId: string;
+  channelId: string;
+  question: string;
+  answers: PollAnswer[];
+  expiry: string | null;
+  allowMultiselect: boolean;
+  layoutType: number;
+  finalized: boolean;
+}
+
+export interface EventRecurrence {
+  start: string;
+  frequency: number;
+  interval: number;
+  byWeekday?: number[] | null;
+}
+
+export interface ScheduledEvent {
+  id: string;
+  guildId: string;
+  name: string;
+  description: string;
+  channelId: string | null;
+  creatorId?: string | null;
+  scheduledStartTime: string;
+  scheduledEndTime: string | null;
+  privacyLevel: number;
+  status: number;
+  entityType: number;
+  location?: string | null;
+  image?: string | null;
+  userCount?: number;
+  interested?: boolean;
+  recurrenceRule?: EventRecurrence | null;
+}
+
+export interface FriendRequest {
+  id: string;
+  name: string;
+  incoming: boolean;
+  avatarUrl?: string | null;
 }

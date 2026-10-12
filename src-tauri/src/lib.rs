@@ -263,7 +263,27 @@ pub fn run() {
             delete_clip,
             trim_clip,
             compress_clip,
-            guild_admin
+            guild_admin,
+            fetch_thread_index,
+            start_thread,
+            edit_thread,
+            fetch_thread_members,
+            join_thread,
+            leave_thread,
+            follow_thread,
+            set_thread_member,
+            follow_forum,
+            create_poll,
+            vote_poll,
+            end_poll,
+            fetch_poll_voters,
+            fetch_events,
+            create_scheduled_event,
+            rsvp_event,
+            start_scheduled_event,
+            ack_bulk,
+            fetch_mentions,
+            fetch_friend_requests
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -1810,6 +1830,198 @@ fn apply_clip_config(app: &AppHandle, config: &Config) {
     state.clips.set_quality(config.clips.fps, config.clips.resolution);
     state.clips.set_game(config.clips.game_capture);
     apply_clip_hotkey(app, &config.shortcuts.save_clip);
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PollAnswerIn {
+    text: String,
+    #[serde(default)]
+    emoji_name: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AckItemIn {
+    channel_id: String,
+    message_id: String,
+}
+
+fn upload_from_base64(name: Option<String>, mime: Option<String>, encoded: Option<String>) -> Result<Vec<lark_core::discord::rest::OutFile>, String> {
+    let Some(encoded) = encoded.filter(|value| !value.trim().is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded.trim())
+        .map_err(|_| "That file could not be read.".to_string())?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("That file is over 10 MB.".into());
+    }
+    Ok(vec![lark_core::discord::rest::OutFile {
+        name: name.unwrap_or_else(|| "upload".into()),
+        mime: mime.unwrap_or_else(|| "application/octet-stream".into()),
+        bytes,
+    }])
+}
+
+#[tauri::command]
+async fn fetch_thread_index(state: State<'_, Shared>, channel_id: String) -> Result<lark_core::discord::ClientThreadIndex, String> {
+    rest(&state).await?.thread_index(&channel_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn start_thread(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: Option<String>,
+    name: String,
+    kind: Option<i32>,
+    auto_archive_duration: Option<i32>,
+    invitable: Option<bool>,
+    content: Option<String>,
+    applied_tags: Option<Vec<String>>,
+    route: String,
+    parent_kind: Option<i32>,
+    parent_flags: Option<i32>,
+    file_name: Option<String>,
+    file_mime: Option<String>,
+    file_base64: Option<String>,
+) -> Result<lark_core::discord::ClientThreadRecord, String> {
+    let files = upload_from_base64(file_name, file_mime, file_base64)?;
+    let tags = applied_tags.unwrap_or_default();
+    rest(&state)
+        .await?
+        .start_thread(
+            &channel_id,
+            message_id.as_deref(),
+            &name,
+            kind,
+            auto_archive_duration,
+            invitable,
+            content.as_deref(),
+            &tags,
+            &route,
+            parent_kind,
+            parent_flags.unwrap_or(0),
+            &files,
+        )
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn edit_thread(state: State<'_, Shared>, thread_id: String, archived: bool) -> Result<lark_core::discord::ClientThreadRecord, String> {
+    rest(&state).await?.edit_thread(&thread_id, archived).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_thread_members(state: State<'_, Shared>, thread_id: String) -> Result<Vec<lark_core::discord::ClientThreadMember>, String> {
+    rest(&state).await?.thread_members(&thread_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn join_thread(state: State<'_, Shared>, thread_id: String) -> Result<(), String> {
+    rest(&state).await?.join_thread(&thread_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn leave_thread(state: State<'_, Shared>, thread_id: String) -> Result<(), String> {
+    rest(&state).await?.leave_thread(&thread_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn follow_thread(state: State<'_, Shared>, thread_id: String, follow: bool) -> Result<(), String> {
+    rest(&state).await?.follow_thread(&thread_id, follow).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_thread_member(state: State<'_, Shared>, thread_id: String, user_id: String, add: bool) -> Result<(), String> {
+    rest(&state).await?.set_thread_member(&thread_id, &user_id, add).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn follow_forum(state: State<'_, Shared>, guild_id: String, channel_id: String, follow: bool) -> Result<(), String> {
+    rest(&state).await?.follow_forum(&guild_id, &channel_id, follow).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn create_poll(
+    state: State<'_, Shared>,
+    channel_id: String,
+    question: String,
+    answers: Vec<PollAnswerIn>,
+    duration_hours: i32,
+    allow_multiselect: bool,
+) -> Result<lark_core::discord::ClientPoll, String> {
+    let answers: Vec<(String, Option<String>)> = answers.into_iter().map(|answer| (answer.text, answer.emoji_name)).collect();
+    rest(&state)
+        .await?
+        .create_poll(&channel_id, &question, &answers, duration_hours, allow_multiselect)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn vote_poll(state: State<'_, Shared>, channel_id: String, message_id: String, answer_id: i64) -> Result<(), String> {
+    rest(&state).await?.vote_poll(&channel_id, &message_id, answer_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn end_poll(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<lark_core::discord::ClientPoll, String> {
+    rest(&state).await?.end_poll(&channel_id, &message_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_poll_voters(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+    answer_id: i64,
+) -> Result<Vec<lark_core::discord::ClientPollVoter>, String> {
+    rest(&state)
+        .await?
+        .poll_voters(&channel_id, &message_id, answer_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_events(state: State<'_, Shared>, guild_id: String) -> Result<Vec<lark_core::discord::ClientScheduledEvent>, String> {
+    rest(&state).await?.scheduled_events(&guild_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn create_scheduled_event(
+    state: State<'_, Shared>,
+    guild_id: String,
+    body: serde_json::Value,
+) -> Result<lark_core::discord::ClientScheduledEvent, String> {
+    rest(&state).await?.create_scheduled_event(&guild_id, body).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn rsvp_event(state: State<'_, Shared>, guild_id: String, event_id: String, interested: bool) -> Result<(), String> {
+    rest(&state).await?.rsvp_event(&guild_id, &event_id, interested).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn start_scheduled_event(state: State<'_, Shared>, guild_id: String, event_id: String) -> Result<lark_core::discord::ClientScheduledEvent, String> {
+    rest(&state).await?.start_scheduled_event(&guild_id, &event_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn ack_bulk(state: State<'_, Shared>, states: Vec<AckItemIn>) -> Result<(), String> {
+    let pairs: Vec<(String, String)> = states.into_iter().map(|item| (item.channel_id, item.message_id)).collect();
+    rest(&state).await?.ack_bulk(&pairs).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_mentions(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    rest(&state).await?.mentions().await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_friend_requests(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientFriendRequest>, String> {
+    rest(&state).await?.friend_requests().await.map_err(|err| err.to_string())
 }
 
 async fn apply_saved_clip_settings(app: &AppHandle) {

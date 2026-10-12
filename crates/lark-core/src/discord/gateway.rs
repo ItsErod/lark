@@ -223,6 +223,25 @@ pub enum ClientEvent {
         guild_id: String,
         channel_id: String,
     },
+    /// THREAD_DELETE. The thread id leaves the parent channel.
+    ThreadDelete {
+        id: String,
+        guild_id: String,
+        parent_id: String,
+    },
+    /// MESSAGE_POLL_VOTE_ADD / REMOVE. `answer_id` is Discord's poll answer id.
+    PollVote {
+        channel_id: String,
+        message_id: String,
+        user_id: String,
+        answer_id: i64,
+        added: bool,
+    },
+    /// GUILD_SCHEDULED_EVENT_CREATE / UPDATE, or DELETE when `removed` is set.
+    ScheduledEvent {
+        event: super::types::ClientScheduledEvent,
+        removed: bool,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -1297,6 +1316,43 @@ fn handle_dispatch(
                     user_id,
                     username,
                 });
+            }
+            false
+        }
+        "THREAD_DELETE" => {
+            let id = json_str(data, "id");
+            if !id.is_empty() {
+                emit(ClientEvent::ThreadDelete {
+                    id,
+                    guild_id: json_str(data, "guild_id"),
+                    parent_id: json_str(data, "parent_id"),
+                });
+            }
+            false
+        }
+        "MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" => {
+            let channel_id = json_str(data, "channel_id");
+            let message_id = json_str(data, "message_id");
+            let answer_id = data.get("answer_id").and_then(|value| value.as_i64()).unwrap_or(0);
+            if !channel_id.is_empty() && !message_id.is_empty() && answer_id > 0 {
+                emit(ClientEvent::PollVote {
+                    channel_id,
+                    message_id,
+                    user_id: json_str(data, "user_id"),
+                    answer_id,
+                    added: name == "MESSAGE_POLL_VOTE_ADD",
+                });
+            }
+            false
+        }
+        "GUILD_SCHEDULED_EVENT_CREATE" | "GUILD_SCHEDULED_EVENT_UPDATE" | "GUILD_SCHEDULED_EVENT_DELETE" => {
+            if name == "GUILD_SCHEDULED_EVENT_DELETE" {
+                if let Some(mut event) = super::types::event_from_value(data) {
+                    event.status = 4;
+                    emit(ClientEvent::ScheduledEvent { event, removed: true });
+                }
+            } else if let Some(event) = super::types::event_from_value(data) {
+                emit(ClientEvent::ScheduledEvent { event, removed: false });
             }
             false
         }
