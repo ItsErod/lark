@@ -845,6 +845,7 @@
       text-transform: uppercase;
     }
     .plugin-group .bar-row { margin-top: 8px; }
+    .plugin-group .eta { margin-top: 8px; font-size: 14px; }
     .plugin-group .meta { margin-top: 8px; }
     .plugin-list {
       display: flex;
@@ -1036,7 +1037,7 @@
 
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-agent estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -2164,12 +2165,11 @@
 
         paintHero(results, overall);
         paintStages(results, ready);
-        const plugins = pluginAgentsFrom(payload.pulls);
         if (changed || !sawPayload) {
           paintStreams(results);
           paintActivity(results);
         }
-        refreshEtas(results, plugins);
+        refreshEtas(results);
         paintRelease(payload.release, ready);
         paintHistoryFromCache();
         sawPayload = true;
@@ -2450,7 +2450,11 @@
         const meta = document.createElement("p");
         meta.className = "meta";
         meta.textContent = STATUS_LABEL[group.status] + " · " + bits.join(" · ");
-        panel.append(head, bar, meta, pluginChips(group));
+        const eta = document.createElement("p");
+        eta.className = "eta";
+        eta.dataset.etaFor = "track-" + group.id;
+        eta.textContent = "ETA —";
+        panel.append(head, bar, meta, eta, pluginChips(group));
         return panel;
       }
 
@@ -2541,22 +2545,18 @@
         node.textContent = lead + formatEta(eta.finishAt - Date.now());
       }
 
-      function refreshEtas(results, plugins) {
+      function refreshEtas(results) {
         const now = Date.now();
         const etas = [];
         (results || []).forEach((item) => {
           const eta = workEta((item.mergedPrs || []).concat(item.openPrs || []), item.ratio, now);
           etas.push(eta);
           renderEta(document.querySelector('[data-eta-for="' + item.id + '"]'), eta, "");
-        });
-        (plugins || []).forEach((item) => {
-          const eta = workEta([{
-            created_at: item.created_at,
-            merged_at: item.merged_at,
-            state: item.merged_at ? "closed" : "open"
-          }], item.ratio, now);
-          etas.push(eta);
-          renderEta(document.querySelector('[data-eta-for="' + item.id + '"]'), eta, "");
+          (item.groups || []).forEach((group) => {
+            const trackEta = workEta((group.mergedPrs || []).concat(group.openPrs || []), group.ratio, now);
+            etas.push(trackEta);
+            renderEta(document.querySelector('[data-eta-for="track-' + group.id + '"]'), trackEta, "");
+          });
         });
         renderEta(document.getElementById("overall-eta"), overallAgentEta(etas, now), "3.0 ");
       }
