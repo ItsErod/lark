@@ -91,6 +91,18 @@ fn note(phase: &str, detail: &str) -> serde_json::Value {
     })
 }
 
+/// Open a Discord settings page in the system browser. Never `cmd` or Explorer.
+pub fn open_discord_https(url: &str) -> Result<(), String> {
+    if !lark_core::discord::rest::discord_settings_url_ok(url) {
+        return Err("That link is not a Discord page.".into());
+    }
+    match system_browser(std::env::consts::OS) {
+        SystemBrowser::ShellExecute => shell_execute_https(url),
+        SystemBrowser::MacOpen => spawn_detached("open", url),
+        SystemBrowser::XdgOpen => spawn_detached("xdg-open", url),
+    }
+}
+
 fn open_system_browser(url: &str) -> Result<(), String> {
     if !is_browser_login_url(url) {
         return Err("Refusing to open a sign-in page that is not Discord's login.".into());

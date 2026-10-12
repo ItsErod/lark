@@ -14,15 +14,35 @@ const MAX_SAMPLES: usize = SAMPLE_RATE as usize * MAX_SECONDS as usize;
 #[derive(Debug, Default)]
 pub struct SoundMix {
     tracks: Vec<VecDeque<f32>>,
+    /// Guild soundboard. A second source beside the local WAV clips.
+    guild: VecDeque<f32>,
 }
 
 impl SoundMix {
     pub fn new() -> Self {
-        Self { tracks: Vec::new() }
+        Self { tracks: Vec::new(), guild: VecDeque::new() }
     }
 
     pub fn clear(&mut self) {
         self.tracks.clear();
+        self.guild.clear();
+    }
+
+    /// Queue a guild sound. Local clips stay on `push`.
+    pub fn push_guild(&mut self, pcm: Vec<f32>) {
+        if pcm.is_empty() {
+            return;
+        }
+        let room = MAX_SAMPLES.saturating_sub(self.guild.len());
+        self.guild.extend(pcm.into_iter().take(room));
+    }
+
+    /// A short tone so a guild sound is audible on this computer while Discord plays it for the channel.
+    pub fn guild_tone() -> Vec<f32> {
+        let count = SAMPLE_RATE as usize / 5;
+        (0..count)
+            .map(|index| ((index as f32) * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin() * 0.2)
+            .collect()
     }
 
     pub fn push(&mut self, pcm: Vec<f32>) {
@@ -46,6 +66,11 @@ impl SoundMix {
             }
         }
         self.tracks.retain(|track| !track.is_empty());
+        for sample in frame.iter_mut() {
+            let Some(extra) = self.guild.pop_front() else { break };
+            *sample = (*sample + extra).clamp(-1.0, 1.0);
+            played = true;
+        }
         played
     }
 }
@@ -251,5 +276,19 @@ mod tests {
         assert!((frame[2] - 0.4).abs() < 0.001);
         assert_eq!(frame[3], 0.0);
         assert!(!mix.mix_into(&mut frame));
+    }
+
+    #[test]
+    fn a_guild_sound_is_a_second_source() {
+        let mut mix = SoundMix::new();
+        mix.push(vec![0.2, 0.2]);
+        mix.push_guild(vec![0.3, 0.3, 0.3]);
+        let mut frame = vec![0.0; 3];
+        assert!(mix.mix_into(&mut frame));
+        assert!((frame[0] - 0.5).abs() < 0.001);
+        assert!((frame[2] - 0.3).abs() < 0.001);
+        mix.clear();
+        let mut again = vec![0.0; 2];
+        assert!(!mix.mix_into(&mut again));
     }
 }

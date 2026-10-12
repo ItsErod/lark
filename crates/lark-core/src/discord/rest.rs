@@ -732,8 +732,52 @@ impl DiscordRest {
         }
         let channel: DiscordChannel = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read that channel".into()))?;
-        serde_json::to_value(channel_to_client(&channel))
-            .map_err(|_| RestError::Message("Could not read that channel".into()))
+        Ok(serde_json::to_value(channel_to_client(&channel))
+            .map_err(|_| RestError::Message("Could not read that channel".into()))?)
+    }
+
+    /// Account, devices, connections, and standing. Password and MFA secrets are dropped.
+    pub async fn account_overview(&self) -> Result<Value, RestError> {
+        let me = strip_account_secrets(
+            self.send_json(Method::GET, "GET /users/@me", "me", "/users/@me", None)
+                .await?,
+        );
+        let sessions = self.optional_get("GET /auth/sessions", "/auth/sessions").await;
+        let connections = self
+            .optional_get("GET /users/@me/connections", "/users/@me/connections")
+            .await;
+        let standing = self
+            .optional_get("GET /safety-hub/@me", "/safety-hub/@me")
+            .await;
+        Ok(json!({
+            "me": me,
+            "sessions": sessions,
+            "connections": connections,
+            "standing": standing,
+        }))
+    }
+
+    pub async fn remove_connection(&self, kind: &str, id: &str) -> Result<(), RestError> {
+        if !connection_token_ok(kind) || !connection_token_ok(id) {
+            return Err(RestError::Message("That connection id is not valid.".into()));
+        }
+        let path = format!("/users/@me/connections/{kind}/{id}");
+        self.send_json(
+            Method::DELETE,
+            "DELETE /users/@me/connections/{type}/{id}",
+            "me",
+            &path,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn optional_get(&self, route: &str, path: &str) -> Value {
+        match self.send_json(Method::GET, route, "me", path, None).await {
+            Ok(value) => value,
+            Err(_) => Value::Null,
+        }
     }
 
     pub async fn list_relationships(&self) -> Result<Vec<super::types::ClientRelationship>, RestError> {
@@ -960,6 +1004,105 @@ impl DiscordRest {
             return Ok(());
         }
         Self::json_body(response, &self.token).await?;
+        Ok(())
+    }
+
+    pub async fn guild_soundboard(&self, guild_id: &str) -> Result<Vec<Value>, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/soundboard-sounds");
+        let route = route_key("GET", "/guilds/{guild.id}/soundboard-sounds", guild_id);
+        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        Ok(soundboard_from_json(&value))
+    }
+
+    pub async fn send_soundboard_sound(&self, channel_id: &str, sound_id: &str, source_guild_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(sound_id)?;
+        self.ensure_snowflake(source_guild_id)?;
+        let path = format!("/channels/{channel_id}/send-soundboard-sound");
+        let route = route_key("POST", "/channels/{channel.id}/send-soundboard-sound", channel_id);
+        self.send_json(
+            Method::POST,
+            &route,
+            channel_id,
+            &path,
+            Some(json!({ "sound_id": sound_id, "source_guild_id": source_guild_id })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_invite(&self, channel_id: &str, application_id: Option<&str>) -> Result<String, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/invites");
+        let route = route_key("POST", "/channels/{channel.id}/invites", channel_id);
+        let mut body = json!({ "max_age": 86400, "max_uses": 0, "unique": true });
+        if let Some(application_id) = application_id {
+            self.ensure_snowflake(application_id)?;
+            body["target_type"] = json!(2);
+            body["target_application_id"] = json!(application_id);
+        }
+        let value = self.send_json(Method::POST, &route, channel_id, &path, Some(body)).await?;
+        Ok(invite_link(&value))
+    }
+
+    pub async fn modify_channel(&self, channel_id: &str, name: Option<&str>, topic: Option<&str>) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}");
+        let route = route_key("PATCH", "/channels/{channel.id}", channel_id);
+        let mut body = serde_json::Map::new();
+        if let Some(name) = name {
+            body.insert("name".into(), json!(name));
+        }
+        if let Some(topic) = topic {
+            body.insert("topic".into(), json!(topic));
+        }
+        self.send_json(Method::PATCH, &route, channel_id, &path, Some(Value::Object(body))).await?;
+        Ok(())
+    }
+
+    pub async fn channel_json(&self, channel_id: &str) -> Result<Value, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}");
+        let route = route_key("GET", "/channels/{channel.id}", channel_id);
+        self.send_json(Method::GET, &route, channel_id, &path, None).await
+    }
+
+    pub async fn create_guild_channel(&self, guild_id: &str, body: Value) -> Result<Value, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/channels");
+        let route = route_key("POST", "/guilds/{guild.id}/channels", guild_id);
+        self.send_json(Method::POST, &route, guild_id, &path, Some(body)).await
+    }
+
+    pub async fn set_voice_status(&self, channel_id: &str, status: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/voice-status");
+        let route = route_key("PUT", "/channels/{channel.id}/voice-status", channel_id);
+        self.send_json(Method::PUT, &route, channel_id, &path, Some(json!({ "status": status }))).await?;
+        Ok(())
+    }
+
+    pub async fn start_stage(&self, channel_id: &str, topic: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let route = route_key("POST", "/stage-instances", "stage");
+        self.send_json(
+            Method::POST,
+            &route,
+            "stage",
+            "/stage-instances",
+            Some(json!({ "channel_id": channel_id, "topic": topic, "privacy_level": 2 })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_member_voice(&self, guild_id: &str, user_id: &str, body: Value) -> Result<(), RestError> {
+        self.ensure_snowflake(guild_id)?;
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/guilds/{guild_id}/members/{user_id}");
+        let route = route_key("PATCH", "/guilds/{guild.id}/members/{user.id}", guild_id);
+        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body)).await?;
         Ok(())
     }
 
@@ -1423,6 +1566,58 @@ impl DiscordRest {
     }
 }
 
+pub fn soundboard_from_json(value: &Value) -> Vec<Value> {
+    let items = value.get("items").and_then(|item| item.as_array()).or_else(|| value.as_array());
+    let Some(items) = items else { return Vec::new() };
+    items
+        .iter()
+        .filter_map(|item| {
+            let id = item.get("sound_id").and_then(|id| id.as_str()).unwrap_or("");
+            if id.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "sound_id": id,
+                "name": item.get("name").and_then(|name| name.as_str()).unwrap_or("Sound"),
+                "volume": item.get("volume").and_then(|volume| volume.as_f64()).unwrap_or(1.0),
+                "emoji_name": item.get("emoji_name").and_then(|emoji| emoji.as_str()).unwrap_or(""),
+                "available": item.get("available").and_then(|flag| flag.as_bool()).unwrap_or(true),
+            }))
+        })
+        .take(48)
+        .collect()
+}
+
+pub fn invite_link(value: &Value) -> String {
+    let code = value.get("code").and_then(|code| code.as_str()).unwrap_or("").trim();
+    if code.is_empty() || code.len() > 32 || !code.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+        return String::new();
+    }
+    format!("https://discord.gg/{code}")
+}
+
+pub fn member_voice_json(mute: Option<bool>, deaf: Option<bool>, channel_id: Option<&str>, disconnect: bool, suppress: Option<bool>) -> Value {
+    let mut body = serde_json::Map::new();
+    if let Some(mute) = mute {
+        body.insert("mute".into(), json!(mute));
+    }
+    if let Some(deaf) = deaf {
+        body.insert("deaf".into(), json!(deaf));
+        if deaf {
+            body.entry("mute").or_insert(json!(true));
+        }
+    }
+    if disconnect {
+        body.insert("channel_id".into(), Value::Null);
+    } else if let Some(channel_id) = channel_id {
+        body.insert("channel_id".into(), json!(channel_id));
+    }
+    if let Some(suppress) = suppress {
+        body.insert("suppress".into(), json!(suppress));
+    }
+    Value::Object(body)
+}
+
 #[derive(Deserialize)]
 struct TooMany {
     retry_after: f64,
@@ -1457,6 +1652,35 @@ pub fn messages_path(channel_id: &str, before: Option<&str>) -> String {
         Some(before) => format!("/channels/{channel_id}/messages?limit=20&before={before}"),
         None => format!("/channels/{channel_id}/messages?limit=20"),
     }
+}
+
+pub fn connection_token_ok(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-')
+}
+
+pub fn discord_settings_url_ok(url: &str) -> bool {
+    let Some(rest) = url.trim().strip_prefix("https://discord.com/") else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.contains("://")
+        && !rest.contains('\\')
+        && !rest.contains("..")
+        && !rest.chars().any(|ch| ch.is_whitespace() || ch.is_control())
+}
+
+fn strip_account_secrets(mut me: Value) -> Value {
+    if let Some(obj) = me.as_object_mut() {
+        for key in ["password", "token", "totp", "secret", "mfa_secret", "backup_codes"] {
+            obj.remove(key);
+        }
+    }
+    me
 }
 
 pub fn api_url(path: &str) -> Result<String, RestError> {
@@ -1569,6 +1793,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn soundboard_and_invites_keep_discord_ids() {
+        let sounds = soundboard_from_json(&json!({
+            "items": [{ "sound_id": "100000000000000099", "name": "Honk", "volume": 0.5, "available": true }]
+        }));
+        assert_eq!(sounds.len(), 1);
+        assert_eq!(sounds[0]["sound_id"], "100000000000000099");
+        assert_eq!(invite_link(&json!({ "code": "abc123" })), "https://discord.gg/abc123");
+        assert!(invite_link(&json!({ "code": "bad code" })).is_empty());
+        let moved = member_voice_json(None, None, Some("100000000000000026"), false, None);
+        assert_eq!(moved["channel_id"], "100000000000000026");
+        let gone = member_voice_json(None, None, None, true, None);
+        assert!(gone["channel_id"].is_null());
+    }
+
+    #[test]
     fn message_history_asks_for_the_newest_page() {
         assert_eq!(
             messages_path("100000000000000023", None),
@@ -1591,6 +1830,30 @@ mod tests {
         assert!(is_discord_api_host("discord.com"));
         assert!(!is_discord_api_host("discord.com.evil.example"));
         assert!(!is_discord_api_host("example.com"));
+    }
+
+    #[test]
+    fn connection_ids_and_discord_links_stay_narrow() {
+        assert!(connection_token_ok("youtube"));
+        assert!(connection_token_ok("abc_12"));
+        assert!(!connection_token_ok(""));
+        assert!(!connection_token_ok("../me"));
+        assert!(!connection_token_ok("a/b"));
+        assert!(discord_settings_url_ok("https://discord.com/settings/account"));
+        assert!(!discord_settings_url_ok("https://discord.com.evil/settings"));
+        assert!(!discord_settings_url_ok("https://example.com/settings/account"));
+        assert!(!discord_settings_url_ok("https://discord.com/settings/../login"));
+        let cleaned = strip_account_secrets(json!({
+            "id": "1",
+            "email": "a@b.co",
+            "password": "nope",
+            "token": "secret",
+            "totp": "123456"
+        }));
+        assert!(cleaned.get("password").is_none());
+        assert!(cleaned.get("token").is_none());
+        assert!(cleaned.get("totp").is_none());
+        assert_eq!(cleaned["email"], "a@b.co");
     }
 
     #[test]

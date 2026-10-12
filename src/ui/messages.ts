@@ -1,4 +1,5 @@
 import { formatAbsolute, formatRelative } from "../pack/relative";
+import { formatFull, formatStamp, type HourCycle, type TimeMode } from "../pack/time";
 import type { ViewMessage } from "../render/message";
 import { emojiCdnUrl, formatBytes, mediaBox, type Block, type Inline, type MediaBox } from "../render/content";
 import { highlightCode, inlineLang } from "../syntax";
@@ -34,6 +35,7 @@ export function renderMessage(
     /** Game Mode: skip media preload and autoplay. */
     quiet?: boolean;
     log?: { deleted: boolean; history: string[] };
+    clock?: { mode: TimeMode; hours: HourCycle };
   },
 ): HTMLElement {
   const wrap = el("div", "message-wrap");
@@ -185,11 +187,14 @@ export function renderMessage(
   return wrap;
 }
 
-function timeStamp(view: ViewMessage, options: { now?: number }, className: string): HTMLElement {
-  const relative = (view.effects ?? []).includes("relative-time");
-  const node = el("time", className, relative ? formatRelative(view.timestamp, options.now ?? Date.now()) : formatClock(view.timestamp));
+function timeStamp(view: ViewMessage, options: { now?: number; clock?: { mode: TimeMode; hours: HourCycle } }, className: string): HTMLElement {
+  const clock = options.clock;
+  const relative = !clock && (view.effects ?? []).includes("relative-time");
+  const now = options.now ?? Date.now();
+  const label = clock ? formatStamp(view.timestamp, now, clock.mode, clock.hours) : relative ? formatRelative(view.timestamp, now) : formatClock(view.timestamp);
+  const node = el("time", className, label);
   node.dateTime = view.timestamp;
-  node.title = formatAbsolute(view.timestamp);
+  node.title = clock ? formatFull(view.timestamp, clock.hours) : formatAbsolute(view.timestamp);
   return node;
 }
 

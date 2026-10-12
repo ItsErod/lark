@@ -41,6 +41,7 @@ struct Shared {
     voice_audio: watch::Sender<lark_core::discord::voice_media::VoiceAudio>,
     voice_volumes: Arc<std::sync::Mutex<HashMap<String, f32>>>,
     sound_mix: Arc<std::sync::Mutex<lark_core::soundboard::SoundMix>>,
+    camera: Arc<lark_core::discord::voice_camera::CameraInbox>,
     sound_hotkeys: std::sync::Mutex<Vec<String>>,
     streams: Arc<golive::StreamHub>,
     clips: clip_rec::ClipEngine,
@@ -141,6 +142,7 @@ pub fn run() {
                 voice_audio,
                 voice_volumes: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 sound_mix: Arc::new(std::sync::Mutex::new(lark_core::soundboard::SoundMix::new())),
+                camera: Arc::new(lark_core::discord::voice_camera::CameraInbox::new()),
                 sound_hotkeys: std::sync::Mutex::new(Vec::new()),
                 streams: Arc::new(golive::StreamHub::new()),
                 clips,
@@ -220,6 +222,18 @@ pub fn run() {
             set_voice_self,
             set_voice_transmit,
             set_voice_audio,
+            set_voice_processing,
+            set_voice_camera,
+            push_camera_frame,
+            set_voice_video,
+            fetch_soundboard,
+            play_guild_sound,
+            create_activity_invite,
+            modify_channel,
+            duplicate_channel,
+            set_voice_status,
+            start_stage,
+            set_member_voice,
             set_voice_volume,
             play_soundboard,
             import_sound_clip,
@@ -298,7 +312,13 @@ pub fn run() {
             mute_dm,
             create_channel_invite,
             set_server_profile,
-            set_custom_status
+            set_custom_status,
+            remember_account,
+            switch_account,
+            forget_account,
+            account_overview,
+            remove_connection,
+            open_discord_link
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -1068,6 +1088,7 @@ async fn join_voice(
     let (tx, rx) = watch::channel(false);
     *state.voice_stop.lock().await = Some(tx);
     let _ = state.speaking.send(!mute && vad);
+    let previous = state.voice_audio.borrow().clone();
     let _ = state.voice_audio.send(lark_core::discord::voice_media::VoiceAudio {
         deafened: deaf,
         vad,
@@ -1075,6 +1096,10 @@ async fn join_voice(
         noise_suppression,
         input_device,
         output_device,
+        echo_cancellation: previous.echo_cancellation,
+        agc: previous.agc,
+        input_volume: previous.input_volume,
+        output_volume: previous.output_volume,
     });
     let speaking = state.speaking.subscribe();
     let audio = state.voice_audio.subscribe();
@@ -1082,13 +1107,14 @@ async fn join_voice(
     let board = state.sound_mix.clone();
     let slot = state.voice.clone();
     let voice_log = state.voice_log.clone();
+    let camera = state.camera.clone();
     if let Ok(mut log) = voice_log.lock() {
         *log = lark_core::discord::voice_log::VoiceLog::default();
         log.push("join requested");
     }
     let server_id = guild_id.unwrap_or(channel_id);
     tauri::async_runtime::spawn(async move {
-        let ready = wait_for_voice(&slot, &server_id, &rx).await;
+        let ready = wait_for_voice(&slot, &server_id, &rx, camera).await;
         if *rx.borrow() {
             return;
         }
@@ -1108,6 +1134,9 @@ async fn join_voice(
                 lark_core::discord::voice_link::VoiceLinkEvent::Speaking { user_id, speaking, epoch } => {
                     serde_json::json!({"kind": "voiceSpeaking", "userId": user_id, "speaking": speaking, "epoch": epoch})
                 }
+                lark_core::discord::voice_link::VoiceLinkEvent::Ping { ping_ms, endpoint, epoch } => {
+                    serde_json::json!({"kind": "voiceLink", "state": "connected", "detail": "", "epoch": epoch, "pingMs": ping_ms, "endpoint": endpoint})
+                }
             };
             let _ = app.emit("discord", payload);
         })
@@ -1120,6 +1149,7 @@ async fn wait_for_voice(
     slot: &Arc<std::sync::Mutex<VoiceSlot>>,
     server_id: &str,
     cancel: &watch::Receiver<bool>,
+    camera: Arc<lark_core::discord::voice_camera::CameraInbox>,
 ) -> Result<lark_core::discord::voice_link::VoiceHello, ()> {
     for _ in 0..40 {
         if *cancel.borrow() {
@@ -1135,6 +1165,7 @@ async fn wait_for_voice(
                     session_id: guard.session_id.clone(),
                     token: guard.token.clone(),
                     epoch: 0,
+                    camera: camera.clone(),
                 });
             }
         }
@@ -1218,6 +1249,7 @@ async fn set_voice_audio(
     input_device: String,
     output_device: String,
 ) -> Result<(), String> {
+    let previous = state.voice_audio.borrow().clone();
     let _ = state.voice_audio.send(lark_core::discord::voice_media::VoiceAudio {
         deafened,
         vad,
@@ -1225,8 +1257,154 @@ async fn set_voice_audio(
         noise_suppression,
         input_device,
         output_device,
+        echo_cancellation: previous.echo_cancellation,
+        agc: previous.agc,
+        input_volume: previous.input_volume,
+        output_volume: previous.output_volume,
     });
     Ok(())
+}
+
+#[tauri::command]
+fn set_voice_processing(
+    state: State<'_, Shared>,
+    echo_cancellation: bool,
+    agc: bool,
+    input_volume: u8,
+    output_volume: u8,
+) -> Result<(), String> {
+    let mut audio = state.voice_audio.borrow().clone();
+    audio.echo_cancellation = echo_cancellation;
+    audio.agc = agc;
+    audio.input_volume = input_volume.min(200);
+    audio.output_volume = output_volume.min(200);
+    let _ = state.voice_audio.send(audio);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_voice_camera(state: State<'_, Shared>, active: bool) {
+    state.camera.set_active(active);
+}
+
+#[tauri::command]
+fn push_camera_frame(state: State<'_, Shared>, width: u32, height: u32, rgba: Vec<u8>) {
+    state.camera.push(lark_core::discord::voice_camera::CameraFrame { width, height, rgba });
+}
+
+#[tauri::command]
+async fn set_voice_video(
+    state: State<'_, Shared>,
+    guild_id: Option<String>,
+    channel_id: Option<String>,
+    mute: bool,
+    deaf: bool,
+    video: bool,
+    request_to_speak: Option<String>,
+) -> Result<(), String> {
+    state.camera.set_active(video);
+    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    gateway
+        .send(lark_core::discord::GatewayCommand::VoiceStateVideo {
+            guild_id,
+            channel_id,
+            mute,
+            deaf,
+            video,
+            request_to_speak,
+        })
+        .map_err(|_| "Gateway is closed.".to_string())
+}
+
+#[tauri::command]
+async fn fetch_soundboard(state: State<'_, Shared>, guild_id: String) -> Result<Vec<serde_json::Value>, String> {
+    rest(&state).await?.guild_soundboard(&guild_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn play_guild_sound(state: State<'_, Shared>, channel_id: String, sound_id: String, guild_id: String) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .send_soundboard_sound(&channel_id, &sound_id, &guild_id)
+        .await
+        .map_err(|err| err.to_string())?;
+    state
+        .sound_mix
+        .lock()
+        .map_err(|_| "Soundboard is busy.".to_string())?
+        .push_guild(lark_core::soundboard::SoundMix::guild_tone());
+    Ok(())
+}
+
+#[tauri::command]
+async fn create_activity_invite(state: State<'_, Shared>, channel_id: String, application_id: String) -> Result<String, String> {
+    rest(&state)
+        .await?
+        .create_invite(&channel_id, Some(&application_id))
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn modify_channel(state: State<'_, Shared>, channel_id: String, name: Option<String>, topic: Option<String>) -> Result<(), String> {
+    let name = name.as_deref().map(str::trim).filter(|name| !name.is_empty());
+    let topic = topic.as_deref();
+    rest(&state).await?.modify_channel(&channel_id, name, topic).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn duplicate_channel(state: State<'_, Shared>, guild_id: String, channel_id: String, name: String) -> Result<(), String> {
+    let client = rest(&state).await?;
+    let source = client.channel_json(&channel_id).await.map_err(|err| err.to_string())?;
+    let kind = source.get("type").and_then(|kind| kind.as_i64()).unwrap_or(2);
+    let mut body = serde_json::json!({
+        "name": name.trim(),
+        "type": kind,
+    });
+    if let Some(parent) = source.get("parent_id").filter(|parent| !parent.is_null()) {
+        body["parent_id"] = parent.clone();
+    }
+    if let Some(bitrate) = source.get("bitrate") {
+        body["bitrate"] = bitrate.clone();
+    }
+    if let Some(limit) = source.get("user_limit") {
+        body["user_limit"] = limit.clone();
+    }
+    client.create_guild_channel(&guild_id, body).await.map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_voice_status(state: State<'_, Shared>, channel_id: String, status: String) -> Result<(), String> {
+    let status = status.trim().chars().take(500).collect::<String>();
+    rest(&state).await?.set_voice_status(&channel_id, &status).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn start_stage(state: State<'_, Shared>, channel_id: String, topic: String) -> Result<(), String> {
+    let topic = topic.trim().chars().take(120).collect::<String>();
+    rest(&state).await?.start_stage(&channel_id, &topic).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn set_member_voice(
+    state: State<'_, Shared>,
+    guild_id: String,
+    user_id: String,
+    mute: Option<bool>,
+    deaf: Option<bool>,
+    channel_id: Option<String>,
+    disconnect: Option<bool>,
+    suppress: Option<bool>,
+) -> Result<(), String> {
+    let body = lark_core::discord::rest::member_voice_json(
+        mute,
+        deaf,
+        channel_id.as_deref(),
+        disconnect.unwrap_or(false),
+        suppress,
+    );
+    rest(&state).await?.set_member_voice(&guild_id, &user_id, body).await.map_err(|err| err.to_string())
 }
 
 fn push_clip(state: &Shared, clip: &lark_core::config::SoundClip) -> Result<(), String> {
@@ -1570,6 +1748,64 @@ async fn guild_admin(
         .guild_admin(request)
         .await
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn remember_account(app: AppHandle, user_id: String) -> Result<(), String> {
+    let slot = keychain::account_slot(&user_id)?;
+    let token = keychain::on_main(&app, keychain::load_token)??
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "No token saved.".to_string())?;
+    keychain::on_main(&app, move || {
+        let result = keychain::save_named(&slot, &token);
+        let mut token = token;
+        token.zeroize();
+        result
+    })?
+}
+
+#[tauri::command]
+async fn switch_account(app: AppHandle, state: State<'_, Shared>, user_id: String) -> Result<(), String> {
+    let slot = keychain::account_slot(&user_id)?;
+    let token = keychain::on_main(&app, move || keychain::load_named(&slot))??
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "That account is not saved on this computer.".to_string())?;
+    disconnect_inner(&state).await;
+    keychain::on_main(&app, move || {
+        let result = keychain::save_token(&token);
+        let mut token = token;
+        token.zeroize();
+        result
+    })?
+}
+
+#[tauri::command]
+async fn forget_account(app: AppHandle, user_id: String) -> Result<(), String> {
+    let slot = keychain::account_slot(&user_id)?;
+    keychain::on_main(&app, move || keychain::clear_named(&slot))?
+}
+
+#[tauri::command]
+async fn account_overview(state: State<'_, Shared>) -> Result<serde_json::Value, String> {
+    rest(&state)
+        .await?
+        .account_overview()
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn remove_connection(state: State<'_, Shared>, kind: String, id: String) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .remove_connection(&kind, &id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn open_discord_link(url: String) -> Result<(), String> {
+    browser_login::open_discord_https(&url)
 }
 
 #[tauri::command]
