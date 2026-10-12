@@ -1195,6 +1195,14 @@ async fn join_voice(
                 lark_core::discord::voice_link::VoiceLinkEvent::Ping { ping_ms, endpoint, epoch } => {
                     serde_json::json!({"kind": "voiceLink", "state": "connected", "detail": "", "epoch": epoch, "pingMs": ping_ms, "endpoint": endpoint})
                 }
+                lark_core::discord::voice_link::VoiceLinkEvent::Camera { user_id, annex_b, epoch } => {
+                    serde_json::json!({
+                        "kind": "cameraFrame",
+                        "userId": user_id,
+                        "annexB": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, annex_b),
+                        "epoch": epoch,
+                    })
+                }
             };
             let _ = app.emit("discord", payload);
         })

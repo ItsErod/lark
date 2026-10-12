@@ -189,7 +189,11 @@ function tileView(tile: StageTile, motion: RingMotion, onMenu: CallStageHandlers
       slot.append(icon(paths.monitor), el("span", "", "Screen"));
       media.append(slot);
     } else {
-      media.append(icon(paths.camera), el("span", "", "Camera"));
+      const canvas = el("canvas", "voice-camera");
+      canvas.width = 320;
+      canvas.height = 176;
+      canvas.dataset.cameraUser = tile.userId;
+      media.append(canvas, icon(paths.camera), el("span", "", "Camera"));
     }
     node.append(media);
   }
