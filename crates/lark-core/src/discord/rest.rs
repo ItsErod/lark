@@ -876,6 +876,324 @@ impl DiscordRest {
         serde_json::from_str(&text)
             .map_err(|_| RestError::Message("Discord returned an unexpected payload".into()))
     }
+
+    async fn optional_json(&self, method: Method, route: &str, path: &str) -> Option<Value> {
+        self.send_json(method, route, "threads", path, None).await.ok()
+    }
+
+    /// Active threads plus archived public and private lists. A 403 on a private list is empty.
+    pub async fn thread_index(&self, channel_id: &str) -> Result<super::types::ClientThreadIndex, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let parent_path = format!("/channels/{channel_id}");
+        let parent_route = route_key("GET", "/channels/{channel.id}", channel_id);
+        let parent_value = self
+            .send_json(Method::GET, &parent_route, channel_id, &parent_path, None)
+            .await?;
+        let parent = super::types::forum_parent_from_value(&parent_value)
+            .ok_or_else(|| RestError::Message("Could not read that channel".into()))?;
+        let mut threads = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        // Active threads are listed for the whole guild, then filtered to this parent.
+        // There is no /channels/{id}/threads/active route.
+        if let Some(guild_id) = parent_value.get("guild_id").and_then(|item| item.as_str()) {
+            if self.ensure_snowflake(guild_id).is_ok() {
+                let path = format!("/guilds/{guild_id}/threads/active");
+                let route = route_key("GET", "/guilds/{guild.id}/threads/active", guild_id);
+                if let Some(value) = self.optional_json(Method::GET, &route, &path).await {
+                    for thread in super::types::threads_for_parent(&value, channel_id) {
+                        if seen.insert(thread.id.clone()) {
+                            threads.push(thread);
+                        }
+                    }
+                }
+            }
+        }
+        let lists = [
+            (
+                format!("/channels/{channel_id}/threads/archived/public"),
+                "/channels/{channel.id}/threads/archived/public",
+            ),
+            (
+                format!("/channels/{channel_id}/threads/archived/private"),
+                "/channels/{channel.id}/threads/archived/private",
+            ),
+            (
+                format!("/channels/{channel_id}/users/@me/threads/archived/private"),
+                "/channels/{channel.id}/users/@me/threads/archived/private",
+            ),
+        ];
+        for (path, template) in lists {
+            let route = route_key("GET", template, channel_id);
+            let Some(value) = self.optional_json(Method::GET, &route, &path).await else {
+                continue;
+            };
+            for thread in super::types::threads_for_parent(&value, channel_id) {
+                if seen.insert(thread.id.clone()) {
+                    threads.push(thread);
+                }
+            }
+        }
+        Ok(super::types::ClientThreadIndex { parent, threads })
+    }
+
+    pub async fn start_thread(
+        &self,
+        channel_id: &str,
+        message_id: Option<&str>,
+        name: &str,
+        kind: Option<i32>,
+        auto_archive_duration: Option<i32>,
+        invitable: Option<bool>,
+        content: Option<&str>,
+        applied_tags: &[String],
+        route_name: &str,
+        parent_kind: Option<i32>,
+        parent_flags: i32,
+        files: &[OutFile],
+    ) -> Result<super::types::ClientThreadRecord, RestError> {
+        let planned = super::types::thread_create_request(
+            channel_id,
+            message_id,
+            name,
+            kind,
+            auto_archive_duration,
+            invitable,
+            content,
+            applied_tags,
+            route_name,
+            parent_kind,
+            parent_flags,
+            !files.is_empty(),
+        )
+        .map_err(RestError::Message)?;
+        let mut body = planned.body;
+        if !files.is_empty() {
+            let attachments: Vec<Value> = files
+                .iter()
+                .enumerate()
+                .map(|(index, file)| json!({ "id": index, "filename": safe_file_name(&file.name) }))
+                .collect();
+            if let Some(message) = body.get_mut("message") {
+                message["attachments"] = Value::Array(attachments);
+            }
+        }
+        let template = if route_name == "from-message" {
+            "/channels/{channel.id}/messages/{message.id}/threads"
+        } else {
+            "/channels/{channel.id}/threads"
+        };
+        let route = route_key("POST", template, channel_id);
+        let response = self
+            .send(Method::POST, &route, &planned.path, Some(body), files)
+            .await?;
+        let value = Self::json_body(response, &self.token).await?;
+        super::types::thread_record_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not read the new thread".into()))
+    }
+
+    pub async fn edit_thread(&self, thread_id: &str, archived: bool) -> Result<super::types::ClientThreadRecord, RestError> {
+        self.ensure_snowflake(thread_id)?;
+        let path = format!("/channels/{thread_id}");
+        let route = route_key("PATCH", "/channels/{channel.id}", thread_id);
+        let value = self
+            .send_json(Method::PATCH, &route, thread_id, &path, Some(json!({ "archived": archived })))
+            .await?;
+        super::types::thread_record_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not update that thread".into()))
+    }
+
+    pub async fn thread_members(&self, thread_id: &str) -> Result<Vec<super::types::ClientThreadMember>, RestError> {
+        self.ensure_snowflake(thread_id)?;
+        let path = format!("/channels/{thread_id}/thread-members?with_member=true");
+        let route = route_key("GET", "/channels/{channel.id}/thread-members", thread_id);
+        let value = self.send_json(Method::GET, &route, thread_id, &path, None).await?;
+        let members = value
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(super::types::thread_member_from_value)
+            .collect();
+        Ok(members)
+    }
+
+    pub async fn join_thread(&self, thread_id: &str) -> Result<(), RestError> {
+        self.thread_member_me(thread_id, Method::PUT, "PUT").await
+    }
+
+    pub async fn leave_thread(&self, thread_id: &str) -> Result<(), RestError> {
+        self.thread_member_me(thread_id, Method::DELETE, "DELETE").await
+    }
+
+    async fn thread_member_me(&self, thread_id: &str, method: Method, verb: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(thread_id)?;
+        let path = format!("/channels/{thread_id}/thread-members/@me");
+        let route = route_key(verb, "/channels/{channel.id}/thread-members/@me", thread_id);
+        let _ = self.send_json(method, &route, thread_id, &path, None).await?;
+        Ok(())
+    }
+
+    /// Follow is thread-member flags: 2 is all messages, 4 is only mentions.
+    pub async fn follow_thread(&self, thread_id: &str, follow: bool) -> Result<(), RestError> {
+        self.ensure_snowflake(thread_id)?;
+        let path = format!("/channels/{thread_id}/thread-members/@me/settings");
+        let route = route_key("PUT", "/channels/{channel.id}/thread-members/@me/settings", thread_id);
+        let flags = if follow { 2 } else { 4 };
+        let _ = self
+            .send_json(Method::PUT, &route, thread_id, &path, Some(json!({ "flags": flags })))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_thread_member(&self, thread_id: &str, user_id: &str, add: bool) -> Result<(), RestError> {
+        self.ensure_snowflake(thread_id)?;
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/channels/{thread_id}/thread-members/{user_id}");
+        let verb = if add { "PUT" } else { "DELETE" };
+        let route = route_key(verb, "/channels/{channel.id}/thread-members/{user.id}", thread_id);
+        let method = if add { Method::PUT } else { Method::DELETE };
+        let _ = self.send_json(method, &route, thread_id, &path, None).await?;
+        Ok(())
+    }
+
+    pub async fn follow_forum(&self, guild_id: &str, channel_id: &str, follow: bool) -> Result<(), RestError> {
+        self.ensure_snowflake(guild_id)?;
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/users/@me/guilds/{guild_id}/settings");
+        let route = route_key("PATCH", "/users/@me/guilds/{guild.id}/settings", guild_id);
+        let override_value = if follow {
+            json!({ "muted": false, "message_notifications": 0 })
+        } else {
+            json!({ "muted": true, "message_notifications": 1 })
+        };
+        let _ = self
+            .send_json(
+                Method::PATCH,
+                &route,
+                guild_id,
+                &path,
+                Some(json!({ "channel_overrides": { channel_id: override_value } })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn create_poll(
+        &self,
+        channel_id: &str,
+        question: &str,
+        answers: &[(String, Option<String>)],
+        duration: i32,
+        allow_multiselect: bool,
+    ) -> Result<super::types::ClientPoll, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let body = super::types::poll_message_body(question, answers, duration, allow_multiselect).map_err(RestError::Message)?;
+        let path = format!("/channels/{channel_id}/messages");
+        let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
+        let value = self.send_json(Method::POST, &route, channel_id, &path, Some(body)).await?;
+        super::types::poll_from_message(&value).ok_or_else(|| RestError::Message("Could not read that poll".into()))
+    }
+
+    pub async fn vote_poll(&self, channel_id: &str, message_id: &str, answer_id: i64) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        if answer_id <= 0 {
+            return Err(RestError::Message("That answer is missing.".into()));
+        }
+        let path = format!("/channels/{channel_id}/polls/{message_id}/answers/{answer_id}");
+        let route = route_key("PUT", "/channels/{channel.id}/polls/{message.id}/answers/{answer.id}", channel_id);
+        let _ = self.send_json(Method::PUT, &route, channel_id, &path, None).await?;
+        Ok(())
+    }
+
+    pub async fn end_poll(&self, channel_id: &str, message_id: &str) -> Result<super::types::ClientPoll, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let path = format!("/channels/{channel_id}/polls/{message_id}/expire");
+        let route = route_key("POST", "/channels/{channel.id}/polls/{message.id}/expire", channel_id);
+        let value = self.send_json(Method::POST, &route, channel_id, &path, None).await?;
+        super::types::poll_from_message(&value).ok_or_else(|| RestError::Message("Could not end that poll".into()))
+    }
+
+    pub async fn poll_voters(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        answer_id: i64,
+    ) -> Result<Vec<super::types::ClientPollVoter>, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let path = format!("/channels/{channel_id}/polls/{message_id}/answers/{answer_id}?limit=25");
+        let route = route_key("GET", "/channels/{channel.id}/polls/{message.id}/answers/{answer.id}", channel_id);
+        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        Ok(super::types::poll_voters_from_value(&value))
+    }
+
+    pub async fn scheduled_events(&self, guild_id: &str) -> Result<Vec<super::types::ClientScheduledEvent>, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/scheduled-events?with_user_count=true");
+        let route = route_key("GET", "/guilds/{guild.id}/scheduled-events", guild_id);
+        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        Ok(super::types::events_from_value(&value))
+    }
+
+    pub async fn create_scheduled_event(&self, guild_id: &str, body: Value) -> Result<super::types::ClientScheduledEvent, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        if body.get("privacy_level").and_then(|item| item.as_i64()) != Some(2) {
+            return Err(RestError::Message("Events are visible to the server.".into()));
+        }
+        let path = format!("/guilds/{guild_id}/scheduled-events");
+        let route = route_key("POST", "/guilds/{guild.id}/scheduled-events", guild_id);
+        let value = self.send_json(Method::POST, &route, guild_id, &path, Some(body)).await?;
+        super::types::event_from_value(&value).ok_or_else(|| RestError::Message("Could not create that event".into()))
+    }
+
+    pub async fn rsvp_event(&self, guild_id: &str, event_id: &str, interested: bool) -> Result<(), RestError> {
+        self.ensure_snowflake(guild_id)?;
+        self.ensure_snowflake(event_id)?;
+        let path = format!("/guilds/{guild_id}/scheduled-events/{event_id}/users/@me");
+        let verb = if interested { "PUT" } else { "DELETE" };
+        let route = route_key(verb, "/guilds/{guild.id}/scheduled-events/{event.id}/users/@me", guild_id);
+        let method = if interested { Method::PUT } else { Method::DELETE };
+        let _ = self.send_json(method, &route, guild_id, &path, None).await?;
+        Ok(())
+    }
+
+    pub async fn start_scheduled_event(&self, guild_id: &str, event_id: &str) -> Result<super::types::ClientScheduledEvent, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        self.ensure_snowflake(event_id)?;
+        let path = format!("/guilds/{guild_id}/scheduled-events/{event_id}");
+        let route = route_key("PATCH", "/guilds/{guild.id}/scheduled-events/{event.id}", guild_id);
+        let value = self
+            .send_json(Method::PATCH, &route, guild_id, &path, Some(json!({ "status": 2 })))
+            .await?;
+        super::types::event_from_value(&value).ok_or_else(|| RestError::Message("Could not start that event".into()))
+    }
+
+    pub async fn ack_bulk(&self, states: &[(String, String)]) -> Result<(), RestError> {
+        let body = super::types::ack_bulk_body(states).map_err(RestError::Message)?;
+        let route = route_key("POST", "/read-states/ack-bulk", "read-states");
+        let _ = self
+            .send_json(Method::POST, &route, "read-states", "/read-states/ack-bulk", Some(body))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn mentions(&self) -> Result<Vec<ClientMessage>, RestError> {
+        let value = self
+            .send_json(Method::GET, "GET /users/@me/mentions", "me", "/users/@me/mentions?limit=25", None)
+            .await?;
+        let messages: Vec<DiscordMessage> = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read mentions".into()))?;
+        Ok(messages.iter().map(message_to_client).collect())
+    }
+
+    pub async fn friend_requests(&self) -> Result<Vec<super::types::ClientFriendRequest>, RestError> {
+        let value = self
+            .send_json(Method::GET, "GET /users/@me/relationships", "me", "/users/@me/relationships", None)
+            .await?;
+        Ok(super::types::friend_requests_from_value(&value))
+    }
 }
 
 #[derive(Deserialize)]
