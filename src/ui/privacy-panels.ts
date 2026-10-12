@@ -13,6 +13,8 @@ export function mountPrivacyPanel(
 ): HTMLElement | null {
   if (id === "panic-key") return panicPanel(privacy, handlers);
   if (id === "incognito") return incognitoPanel(privacy, handlers);
+  if (id === "streamer-safe") return streamerPanel(privacy, handlers);
+  if (id === "clean-links") return linksPanel(privacy, handlers);
   return null;
 }
 
@@ -52,6 +54,27 @@ function incognitoPanel(privacy: PrivacyOptions, handlers: { save: (patch: Parti
   card.append(check("Hold read receipts", privacy.incognitoHoldRead, (value) => handlers.save({ incognitoHoldRead: value })));
   card.append(check("Hide activity on this device", privacy.incognitoHideActivity, (value) => handlers.save({ incognitoHideActivity: value })));
   card.append(el("p", "hint", "Channels stay unread until you press Mark read or Esc. Typing and automatic status stay on this device. A status you set yourself still publishes."));
+  return card;
+}
+
+function streamerPanel(privacy: PrivacyOptions, handlers: { save: (patch: Partial<PrivacyOptions>) => void }): HTMLElement {
+  const card = el("div", "plugin-card");
+  card.append(check("On now", privacy.streamerManual, (value) => handlers.save({ streamerManual: value })));
+  card.append(check("When OBS is the front app", privacy.streamerAutoObs, (value) => handlers.save({ streamerAutoObs: value })));
+  card.append(check("When sharing or recording", privacy.streamerAutoShare, (value) => handlers.save({ streamerAutoShare: value })));
+  card.append(check("Emails", privacy.streamerEmails, (value) => handlers.save({ streamerEmails: value })));
+  card.append(check("Phone numbers", privacy.streamerPhones, (value) => handlers.save({ streamerPhones: value })));
+  card.append(check("Account IDs", privacy.streamerIds, (value) => handlers.save({ streamerIds: value })));
+  card.append(check("Direct messages", privacy.streamerDms, (value) => handlers.save({ streamerDms: value })));
+  card.append(el("p", "hint", "Emails, phone numbers, and long IDs are replaced. Direct messages become “Message hidden”. A screen share, the clip buffer, or OBS in front turns this on without the manual switch."));
+  return card;
+}
+
+function linksPanel(privacy: PrivacyOptions, handlers: { save: (patch: Partial<PrivacyOptions>) => void }): HTMLElement {
+  const card = el("div", "plugin-card");
+  card.append(check("Clean links you send", privacy.cleanOnSend, (value) => handlers.save({ cleanOnSend: value })));
+  card.append(check("Clean links you open", privacy.cleanOnClick, (value) => handlers.save({ cleanOnClick: value })));
+  card.append(el("p", "hint", "utm_*, fbclid, gclid, si, and the other common click ids are removed. The rest of the link stays."));
   return card;
 }
 

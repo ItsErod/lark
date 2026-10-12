@@ -29,41 +29,41 @@ export function personalLine(value: string, streamer: boolean): string {
   return "Hidden";
 }
 
-export function redactBlocks(blocks: readonly Block[]): Block[] {
-  return blocks.map(redactBlock);
+export function redactBlocks(blocks: readonly Block[], scrub: (value: string) => string = redactSensitive): Block[] {
+  return blocks.map((block) => redactBlock(block, scrub));
 }
 
-function redactBlock(block: Block): Block {
+function redactBlock(block: Block, scrub: (value: string) => string): Block {
   switch (block.t) {
     case "p":
     case "h":
     case "sub":
-      return { ...block, c: block.c.map(redactInline) };
+      return { ...block, c: block.c.map((node) => redactInline(node, scrub)) };
     case "quote":
-      return { ...block, c: redactBlocks(block.c) };
+      return { ...block, c: redactBlocks(block.c, scrub) };
     case "pre":
-      return { ...block, v: redactSensitive(block.v) };
+      return { ...block, v: scrub(block.v) };
     case "ul":
     case "ol":
-      return { ...block, items: block.items.map((item) => item.map(redactInline)) };
+      return { ...block, items: block.items.map((item) => item.map((node) => redactInline(node, scrub))) };
     default:
       return block;
   }
 }
 
-function redactInline(node: Inline): Inline {
+function redactInline(node: Inline, scrub: (value: string) => string): Inline {
   switch (node.t) {
     case "text":
     case "code":
-      return { ...node, v: redactSensitive(node.v) };
+      return { ...node, v: scrub(node.v) };
     case "link":
-      return { ...node, label: redactSensitive(node.label) };
+      return { ...node, label: scrub(node.label) };
     case "strong":
     case "em":
     case "u":
     case "s":
     case "spoiler":
-      return { ...node, c: node.c.map(redactInline) };
+      return { ...node, c: node.c.map((child) => redactInline(child, scrub)) };
     default:
       return node;
   }

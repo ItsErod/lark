@@ -75,6 +75,8 @@ export const PACK_IDS = [
   "pin-dms",
   "panic-key",
   "incognito",
+  "streamer-safe",
+  "clean-links",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);

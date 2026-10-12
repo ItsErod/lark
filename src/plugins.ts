@@ -63,6 +63,8 @@ export interface PluginHooks {
   pinDms: boolean;
   panicKey: boolean;
   incognito: boolean;
+  streamerSafe: boolean;
+  cleanLinks: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -106,6 +108,8 @@ export function emptyHooks(): PluginHooks {
     pinDms: false,
     panicKey: false,
     incognito: false,
+    streamerSafe: false,
+    cleanLinks: false,
   };
 }
 
@@ -295,6 +299,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.pinDms = record.pinDms === true;
   hooks.panicKey = record.panicKey === true;
   hooks.incognito = record.incognito === true;
+  hooks.streamerSafe = record.streamerSafe === true;
+  hooks.cleanLinks = record.cleanLinks === true;
   return hooks;
 }
 
