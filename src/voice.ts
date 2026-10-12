@@ -387,6 +387,12 @@ export type MoreAction = "grid" | "non-video" | "previews" | "settings" | "fulls
 
 export const VOICE_PREFS_KEY = "lark.voice.extras.v1";
 
+export type NoiseQuality = "standard" | "high";
+
+export function noiseQualityName(value: unknown): NoiseQuality {
+  return value === "high" ? "high" : "standard";
+}
+
 export interface VoicePrefs {
   profiles: InputProfile[];
   profileId: string;
@@ -394,6 +400,7 @@ export interface VoicePrefs {
   agc: boolean;
   inputVolume: number;
   outputVolume: number;
+  noiseQuality: NoiseQuality;
   soundToggles: unknown;
 }
 
@@ -419,6 +426,7 @@ export function readVoicePrefs(raw: string | null): VoicePrefs {
     agc: parsed.agc !== false,
     inputVolume: prefsVolume(parsed.inputVolume, 100),
     outputVolume: prefsVolume(parsed.outputVolume, 100),
+    noiseQuality: noiseQualityName(parsed.noiseQuality),
     soundToggles: parsed.soundToggles,
   };
 }
@@ -430,6 +438,7 @@ export function writeVoicePrefs(prefs: {
   agc: boolean;
   inputVolume: number;
   outputVolume: number;
+  noiseQuality: NoiseQuality;
   soundToggles: Record<string, boolean>;
 }): string {
   return JSON.stringify({
@@ -439,6 +448,7 @@ export function writeVoicePrefs(prefs: {
     agc: prefs.agc,
     inputVolume: prefsVolume(prefs.inputVolume, 100),
     outputVolume: prefsVolume(prefs.outputVolume, 100),
+    noiseQuality: noiseQualityName(prefs.noiseQuality),
     soundToggles: prefs.soundToggles,
   });
 }

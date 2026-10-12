@@ -13,7 +13,7 @@ use tokio::sync::{mpsc as async_mpsc, watch};
 
 use crate::soundboard::SoundMix;
 
-use super::noise::NoiseSuppressor;
+use super::noise::{FirAec, NoiseSuppressor, SpectralSuppressor};
 use super::voice::{
     decrypt_voice, encrypt_voice, rtp_header, voice_active, CipherMode, OPUS_SILENCE,
 };
@@ -124,6 +124,8 @@ pub struct VoiceAudio {
     /// 100 is unity. 0 is silence. 200 is twice as loud.
     pub input_volume: u8,
     pub output_volume: u8,
+    /// `standard` is RNNoise. `high` is the spectral suppressor and FIR echo filter.
+    pub noise_quality: String,
 }
 
 impl Default for VoiceAudio {
@@ -139,8 +141,13 @@ impl Default for VoiceAudio {
             agc: true,
             input_volume: 100,
             output_volume: 100,
+            noise_quality: "standard".into(),
         }
     }
+}
+
+pub fn noise_quality_high(value: &str) -> bool {
+    value == "high"
 }
 
 #[derive(Debug, Clone)]
@@ -479,7 +486,9 @@ fn run_media(args: MediaArgs) {
     let mut opus_buf = [0u8; 1_500];
     let mut last_sweep = Instant::now();
     let mut denoiser = NoiseSuppressor::new();
+    let mut spectral = SpectralSuppressor::new();
     let mut aec = AecState::default();
+    let mut fir = FirAec::new();
     let mut agc = AgcState::default();
 
     loop {
@@ -512,7 +521,9 @@ fn run_media(args: MediaArgs) {
                 &args,
                 &controls,
                 &mut denoiser,
+                &mut spectral,
                 &mut aec,
+                &mut fir,
                 &mut agc,
                 &mut encoder,
                 &mut pcm,
@@ -548,7 +559,9 @@ fn produce_frame(
     args: &MediaArgs,
     controls: &VoiceAudio,
     denoiser: &mut NoiseSuppressor,
+    spectral: &mut SpectralSuppressor,
     aec: &mut AecState,
+    fir: &mut FirAec,
     agc: &mut AgcState,
     encoder: &mut Option<OpusEncoder>,
     pcm: &mut [i16],
@@ -568,16 +581,25 @@ fn produce_frame(
     let have_audio = frame.is_some();
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
     apply_input_gain(&mut owned, controls.input_volume);
+    let high = noise_quality_high(&controls.noise_quality);
     if controls.echo_cancellation && have_audio {
         let reference = args.playback.lock().ok().map(|play| play.last_render.clone()).unwrap_or_default();
         let mut reference = reference;
         if reference.len() < FRAME_SAMPLES {
             reference.resize(FRAME_SAMPLES, 0.0);
         }
-        apply_aec(&mut owned, &reference[..FRAME_SAMPLES], aec);
+        if high {
+            fir.process(&mut owned, &reference[..FRAME_SAMPLES]);
+        } else {
+            apply_aec(&mut owned, &reference[..FRAME_SAMPLES], aec);
+        }
     }
     if controls.noise_suppression && have_audio {
-        denoiser.process(&mut owned);
+        if high {
+            spectral.process(&mut owned);
+        } else {
+            denoiser.process(&mut owned);
+        }
     }
     if controls.agc && have_audio {
         apply_agc(&mut owned, agc);

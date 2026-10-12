@@ -322,7 +322,7 @@ import {
 } from "../threads";
 import { mountChannelPolls, parityHeaderButtons, parityThreadBar, renderForumSurface } from "./threads-forums";
 import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
-import { applyMoreAction, applyUserMix, applyVoiceState, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { applyMoreAction, applyUserMix, applyVoiceState, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
@@ -793,6 +793,7 @@ class LarkApp {
   private outputVolume = 100;
   private echoCancellation = true;
   private agc = true;
+  private noiseQuality: "standard" | "high" = "standard";
   private soundToggles: Record<string, boolean> = {};
   private guildSounds: GuildSound[] = [];
   private voiceChatLines: { id: string; author: string; text: string }[] = [];
@@ -5716,7 +5717,7 @@ class LarkApp {
       this.persist();
       this.pushVoiceAudio();
     }));
-    input.append(this.switchRow("voice.noise", "Lark noise suppression", "RNNoise runs on the microphone when this is on. It is not Krisp, and it does not cancel echo.", this.config.voice.noise_suppression, (value) => {
+    input.append(this.switchRow("voice.noise", "Lark noise suppression", "RNNoise runs on the microphone when this is on. Echo cancellation is separate. Higher quality uses a spectral suppressor. This is not Krisp.", this.config.voice.noise_suppression, (value) => {
       this.config.voice.noise_suppression = value;
       this.persist();
       this.pushVoiceAudio();
@@ -5854,6 +5855,7 @@ class LarkApp {
     this.inputProfileId = prefs.profileId;
     this.echoCancellation = prefs.echoCancellation;
     this.agc = prefs.agc;
+    this.noiseQuality = prefs.noiseQuality;
     this.inputVolume = prefs.inputVolume;
     this.outputVolume = prefs.outputVolume;
     this.soundToggles = sanitizeSoundToggles(prefs.soundToggles);
@@ -5866,6 +5868,7 @@ class LarkApp {
         profileId: this.inputProfileId,
         echoCancellation: this.echoCancellation,
         agc: this.agc,
+        noiseQuality: this.noiseQuality,
         inputVolume: this.inputVolume,
         outputVolume: this.outputVolume,
         soundToggles: this.soundToggles,
@@ -5880,6 +5883,7 @@ class LarkApp {
       { id: "voice.mic-test", section: "voice", label: "Mic test", description: "Watch the microphone level.", keywords: "meter input" },
       { id: "voice.profiles", section: "voice", label: "Input profiles", description: "Saved microphone, input mode, and sensitivity.", keywords: "profile" },
       { id: "voice.echo", section: "voice", label: "Echo cancellation", description: "Subtract playback from the microphone.", keywords: "aec echo" },
+      { id: "voice.quality", section: "voice", label: "Higher quality suppression", description: "Spectral noise suppression and a longer echo filter.", keywords: "aec spectral" },
       { id: "voice.agc", section: "voice", label: "Automatic gain control", description: "Keep the microphone at a steady level.", keywords: "agc volume" },
       { id: "voice.camera-test", section: "voice", label: "Camera test", description: "Preview the camera. In a call, the same picture is sent.", keywords: "video webcam" },
       { id: "voice.stream-preview", section: "voice", label: "Stream preview", description: "The current Go Live picture.", keywords: "share screen" },
@@ -5945,8 +5949,13 @@ class LarkApp {
       profiles.append(row);
     }
     const process = settingCard("Processing");
-    process.append(this.switchRow("voice.echo", "Echo cancellation", "Subtracts the call playback from the microphone before RNNoise.", this.echoCancellation, (value) => {
+    process.append(this.switchRow("voice.echo", "Echo cancellation", "Subtracts the call playback from the microphone before noise suppression.", this.echoCancellation, (value) => {
       this.echoCancellation = value;
+      this.storeVoicePrefs();
+      this.pushVoiceProcessing();
+    }));
+    process.append(this.switchRow("voice.quality", "Higher quality suppression", "Spectral noise suppression and a longer echo filter. Standard stays on RNNoise. This is not Krisp.", this.noiseQuality === "high", (value) => {
+      this.noiseQuality = noiseQualityName(value ? "high" : "standard");
       this.storeVoicePrefs();
       this.pushVoiceProcessing();
     }));
@@ -9458,6 +9467,7 @@ class LarkApp {
       agc: this.agc,
       inputVolume: this.inputVolume,
       outputVolume: this.outputVolume,
+      noiseQuality: this.noiseQuality,
     }).catch(() => undefined);
   }
 
@@ -11519,6 +11529,11 @@ class LarkApp {
       this.config.voice.noise_suppression = value;
       this.persist();
       this.pushVoiceAudio();
+    }));
+    host.append(this.gearToggle("Higher quality noise", this.noiseQuality === "high", (value) => {
+      this.noiseQuality = noiseQualityName(value ? "high" : "standard");
+      this.storeVoicePrefs();
+      this.pushVoiceProcessing();
     }));
     host.append(this.gearToggle("Echo cancellation", this.echoCancellation, (value) => {
       this.echoCancellation = value;
