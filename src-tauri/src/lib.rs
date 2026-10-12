@@ -1199,7 +1199,7 @@ async fn join_voice(
                     serde_json::json!({
                         "kind": "cameraFrame",
                         "userId": user_id,
-                        "annexB": base64::engine::general_purpose::STANDARD.encode(annex_b),
+                        "annexB": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, annex_b),
                         "epoch": epoch,
                     })
                 }
