@@ -109,6 +109,11 @@
       "id": "better-timestamps",
       "name": "Better timestamps",
       "description": "Absolute or relative time, with a 12-hour or 24-hour clock. Hover the time for the full date."
+    },
+    {
+      "id": "typing-list",
+      "name": "Typing indicators",
+      "description": "Show who is typing on the channel row and the direct message row."
     }
   ]
 }

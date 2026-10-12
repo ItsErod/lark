@@ -31,6 +31,8 @@ export interface PackState {
   logEdits: boolean;
   timeMode: TimeMode;
   timeHours: HourCycle;
+  typingChannels: boolean;
+  typingDms: boolean;
 }
 
 export const PACK_IDS = [
@@ -50,6 +52,7 @@ export const PACK_IDS = [
   "volume-booster",
   "message-logger",
   "better-timestamps",
+  "typing-list",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -78,6 +81,8 @@ export function defaultPack(): PackState {
     logEdits: true,
     timeMode: "relative",
     timeHours: "12",
+    typingChannels: true,
+    typingDms: true,
   };
 }
 
@@ -99,6 +104,8 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.logEdits === "boolean") base.logEdits = raw.logEdits;
   if (raw.timeMode === "relative" || raw.timeMode === "absolute") base.timeMode = raw.timeMode;
   if (raw.timeHours === "12" || raw.timeHours === "24") base.timeHours = raw.timeHours;
+  if (typeof raw.typingChannels === "boolean") base.typingChannels = raw.typingChannels;
+  if (typeof raw.typingDms === "boolean") base.typingDms = raw.typingDms;
   base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
