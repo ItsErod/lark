@@ -189,6 +189,31 @@ import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import {
+  DISCORD_LINKS,
+  categoryContextItems,
+  channelContextItems,
+  channelIsPrivate,
+  channelLink,
+  channelNotifyBody,
+  duplicateChannelBody,
+  extraChannelItems,
+  guildNotifyBody,
+  headerMenuItems,
+  hideMutedChannel,
+  openCreateEvent,
+  openMediaChannel,
+  openPerServerProfile,
+  openStageChannel,
+  orderChannels,
+  parseFlag,
+  parseIdMap,
+  serverContextItems,
+  toggleId,
+  withMoveTargets,
+} from "../server-model";
+import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
+import { mountChannelEditor, mountCreateChannel, mountInviteModal } from "./channel-settings";
+import {
   colorControl,
   groupedSections,
   normalizeHex,
@@ -555,6 +580,12 @@ class LarkApp {
   private discordNotify: DiscordNotify = { guilds: {}, dms: {} };
   private invite: { code: string; name: string; detail: string; icon: string } | null = null;
   private inviteEl!: HTMLElement;
+  private contextMenuEl: HTMLElement | null = null;
+  private favorites: Record<string, string[]> = {};
+  private pinnedChannels: Record<string, string[]> = {};
+  private hideMuted = false;
+  private viewAsRoleId: string | null = null;
+  private viewAsPermissions = "";
   private audioInputs: { id: string; label: string }[] = [];
   private audioOutputs: { id: string; label: string }[] = [];
   private videoInputs: { id: string; label: string }[] = [];
@@ -589,6 +620,9 @@ class LarkApp {
     this.extraThemeIds = [...this.imported.keys()];
     this.seedUnreads();
     this.folderOpen = readStringMap("lark.folders.v1");
+    this.favorites = parseIdMap(localStorage.getItem("lark.favorites.v1"));
+    this.pinnedChannels = parseIdMap(localStorage.getItem("lark.channel-pins.v1"));
+    this.hideMuted = parseFlag(localStorage.getItem("lark.hide-muted.v1"));
     const params = new URLSearchParams(location.search);
     if (!params.has("demo")) {
       const stored = this.ensureFolderSync().load();
@@ -1939,7 +1973,12 @@ class LarkApp {
     settingsFace.append(icon(paths.settings));
     settings.append(settingsFace, el("span", "pip"));
     settings.addEventListener("click", () => this.openSettings());
-    this.rail.append(home, sep, servers, settings);
+    const add = this.railIcon("Add a Server", paths.plus, () => this.openAddServer());
+    const discover = this.railGlyph("Discover", "D", () => externalLink(DISCORD_LINKS.discovery));
+    const nitro = this.railGlyph("Nitro", "N", () => externalLink(DISCORD_LINKS.nitro));
+    const shop = this.railGlyph("Shop", "S", () => externalLink(DISCORD_LINKS.shop));
+    const quests = this.railGlyph("Quests", "Q", () => externalLink(DISCORD_LINKS.quests));
+    this.rail.append(home, sep, servers, add, discover, nitro, shop, quests, settings);
   }
 
   private appendFolder(parent: HTMLElement, entry: { id: string; name: string; color: string | null; guildIds: string[] }) {
@@ -2209,11 +2248,17 @@ class LarkApp {
   private onRailContextMenu(event: MouseEvent) {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    const button = target.closest<HTMLElement>("[data-folder]");
-    const folderId = button?.dataset.folder;
-    if (!folderId) return;
+    const folder = target.closest<HTMLElement>("[data-folder]");
+    if (folder?.dataset.folder) {
+      event.preventDefault();
+      this.openFolderMenu(folder.dataset.folder, event.clientX, event.clientY);
+      return;
+    }
+    const button = target.closest<HTMLElement>("[data-guild]");
+    const guildId = button?.dataset.guild;
+    if (!guildId || guildId === "home") return;
     event.preventDefault();
-    this.openFolderMenu(folderId, event.clientX, event.clientY);
+    this.openServerMenu(guildId, event.clientX, event.clientY);
   }
 
   private openFolderMenu(folderId: string, x: number, y: number) {
@@ -2253,7 +2298,31 @@ class LarkApp {
       });
       colors.append(swatch);
     }
-    menu.append(el("p", "folder-menu-label", "Folder"), input, colors);
+    const commands = el("div", "folder-commands");
+    const read = el("button", "ctx-item", "Mark As Read");
+    read.type = "button";
+    read.addEventListener("click", () => {
+      this.markRead(this.channelsInFolder(folderId));
+      this.closeFolderMenu();
+    });
+    commands.append(read, el("p", "folder-menu-label", "Move to"));
+    for (const other of this.folders) {
+      if (!other.id || other.id === folderId) continue;
+      const move = el("button", "ctx-item", other.name?.trim() || "Folder");
+      move.type = "button";
+      move.addEventListener("click", () => {
+        this.commitFolders(applyFolderDrop(
+          this.guilds().map((guild) => guild.id),
+          this.folders,
+          { kind: "folder", id: folderId },
+          { kind: "before-folder", folderId: other.id as string },
+          Date.now(),
+        ));
+        this.closeFolderMenu();
+      });
+      commands.append(move);
+    }
+    menu.append(el("p", "folder-menu-label", "Folder"), input, colors, commands);
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 232))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - 140))}px`;
     document.body.append(menu);
@@ -2296,7 +2365,7 @@ class LarkApp {
   }
 
   private canSeeChannel(guildId: string, channel: Channel): boolean {
-    const access = this.access[guildId] ?? null;
+    const access = this.viewingAccess(guildId);
     const userId = this.meId();
     if (!canViewChannel({ userId, guildId, access, overwrites: channel.overwrites as ChannelOverwrite[] | undefined })) return false;
     if (!channel.parentId) return true;
@@ -2349,7 +2418,9 @@ class LarkApp {
       return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}`;
     });
     const me = this.demo ? people[0] : this.me;
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${bits.join(",")}`;
+    const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
+    const favs = (this.favorites[this.guildId ?? ""] ?? []).join(".");
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${pins}|${favs}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -2406,7 +2477,9 @@ class LarkApp {
     clear(this.channelPane);
     const head = el("div", "channel-head");
     const guild = this.guilds().find((item) => item.id === this.guildId);
-    head.append(el("h1", "", guild ? guild.name : "Direct messages"));
+    if (guild) head.append(this.serverHeadButton(guild));
+    else head.append(el("h1", "", "Direct messages"));
+    if (guild && this.viewAsRoleId) head.append(this.viewAsBar(guild.id));
     const scroll = el("div", "channel-scroll");
     if (!this.guildId) {
       const friends = el("button", `channel-row${this.friendsOpen ? " is-selected" : ""}`);
@@ -2428,25 +2501,48 @@ class LarkApp {
       if (!dms.length) scroll.append(el("p", "empty", "No direct messages yet."));
       for (const dm of dms) scroll.append(this.channelButton(dm, true));
     } else {
-      scroll.append(this.clipsNavButton());
-      const list = [...this.visibleChannels()].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+      scroll.append(this.clipsNavButton(), this.sidebarRow("Events", () => this.openEventsEntry()), this.sidebarRow("Server Boosts", () => externalLink(DISCORD_LINKS.boost)));
+      const list = [...this.visibleChannels()]
+        .filter((channel) => !hideMutedChannel({
+          hide: this.hideMuted,
+          level: this.levelFor(this.guildId, channel.id),
+          selected: channel.id === this.channelId,
+          kind: channel.kind,
+        }))
+        .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
       const threads = list.filter((channel) => channel.kind === "thread");
       const categories = list.filter((channel) => channel.kind === "category");
       const categoryIds = new Set(categories.map((category) => category.id));
-      const loose = list.filter((channel) => channel.kind !== "category" && channel.kind !== "thread" && (!channel.parentId || !categoryIds.has(channel.parentId)));
+      const pins = this.pinnedChannels[this.guildId ?? ""] ?? [];
+      const loose = orderChannels(
+        list.filter((channel) => channel.kind !== "category" && channel.kind !== "thread" && (!channel.parentId || !categoryIds.has(channel.parentId))),
+        pins,
+      );
       const appendChannel = (channel: Channel) => {
         scroll.append(this.channelBlock(channel));
         for (const thread of threads.filter((item) => item.parentId === channel.id)) scroll.append(this.channelButton(thread, false));
       };
+      const favs = list.filter((channel) => (this.favorites[this.guildId ?? ""] ?? []).includes(channel.id) && channel.kind !== "category" && channel.kind !== "thread");
+      if (favs.length) {
+        scroll.append(el("div", "category", "Favorites"));
+        for (const channel of favs) appendChannel(channel);
+      }
       for (const channel of loose) appendChannel(channel);
       for (const category of categories) {
-        const children = list.filter((item) => item.parentId === category.id && item.kind !== "category" && item.kind !== "thread");
+        const children = orderChannels(
+          list.filter((item) => item.parentId === category.id && item.kind !== "category" && item.kind !== "thread"),
+          pins,
+        );
         const collapsed = this.collapsedCats.has(category.id);
         const header = el("button", `category${collapsed ? " is-collapsed" : ""}`);
         header.type = "button";
         header.setAttribute("aria-expanded", collapsed ? "false" : "true");
         header.append(el("span", "chev", collapsed ? "▸" : "▾"), el("span", "", category.name));
         header.addEventListener("click", () => this.toggleCategory(category.id));
+        header.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          this.openCategoryMenu(category, event.clientX, event.clientY);
+        });
         scroll.append(header);
         if (!collapsed) for (const channel of children) appendChannel(channel);
       }
@@ -2558,7 +2654,7 @@ class LarkApp {
     button.type = "button";
     button.dataset.channel = channel.id;
     let known: Person | undefined;
-    if (!dm) button.append(icon(channel.kind === "voice" ? paths.volume : channel.kind === "announcement" ? paths.bell : paths.hash));
+    if (!dm) button.append(icon(channel.kind === "voice" || channel.kind === "stage" ? paths.volume : channel.kind === "announcement" ? paths.bell : paths.hash));
     else {
       const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
       if (recipient) button.dataset.user = recipient.id;
@@ -2581,14 +2677,23 @@ class LarkApp {
       if (preview) label.append(el("span", "dm-preview", preview));
     }
     button.append(label);
+    if (!dm && this.guildId && channelIsPrivate(this.guildId, channel.overwrites)) button.append(el("span", "channel-lock", "🔒"));
     if (muted) button.append(el("span", "faint", "muted"));
     else if (mentions > 0) button.append(el("span", "badge", String(mentions)));
+    if (!dm) {
+      button.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        this.openChannelMenu(channel, event.clientX, event.clientY);
+      });
+    }
     button.addEventListener("click", () => {
       this.drawer = false;
       if (channel.kind === "voice") {
         this.onVoiceChannel(channel);
         return;
       }
+      if (channel.kind === "stage" && openStageChannel(channel.id)) return;
+      if (channel.kind === "media" && openMediaChannel(channel.id)) return;
       void this.openChannel(channel.id);
     });
     return button;
@@ -2790,7 +2895,7 @@ class LarkApp {
     }
     const heading = this.clipsOpen
       ? "Clips"
-      : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : `# ${channel.name}`) : "Lark";
+      : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : this.channelHeading(channel)) : "Lark";
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
     if (this.streamerOn()) row.append(el("span", "demo-pill", "Streamer"));
@@ -2856,6 +2961,13 @@ class LarkApp {
     });
     const headerButtons = [search, find, pin, saved, split, theme, members, bell];
     actions.append(...headerButtons);
+    const help = el("button", "icon-button");
+    help.type = "button";
+    help.title = "Help";
+    help.setAttribute("aria-label", "Help");
+    help.textContent = "?";
+    help.addEventListener("click", () => externalLink(DISCORD_LINKS.help));
+    actions.append(help);
     this.chatHead.append(title, actions);
   }
 
@@ -2866,6 +2978,7 @@ class LarkApp {
     const next = order[(order.indexOf(current) + 1) % order.length];
     this.config.notifications.channels[this.channelId] = next === "mute" ? { muted: true } : { level: next, muted: false };
     this.persist();
+    void this.writeNotify(this.guildId, this.channelId, next);
     this.toast("Notifications", `${this.currentChannel()?.name ?? "Channel"} is set to ${next}.`);
     this.paint();
   }
@@ -3991,6 +4104,16 @@ class LarkApp {
       if (score === null) continue;
       hits.push({ id: dm.id, guildId: null, label: dm.name, hint: dm.kind === "group" ? "Group DM" : "Direct message", score });
     }
+    const pasted = inviteCode(query);
+    if (pasted) hits.push({ id: `invite:${pasted}`, guildId: null, label: `Join ${pasted}`, hint: "Invite", score: 200 });
+    const seen = new Set<string>();
+    for (const person of [...this.friends, ...Object.values(this.directory)]) {
+      if (!person?.id || seen.has(person.id)) continue;
+      seen.add(person.id);
+      const score = fuzzyScore(query, person.name);
+      if (score === null) continue;
+      hits.push({ id: `user:${person.id}`, guildId: null, label: person.name, hint: "Person", score });
+    }
     return hits.sort((a, b) => b.score - a.score).slice(0, 16);
   }
 
@@ -4010,6 +4133,16 @@ class LarkApp {
     if (hit.command) {
       this.closeSwitcher();
       this.runCommand(hit.command);
+      return;
+    }
+    if (hit.id.startsWith("invite:")) {
+      this.closeSwitcher();
+      this.openInvite(hit.id.slice("invite:".length));
+      return;
+    }
+    if (hit.id.startsWith("user:")) {
+      this.closeSwitcher();
+      void this.openDm(hit.id.slice("user:".length));
       return;
     }
     this.closeSwitcher();
@@ -10103,6 +10236,393 @@ class LarkApp {
       await navigator.clipboard.writeText(text);
     } catch {
       /* The diagnostics stay on the voice log if the clipboard is unavailable. */
+    }
+  }
+
+  private railIcon(label: string, path: string, onClick: () => void): HTMLButtonElement {
+    const button = el("button", "rail-button");
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    const face = el("span", "server-face");
+    face.append(icon(path));
+    button.append(face, el("span", "pip"));
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  private railGlyph(label: string, glyph: string, onClick: () => void): HTMLButtonElement {
+    const button = el("button", "rail-button");
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    const face = el("span", "server-face rail-glyph", glyph);
+    button.append(face, el("span", "pip"));
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  private sidebarRow(label: string, onClick: () => void): HTMLButtonElement {
+    const button = el("button", "channel-row");
+    button.type = "button";
+    button.append(el("span", "row-label", label));
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  private serverHeadButton(guild: Guild): HTMLButtonElement {
+    const button = el("button", "channel-head-button");
+    button.type = "button";
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-label", `${guild.name} server menu`);
+    button.append(el("h1", "", guild.name), el("span", "chev", "▾"));
+    button.addEventListener("click", (event) => {
+      const rect = button.getBoundingClientRect();
+      this.openServerMenu(guild.id, rect.left, rect.bottom + 4, true);
+      event.stopPropagation();
+    });
+    return button;
+  }
+
+  private viewAsBar(guildId: string): HTMLElement {
+    const role = (this.rolesByGuild[guildId] ?? []).find((item) => item.id === this.viewAsRoleId);
+    const bar = el("div", "view-as-bar");
+    bar.append(el("span", "", `Viewing as ${role?.name ?? "role"}`));
+    const stop = el("button", "text-button", "Stop");
+    stop.type = "button";
+    stop.addEventListener("click", () => {
+      this.viewAsRoleId = null;
+      this.viewAsPermissions = "";
+      this.paint();
+    });
+    bar.append(stop);
+    return bar;
+  }
+
+  private viewingAccess(guildId: string): GuildAccess | null {
+    if (this.viewAsRoleId && this.guildId === guildId) {
+      return {
+        owner: false,
+        permissions: this.viewAsPermissions,
+        roles: [{ id: this.viewAsRoleId, permissions: this.viewAsPermissions }],
+        myRoles: [this.viewAsRoleId],
+      };
+    }
+    return this.access[guildId] ?? null;
+  }
+
+  private channelHeading(channel: Channel): string {
+    if (channel.kind === "voice" || channel.kind === "stage") return channel.name;
+    if (channel.kind === "media") return channel.name;
+    return `# ${channel.name}`;
+  }
+
+  private closeContextMenu() {
+    this.contextMenuEl?.remove();
+    this.contextMenuEl = null;
+  }
+
+  private showMenu(x: number, y: number, items: ReturnType<typeof serverContextItems>, onPick: (id: string) => void) {
+    this.closeContextMenu();
+    const menu = mountMenu(x, y, items, (id) => {
+      this.closeContextMenu();
+      onPick(id);
+    });
+    this.contextMenuEl = menu;
+    const closer = (event: PointerEvent) => {
+      if (event.target instanceof Node && menu.contains(event.target)) return;
+      this.closeContextMenu();
+      document.removeEventListener("pointerdown", closer, true);
+    };
+    document.addEventListener("pointerdown", closer, true);
+  }
+
+  private openServerMenu(guildId: string, x: number, y: number, header = false) {
+    const folders = this.folders.filter((folder) => folder.id).map((folder) => ({ id: folder.id as string, name: folder.name?.trim() || "Folder" }));
+    const items = header ? headerMenuItems(null) : withMoveTargets(serverContextItems(), folders);
+    this.showMenu(x, y, items, (id) => this.onServerAction(guildId, id));
+  }
+
+  private onServerAction(guildId: string, id: string) {
+    if (id === "mark-read") {
+      const ids = this.channelsOf(guildId).filter((channel) => channel.kind !== "category").map((channel) => channel.id);
+      this.markRead(ids);
+      return;
+    }
+    if (id === "invite") {
+      const channel = this.channelsOf(guildId).find((item) => item.kind === "text" || item.kind === "announcement");
+      if (!channel) {
+        this.toast("Invite", "This server has no text channel yet.");
+        return;
+      }
+      mountInviteModal(this.channelHost(guildId), channel.id);
+      return;
+    }
+    if (id === "hide-muted") {
+      this.hideMuted = !this.hideMuted;
+      localStorage.setItem("lark.hide-muted.v1", this.hideMuted ? "1" : "0");
+      this.paintChannels();
+      this.toast("Channels", this.hideMuted ? "Muted channels are hidden." : "Muted channels are shown.");
+      return;
+    }
+    if (id === "settings") {
+      this.openGuildSettings(guildId);
+      return;
+    }
+    if (id === "privacy") {
+      this.section = "privacy";
+      this.openSettings();
+      return;
+    }
+    if (id === "profile") {
+      if (openPerServerProfile(guildId, this.meId()) === "missing") {
+        this.toast("Per-server Profile", "Profile editing for this server is not available yet.");
+      }
+      return;
+    }
+    if (id === "create-channel") {
+      mountCreateChannel(this.channelHost(guildId), "text");
+      return;
+    }
+    if (id === "create-category") {
+      mountCreateChannel(this.channelHost(guildId), "category");
+      return;
+    }
+    if (id === "create-event") {
+      if (openCreateEvent(guildId) === "missing") this.toast("Events", "The event wizard is not available yet.");
+      return;
+    }
+    if (id === "boost") {
+      externalLink(DISCORD_LINKS.boost);
+      return;
+    }
+    if (id === "apps") {
+      externalLink(DISCORD_LINKS.apps);
+      return;
+    }
+    if (id === "copy-id") {
+      void this.copyText(guildId);
+      return;
+    }
+    if (id.startsWith("guild-notify:")) {
+      const level = id.slice("guild-notify:".length) as NotifyLevel;
+      this.config.notifications.guilds[guildId] = level === "mute" ? { muted: true } : { level, muted: false };
+      this.persist();
+      void this.writeNotify(guildId, null, level);
+      this.toast("Notifications", `Server notifications are set to ${level}.`);
+      this.paint();
+      return;
+    }
+    if (id.startsWith("move:")) {
+      const folderId = id.slice("move:".length);
+      const intent = folderId === "loose" ? { kind: "end" as const } : { kind: "into-folder" as const, folderId };
+      this.commitFolders(applyFolderDrop(this.guilds().map((guild) => guild.id), this.folders, { kind: "guild", id: guildId }, intent, Date.now()));
+    }
+  }
+
+  private openEventsEntry() {
+    if (!this.guildId) return;
+    if (openCreateEvent(this.guildId) === "missing") this.toast("Events", "Scheduled events will show here.");
+  }
+
+  private openAddServer() {
+    mountAddServer({
+      invoke: (command, args) => invoke(command, args),
+      toast: (title, detail) => this.toast(title, detail),
+      openInvite: (code) => this.openInvite(code),
+      onCreated: (guildId) => {
+        this.guildId = guildId;
+        void this.ensureGuild(guildId);
+        this.paint();
+      },
+    });
+  }
+
+  private openGuildSettings(guildId: string) {
+    const opener = (globalThis as { larkOpenGuildSettings?: (guildId: string) => void }).larkOpenGuildSettings;
+    if (typeof opener === "function") {
+      opener(guildId);
+      return;
+    }
+    this.toast("Server Settings", `${this.guilds().find((guild) => guild.id === guildId)?.name ?? "Server"} settings are not open in this build yet.`);
+  }
+
+  private channelHost(guildId: string) {
+    return {
+      invoke: <T,>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args),
+      toast: (title: string, detail: string) => this.toast(title, detail),
+      guildId,
+      userId: this.meId(),
+      channels: this.channelsOf(guildId),
+      friends: this.friends.map((person) => ({ id: person.id, name: person.name })),
+      roles: (this.rolesByGuild[guildId] ?? []).map((role) => ({ id: role.id, name: role.name })),
+      copy: (text: string) => this.copyText(text),
+      onChannel: (channel: Channel) => this.rememberServerChannel(guildId, channel),
+    };
+  }
+
+  private rememberServerChannel(guildId: string, channel: Channel) {
+    const list = this.liveChannels[guildId] ?? [];
+    const next = list.filter((item) => item.id !== channel.id);
+    next.push(channel);
+    this.liveChannels[guildId] = next;
+    if (this.guildId === guildId) {
+      this.paintChannels();
+      if (channel.kind !== "category" && channel.kind !== "voice") void this.openChannel(channel.id);
+    }
+  }
+
+  private openChannelMenu(channel: Channel, x: number, y: number) {
+    const items = [...channelContextItems(channel.kind), ...extraChannelItems(channel)];
+    const favorite = (this.favorites[this.guildId ?? ""] ?? []).includes(channel.id);
+    const pinned = (this.pinnedChannels[this.guildId ?? ""] ?? []).includes(channel.id);
+    for (const item of items) {
+      if (item.id === "favorite" && favorite) item.label = "Unfavorite";
+      if (item.id === "pin-top" && pinned) item.label = "Unpin Channel";
+    }
+    this.showMenu(x, y, items, (id) => this.onChannelAction(channel, id));
+  }
+
+  private onChannelAction(channel: Channel, id: string) {
+    const guildId = this.guildId;
+    if (id === "mark-read") {
+      this.markRead([channel.id]);
+      return;
+    }
+    if (id === "favorite" && guildId) {
+      this.favorites[guildId] = toggleId(this.favorites[guildId], channel.id);
+      localStorage.setItem("lark.favorites.v1", JSON.stringify(this.favorites));
+      this.paintChannels();
+      return;
+    }
+    if (id === "invite" && guildId) {
+      mountInviteModal(this.channelHost(guildId), channel.id);
+      return;
+    }
+    if (id === "pin-top" && guildId) {
+      this.pinnedChannels[guildId] = toggleId(this.pinnedChannels[guildId], channel.id);
+      localStorage.setItem("lark.channel-pins.v1", JSON.stringify(this.pinnedChannels));
+      this.paintChannels();
+      return;
+    }
+    if (id === "copy-link" && guildId) {
+      void this.copyText(channelLink(guildId, channel.id));
+      return;
+    }
+    if (id === "copy-id") {
+      void this.copyText(channel.id);
+      return;
+    }
+    if (id === "mute") {
+      this.writeChannelLevel(channel.id, "mute");
+      return;
+    }
+    if (id.startsWith("notify:")) {
+      this.writeChannelLevel(channel.id, id.slice("notify:".length) as NotifyLevel);
+      return;
+    }
+    if (id === "edit" && guildId) {
+      mountChannelEditor(this.channelHost(guildId), channel);
+      return;
+    }
+    if (id === "duplicate" && guildId) {
+      const body = duplicateChannelBody(channel);
+      if (!body) return;
+      void invoke<Channel>("guild_admin", { request: { op: "create_channel", guildId, body } })
+        .then((created) => this.rememberServerChannel(guildId, created))
+        .catch((err) => this.toast("Couldn't duplicate", err instanceof Error ? err.message : "Discord refused the channel."));
+      return;
+    }
+    if (id === "delete") {
+      if (!window.confirm(`Delete #${channel.name}? This cannot be undone.`)) return;
+      void invoke("guild_admin", { request: { op: "delete_channel", channelId: channel.id } })
+        .then(() => {
+          if (guildId) this.liveChannels[guildId] = (this.liveChannels[guildId] ?? []).filter((item) => item.id !== channel.id);
+          this.toast("Channel deleted", channel.name);
+          this.paintChannels();
+        })
+        .catch((err) => this.toast("Couldn't delete", err instanceof Error ? err.message : "Discord refused the delete."));
+      return;
+    }
+    if ((id === "move:up" || id === "move:down") && guildId) {
+      const siblings = this.channelsOf(guildId);
+      const ordered = [...siblings.filter((item) => (item.parentId ?? null) === (channel.parentId ?? null))].sort((a, b) => a.position - b.position);
+      const index = ordered.findIndex((item) => item.id === channel.id);
+      const neighbor = ordered[id === "move:up" ? index - 1 : index + 1];
+      if (!neighbor) return;
+      void invoke("guild_admin", { request: { op: "patch_channel", channelId: channel.id, body: { position: neighbor.position } } })
+        .then(() => {
+          const previous = channel.position;
+          channel.position = neighbor.position;
+          neighbor.position = previous;
+          this.paintChannels();
+        })
+        .catch((err) => this.toast("Couldn't move", err instanceof Error ? err.message : "Discord refused the move."));
+    }
+  }
+
+  private openCategoryMenu(category: Channel, x: number, y: number) {
+    this.showMenu(x, y, categoryContextItems(), (id) => {
+      if (id === "edit" && this.guildId) {
+        mountChannelEditor(this.channelHost(this.guildId), category);
+        return;
+      }
+      if (id === "delete") {
+        if (!window.confirm(`Delete the ${category.name} category?`)) return;
+        void invoke("guild_admin", { request: { op: "delete_channel", channelId: category.id } })
+          .then(() => {
+            if (this.guildId) this.liveChannels[this.guildId] = (this.liveChannels[this.guildId] ?? []).filter((item) => item.id !== category.id);
+            this.paintChannels();
+          })
+          .catch((err) => this.toast("Couldn't delete", err instanceof Error ? err.message : "Discord refused the delete."));
+        return;
+      }
+      if (id === "mute") this.writeChannelLevel(category.id, "mute");
+      if (id.startsWith("notify:")) this.writeChannelLevel(category.id, id.slice("notify:".length) as NotifyLevel);
+    });
+  }
+
+  private writeChannelLevel(channelId: string, level: NotifyLevel) {
+    this.config.notifications.channels[channelId] = level === "mute" ? { muted: true } : { level, muted: false };
+    this.persist();
+    void this.writeNotify(this.guildId, channelId, level);
+    this.toast("Notifications", `${level}.`);
+    this.paint();
+  }
+
+  private async writeNotify(guildId: string | null, channelId: string | null, level: NotifyLevel) {
+    if (this.demo || !isTauri()) return;
+    try {
+      if (guildId && channelId) {
+        await invoke("guild_admin", { request: { op: "patch_guild_settings", guildId, body: channelNotifyBody(channelId, level) } });
+      } else if (guildId) {
+        await invoke("guild_admin", { request: { op: "patch_guild_settings", guildId, body: guildNotifyBody(level) } });
+      } else if (channelId) {
+        await invoke("guild_admin", { request: { op: "patch_dm_settings", body: channelNotifyBody(channelId, level) } });
+      }
+    } catch (err) {
+      this.toast("Notifications", err instanceof Error ? err.message : "Discord did not save that. Lark kept it on this device.");
+    }
+  }
+
+  private channelsInFolder(folderId: string): string[] {
+    const folder = this.folders.find((item) => item.id === folderId);
+    if (!folder) return [];
+    const ids: string[] = [];
+    for (const guildId of folder.guildIds) {
+      for (const channel of this.channelsOf(guildId)) {
+        if (channel.kind !== "category") ids.push(channel.id);
+      }
+    }
+    return ids;
+  }
+
+  private async copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast("Copied", text);
+    } catch {
+      this.toast("Copy", "The clipboard is not available.");
     }
   }
 

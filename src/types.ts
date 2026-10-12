@@ -206,6 +206,13 @@ export interface Channel {
   unread?: number;
   mentions?: number;
   overwrites?: { id: string; kind: number; allow: string; deny: string }[];
+  nsfw?: boolean;
+  /** Discord `rate_limit_per_user`, in seconds. The composer countdown reads this. */
+  rateLimitPerUser?: number;
+  bitrate?: number;
+  userLimit?: number;
+  videoQualityMode?: number;
+  rtcRegion?: string | null;
 }
 
 export interface Guild {

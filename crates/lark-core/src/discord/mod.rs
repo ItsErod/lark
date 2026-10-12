@@ -14,6 +14,7 @@ pub mod stream;
 pub mod stream_link;
 pub mod voice_link;
 pub mod voice_media;
+pub mod guild_admin;
 
 pub use gateway::{
     gateway_command_payload, intents_without_message_content, run_gateway, ClientEvent,
