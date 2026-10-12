@@ -67,6 +67,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
   { id: "language", label: "Language & Time", group: "app", description: "Language and 12-hour or 24-hour time." },
   { id: "window", label: "Window", group: "app", description: "Tray, login, and how fast the window paints." },
   { id: "advanced", label: "Advanced", group: "app", description: "Developer Mode shows ids on messages and menus." },
+  { id: "updates", label: "Updates", group: "app", description: "Automatic updates for the macOS and Windows apps." },
   { id: "voice", label: "Voice & Video", group: "lark", description: "Input mode, the speaking ring, noise suppression, devices, and the in-game HUD." },
   { id: "messages", label: "Messages", group: "lark", description: "Saved messages, reminders, and scheduled sends on this device." },
   { id: "privacy", label: "Privacy", group: "lark", description: "Streamer mode hides personal info on this screen." },
@@ -190,6 +191,9 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "language.locale", section: "language", label: "Language", description: "The language used for dates and the document.", keywords: "locale english" },
   { id: "language.time", section: "language", label: "Time format", description: "Automatic, 12-hour, or 24-hour clocks.", keywords: "12 24 hour clock" },
   { id: "advanced.developer", section: "advanced", label: "Developer Mode", description: "Show ids you can copy from messages and menus.", keywords: "copy id debug" },
+  { id: "updates.version", section: "updates", label: "Current version", description: "The version of Lark running on this computer.", keywords: "version about" },
+  { id: "updates.auto", section: "updates", label: "Automatically install updates", description: "Download a new version in the background and install it when it is ready. A voice call finishes first.", keywords: "updater auto update" },
+  { id: "updates.check", section: "updates", label: "Check now", description: "Look for a Lark update now.", keywords: "version update" },
 ];
 
 const extraSections: SettingsSectionMeta[] = [];
