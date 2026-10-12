@@ -44,7 +44,6 @@ describe("irc message layout", () => {
         paragraph: rect(paragraph),
       };
     });
-    await page.screenshot({ path: "/tmp/irc-width.png" });
     await page.close();
     expect(box.column).toBeGreaterThan(500);
     expect(box.body.width).toBeGreaterThan(box.column * 0.8);
