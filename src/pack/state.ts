@@ -53,6 +53,11 @@ export interface PackState {
   templates: ReplyTemplate[];
   copyMeta: boolean;
   zoomMax: 2 | 3 | 4;
+  readAllMuted: boolean;
+  readAllDms: boolean;
+  whoisAge: boolean;
+  whoisMutuals: boolean;
+  whoisJoin: boolean;
 }
 
 export const PACK_IDS = [
@@ -87,6 +92,8 @@ export const PACK_IDS = [
   "quick-replies",
   "copy-markdown",
   "image-zoom",
+  "read-all",
+  "user-whois",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -131,6 +138,11 @@ export function defaultPack(): PackState {
     templates: [],
     copyMeta: false,
     zoomMax: 3,
+    readAllMuted: false,
+    readAllDms: true,
+    whoisAge: true,
+    whoisMutuals: true,
+    whoisJoin: true,
   };
 }
 
@@ -177,6 +189,11 @@ export function sanitizePack(input: unknown): PackState {
   base.highlightGuilds = sanitizeHighlightGuilds(raw.highlightGuilds);
   base.pinnedDms = cleanPinnedDms(raw.pinnedDms);
   base.privacy = sanitizePrivacy(raw.privacy);
+  if (typeof raw.readAllMuted === "boolean") base.readAllMuted = raw.readAllMuted;
+  if (typeof raw.readAllDms === "boolean") base.readAllDms = raw.readAllDms;
+  if (typeof raw.whoisAge === "boolean") base.whoisAge = raw.whoisAge;
+  if (typeof raw.whoisMutuals === "boolean") base.whoisMutuals = raw.whoisMutuals;
+  if (typeof raw.whoisJoin === "boolean") base.whoisJoin = raw.whoisJoin;
   return base;
 }
 

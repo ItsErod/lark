@@ -153,3 +153,21 @@ Right-click a message and choose **Copy Markdown**. The message text is copied. 
 ## Image zoom
 
 Open an image, then click it to zoom in or scroll to zoom in and out. **Largest zoom** is 2×, 3×, or 4×. Clicking the dim area around the image still closes it.
+## Read all
+
+**Read all** in the channel header, or **Mark every server read** in the plugin’s settings, clears unread badges in every server.
+
+- Unread text, announcement, forum, media, and thread channels are included. Voice channels and categories are not.
+- **Muted channels** are skipped unless you include them.
+- **Direct messages** are included unless you turn that off.
+- Lark updates the badges immediately, then tells Discord about one channel at a time.
+
+## User whois
+
+Hover a name or an avatar. The card shows:
+
+- **Account age**, from the user id.
+- **Mutual servers**, from people already loaded in those servers and from the profile.
+- **Join date**, from the profile, for the server you are in.
+
+Each line can be turned off. Streamer mode hides the card. The hover does not change roles or send a message.
