@@ -11,7 +11,7 @@ describe("composer styling", () => {
   });
 
   it("uses the token scale for radius, focus, and motion", () => {
-    expect(css).toContain("var(--radius-xl)");
+    expect(css).toContain("var(--radius-sm)");
     expect(css).toContain("var(--focus-ring)");
     expect(css).toContain("var(--motion-fast)");
     expect(css).toContain("var(--ease-out)");
