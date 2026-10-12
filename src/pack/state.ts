@@ -4,6 +4,8 @@ import type { Bookmark } from "./bookmarks";
 import type { HiddenAuthor } from "./hidden";
 import type { ChannelWords, RuleLevel } from "./keywords";
 import type { ScheduledSend } from "./schedule";
+import type { LogEntry } from "./logger";
+import { sanitizeLog } from "./logger";
 import { cleanWords } from "./keywords";
 
 export interface PackState {
@@ -23,6 +25,9 @@ export interface PackState {
   callTimerFrom: "connected" | "join";
   callTimerStyle: "auto" | "clock";
   volumeCap: 200 | 300 | 400;
+  messageLog: LogEntry[];
+  logDeleted: boolean;
+  logEdits: boolean;
 }
 
 export const PACK_IDS = [
@@ -40,6 +45,7 @@ export const PACK_IDS = [
   "silent-typing",
   "call-timer",
   "volume-booster",
+  "message-logger",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -63,6 +69,9 @@ export function defaultPack(): PackState {
     callTimerFrom: "connected",
     callTimerStyle: "auto",
     volumeCap: 400,
+    messageLog: [],
+    logDeleted: true,
+    logEdits: true,
   };
 }
 
@@ -80,6 +89,9 @@ export function sanitizePack(input: unknown): PackState {
   if (raw.callTimerFrom === "join" || raw.callTimerFrom === "connected") base.callTimerFrom = raw.callTimerFrom;
   if (raw.callTimerStyle === "clock" || raw.callTimerStyle === "auto") base.callTimerStyle = raw.callTimerStyle;
   if (raw.volumeCap === 200 || raw.volumeCap === 300 || raw.volumeCap === 400) base.volumeCap = raw.volumeCap;
+  if (typeof raw.logDeleted === "boolean") base.logDeleted = raw.logDeleted;
+  if (typeof raw.logEdits === "boolean") base.logEdits = raw.logEdits;
+  base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
   base.schedule = sanitizeSchedule(raw.schedule);

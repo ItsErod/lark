@@ -33,6 +33,7 @@ export function renderMessage(
     onHideAuthor?: () => void;
     /** Game Mode: skip media preload and autoplay. */
     quiet?: boolean;
+    log?: { deleted: boolean; history: string[] };
   },
 ): HTMLElement {
   const wrap = el("div", "message-wrap");
@@ -43,7 +44,7 @@ export function renderMessage(
     return wrap;
   }
   const effects = new Set(view.effects ?? []);
-  const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}${options.jumped ? " is-jump" : ""}${effects.has("compact-media") ? " is-compact-media" : ""}`);
+  const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}${options.jumped ? " is-jump" : ""}${effects.has("compact-media") ? " is-compact-media" : ""}${options.log?.deleted ? " is-deleted" : ""}`);
   article.dataset.id = view.id;
   if (options.density === "irc") {
     article.classList.add("is-irc");
@@ -99,6 +100,13 @@ export function renderMessage(
     const text = el("div", "message-text");
     renderBlocks(text, view.blocks, options.remoteEmoji, view.collapsed, effects.has("inline-code"));
     body.append(text);
+  }
+  if (options.log?.deleted) body.append(el("div", "log-deleted", "Deleted"));
+  if (options.log?.history.length) {
+    const past = el("div", "log-history");
+    past.append(el("div", "log-history-label", "Earlier"));
+    for (const line of options.log.history) past.append(el("div", "", line));
+    body.append(past);
   }
   if (view.badges.length) {
     const badges = el("div", "badges");

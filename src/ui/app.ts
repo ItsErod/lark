@@ -47,6 +47,7 @@ import { callTimerLabel } from "../media/call-timer";
 import { boostedPlayback, volumeCeiling } from "../media/volume";
 import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
+import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -3497,6 +3498,7 @@ class LarkApp {
           this.paintLightbox();
         },
         ...this.messageChrome(message, shown),
+        ...this.messageExtras(message),
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
@@ -3540,7 +3542,8 @@ class LarkApp {
     const id = this.channelId;
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}`;
+    if (id && this.hookOn("messageLog") && this.pack.logDeleted) list = overlayDeletes(list, this.pack.messageLog, id);
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -4140,6 +4143,7 @@ class LarkApp {
         stored.edited = true;
       }
       this.editing = null;
+      let kept = true;
       if (!this.demo) {
         try {
           const saved = normalizeMessage(await invoke<RawMessage>("edit_message", { channelId: id, messageId: editing.id, content }));
@@ -4148,6 +4152,7 @@ class LarkApp {
           if (stored) stored.content = saved.content;
           this.absorbMessage(saved);
         } catch (err) {
+          kept = false;
           editing.content = previous;
           editing.edited = false;
           if (stored) {
@@ -4157,6 +4162,7 @@ class LarkApp {
           this.toast("Couldn't edit", err instanceof Error ? err.message : "Discord refused the edit.");
         }
       }
+      if (kept) this.noteLoggedEdit(editing, previous, editing.content);
       this.msgSig = "";
     } else {
       const localId = outgoingNonce();
@@ -4236,6 +4242,7 @@ class LarkApp {
 
   private removeMessage(message: RawMessage) {
     const id = message.channelId;
+    this.noteLoggedDelete(message);
     history[id] = (history[id] ?? []).filter((item) => item.id !== message.id);
     this.pages[id] = (this.pages[id] ?? []).filter((item) => item.id !== message.id);
     this.pendingDelete = null;
@@ -6876,6 +6883,7 @@ class LarkApp {
           mentionUsers?: RawMessage["mentionUsers"];
         };
         if (typeof patch.content === "string") {
+          this.noteLoggedEdit(message, message.content, patch.content);
           message.content = patch.content;
           message.edited = true;
         }
@@ -6893,6 +6901,8 @@ class LarkApp {
       }
     } else if (event.kind === "messageDelete" && event.channelId && event.messageId) {
       const list = this.pages[event.channelId];
+      const gone = list?.find((item) => item.id === event.messageId);
+      if (gone) this.noteLoggedDelete(gone);
       if (list) {
         this.pages[event.channelId] = list.filter((item) => item.id !== event.messageId);
         if (event.channelId === this.channelId) this.paintMessages();
@@ -9117,6 +9127,7 @@ class LarkApp {
             this.paintLightbox();
           },
           ...this.messageChrome(message, shown),
+          ...this.messageExtras(message),
         }));
       }
     }
@@ -9426,6 +9437,33 @@ class LarkApp {
     };
   }
 
+  private messageExtras(message: RawMessage): { log?: { deleted: boolean; history: string[] } } {
+    if (!this.hookOn("messageLog")) return {};
+    const view = logView(findLog(this.pack.messageLog, message.channelId, message.id), this.pack.logDeleted, this.pack.logEdits);
+    return view ? { log: view } : {};
+  }
+
+  private logStamp(): string {
+    if (!this.hookOn("messageLog")) return "";
+    return this.pack.messageLog.map((entry) => `${entry.id}:${entry.deleted ? 1 : 0}:${entry.edits.length}`).join(".");
+  }
+
+  private noteLoggedEdit(message: RawMessage, previous: string, next: string) {
+    if (!this.hookOn("messageLog")) return;
+    const logged = recordEdit(this.pack.messageLog, message, previous, next, Date.now());
+    if (logged === this.pack.messageLog) return;
+    this.pack.messageLog = logged;
+    this.savePack();
+  }
+
+  private noteLoggedDelete(message: RawMessage) {
+    if (!this.hookOn("messageLog")) return;
+    const logged = recordDelete(this.pack.messageLog, message, Date.now());
+    if (logged === this.pack.messageLog) return;
+    this.pack.messageLog = logged;
+    this.savePack();
+  }
+
   private savePack() {
     localStorage.setItem("lark.pack.v1", JSON.stringify(this.pack));
   }
@@ -9610,6 +9648,31 @@ class LarkApp {
       const card = el("div", "plugin-card");
       const waiting = this.pack.schedule.length;
       card.append(el("p", "hint", waiting ? `${waiting} waiting. Lark sends the oldest due message, then waits before the next.` : "Use Later in the composer. The soonest time is 15 seconds from now."));
+      wrap.append(card);
+    } else if (id === "message-logger") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Show deleted messages", this.pack.logDeleted, (value) => {
+        this.pack.logDeleted = value;
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      }));
+      card.append(this.toggle("Show edit history", this.pack.logEdits, (value) => {
+        this.pack.logEdits = value;
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+      }));
+      const clearLog = el("button", "text-button", "Clear log");
+      clearLog.type = "button";
+      clearLog.addEventListener("click", () => {
+        this.pack.messageLog = [];
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+        this.renderSettings();
+      });
+      card.append(clearLog, el("p", "hint", this.pack.messageLog.length ? `${this.pack.messageLog.length} saved on this device. Nothing is sent back to Discord.` : "Deleted and edited messages stay on this device."));
       wrap.append(card);
     }
   }

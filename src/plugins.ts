@@ -50,6 +50,7 @@ export interface PluginHooks {
   hideUsers: boolean;
   channelRules: boolean;
   relativeTime: boolean;
+  messageLog: boolean;
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
@@ -83,6 +84,7 @@ export function emptyHooks(): PluginHooks {
     hideUsers: false,
     channelRules: false,
     relativeTime: false,
+    messageLog: false,
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
@@ -262,6 +264,7 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.hideUsers = record.hideUsers === true;
   hooks.channelRules = record.channelRules === true;
   hooks.relativeTime = record.relativeTime === true;
+  hooks.messageLog = record.messageLog === true;
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;
