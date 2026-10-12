@@ -51,6 +51,7 @@ import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../p
 import { holdRead as privacyHoldRead, obsDetected, panicPlan, publishActivity, redactStreamerText, streamerSafeActive, visibleStatus } from "../pack/privacy";
 import { stripTrackingText, stripTrackingUrl } from "../pack/links";
 import type { HourCycle, TimeMode } from "../pack/time";
+import { typingLabel } from "../pack/typing-list";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -2536,7 +2537,8 @@ class LarkApp {
       const direct = !this.guildId && (channel.kind === "dm" || channel.kind === "group");
       const preview = direct ? this.dmPreviewLabel(channel.id) : "";
       const activity = direct ? this.dmActivityLabel(channel) : "";
-      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}`;
+      const typing = this.listTyping(channel, direct)?.title ?? "";
+      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}:${typing}`;
     });
     const me = this.demo ? people[0] : this.me;
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
@@ -2882,6 +2884,12 @@ class LarkApp {
         if (spot.sharing) mark.append(el("span", "live-pill", "LIVE"));
         button.append(mark);
       }
+    }
+    const typing = this.listTyping(channel, dm);
+    if (typing) {
+      const mark = el("span", "typing-row", typing.label);
+      mark.title = typing.title;
+      button.append(mark);
     }
     if (!dm && this.guildId && channelIsPrivate(this.guildId, channel.overwrites)) button.append(el("span", "channel-lock", "🔒"));
     if (muted) button.append(el("span", "faint", "muted"));
@@ -3577,6 +3585,13 @@ class LarkApp {
     if (this.typingEl.textContent !== text) this.typingEl.textContent = text;
     const nextClass = names.length ? "typing dots" : "typing";
     if (this.typingEl.className !== nextClass) this.typingEl.className = nextClass;
+    if (this.hookOn("typingList")) this.paintChannels();
+  }
+
+  private listTyping(channel: Channel, dm: boolean): { label: string; title: string } | null {
+    if (!this.hookOn("typingList")) return null;
+    if (dm ? !this.pack.typingDms : !this.pack.typingChannels) return null;
+    return typingLabel(this.typingNames, channel.id, Date.now());
   }
 
   private paintMessages() {
@@ -10147,6 +10162,20 @@ class LarkApp {
         this.paintMessages();
       }, { "12": "12-hour", "24": "24-hour" }));
       card.append(el("p", "hint", "Hover a time for the full date. Relative labels refresh about twice a minute."));
+      wrap.append(card);
+    } else if (id === "typing-list") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Channel list", this.pack.typingChannels, (value) => {
+        this.pack.typingChannels = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(this.toggle("Direct messages", this.pack.typingDms, (value) => {
+        this.pack.typingDms = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(el("p", "hint", "A row says typing while someone is typing there. Hover the label for the names. Silent typing, above, stops your own indicator."));
       wrap.append(card);
     }
   }
