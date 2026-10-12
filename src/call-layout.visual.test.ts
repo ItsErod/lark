@@ -19,6 +19,9 @@ async function metrics(page: Page) {
       stripFlag: chat instanceof HTMLElement ? chat.dataset.strip ?? "" : "",
       messages: box(".messages"),
       composer: box(".composer-wrap"),
+      headerBox: box(".chat-head"),
+      typing: box(".typing"),
+      handle: box(".call-handle"),
       strip: box(".call-strip"),
       split: box(".call-split"),
       pip: box(".call-pip"),
@@ -57,6 +60,7 @@ describe("call layout", () => {
     });
     await page.goto(`http://127.0.0.1:${port}/?demo=1`);
     await page.waitForSelector(".message", { timeout: 15_000 });
+    await page.evaluate(async () => { await document.fonts.ready; });
     const before = await metrics(page);
     await page.getByRole("button", { name: "Studio booth" }).click();
     await page.waitForSelector(".voice-signal.is-3", { timeout: 5_000 });
@@ -70,6 +74,8 @@ describe("call layout", () => {
     expect(collapsed.strip?.height).toBe(0);
     expect(collapsed.split?.hidden).toBe(true);
     expect(collapsed.messages && before.messages).toBeTruthy();
+    const heightDelta = Math.abs((collapsed.messages?.height ?? 0) - (before.messages?.height ?? 0));
+    if (heightDelta >= 8) console.log("[call-layout]", JSON.stringify({ before, collapsed }));
     expect(Math.abs((collapsed.messages?.width ?? 0) - (before.messages?.width ?? 0))).toBeLessThan(8);
     expect(Math.abs((collapsed.messages?.height ?? 0) - (before.messages?.height ?? 0))).toBeLessThan(8);
     expect(collapsed.composer?.hidden).toBe(false);
