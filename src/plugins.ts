@@ -56,6 +56,8 @@ export interface PluginHooks {
   volumeBoost: boolean;
   panicKey: boolean;
   incognito: boolean;
+  streamerSafe: boolean;
+  cleanLinks: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -92,6 +94,8 @@ export function emptyHooks(): PluginHooks {
     volumeBoost: false,
     panicKey: false,
     incognito: false,
+    streamerSafe: false,
+    cleanLinks: false,
   };
 }
 
@@ -274,6 +278,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.volumeBoost = record.volumeBoost === true;
   hooks.panicKey = record.panicKey === true;
   hooks.incognito = record.incognito === true;
+  hooks.streamerSafe = record.streamerSafe === true;
+  hooks.cleanLinks = record.cleanLinks === true;
   return hooks;
 }
 

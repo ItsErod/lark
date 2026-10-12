@@ -71,6 +71,14 @@ Off until you turn it on. The hotkey is **Ctrl+Shift+H** (Command+Shift+H on mac
 
 Off until you turn it on. Lark does not mark a channel read when you open it or when you sit at the bottom. The unread badge stays. **Mark read** in the header, or Esc with nothing else open, is the choice that sends the read receipt. **Hide activity on this device** keeps the account chip on “Incognito”, drops your custom status and activity line locally, and does not send a typing indicator or an automatic status. A status you set yourself still publishes.
 
+## Streamer Safe
+
+Off until you turn it on. While it is active, emails, phone numbers, and long account IDs in messages are replaced, and direct messages read as “Message hidden”. It turns on when you flip **On now**, when OBS is the front app, or while a screen share or the clip buffer is recording. Each of those can be turned off on its own, and each kind of blur can be turned off on its own.
+
+## Clean Links
+
+Off until you turn it on. Links you send and links you open lose `utm_*`, `fbclid`, `gclid`, `si`, and the other common click ids. The rest of the query string stays. **Clean links you send** and **Clean links you open** can be turned off separately.
+
 ## Samples that were already here
 
 | Plugin | Default | What it does |

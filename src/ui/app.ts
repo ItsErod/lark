@@ -48,7 +48,8 @@ import { boostedPlayback, volumeCeiling } from "../media/volume";
 import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
-import { holdRead as privacyHoldRead, panicPlan, publishActivity, visibleStatus } from "../pack/privacy";
+import { holdRead as privacyHoldRead, obsDetected, panicPlan, publishActivity, redactStreamerText, streamerSafeActive, visibleStatus } from "../pack/privacy";
+import { stripTrackingText, stripTrackingUrl } from "../pack/links";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -405,6 +406,7 @@ class LarkApp {
   private hardwarePushFailed = false;
   private hardwarePushAt = 0;
   private detectedGame: string | null = null;
+  private frontApp: string | null = null;
   private gameMode = false;
   private perfSample: PerfSample = emptyPerfSample();
   private fpsMarks: number[] = [];
@@ -1066,6 +1068,7 @@ class LarkApp {
       }
       void this.takeFiles(event.dataTransfer?.files ?? null);
     });
+    this.root.addEventListener("click", (event) => this.cleanClickedLink(event), true);
     window.addEventListener("keydown", (event) => {
       this.away = noteActivity(this.away, Date.now());
       this.onKey(event);
@@ -3079,7 +3082,7 @@ class LarkApp {
       : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : this.channelHeading(channel)) : "Lark";
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
-    if (this.streamerOn()) row.append(el("span", "demo-pill", "Streamer"));
+    if (this.streamerOn() || this.streamerSafeOn()) row.append(el("span", "demo-pill", "Streamer"));
     if (this.holdRead() || this.hideActivity()) row.append(el("span", "demo-pill", "Incognito"));
     title.append(row);
     if (channel?.topic) title.append(el("div", "topic", this.maskText(channel.topic)));
@@ -3555,7 +3558,7 @@ class LarkApp {
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
     if (id && this.hookOn("messageLog") && this.pack.logDeleted) list = overlayDeletes(list, this.pack.messageLog, id);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.hookOn("relativeTime") ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -4138,7 +4141,7 @@ class LarkApp {
     if (!id) return;
     const ready = await this.prepareOutgoingFiles();
     if (!ready) return;
-    const content = this.composer.value;
+    const content = this.cleanOutgoing(this.composer.value);
     const error = outgoingError(content, this.files.length, this.files.reduce((sum, file) => sum + this.fileBytes(file), 0), uploadLimitBytes(this.premiumType));
     if (error) {
       this.toast("Can't send", error);
@@ -5565,7 +5568,7 @@ class LarkApp {
       }>("clip_status");
       const was = Boolean(this.clipStatus?.recording);
       this.clipStatus = status;
-      if (was !== status.recording && this.config.privacy.streamer_auto) this.noteCapture();
+      if (was !== status.recording && (this.config.privacy.streamer_auto || (this.hookOn("streamerSafe") && this.pack.privacy.streamerAutoShare))) this.noteCapture();
     } catch {
       this.clipStatus = null;
     }
@@ -7059,7 +7062,45 @@ class LarkApp {
   }
 
   private maskText(value: string): string {
-    return this.streamerOn() ? redactSensitive(value) : value;
+    return this.scrubText(value);
+  }
+
+  private streamerSafeOn(): boolean {
+    return streamerSafeActive({
+      enabled: this.hookOn("streamerSafe"),
+      manual: this.pack.privacy.streamerManual,
+      autoObs: this.pack.privacy.streamerAutoObs,
+      obs: obsDetected([this.frontApp, this.detectedGame]),
+      autoShare: this.pack.privacy.streamerAutoShare,
+      sharing: this.shareOn || Boolean(this.clipStatus?.recording),
+    });
+  }
+
+  private hideDirect(): boolean {
+    return this.streamerOn() || (this.streamerSafeOn() && this.pack.privacy.streamerDms);
+  }
+
+  private scrubText(value: string): string {
+    const safe = this.streamerSafeOn();
+    if (!this.streamerOn() && !safe) return value;
+    let text = this.streamerOn() || (safe && this.pack.privacy.streamerEmails) ? redactSensitive(value) : value;
+    if (safe) text = redactStreamerText(text, { phones: this.pack.privacy.streamerPhones, ids: this.pack.privacy.streamerIds });
+    return text;
+  }
+
+  private cleanOutgoing(content: string): string {
+    if (!this.hookOn("cleanLinks") || !this.pack.privacy.cleanOnSend) return content;
+    return stripTrackingText(content);
+  }
+
+  private cleanClickedLink(event: MouseEvent) {
+    if (!this.hookOn("cleanLinks") || !this.pack.privacy.cleanOnClick) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest("a");
+    if (!(anchor instanceof HTMLAnchorElement) || !anchor.href) return;
+    const next = stripTrackingUrl(anchor.href);
+    if (next && next !== anchor.href) anchor.href = next;
   }
 
   private noteCapture() {
@@ -7089,49 +7130,50 @@ class LarkApp {
     const source = loaded?.length ? loaded : this.demo ? history[channelId] : undefined;
     const last = [...(source ?? [])].reverse().find((message) => message.content.trim());
     if (!last) return "";
-    return dmPreview(plainPreview(last.content, this.renderContext(), 80), this.streamerOn(), 80);
+    return dmPreview(plainPreview(last.content, this.renderContext(), 80), this.hideDirect(), 80);
   }
 
   private previewLine(message: RawMessage, limit: number): string {
     const channel = this.channelById(message.channelId);
     const direct = channel?.kind === "dm" || channel?.kind === "group";
-    if (this.streamerOn() && direct) return "Message hidden";
+    if (this.hideDirect() && direct) return "Message hidden";
     const text = plainPreview(message.content, this.renderContext(), limit) || (message.attachments?.length ? "Attachment" : "Empty message");
     return this.maskText(text);
   }
 
   private notifyBody(message: RawMessage, direct: boolean): string {
-    if (this.streamerOn() && direct) return "New direct message";
+    if (this.hideDirect() && direct) return "New direct message";
     const body = plainPreview(message.content, this.renderContext()) || (message.attachments?.length ? "Sent an attachment" : message.stickers?.length ? "Sent a sticker" : "New message");
     return this.maskText(body);
   }
 
   private bookmarkExcerpt(bookmark: { channelId: string; excerpt: string }): string {
     const channel = this.channelById(bookmark.channelId);
-    if (this.streamerOn() && (channel?.kind === "dm" || channel?.kind === "group")) return "Direct message";
+    if (this.hideDirect() && (channel?.kind === "dm" || channel?.kind === "group")) return "Direct message";
     return this.maskText(bookmark.excerpt || "Empty message");
   }
 
   private presentView(view: ViewMessage): ViewMessage {
-    if (!this.streamerOn()) return view;
+    if (!this.streamerOn() && !this.streamerSafeOn()) return view;
+    const text = (value: string) => this.scrubText(value);
     return {
       ...view,
-      authorName: redactSensitive(view.authorName),
-      blocks: redactBlocks(view.blocks),
-      raw: redactSensitive(view.raw),
+      authorName: text(view.authorName),
+      blocks: redactBlocks(view.blocks, text),
+      raw: text(view.raw),
       reply: view.reply
-        ? { ...view.reply, authorName: redactSensitive(view.reply.authorName), preview: redactSensitive(view.reply.preview) }
+        ? { ...view.reply, authorName: text(view.reply.authorName), preview: text(view.reply.preview) }
         : null,
       embeds: view.embeds.map((embed) => ({
         ...embed,
-        author: embed.author ? redactSensitive(embed.author) : null,
-        title: embed.title ? redactSensitive(embed.title) : null,
-        footer: embed.footer ? redactSensitive(embed.footer) : null,
-        description: redactBlocks(embed.description),
+        author: embed.author ? text(embed.author) : null,
+        title: embed.title ? text(embed.title) : null,
+        footer: embed.footer ? text(embed.footer) : null,
+        description: redactBlocks(embed.description, text),
         fields: embed.fields.map((field) => ({
           ...field,
-          name: redactSensitive(field.name),
-          value: redactBlocks(field.value),
+          name: text(field.name),
+          value: redactBlocks(field.value, text),
         })),
       })),
     };
@@ -7875,8 +7917,10 @@ class LarkApp {
       return;
     }
     const detect = this.config.desktop.detect_games;
+    const obs = this.hookOn("streamerSafe") && this.pack.privacy.streamerAutoObs;
+    if (!obs) this.frontApp = null;
     if (!detect && this.detectedGame) this.noteGame(null);
-    const watch = detect || this.perfOn() || this.config.desktop.hardware_status;
+    const watch = detect || obs || this.perfOn() || this.config.desktop.hardware_status;
     if (!watch) return;
     if (this.perfOn()) this.armFps();
     if (!isTauri() || this.detectBusy) return;
@@ -7887,8 +7931,14 @@ class LarkApp {
         cpuPercent?: number | null;
         ramUsedMb?: number | null;
         ramTotalMb?: number | null;
-      }>("hardware_snapshot", { full: false });
-      if (detect) this.noteGame(typeof snap.game === "string" ? snap.game : null);
+      }>("hardware_snapshot", { full: false, game: obs });
+      const named = typeof snap.game === "string" ? snap.game : null;
+      if (detect) this.noteGame(named);
+      if (obs) {
+        const was = this.streamerSafeOn();
+        this.frontApp = named;
+        if (was !== this.streamerSafeOn()) this.noteCapture();
+      }
       if (this.perfOn()) {
         this.perfSample = {
           ...this.perfSample,
@@ -8726,6 +8776,7 @@ class LarkApp {
     }
     this.paintVoice();
     this.paintChannels();
+    if ((state === "live" || state === "stopped") && this.hookOn("streamerSafe") && this.pack.privacy.streamerAutoShare) this.noteCapture();
   }
 
   private onStreamFrame(event: { annexB?: string; streamKey?: string; preview?: boolean }) {
@@ -9485,6 +9536,17 @@ class LarkApp {
     const settings: Record<string, Record<string, string>> = {};
     for (const plugin of this.enabledPlugins()) {
       const record = settingsFor(this.pack, plugin.id, channelId);
+      if (plugin.id === "streamer-safe") {
+        const channel = this.channelById(channelId);
+        const direct = channel?.kind === "dm" || channel?.kind === "group";
+        record.active = this.streamerSafeOn() ? "1" : "0";
+        record.direct = direct ? "1" : "0";
+        record.dms = this.pack.privacy.streamerDms ? "1" : "0";
+        record.emails = this.pack.privacy.streamerEmails ? "1" : "0";
+        record.phones = this.pack.privacy.streamerPhones ? "1" : "0";
+        record.ids = this.pack.privacy.streamerIds ? "1" : "0";
+      }
+      if (plugin.id === "clean-links") record.receive = this.pack.privacy.cleanOnClick ? "1" : "0";
       if (Object.keys(record).length) settings[plugin.id] = record;
     }
     return settings;

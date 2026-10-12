@@ -114,6 +114,16 @@
       "id": "incognito",
       "name": "Incognito Mode",
       "description": "Don't mark channels read until you choose, and hide your activity on this device."
+    },
+    {
+      "id": "streamer-safe",
+      "name": "Streamer Safe",
+      "description": "Blur emails, phone numbers, IDs, and DMs when OBS or a stream is on."
+    },
+    {
+      "id": "clean-links",
+      "name": "Clean Links",
+      "description": "Strip utm, si, fbclid, and other tracking parameters from links you send and open."
     }
   ]
 }

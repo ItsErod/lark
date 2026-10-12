@@ -47,3 +47,21 @@ Don't mark channels read until you choose, and hide your activity locally.
 
 - **Hold read receipts.** Opening a channel, following the bottom, or sending a message does not tell Discord the channel is read. The unread badge stays, including while the channel is open. **Mark read** in the header, or Esc when nothing else is open, is the choice that sends the receipt.
 - **Hide activity on this device.** The account chip says Incognito. Your custom status and activity line are blank on this screen. Lark does not send a typing indicator, and it does not publish an automatic status from auto away, now playing, or hardware. A status you set yourself still publishes.
+
+## Streamer Safe
+
+Auto-blur emails, phone numbers, IDs, and direct messages when OBS or streaming is detected, or when you turn it on.
+
+- **On now** forces the blur even if nothing is streaming.
+- **When OBS is the front app** uses the same front-app sample as game detection. `obs`, `obs64`, `obs32`, OBS Studio, and Streamlabs count. The sample runs only while this option is on.
+- **When sharing or recording** follows a screen share and the clip buffer.
+- **Emails, phone numbers, account IDs, direct messages** each have their own switch. A direct message is replaced with “Message hidden”. An email becomes `[email hidden]`, a phone `[phone hidden]`, and a 17–20 digit id `[id hidden]`.
+
+## Clean Links
+
+Strip tracking parameters from links you send and links you click.
+
+- Removed names: `utm_*`, `fbclid`, `gclid`, `gclsrc`, `dclid`, `gbraid`, `wbraid`, `msclkid`, `twclid`, `ttclid`, `li_fat_id`, `mc_cid`, `mc_eid`, `igshid`, `igsh`, `si`, `yclid`, `srsltid`, `scid`, `epik`, `_ga`, `vero_id`, `vero_conv`, `oly_anon_id`, `oly_enc_id`, `rb_clickid`, and `spm`.
+- **Clean links you send** rewrites the composer text before it goes out.
+- **Clean links you open** rewrites links in messages and the address you actually open.
+- A link that is not http(s), and every other query parameter, stays as it is.

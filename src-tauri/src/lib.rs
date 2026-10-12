@@ -1421,14 +1421,15 @@ fn sync_overlay_hotkeys(app: &AppHandle, config: &Config) {
 /// Full reads stay behind Hardware in status. A load read (CPU, RAM, game) also
 /// runs for the performance overlay and game detection.
 #[tauri::command]
-async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>) -> Result<HardwareSnapshot, String> {
+async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>, game: Option<bool>) -> Result<HardwareSnapshot, String> {
     let full = full.unwrap_or(true);
+    let game = game.unwrap_or(false);
     let allowed = {
         let config = state.config.lock().await;
         if full {
             config.desktop.hardware_status
         } else {
-            config.desktop.hardware_status || config.desktop.perf_overlay || config.desktop.detect_games
+            config.desktop.hardware_status || config.desktop.perf_overlay || config.desktop.detect_games || game
         }
     };
     if !allowed {
