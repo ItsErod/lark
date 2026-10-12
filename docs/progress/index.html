@@ -772,6 +772,74 @@
       color: var(--amber-2);
     }
     .eta.is-done { color: #3ecf78; }
+    .doing {
+      min-width: 0;
+      margin-top: 12px;
+      padding: 10px 12px 8px;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid var(--line);
+    }
+    .doing-kicker {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .doing-task,
+    .doing-state {
+      margin: 4px 0 0;
+      font-size: 14px;
+      font-weight: 650;
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+    }
+    .doing-task a { color: inherit; text-decoration: none; }
+    .doing-task a:hover { text-decoration: underline; }
+    .doing[data-doing-state="working"] .doing-task { color: var(--text); }
+    .doing[data-doing-state="idle"] .doing-state { color: var(--muted); }
+    .doing[data-doing-state="done"] .doing-state { color: #3ecf78; }
+    .doing-times {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 14px;
+      margin: 6px 0 0;
+      color: var(--secondary);
+      font-size: 13px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
+    .doing-commits {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+    }
+    .doing-commits li {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 5px 0;
+      border-top: 1px solid var(--line);
+      color: var(--secondary);
+      font-size: 12.5px;
+      line-height: 1.35;
+    }
+    .doing-msg {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .doing-commits time {
+      flex: none;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .plugin-group .doing { margin-top: 10px; padding: 8px 10px 6px; }
+    .plugin-group .doing-commits li { font-size: 12px; }
     .card[data-stream="G"] .ico {
       background: color-mix(in srgb, #eb459e 24%, #1e1f22);
       color: #ffc2e4;
@@ -1044,7 +1112,7 @@
     <section aria-labelledby="streams-title">
       <div class="section-head">
         <h2 id="streams-title">Workstreams</h2>
-        <p>A pull request belongs to a stream when its head branch ends with that stream’s suffix. Plugin tracks match the longer suffix first.</p>
+        <p>A pull request belongs to a stream when its head branch ends with that stream’s suffix. Plugin tracks match the longer suffix first. Each card shows what that agent is doing right now.</p>
       </div>
       <div id="streams" class="streams">
         <div class="skel"></div>
@@ -1093,7 +1161,7 @@
 
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded. Each workstream and plugin track also shows the current task: the title of its latest open pull request, or else the latest commit message on its branch, plus the last three commit messages. Working time starts at the earliest commit or pull request on that task and counts up every second. Total time starts at the agent’s first commit or pull request. A finished agent shows Done and freezes that total at the last merge. An agent with nothing open and no recent push shows Idle. Branch names and recent pushes are saved for 15 minutes. The current branch is compared with main so the commits on that task come back in one request. If the branch is already in main, only its latest commit message is kept. Those lookups stop when fewer than 12 GitHub requests remain. The activity refresh itself is skipped below 18, so the page stays inside the unauthenticated hourly limit.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -1214,6 +1282,8 @@
     const PULLS_URL = "https://api.github.com/repos/ItsErod/lark/pulls?state=all&per_page=100";
     const RELEASE_URL = "https://api.github.com/repos/ItsErod/lark/releases/latest";
     const RELEASES_URL = "https://api.github.com/repos/ItsErod/lark/releases?per_page=100";
+    const BRANCHES_URL = "https://api.github.com/repos/ItsErod/lark/branches?per_page=100";
+    const EVENTS_URL = "https://api.github.com/repos/ItsErod/lark/events?per_page=100";
     const RELEASES_CACHE_KEY = "lark30-version-history-v2";
     const REFRESH_MS = 60000;
     const CACHE_KEY = "lark30-progress-v1";
@@ -1726,6 +1796,278 @@
     }
     /* eta-api-end */
 
+    /* activity-api */
+    const ACTIVITY_REFRESH_MS = 15 * 60 * 1000;
+    const ACTIVITY_REMAINING_FLOOR = 18;
+    const ACTIVITY_CACHE_KEY = "lark30-activity-v1";
+
+    function refMatchesAgent(ref, suffix, longerSuffixes) {
+      const name = String(ref || "").toLowerCase();
+      const end = String(suffix || "").toLowerCase();
+      if (!name || !end || !name.endsWith(end)) return false;
+      return !(longerSuffixes || []).some((other) => {
+        const longer = String(other || "").toLowerCase();
+        return longer.length > end.length && name.endsWith(longer);
+      });
+    }
+
+    function branchMatchesAny(name, suffixes) {
+      return (suffixes || []).some((suffix) => refMatchesAgent(name, suffix, []));
+    }
+
+    function formatSpan(ms) {
+      const total = Math.floor((Number.isFinite(ms) ? Math.max(0, ms) : 0) / 60000);
+      const days = Math.floor(total / (60 * 24));
+      const hours = Math.floor((total % (60 * 24)) / 60);
+      const mins = total % 60;
+      const parts = [];
+      if (days) parts.push(days + "d");
+      if (hours || days) parts.push(hours + "h");
+      parts.push(mins + "m");
+      return parts.join(" ");
+    }
+
+    function formatWorking(ms) {
+      return "working for " + formatSpan(ms);
+    }
+
+    function formatTotal(ms) {
+      return "total " + formatSpan(ms);
+    }
+
+    function formatWorked(ms) {
+      return "worked " + formatSpan(ms);
+    }
+
+    function commitSubject(message) {
+      const line = String(message || "").split("\n")[0].trim();
+      if (line.length <= 180) return line;
+      return line.slice(0, 177) + "…";
+    }
+
+    function slimBranches(list, suffixes) {
+      return (list || []).map((branch) => {
+        const name = branch && branch.name ? String(branch.name) : "";
+        const sha = branch && branch.commit && branch.commit.sha ? String(branch.commit.sha) : "";
+        return name ? { name, sha } : null;
+      }).filter((branch) => branch && (!suffixes || !suffixes.length || branchMatchesAny(branch.name, suffixes)));
+    }
+
+    function normalizeCommits(list, branch, onTask) {
+      const rows = [];
+      const items = list || [];
+      items.forEach((item, index) => {
+        if (!item) return;
+        const commit = item.commit || {};
+        const message = commitSubject(commit.message || item.message);
+        const at = Date.parse(
+          (commit.committer && commit.committer.date) ||
+          (commit.author && commit.author.date) ||
+          ""
+        );
+        if (!message || !Number.isFinite(at)) return;
+        rows.push({
+          sha: item.sha ? String(item.sha) : "",
+          message,
+          branch: String(branch || ""),
+          at,
+          order: items.length - index,
+          onTask: onTask !== false
+        });
+      });
+      return rows.sort((a, b) => b.at - a.at || b.order - a.order);
+    }
+
+    function pushesFromEvents(events, suffixes) {
+      const found = [];
+      (events || []).forEach((event) => {
+        if (!event || event.type !== "PushEvent" || !event.payload) return;
+        const ref = event.payload.ref ? String(event.payload.ref) : "";
+        if (ref.indexOf("refs/heads/") !== 0) return;
+        const branch = ref.slice("refs/heads/".length);
+        if (!branch) return;
+        if (suffixes && suffixes.length && !branchMatchesAny(branch, suffixes)) return;
+        const at = Date.parse(event.created_at);
+        if (!Number.isFinite(at)) return;
+        found.push({
+          branch,
+          at,
+          sha: event.payload.head ? String(event.payload.head) : ""
+        });
+      });
+      found.sort((a, b) => b.at - a.at);
+      const seen = {};
+      return found.filter((push) => {
+        if (seen[push.branch]) return false;
+        seen[push.branch] = true;
+        return true;
+      });
+    }
+
+    function agentBranch(opts) {
+      const options = opts || {};
+      const match = (ref) => refMatchesAgent(ref, options.suffix, options.longerSuffixes || []);
+      const open = (options.pulls || []).filter((pr) => pr && !pr.merged_at && pr.state === "open" && match(pr.head && pr.head.ref)).sort((a, b) => {
+        const stamp = (pr) => Date.parse(pr.updated_at || pr.created_at || 0);
+        return stamp(b) - stamp(a);
+      });
+      const branches = options.branches || [];
+      const pushes = options.pushes || [];
+      if (open[0] && open[0].head && open[0].head.ref) {
+        const branch = String(open[0].head.ref);
+        const known = branches.find((item) => item && item.name === branch);
+        const push = pushes.find((item) => item && item.branch === branch);
+        return { branch, sha: (known && known.sha) || (push && push.sha) || "", open: true };
+      }
+      const push = pushes.find((item) => item && match(item.branch));
+      if (push) return { branch: push.branch, sha: push.sha || "", open: false };
+      return null;
+    }
+
+    const COMPARE_URL_BASE = "https://api.github.com/repos/ItsErod/lark/compare/main...";
+    const TIP_URL_BASE = "https://api.github.com/repos/ItsErod/lark/commits?per_page=1&sha=";
+    const ACTIVITY_COMMIT_FLOOR = 12;
+
+    function compareUrl(branch) {
+      return COMPARE_URL_BASE + encodeURIComponent(branch || "");
+    }
+
+    function tipUrl(branch) {
+      return TIP_URL_BASE + encodeURIComponent(branch || "");
+    }
+
+    function commitsFromEvents(events, suffixes) {
+      const found = [];
+      (events || []).forEach((event) => {
+        if (!event || event.type !== "PushEvent" || !event.payload) return;
+        const ref = event.payload.ref ? String(event.payload.ref) : "";
+        if (ref.indexOf("refs/heads/") !== 0) return;
+        const branch = ref.slice("refs/heads/".length);
+        if (!branch) return;
+        if (suffixes && suffixes.length && !branchMatchesAny(branch, suffixes)) return;
+        const at = Date.parse(event.created_at);
+        if (!Number.isFinite(at)) return;
+        const commits = Array.isArray(event.payload.commits) ? event.payload.commits : [];
+        commits.forEach((commit, index) => {
+          if (!commit) return;
+          const sha = commit.sha ? String(commit.sha) : "";
+          const message = commitSubject(commit.message);
+          if (!message && !sha) return;
+          found.push({ sha, message, branch, at, order: index });
+        });
+      });
+      const bySha = new Map();
+      found.forEach((commit) => {
+        const key = commit.sha || commit.branch + "\n" + commit.message + "\n" + commit.at + "\n" + commit.order;
+        const prev = bySha.get(key);
+        if (!prev || commit.at > prev.at || (commit.at === prev.at && commit.order > prev.order)) bySha.set(key, commit);
+      });
+      return Array.from(bySha.values()).sort((a, b) => b.at - a.at || b.order - a.order);
+    }
+
+    function shouldFetchActivity(fetchedAt, now, remaining, manual) {
+      if (!(Number(remaining) >= ACTIVITY_REMAINING_FLOOR)) return false;
+      if (manual) return true;
+      if (!Number.isFinite(fetchedAt)) return true;
+      const nowMs = Number.isFinite(now) ? now : Date.now();
+      return nowMs - fetchedAt >= ACTIVITY_REFRESH_MS;
+    }
+
+    function buildAgentActivity(opts) {
+      const options = opts || {};
+      const suffix = options.suffix;
+      const longer = options.longerSuffixes || [];
+      const match = (ref) => refMatchesAgent(ref, suffix, longer);
+      const nowMs = Number.isFinite(options.now) ? options.now : Date.now();
+      const pulls = (options.pulls || []).filter((pr) => match(pr && pr.head && pr.head.ref));
+      const branchNames = (options.branches || []).map((branch) => branch && branch.name).filter((name) => match(name));
+      const live = {};
+      branchNames.forEach((name) => { live[name] = true; });
+      let commits = (options.commits || []).filter((commit) => commit && match(commit.branch) && Number.isFinite(commit.at));
+      if ((options.branches || []).length && branchNames.length) {
+        const onLive = commits.filter((commit) => live[commit.branch]);
+        if (onLive.length) commits = onLive;
+      }
+      commits = commits.slice().sort((a, b) => b.at - a.at || (b.order || 0) - (a.order || 0));
+      const timingCommits = commits.filter((commit) => commit.onTask !== false);
+      const recent = commits.slice(0, 3).map((commit) => ({
+        message: commit.message || "",
+        at: commit.at,
+        sha: commit.sha || "",
+        branch: commit.branch
+      }));
+      const prStarts = pulls.map((pr) => Date.parse(pr && pr.created_at)).filter(Number.isFinite);
+      const commitStarts = timingCommits.map((commit) => commit.at).filter(Number.isFinite);
+      const started = prStarts.concat(commitStarts);
+      const startedAt = started.length ? Math.min.apply(null, started) : null;
+
+      if (options.status === "done") {
+        const merged = pulls.map((pr) => Date.parse(pr && pr.merged_at)).filter(Number.isFinite);
+        const finishedAt = merged.length ? Math.max.apply(null, merged) : null;
+        const workedMs = Number.isFinite(startedAt) && Number.isFinite(finishedAt) ? Math.max(0, finishedAt - startedAt) : null;
+        return {
+          state: "done",
+          task: "",
+          taskUrl: "",
+          startedAt,
+          taskStartedAt: null,
+          finishedAt,
+          workedMs,
+          commits: recent
+        };
+      }
+
+      const open = pulls.filter((pr) => pr && !pr.merged_at && pr.state === "open").sort((a, b) => {
+        const stamp = (pr) => Date.parse(pr.updated_at || pr.created_at || 0);
+        return stamp(b) - stamp(a);
+      });
+      const latestOpen = open[0] || null;
+      if (latestOpen) {
+        const branch = latestOpen.head && latestOpen.head.ref ? String(latestOpen.head.ref) : "";
+        const onBranch = timingCommits.filter((commit) => commit.branch === branch).map((commit) => commit.at);
+        const created = Date.parse(latestOpen.created_at);
+        const marks = onBranch.concat(Number.isFinite(created) ? [created] : []);
+        return {
+          state: "working",
+          task: String(latestOpen.title || "Open pull request"),
+          taskUrl: latestOpen.html_url ? String(latestOpen.html_url) : "",
+          startedAt,
+          taskStartedAt: marks.length ? Math.min.apply(null, marks) : null,
+          finishedAt: null,
+          workedMs: null,
+          commits: recent
+        };
+      }
+
+      const taskCommits = timingCommits.length ? timingCommits : commits;
+      if (taskCommits.length) {
+        const latest = taskCommits[0];
+        const onBranch = taskCommits.filter((commit) => commit.branch === latest.branch).map((commit) => commit.at);
+        return {
+          state: "working",
+          task: latest.message || "Latest commit",
+          taskUrl: "",
+          startedAt,
+          taskStartedAt: onBranch.length ? Math.min.apply(null, onBranch) : latest.at,
+          finishedAt: null,
+          workedMs: null,
+          commits: recent
+        };
+      }
+
+      return {
+        state: "idle",
+        task: "",
+        taskUrl: "",
+        startedAt,
+        taskStartedAt: null,
+        finishedAt: null,
+        workedMs: null,
+        commits: []
+      };
+    }
+    /* activity-api-end */
+
     function downloadUrl(release, name) {
       const assets = release && Array.isArray(release.assets) ? release.assets : [];
       const match = assets.find((asset) => asset.name === name);
@@ -1752,7 +2094,16 @@
       workEta,
       pluginAgentsFrom,
       overallAgentEta,
-      formatEta
+      formatEta,
+      ACTIVITY_REFRESH_MS,
+      ACTIVITY_REMAINING_FLOOR,
+      refMatchesAgent,
+      commitsFromEvents,
+      shouldFetchActivity,
+      buildAgentActivity,
+      formatWorking,
+      formatTotal,
+      formatWorked
     };
 
     function boot() {
@@ -1795,6 +2146,7 @@
 
       let historyModel = null;
       let historySignature = "";
+      let activitySnapshot = readJson(ACTIVITY_CACHE_KEY);
       paintHistoryFromCache();
 
       const cached = readJson(CACHE_KEY);
@@ -1923,6 +2275,7 @@
         });
         paintHistoryClock();
         tickEtas();
+        tickDoing();
         if (document.hidden || inflight || Date.now() < nextAt) return;
         nextAt = Date.now() + REFRESH_MS;
         refresh(false);
@@ -2021,6 +2374,10 @@
             return;
           }
           if (!pulls) throw new Error("pulls");
+
+          const activity = await loadActivity(remaining, resetMs, !!manual, pulls);
+          remaining = activity.remaining;
+          resetMs = activity.resetMs;
 
           const payload = {
             fetchedAt: Date.now(),
@@ -2355,6 +2712,133 @@
         node.textContent = "";
       }
 
+      function activitySuffixes() {
+        const suffixes = PLUGIN_GROUPS.map((group) => group.suffix);
+        STREAMS.forEach((stream) => {
+          if (!stream.groups) suffixes.push(stream.suffix);
+        });
+        return suffixes;
+      }
+
+      function absorbLimit(info, remaining, resetMs) {
+        if (info.remaining != null) remaining = Math.min(remaining, info.remaining);
+        if (info.resetMs) resetMs = Math.max(resetMs, info.resetMs);
+        storageSet(LIMIT_KEY, JSON.stringify({ remaining, resetMs }));
+        return { remaining, resetMs };
+      }
+
+      async function loadActivity(remaining, resetMs, manual, pulls) {
+        const saved = activitySnapshot && Array.isArray(activitySnapshot.commits) ? activitySnapshot : readJson(ACTIVITY_CACHE_KEY);
+        if (saved) activitySnapshot = saved;
+        if (!shouldFetchActivity(saved && saved.fetchedAt, Date.now(), remaining, manual)) {
+          return { remaining, resetMs };
+        }
+        const suffixes = activitySuffixes();
+        let branches = saved && Array.isArray(saved.branches) ? saved.branches : [];
+        let commits = [];
+        let pushes = [];
+        const covered = {};
+        (saved && Array.isArray(saved.covered) ? saved.covered : []).forEach((item) => {
+          if (item && item.branch) covered[item.branch] = item.sha || "";
+        });
+        let branchesOk = false;
+        let eventsOk = false;
+        try {
+          const branchesRes = await fetch(BRANCHES_URL);
+          const branchesInfo = await readResponse(branchesRes);
+          ({ remaining, resetMs } = absorbLimit(branchesInfo, remaining, resetMs));
+          if (isRateLimited(branchesRes.status, branchesInfo)) {
+            showLimitNotice(resetMs, false);
+            return { remaining, resetMs };
+          }
+          if (branchesRes.ok && Array.isArray(branchesInfo.json)) {
+            branches = slimBranches(branchesInfo.json, suffixes);
+            branchesOk = true;
+          }
+          if (remaining >= 2) {
+            const eventsRes = await fetch(EVENTS_URL);
+            const eventsInfo = await readResponse(eventsRes);
+            ({ remaining, resetMs } = absorbLimit(eventsInfo, remaining, resetMs));
+            if (isRateLimited(eventsRes.status, eventsInfo)) {
+              showLimitNotice(resetMs, false);
+            } else if (eventsRes.ok && Array.isArray(eventsInfo.json)) {
+              pushes = pushesFromEvents(eventsInfo.json, suffixes);
+              commits = commitsFromEvents(eventsInfo.json, suffixes);
+              eventsOk = true;
+            }
+          }
+
+          const seen = {};
+          const openFirst = [];
+          const later = [];
+          const consider = (choice) => {
+            if (!choice || !choice.branch || seen[choice.branch]) return;
+            seen[choice.branch] = true;
+            (choice.open ? openFirst : later).push(choice);
+          };
+          STREAMS.forEach((stream) => {
+            if (stream.groups) {
+              PLUGIN_GROUPS.forEach((group) => {
+                consider(agentBranch({
+                  pulls,
+                  pushes,
+                  branches,
+                  suffix: group.suffix,
+                  longerSuffixes: PLUGIN_GROUPS.map((item) => item.suffix).filter((suffix) => suffix !== group.suffix)
+                }));
+              });
+              return;
+            }
+            consider(agentBranch({ pulls, pushes, branches, suffix: stream.suffix, longerSuffixes: [] }));
+          });
+          const wanted = openFirst.concat(later);
+          const savedCommits = saved && Array.isArray(saved.commits) ? saved.commits : [];
+          wanted.forEach((choice) => {
+            if (!choice.sha || covered[choice.branch] !== choice.sha) return;
+            savedCommits.forEach((commit) => {
+              if (commit && commit.branch === choice.branch) commits.push(commit);
+            });
+          });
+
+          for (let i = 0; i < wanted.length; i += 1) {
+            const choice = wanted[i];
+            if (choice.sha && covered[choice.branch] === choice.sha) continue;
+            if (remaining < ACTIVITY_COMMIT_FLOOR) break;
+            const compared = await fetch(compareUrl(choice.branch));
+            const comparedInfo = await readResponse(compared);
+            ({ remaining, resetMs } = absorbLimit(comparedInfo, remaining, resetMs));
+            if (isRateLimited(compared.status, comparedInfo)) {
+              showLimitNotice(resetMs, false);
+              break;
+            }
+            let found = [];
+            const ahead = compared.ok && comparedInfo.json && Number(comparedInfo.json.total_commits) > 0;
+            if (ahead) found = normalizeCommits(comparedInfo.json.commits, choice.branch, true);
+            if (!found.length && remaining >= ACTIVITY_COMMIT_FLOOR) {
+              const listed = await fetch(tipUrl(choice.branch));
+              const listedInfo = await readResponse(listed);
+              ({ remaining, resetMs } = absorbLimit(listedInfo, remaining, resetMs));
+              if (isRateLimited(listed.status, listedInfo)) {
+                showLimitNotice(resetMs, false);
+                break;
+              }
+              if (listed.ok && Array.isArray(listedInfo.json)) found = normalizeCommits(listedInfo.json.slice(0, 1), choice.branch, false);
+            }
+            if (compared.ok) {
+              covered[choice.branch] = choice.sha || "fetched";
+              commits = commits.filter((commit) => !commit || commit.branch !== choice.branch).concat(found);
+            }
+          }
+
+          if (branchesOk || eventsOk || Object.keys(covered).length) {
+            const coveredList = Object.keys(covered).map((branch) => ({ branch, sha: covered[branch] }));
+            activitySnapshot = { fetchedAt: Date.now(), branches, pushes, commits, covered: coveredList };
+            storageSet(ACTIVITY_CACHE_KEY, JSON.stringify(activitySnapshot));
+          }
+        } catch (err) { /* keep the saved activity snapshot */ }
+        return { remaining, resetMs };
+      }
+
       function applyPayload(payload, opts) {
         const results = STREAMS.map((stream) => computeStream(stream, payload.pulls));
         const overall = overallFrom(results);
@@ -2366,7 +2850,8 @@
         };
         const nextSignature = JSON.stringify({
           pulls: payload.pulls.map((pr) => [pr.number, pr.state, pr.merged_at, pr.title, pr.head && pr.head.ref, pr.draft]),
-          tag: payload.release && payload.release.tag_name
+          tag: payload.release && payload.release.tag_name,
+          activity: activitySnapshot && activitySnapshot.fetchedAt ? activitySnapshot.fetchedAt : 0
         });
         const changed = nextSignature !== signature;
         signature = nextSignature;
@@ -2578,6 +3063,7 @@
         eta.textContent = "ETA —";
 
         card.append(top, pill, bar, meta, eta);
+        if (!item.groups) card.append(doingBlock(activityForStream(item), item.id));
         if (item.groups && item.groups.length) card.append(pluginFeature(item));
 
         const prs = item.all.slice().sort(comparePrs);
@@ -2662,8 +3148,128 @@
         eta.className = "eta";
         eta.dataset.etaFor = "track-" + group.id;
         eta.textContent = "ETA —";
-        panel.append(head, bar, meta, eta, pluginChips(group));
+        panel.append(head, bar, meta, eta, doingBlock(activityForTrack(group), "track-" + group.id), pluginChips(group));
         return panel;
+      }
+
+      function activityForStream(item) {
+        return buildAgentActivity({
+          pulls: item.all,
+          commits: activitySnapshot && activitySnapshot.commits,
+          branches: activitySnapshot && activitySnapshot.branches,
+          suffix: item.suffix,
+          longerSuffixes: [],
+          status: item.status,
+          now: Date.now()
+        });
+      }
+
+      function activityForTrack(group) {
+        return buildAgentActivity({
+          pulls: group.all,
+          commits: activitySnapshot && activitySnapshot.commits,
+          branches: activitySnapshot && activitySnapshot.branches,
+          suffix: group.suffix,
+          longerSuffixes: PLUGIN_GROUPS.map((item) => item.suffix).filter((suffix) => suffix !== group.suffix),
+          status: group.status,
+          now: Date.now()
+        });
+      }
+
+      function doingBlock(activity, key) {
+        const section = document.createElement("section");
+        section.className = "doing";
+        section.dataset.doingFor = key;
+        section.dataset.doingState = activity.state;
+        const kicker = document.createElement("p");
+        kicker.className = "doing-kicker";
+        kicker.textContent = "What it's doing";
+        section.append(kicker);
+        if (activity.state === "idle") {
+          const state = document.createElement("p");
+          state.className = "doing-state";
+          state.textContent = "Idle";
+          section.append(state);
+          const times = doingTimes(activity);
+          if (times) section.append(times);
+          return section;
+        }
+        if (activity.state === "done") {
+          const state = document.createElement("p");
+          state.className = "doing-state";
+          state.textContent = "Done";
+          section.append(state);
+          if (Number.isFinite(activity.workedMs)) {
+            const times = document.createElement("p");
+            times.className = "doing-times";
+            const worked = document.createElement("span");
+            worked.textContent = formatWorked(activity.workedMs);
+            times.append(worked);
+            section.append(times);
+          }
+          const commits = doingCommits(activity.commits);
+          if (commits) section.append(commits);
+          return section;
+        }
+        const task = document.createElement("p");
+        task.className = "doing-task";
+        const label = activity.task || "Working";
+        const href = activity.taskUrl ? safeGithubUrl(activity.taskUrl, "") : "";
+        if (href) {
+          const link = document.createElement("a");
+          link.href = href;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = label;
+          task.append(link);
+        } else {
+          task.textContent = label;
+        }
+        section.append(task);
+        const times = doingTimes(activity);
+        if (times) section.append(times);
+        const commits = doingCommits(activity.commits);
+        if (commits) section.append(commits);
+        return section;
+      }
+
+      function doingTimes(activity) {
+        const times = document.createElement("p");
+        times.className = "doing-times";
+        if (activity.state !== "done" && Number.isFinite(activity.taskStartedAt)) {
+          const working = document.createElement("span");
+          working.dataset.workingSince = String(activity.taskStartedAt);
+          working.textContent = formatWorking(Date.now() - activity.taskStartedAt);
+          times.append(working);
+        }
+        if (activity.state !== "done" && Number.isFinite(activity.startedAt)) {
+          const total = document.createElement("span");
+          total.dataset.totalSince = String(activity.startedAt);
+          total.textContent = formatTotal(Date.now() - activity.startedAt);
+          times.append(total);
+        }
+        return times.childNodes.length ? times : null;
+      }
+
+      function doingCommits(commits) {
+        const list = document.createElement("ol");
+        list.className = "doing-commits";
+        (commits || []).forEach((commit) => {
+          const li = document.createElement("li");
+          const msg = document.createElement("span");
+          msg.className = "doing-msg";
+          msg.textContent = commit.message || "Commit";
+          li.append(msg);
+          if (Number.isFinite(commit.at)) {
+            const time = document.createElement("time");
+            time.dateTime = new Date(commit.at).toISOString();
+            time.dataset.epoch = String(commit.at);
+            time.textContent = formatAgo(commit.at);
+            li.append(time);
+          }
+          list.append(li);
+        });
+        return list.childNodes.length ? list : null;
       }
 
       function pluginChips(group) {
@@ -2723,6 +3329,20 @@
         if (byRank) return byRank;
         const stamp = (pr) => new Date(pr.merged_at || pr.updated_at || 0).getTime();
         return stamp(b) - stamp(a);
+      }
+
+      function tickDoing() {
+        const now = Date.now();
+        document.querySelectorAll("[data-working-since]").forEach((node) => {
+          const start = Number(node.dataset.workingSince);
+          if (!Number.isFinite(start)) return;
+          node.textContent = formatWorking(now - start);
+        });
+        document.querySelectorAll("[data-total-since]").forEach((node) => {
+          const start = Number(node.dataset.totalSince);
+          if (!Number.isFinite(start)) return;
+          node.textContent = formatTotal(now - start);
+        });
       }
 
       function tickEtas() {
