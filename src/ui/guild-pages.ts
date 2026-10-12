@@ -1,16 +1,25 @@
 import type { Channel, Guild } from "../types";
 import { el } from "./dom";
 import {
+  AUDIT_ACTIONS,
+  BOOST_TIERS,
   DISCORD_LINKS,
   GUILD_SETTINGS_PAGES,
+  INVITE_EXPIRY,
+  INVITE_USES,
   PERMISSION_GROUPS,
   SYSTEM_FLAGS,
   TIMEOUTS,
+  auditQuery,
+  automodBody,
   bitsOf,
   boostProgress,
+  communityBody,
+  deleteConfirmed,
   expressionSlots,
   formatBits,
   hasPerm,
+  inviteBody,
   memberSignals,
   permissionsIn,
   pruneBody,
@@ -24,6 +33,8 @@ import {
   togglePerm,
   toggleSystemFlag,
   vanityOk,
+  verificationBody,
+  type AutomodKind,
   type MemberSortKey,
   type MemberTableRow,
   type RoleRow,
@@ -43,8 +54,6 @@ export interface GuildSettingsHost {
 }
 
 type Json = Record<string, unknown>;
-
-const PART_ONE = new Set(["profile", "tag", "engagement", "perks", "emoji", "stickers", "soundboard", "members", "roles"]);
 
 export function mountGuildSettings(host: GuildSettingsHost): HTMLElement {
   const layer = el("div", "settings-layer is-in guild-settings");
@@ -80,7 +89,6 @@ export function mountGuildSettings(host: GuildSettingsHost): HTMLElement {
     const query = search.value.trim().toLowerCase();
     let group = "";
     for (const item of GUILD_SETTINGS_PAGES) {
-      if (!PART_ONE.has(item.id)) continue;
       if (query && !item.label.toLowerCase().includes(query)) continue;
       if (item.group !== group) {
         group = item.group;
@@ -125,6 +133,17 @@ const PAGES: Record<string, (host: GuildSettingsHost, guildId: string, stack: HT
   soundboard: paintSounds,
   members: paintMembersPage,
   roles: paintRoles,
+  invites: paintInvites,
+  access: paintAccess,
+  integrations: paintIntegrations,
+  safety: paintSafety,
+  audit: paintAudit,
+  bans: paintBans,
+  automod: paintAutomod,
+  community: paintCommunity,
+  template: paintTemplate,
+  boosts: paintBoosts,
+  delete: paintDelete,
 };
 
 function call<T>(host: GuildSettingsHost, request: Record<string, unknown>): Promise<T> {
@@ -1053,4 +1072,595 @@ function paintRoleMembers(host: GuildSettingsHost, guildId: string, role: Return
       list.append(row);
     }
   }).catch((err) => fail(host, err, "Couldn't load members"));
+}
+
+function asList(value: unknown): Json[] {
+  if (Array.isArray(value)) return value.filter((item): item is Json => Boolean(item) && typeof item === "object");
+  if (value && typeof value === "object") {
+    const bag = value as Json;
+    const nested = bag.items ?? bag.audit_log_entries;
+    if (Array.isArray(nested)) return nested.filter((item): item is Json => Boolean(item) && typeof item === "object");
+  }
+  return [];
+}
+
+function featuresOf(guild: Json): string[] {
+  return Array.isArray(guild.features) ? guild.features.map((item) => String(item)) : [];
+}
+
+function withFeature(features: string[], name: string, on: boolean): string[] {
+  const next = new Set(features);
+  if (on) next.add(name);
+  else next.delete(name);
+  return [...next];
+}
+
+function paintInvites(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Invites", "List the links, pause them, or create a new one."));
+  const box = card(el("p", "hint", "Loading invites…"));
+  stack.append(box);
+  const reload = () => {
+    void Promise.all([
+      call<unknown>(host, { op: "list_guild_invites", guildId }),
+      call<Json>(host, { op: "get_guild", guildId }),
+    ]).then(([invites, guild]) => {
+      box.replaceChildren();
+      const paused = featuresOf(guild).includes("INVITES_DISABLED");
+      const pause = el("input");
+      pause.type = "checkbox";
+      pause.checked = paused;
+      const pauseRow = el("label", "check-row");
+      pauseRow.append(pause, el("span", "", "Pause invites"));
+      const table = el("div", "guild-table");
+      for (const invite of asList(invites)) {
+        const code = textOf(invite.code);
+        const channel = (invite.channel ?? {}) as Json;
+        const line = el("div", "guild-row");
+        line.append(el("span", "", code ? `discord.gg/${code}` : "Invite"), el("span", "", `${numOf(invite.uses)} uses`));
+        const copy = el("button", "ghost", "Copy");
+        copy.type = "button";
+        copy.addEventListener("click", () => void host.copy(code ? `https://discord.gg/${code}` : ""));
+        const remove = el("button", "ghost", "Revoke");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          void call(host, { op: "delete_invite", extra: code })
+            .then(() => reload())
+            .catch((err) => fail(host, err, "Couldn't revoke the invite"));
+        });
+        line.append(copy, remove);
+        if (textOf(channel.name)) line.append(el("span", "", `#${textOf(channel.name)}`));
+        table.append(line);
+      }
+      if (!asList(invites).length) table.append(el("p", "hint", "No invites yet."));
+      const channels = host.channels().filter((channel) => channel.kind === "text" || channel.kind === "announcement" || channel.kind === "voice" || channel.kind === "forum");
+      const channel = channelSelect(channels, channels[0]?.id ?? "", "Invite channel");
+      const expiry = el("select");
+      expiry.setAttribute("aria-label", "Expire after");
+      for (const option of INVITE_EXPIRY) expiry.append(new Option(option.label, String(option.maxAge)));
+      expiry.value = "86400";
+      const uses = el("select");
+      uses.setAttribute("aria-label", "Max uses");
+      for (const option of INVITE_USES) uses.append(new Option(option.label, String(option.maxUses)));
+      const temporary = el("input");
+      temporary.type = "checkbox";
+      const tempRow = el("label", "check-row");
+      tempRow.append(temporary, el("span", "", "Grant temporary membership"));
+      box.append(
+        pauseRow,
+        saveRow("Save pause", (button) => {
+          button.disabled = true;
+          void call(host, { op: "patch_guild", guildId, body: { features: withFeature(featuresOf(guild), "INVITES_DISABLED", pause.checked) } })
+            .then(() => {
+              button.disabled = false;
+              host.toast("Invites", pause.checked ? "Paused." : "Resumed.");
+              reload();
+            })
+            .catch((err) => {
+              button.disabled = false;
+              fail(host, err, "Couldn't pause invites");
+            });
+        }),
+        table,
+        field("Channel", channel),
+        field("Expire after", expiry),
+        field("Max number of uses", uses),
+        tempRow,
+        saveRow("Create invite", (button) => {
+          if (!channel.value) {
+            host.toast("Invite", "Pick a channel.");
+            return;
+          }
+          button.disabled = true;
+          void call<Json>(host, {
+            op: "create_invite",
+            guildId,
+            channelId: channel.value,
+            body: inviteBody({ maxAge: Number(expiry.value), maxUses: Number(uses.value), temporary: temporary.checked }),
+          }).then((created) => {
+            button.disabled = false;
+            const code = textOf(created.code);
+            if (code) void host.copy(`https://discord.gg/${code}`);
+            host.toast("Invite", code ? `discord.gg/${code}` : "Created.");
+            reload();
+          }).catch((err) => {
+            button.disabled = false;
+            fail(host, err, "Couldn't create the invite");
+          });
+        }),
+      );
+    }).catch((err) => fail(host, err, "Couldn't load invites"));
+  };
+  reload();
+}
+
+function paintAccess(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Access", "Invite only, apply to join, discovery, age restriction, and the rules."));
+  const box = card(el("p", "hint", "Loading access…"));
+  stack.append(box);
+  void Promise.all([
+    call<Json>(host, { op: "get_guild", guildId }),
+    call<Json>(host, { op: "get_verification", guildId }).catch(() => ({}) as Json),
+  ]).then(([guild, form]) => {
+    box.replaceChildren();
+    const mode = el("select");
+    mode.setAttribute("aria-label", "How people join");
+    mode.append(new Option("Invite only", "invite"), new Option("Apply to join", "apply"));
+    mode.value = form.enabled === true ? "apply" : "invite";
+    const discover = el("input");
+    discover.type = "checkbox";
+    discover.checked = featuresOf(guild).includes("DISCOVERABLE");
+    const discoverRow = el("label", "check-row");
+    discoverRow.append(discover, el("span", "", "Discoverable"));
+    const age = el("input");
+    age.type = "checkbox";
+    age.checked = numOf(guild.nsfw_level) >= 1;
+    const ageRow = el("label", "check-row");
+    ageRow.append(age, el("span", "", "Age-restricted server"));
+    const description = inputOf(textOf(form.description), "Rules description", 300);
+    const rules = el("textarea");
+    rules.setAttribute("aria-label", "Server rules");
+    const fields = Array.isArray(form.form_fields) ? form.form_fields as Json[] : [];
+    const values = Array.isArray(fields[0]?.values) ? (fields[0].values as unknown[]).map((item) => String(item)) : [];
+    rules.value = values.join("\n");
+    box.append(
+      field("How people join", mode),
+      discoverRow,
+      ageRow,
+      field("Description", description),
+      field("Rules, one per line", rules),
+      saveRow("Save access", (button) => {
+        button.disabled = true;
+        const features = withFeature(featuresOf(guild), "DISCOVERABLE", discover.checked);
+        void call(host, { op: "patch_guild", guildId, body: { features, nsfw_level: age.checked ? 1 : 0 } })
+          .then(() => call(host, {
+            op: "patch_verification",
+            guildId,
+            body: verificationBody({ enabled: mode.value === "apply", rules: rules.value, description: description.value }),
+          }))
+          .then(() => {
+            button.disabled = false;
+            host.toast("Access", "Saved.");
+          })
+          .catch((err) => {
+            button.disabled = false;
+            fail(host, err, "Couldn't save access");
+          });
+      }),
+    );
+  }).catch((err) => fail(host, err, "Couldn't load access"));
+}
+
+function paintIntegrations(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Integrations", "Webhooks, channels this server follows, and bots."));
+  const box = card(el("p", "hint", "Loading integrations…"));
+  stack.append(box);
+  const reload = () => {
+    void Promise.all([
+      call<unknown>(host, { op: "list_webhooks", guildId }).catch(() => []),
+      call<unknown>(host, { op: "list_integrations", guildId }).catch(() => []),
+    ]).then(([webhooks, bots]) => {
+      box.replaceChildren();
+      box.append(el("h3", "", "Webhooks"));
+      const table = el("div", "guild-table");
+      for (const hook of asList(webhooks)) {
+        const line = el("div", "guild-row");
+        line.append(el("span", "", textOf(hook.name) || "Webhook"));
+        const remove = el("button", "ghost", "Delete");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          void call(host, { op: "delete_webhook", extra: textOf(hook.id) })
+            .then(() => reload())
+            .catch((err) => fail(host, err, "Couldn't delete the webhook"));
+        });
+        line.append(remove);
+        table.append(line);
+      }
+      const name = inputOf("Captain Hook", "Webhook name", 80);
+      const channels = host.channels().filter((channel) => channel.kind === "text" || channel.kind === "announcement");
+      const channel = channelSelect(channels, channels[0]?.id ?? "", "Webhook channel");
+      box.append(
+        table,
+        field("Name", name),
+        field("Channel", channel),
+        saveRow("Create webhook", (button) => {
+          if (!channel.value) return;
+          button.disabled = true;
+          void call(host, { op: "create_webhook", guildId, channelId: channel.value, body: { name: name.value.trim().slice(0, 80) || "Captain Hook" } })
+            .then(() => {
+              button.disabled = false;
+              reload();
+            })
+            .catch((err) => {
+              button.disabled = false;
+              fail(host, err, "Couldn't create the webhook");
+            });
+        }),
+      );
+      box.append(el("h3", "", "Followed channels"));
+      const news = host.channels().filter((channel) => channel.kind === "announcement");
+      const newsPick = channelSelect(news, news[0]?.id ?? "", "Announcement channel");
+      const followers = el("div", "guild-table");
+      const loadFollowers = () => {
+        followers.replaceChildren();
+        if (!newsPick.value) {
+          followers.append(el("p", "hint", "No announcement channel to follow from."));
+          return;
+        }
+        void call<unknown>(host, { op: "list_followers", guildId, channelId: newsPick.value }).then((rows) => {
+          followers.replaceChildren();
+          const list = asList(rows);
+          if (!list.length) followers.append(el("p", "hint", "Nothing is following this channel."));
+          for (const row of list) followers.append(el("div", "guild-row", textOf(row.channel_id) || textOf(row.webhook_id) || "Follower"));
+        }).catch((err) => fail(host, err, "Couldn't load followed channels"));
+      };
+      newsPick.addEventListener("change", loadFollowers);
+      box.append(newsPick, followers);
+      loadFollowers();
+      box.append(el("h3", "", "Bots and apps"));
+      const apps = el("div", "guild-table");
+      const list = asList(bots);
+      if (!list.length) apps.append(el("p", "hint", "No bots or app integrations."));
+      for (const bot of list) {
+        const account = (bot.account ?? {}) as Json;
+        const line = el("div", "guild-row");
+        line.append(el("span", "", textOf(bot.name) || textOf(account.name) || textOf(bot.type) || "Integration"));
+        const remove = el("button", "ghost", "Remove");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          void call(host, { op: "delete_integration", guildId, extra: textOf(bot.id) })
+            .then(() => reload())
+            .catch((err) => fail(host, err, "Couldn't remove the integration"));
+        });
+        line.append(remove);
+        apps.append(line);
+      }
+      box.append(apps);
+    }).catch((err) => fail(host, err, "Couldn't load integrations"));
+  };
+  reload();
+}
+
+function paintSafety(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Safety Setup", "Verification, two-factor for moderators, and the content filter. Prune skips members who already have a role."));
+  const box = card(el("p", "hint", "Loading safety…"));
+  stack.append(box);
+  void call<Json>(host, { op: "get_guild", guildId }).then((guild) => {
+    box.replaceChildren();
+    const verification = el("select");
+    verification.setAttribute("aria-label", "Verification level");
+    for (const option of [
+      ["0", "None"],
+      ["1", "Low — verified email"],
+      ["2", "Medium — registered for 5 minutes"],
+      ["3", "High — member for 10 minutes"],
+      ["4", "Highest — verified phone"],
+    ]) verification.append(new Option(option[1], option[0]));
+    verification.value = String(numOf(guild.verification_level));
+    const mfa = el("input");
+    mfa.type = "checkbox";
+    mfa.checked = numOf(guild.mfa_level) >= 1;
+    const mfaRow = el("label", "check-row");
+    mfaRow.append(mfa, el("span", "", "Require 2FA for moderator actions"));
+    const filter = el("select");
+    filter.setAttribute("aria-label", "Explicit content filter");
+    filter.append(new Option("Don't scan", "0"), new Option("Scan members without a role", "1"), new Option("Scan everyone", "2"));
+    filter.value = String(numOf(guild.explicit_content_filter));
+    box.append(
+      field("Verification level", verification),
+      mfaRow,
+      field("Explicit media content filter", filter),
+      el("p", "hint", "Prune only removes members who have no role. Members with a role stay."),
+      saveRow("Save safety", (button) => {
+        button.disabled = true;
+        void call(host, {
+          op: "patch_guild",
+          guildId,
+          body: {
+            verification_level: Number(verification.value),
+            mfa_level: mfa.checked ? 1 : 0,
+            explicit_content_filter: Number(filter.value),
+          },
+        }).then(() => {
+          button.disabled = false;
+          host.toast("Safety", "Saved.");
+        }).catch((err) => {
+          button.disabled = false;
+          fail(host, err, "Couldn't save safety");
+        });
+      }),
+    );
+  }).catch((err) => fail(host, err, "Couldn't load safety"));
+}
+
+function paintAudit(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Audit Log", "Filter by a member and an action."));
+  const box = card();
+  stack.append(box);
+  const user = inputOf("", "User id", 22);
+  user.placeholder = "User id";
+  const action = el("select");
+  action.setAttribute("aria-label", "Action");
+  action.append(new Option("All actions", ""));
+  for (const item of AUDIT_ACTIONS) action.append(new Option(item.label, String(item.id)));
+  const table = el("div", "guild-table");
+  const load = () => {
+    const filter = auditQuery({ userId: user.value.trim(), action: action.value === "" ? null : Number(action.value) });
+    void call<Json>(host, { op: "audit_log", guildId, userId: filter.userId, extra: filter.extra }).then((log) => {
+      table.replaceChildren();
+      const users = new Map(asList(log.users).map((person) => [textOf(person.id), textOf(person.username) || textOf(person.global_name)]));
+      const entries = asList(log.audit_log_entries ?? log);
+      if (!entries.length) table.append(el("p", "hint", "No audit entries for that filter."));
+      for (const entry of entries) {
+        const who = users.get(textOf(entry.user_id)) || textOf(entry.user_id) || "Someone";
+        const line = el("div", "guild-row");
+        line.append(el("span", "", who), el("span", "", AUDIT_ACTIONS.find((item) => item.id === numOf(entry.action_type))?.label ?? "Action"));
+        if (textOf(entry.reason)) line.append(el("span", "", textOf(entry.reason)));
+        table.append(line);
+      }
+    }).catch((err) => fail(host, err, "Couldn't load the audit log"));
+  };
+  action.addEventListener("change", load);
+  box.append(field("User", user), field("Action", action), saveRow("Filter", () => load()), table);
+  load();
+}
+
+function paintBans(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Bans", "People who cannot rejoin until the ban is removed."));
+  const box = card(el("p", "hint", "Loading bans…"));
+  stack.append(box);
+  const reload = () => {
+    void call<unknown>(host, { op: "list_bans", guildId }).then((bans) => {
+      box.replaceChildren();
+      const list = asList(bans);
+      if (!list.length) box.append(el("p", "hint", "No bans."));
+      const table = el("div", "guild-table");
+      for (const ban of list) {
+        const person = (ban.user ?? {}) as Json;
+        const id = textOf(person.id);
+        const line = el("div", "guild-row");
+        line.append(el("span", "", textOf(person.global_name) || textOf(person.username) || id), el("span", "", textOf(ban.reason) || "No reason"));
+        const remove = el("button", "ghost", "Unban");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          void call(host, { op: "unban", guildId, userId: id })
+            .then(() => reload())
+            .catch((err) => fail(host, err, "Couldn't unban"));
+        });
+        line.append(remove);
+        table.append(line);
+      }
+      box.append(table);
+    }).catch((err) => fail(host, err, "Couldn't load bans"));
+  };
+  reload();
+}
+
+function paintAutomod(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("AutoMod", "Mention spam, spam content, flagged words, and your own word list."));
+  const box = card(el("p", "hint", "Loading rules…"));
+  stack.append(box);
+  const reload = () => {
+    void call<unknown>(host, { op: "list_automod", guildId }).then((rules) => {
+      box.replaceChildren();
+      const table = el("div", "guild-table");
+      for (const rule of asList(rules)) {
+        const line = el("div", "guild-row");
+        const kind = numOf(rule.trigger_type);
+        const kindName = kind === 5 ? "Mentions" : kind === 3 ? "Spam" : kind === 4 ? "Flagged words" : kind === 1 ? "Custom words" : "Rule";
+        line.append(el("span", "", textOf(rule.name) || kindName), el("span", "", rule.enabled === false ? "Off" : "On"));
+        const remove = el("button", "ghost", "Delete");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          void call(host, { op: "delete_automod", guildId, extra: textOf(rule.id) })
+            .then(() => reload())
+            .catch((err) => fail(host, err, "Couldn't delete the rule"));
+        });
+        line.append(remove);
+        table.append(line);
+      }
+      const kind = el("select");
+      kind.setAttribute("aria-label", "Rule kind");
+      for (const option of [
+        ["mention", "Mention spam"],
+        ["spam", "Spam content"],
+        ["preset", "Flagged words"],
+        ["custom", "Custom words"],
+      ] as const) kind.append(new Option(option[1], option[0]));
+      const name = inputOf("Rule", "Rule name", 100);
+      const words = inputOf("", "Custom words", 200);
+      words.placeholder = "comma separated";
+      const mentions = inputOf("5", "Mention limit", 2);
+      const channels = host.channels().filter((channel) => channel.kind === "text" || channel.kind === "announcement");
+      const alert = channelSelect(channels, "", "Alert channel");
+      box.append(
+        table,
+        field("Kind", kind),
+        field("Name", name),
+        field("Custom words", words),
+        field("Mention limit", mentions),
+        field("Alert channel", alert),
+        saveRow("Create rule", (button) => {
+          const body = automodBody({
+            kind: kind.value as AutomodKind,
+            name: name.value,
+            words: words.value.split(","),
+            mentionLimit: Number(mentions.value) || 5,
+            alertChannelId: alert.value || null,
+          });
+          if (!body) {
+            host.toast("AutoMod", "Custom words need at least one word.");
+            return;
+          }
+          button.disabled = true;
+          void call(host, { op: "create_automod", guildId, body })
+            .then(() => {
+              button.disabled = false;
+              reload();
+            })
+            .catch((err) => {
+              button.disabled = false;
+              fail(host, err, "Couldn't create the rule");
+            });
+        }),
+      );
+    }).catch((err) => fail(host, err, "Couldn't load AutoMod"));
+  };
+  reload();
+}
+
+function paintCommunity(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Enable Community", "Pick the rules channel and the updates channel. Discord turns community features on from there."));
+  const box = card(el("p", "hint", "Loading…"));
+  stack.append(box);
+  void call<Json>(host, { op: "get_guild", guildId }).then((guild) => {
+    box.replaceChildren();
+    const on = featuresOf(guild).includes("COMMUNITY");
+    const texts = host.channels().filter((channel) => channel.kind === "text" || channel.kind === "announcement");
+    const rules = channelSelect(texts, textOf(guild.rules_channel_id), "Rules channel");
+    const updates = channelSelect(texts, textOf(guild.public_updates_channel_id), "Updates channel");
+    box.append(
+      el("p", "", on ? "Community is on." : "Community is off."),
+      field("Rules channel", rules),
+      field("Community updates channel", updates),
+      saveRow(on ? "Update community" : "Enable community", (button) => {
+        const body = communityBody({ rulesChannelId: rules.value, updatesChannelId: updates.value, features: featuresOf(guild) });
+        if (!body) {
+          host.toast("Community", "Pick a rules channel and an updates channel.");
+          return;
+        }
+        button.disabled = true;
+        void call(host, { op: "patch_guild", guildId, body })
+          .then(() => {
+            button.disabled = false;
+            host.toast("Community", "Saved.");
+          })
+          .catch((err) => {
+            button.disabled = false;
+            fail(host, err, "Couldn't enable community");
+          });
+      }),
+    );
+  }).catch((err) => fail(host, err, "Couldn't load community"));
+}
+
+function paintTemplate(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Server Template", "Save this server's channels and roles as a template other people can use."));
+  const box = card(el("p", "hint", "Loading templates…"));
+  stack.append(box);
+  const reload = () => {
+    void call<unknown>(host, { op: "list_templates", guildId }).then((templates) => {
+      box.replaceChildren();
+      const table = el("div", "guild-table");
+      for (const template of asList(templates)) {
+        const code = textOf(template.code);
+        const line = el("div", "guild-row");
+        line.append(el("span", "", textOf(template.name) || "Template"));
+        const copy = el("button", "ghost", "Copy link");
+        copy.type = "button";
+        copy.addEventListener("click", () => void host.copy(code ? `https://discord.new/${code}` : ""));
+        line.append(copy);
+        table.append(line);
+      }
+      if (!asList(templates).length) table.append(el("p", "hint", "No template yet."));
+      const name = inputOf(host.guild().name, "Template name", 100);
+      const description = inputOf("", "Template description", 120);
+      box.append(
+        table,
+        field("Name", name),
+        field("Description", description),
+        saveRow("Create template", (button) => {
+          button.disabled = true;
+          void call(host, { op: "create_template", guildId, body: { name: name.value.trim().slice(0, 100) || host.guild().name, description: description.value.slice(0, 120) } })
+            .then(() => {
+              button.disabled = false;
+              host.toast("Template", "Created.");
+              reload();
+            })
+            .catch((err) => {
+              button.disabled = false;
+              fail(host, err, "Couldn't create the template");
+            });
+        }),
+      );
+    }).catch((err) => fail(host, err, "Couldn't load templates"));
+  };
+  reload();
+}
+
+function paintBoosts(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Boosts", "Levels and perks. Buying a boost stays on Discord."));
+  const box = card(el("p", "hint", "Loading boosts…"));
+  stack.append(box);
+  void call<Json>(host, { op: "get_guild", guildId }).then((guild) => {
+    box.replaceChildren();
+    const count = numOf(guild.premium_subscription_count);
+    const progress = boostProgress(count);
+    box.append(el("p", "", `Level ${progress.level} · ${count} boosts`));
+    const table = el("div", "guild-table");
+    const tiers = [{ level: 0, need: 0 }, ...BOOST_TIERS.map((tier) => ({ level: tier.level, need: tier.need }))];
+    for (const tier of tiers) {
+      const slots = expressionSlots(tier.level);
+      const line = el("div", "guild-row");
+      line.append(
+        el("span", "", tier.level === 0 ? "No level" : `Level ${tier.level}`),
+        el("span", "", tier.need ? `${tier.need} boosts` : "Start"),
+        el("span", "", `${slots.emoji} emoji · ${slots.sticker} stickers · ${slots.sound} sounds`),
+      );
+      table.append(line);
+    }
+    box.append(
+      table,
+      el("p", "hint", "Level 1 adds an invite background. Level 2 adds a banner. Level 3 adds a vanity URL and an animated icon."),
+      linkButton("Boost this server on Discord", DISCORD_LINKS.boost),
+    );
+  }).catch((err) => fail(host, err, "Couldn't load boosts"));
+}
+
+function paintDelete(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
+  stack.append(heading("Delete Server", "Type the server name to confirm. This cannot be undone."));
+  const box = card();
+  const typed = inputOf("", "Server name", 100);
+  typed.placeholder = host.guild().name;
+  box.append(
+    field("Server name", typed),
+    saveRow("Delete server", (button) => {
+      if (!deleteConfirmed(typed.value, host.guild().name)) {
+        host.toast("Delete server", "Type the server name exactly.");
+        return;
+      }
+      if (!window.confirm(`Delete ${host.guild().name}?`)) return;
+      button.disabled = true;
+      void call(host, { op: "delete_guild", guildId })
+        .then(() => {
+          host.toast("Delete server", `${host.guild().name} was deleted.`);
+          host.close();
+          host.refresh();
+        })
+        .catch((err) => {
+          button.disabled = false;
+          fail(host, err, "Couldn't delete the server");
+        });
+    }),
+  );
+  stack.append(box);
 }
