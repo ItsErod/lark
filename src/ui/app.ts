@@ -41,6 +41,8 @@ import { hiddenIds, toggleHidden } from "../pack/hidden";
 import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
 import { orderDms } from "../pack/pin-dms";
 import { cleanPatterns, patternHit, patternsFor, shouldPatternNotify } from "../pack/patterns";
+import { queueAcks, readAllIds, READ_ALL_GAP_MS, takeAck, type ReadTarget } from "../pack/read-all";
+import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
 import { backoff, cancelSend, queueSend, takeDue, type ScheduledSend } from "../pack/schedule";
@@ -276,6 +278,7 @@ import {
   withMoveTargets,
 } from "../server-model";
 import { mountChatPluginPanel } from "./chat-plugin-panels";
+import { renderWhois } from "./whois-card";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
 import { mountGuildSettings } from "./guild-pages";
 import { mountChannelEditor, mountCreateChannel, mountInviteModal } from "./channel-settings";
@@ -514,6 +517,11 @@ class LarkApp {
   private gameToggleAt = 0;
   private rebindingGame: string | null = null;
   private keywordLast: Record<string, number> = {};
+  private readAllQueue: { channelId: string; messageId: string }[] = [];
+  private readAllTimer = 0;
+  private whoisUser = "";
+  private whoisHide = 0;
+  private whoisCache = new Map<string, { joinedAt?: string; mutuals: string[]; at: number }>();
   private sendingScheduled = false;
   private scheduling = false;
   private bookmarksOpen = false;
@@ -3418,6 +3426,7 @@ class LarkApp {
     const parityButtons = parityHeaderButtons();
     const headerButtons = [search, find, pin, ...parityButtons, saved, split, theme, members, bell];
     actions.append(...headerButtons);
+    if (this.hookOn("readAll")) actions.append(this.readAllButton());
     const help = el("button", "icon-button");
     help.type = "button";
     help.title = "Help";
@@ -3785,6 +3794,7 @@ class LarkApp {
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
       this.bindMessageMenu(node, message);
+      if (this.hookOn("userWhois")) this.watchMessageWhois(node, message);
       parent.append(node);
       lastDay = day;
       previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
@@ -4274,6 +4284,10 @@ class LarkApp {
     if (line) copy.append(el("span", "", line));
     row.append(wrap, copy);
     row.addEventListener("click", () => this.openProfile(person));
+    if (this.hookOn("userWhois")) {
+      row.addEventListener("mouseenter", (event) => this.showWhois(person, event.clientX, event.clientY));
+      row.addEventListener("mouseleave", () => this.hideWhoisSoon());
+    }
     return row;
   }
 
@@ -10956,6 +10970,8 @@ class LarkApp {
           ...this.messageExtras(message),
           clock: this.timeClock(),
         }));
+        const last = body.lastElementChild;
+        if (last instanceof HTMLElement && this.hookOn("userWhois")) this.watchMessageWhois(last, message);
       }
     }
     this.splitPane.append(head, body);
@@ -12578,6 +12594,37 @@ class LarkApp {
         this.paintChannels();
         if (this.settings) this.renderSettings();
       },
+      readAllMuted: this.pack.readAllMuted,
+      readAllDms: this.pack.readAllDms,
+      setReadAllMuted: (value) => {
+        this.pack.readAllMuted = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      setReadAllDms: (value) => {
+        this.pack.readAllDms = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      readEverything: () => this.readEverything(),
+      whoisAge: this.pack.whoisAge,
+      whoisMutuals: this.pack.whoisMutuals,
+      whoisJoin: this.pack.whoisJoin,
+      setWhoisAge: (value) => {
+        this.pack.whoisAge = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      setWhoisMutuals: (value) => {
+        this.pack.whoisMutuals = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      setWhoisJoin: (value) => {
+        this.pack.whoisJoin = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
     });
   }
 
@@ -14132,6 +14179,149 @@ class LarkApp {
     card.append(save, cancel);
     overlay.append(card);
     this.root.append(overlay);
+  }
+
+  private readAllButton(): HTMLButtonElement {
+    const button = el("button", "text-button", "Read all");
+    button.type = "button";
+    button.setAttribute("aria-label", "Mark every server read");
+    button.addEventListener("click", () => this.readEverything());
+    return button;
+  }
+
+  private readEverything() {
+    if (!this.hookOn("readAll")) return;
+    const targets: ReadTarget[] = [];
+    const push = (channel: Channel, guildId: string | null, direct: boolean) => {
+      const pending = (this.unread[channel.id] ?? 0) + (this.mentions[channel.id] ?? 0) + (this.behind[channel.id] ? 1 : 0);
+      targets.push({
+        id: channel.id,
+        kind: channel.kind,
+        direct,
+        muted: this.levelFor(guildId, channel.id) === "mute",
+        pending,
+      });
+    };
+    for (const guild of this.guilds()) {
+      for (const channel of this.channelsOf(guild.id)) push(channel, guild.id, false);
+    }
+    for (const dm of this.dms()) push(dm, null, true);
+    const ids = readAllIds(targets, { includeMuted: this.pack.readAllMuted, includeDms: this.pack.readAllDms });
+    if (!ids.length) {
+      this.toast("Read all", "Nothing unread.");
+      return;
+    }
+    const acks: { channelId: string; messageId: string }[] = [];
+    for (const id of ids) {
+      this.localUnread[id] = 0;
+      this.localMentions[id] = 0;
+      const last = this.pages[id]?.at(-1)?.id ?? this.channelById(id)?.lastMessageId ?? this.markers[id]?.lastMessageId ?? "";
+      this.markers[id] = { lastMessageId: last, mentionCount: 0 };
+      this.behind[id] = false;
+      this.refreshChannelBadge(id);
+      if (last) acks.push({ channelId: id, messageId: last });
+    }
+    this.readAllQueue = queueAcks(this.readAllQueue, acks);
+    this.badgeSent = -1;
+    this.syncBadge();
+    this.paint();
+    this.toast("Read all", `${ids.length} channel${ids.length === 1 ? "" : "s"} marked read.`);
+    this.pumpReadAll();
+  }
+
+  private pumpReadAll() {
+    if (this.readAllTimer || this.demo) return;
+    const step = () => {
+      const picked = takeAck(this.readAllQueue);
+      this.readAllQueue = picked.rest;
+      if (!picked.next) {
+        this.readAllTimer = 0;
+        return;
+      }
+      void invoke("ack_message", { channelId: picked.next.channelId, messageId: picked.next.messageId }).catch(() => undefined);
+      this.readAllTimer = window.setTimeout(step, READ_ALL_GAP_MS);
+    };
+    step();
+  }
+
+  private watchMessageWhois(node: HTMLElement, message: RawMessage) {
+    const person: Person = {
+      id: message.authorId,
+      name: message.authorName,
+      avatarUrl: message.authorAvatar,
+      bot: message.authorBot,
+    };
+    for (const target of node.querySelectorAll(".author, .avatar")) {
+      target.addEventListener("mouseenter", (event) => {
+        const mouse = event as MouseEvent;
+        this.showWhois(person, mouse.clientX, mouse.clientY);
+      });
+      target.addEventListener("mouseleave", () => this.hideWhoisSoon());
+    }
+  }
+
+  private showWhois(person: Person, x: number, y: number) {
+    if (!this.hookOn("userWhois") || this.streamerOn() || !person.id) return;
+    window.clearTimeout(this.whoisHide);
+    this.whoisUser = person.id;
+    const cached = this.whoisCache.get(person.id);
+    this.paintWhois(this.maskText(person.name), this.whoisText(person.id, cached?.joinedAt, cached?.mutuals ?? this.mutualsFor(person.id)), x, y);
+    if (!cached || Date.now() - cached.at > 5 * 60_000) void this.loadWhois(person.id, x, y);
+  }
+
+  private hideWhoisSoon() {
+    window.clearTimeout(this.whoisHide);
+    this.whoisHide = window.setTimeout(() => this.clearWhois(), 180);
+  }
+
+  private whoisText(userId: string, joinedAt?: string, mutuals: string[] = []): string[] {
+    return whoisLines({
+      userId,
+      now: Date.now(),
+      joinedAt,
+      mutuals,
+      showAge: this.pack.whoisAge,
+      showMutuals: this.pack.whoisMutuals,
+      showJoin: this.pack.whoisJoin,
+    });
+  }
+
+  private mutualsFor(userId: string, profileNames: string[] = []): string[] {
+    return mutualNames(userId, this.guilds().map((guild) => ({
+      name: guild.name,
+      memberIds: (this.membersByGuild[guild.id] ?? []).map((member) => member.id),
+    })), profileNames);
+  }
+
+  private async loadWhois(userId: string, x: number, y: number) {
+    if (this.demo || !isTauri()) return;
+    try {
+      const profile = await invoke<WireProfile>("fetch_profile", { userId, guildId: this.guildId ?? "" });
+      if (!profile || profile.id !== userId) return;
+      const names = (profile.mutualGuilds ?? [])
+        .map((guild) => this.guilds().find((item) => item.id === guild.id)?.name)
+        .filter((name): name is string => Boolean(name));
+      const mutuals = this.mutualsFor(userId, names);
+      this.whoisCache.set(userId, { joinedAt: profile.joinedAt, mutuals, at: Date.now() });
+      if (this.whoisUser === userId) this.paintWhois(this.maskText(profile.name || "User"), this.whoisText(userId, profile.joinedAt, mutuals), x, y);
+    } catch {
+      /* The card still shows the account age from the id. */
+    }
+  }
+
+  private paintWhois(title: string, lines: string[], x: number, y: number) {
+    let card = document.getElementById("lark-whois");
+    if (!card) {
+      card = el("div", "whois-card");
+      card.id = "lark-whois";
+      this.root.append(card);
+    }
+    renderWhois(card, title, lines, x, y);
+  }
+
+  private clearWhois() {
+    this.whoisUser = "";
+    document.getElementById("lark-whois")?.remove();
   }
 }
 

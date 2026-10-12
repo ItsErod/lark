@@ -1256,3 +1256,10 @@ button.guild-row:hover { background: var(--hover); }
 .voice-stage.is-focus { display: grid; }
 .lightbox img.is-zoomable { cursor: zoom-in; transform-origin: center center; }
 .lightbox img.is-zoomed { cursor: zoom-out; max-width: none; max-height: none; }
+.whois-card {
+  position: fixed; z-index: 40; width: 260px; display: grid; gap: 4px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28); pointer-events: none;
+}
+.whois-card strong { font-size: 13px; }
+.whois-card p { margin: 0; color: var(--muted); font-size: 12px; }

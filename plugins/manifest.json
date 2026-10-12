@@ -184,6 +184,16 @@
       "id": "image-zoom",
       "name": "Image zoom",
       "description": "Click or scroll an opened image to zoom. The max size is a setting."
+    },
+    {
+      "id": "read-all",
+      "name": "Read all",
+      "description": "Mark every unread channel read in one click. Muted channels stay unless you include them."
+    },
+    {
+      "id": "user-whois",
+      "name": "User whois",
+      "description": "Hover a person for account age, mutual servers, and the date they joined."
     }
   ]
 }

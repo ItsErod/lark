@@ -72,6 +72,8 @@ export interface PluginHooks {
   cleanLinks: boolean;
   spoilerMedia: boolean;
   hideBlocked: boolean;
+  readAll: boolean;
+  userWhois: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -124,6 +126,8 @@ export function emptyHooks(): PluginHooks {
     cleanLinks: false,
     spoilerMedia: false,
     hideBlocked: false,
+    readAll: false,
+    userWhois: false,
   };
 }
 
@@ -328,6 +332,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.cleanLinks = record.cleanLinks === true;
   hooks.spoilerMedia = record.spoilerMedia === true;
   hooks.hideBlocked = record.hideBlocked === true;
+  hooks.readAll = record.readAll === true;
+  hooks.userWhois = record.userWhois === true;
   return hooks;
 }
 
