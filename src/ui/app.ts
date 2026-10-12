@@ -3117,7 +3117,7 @@ class LarkApp {
     const panel = el("section", session ? "voice-panel" : "voice-panel is-resting");
     if (!session) {
       panel.setAttribute("aria-label", "Mute and deafen");
-      panel.append(this.userAudioRow(), this.diagnosticsButton());
+      panel.append(this.userAudioRow());
       return panel;
     }
     const status = session.status ?? "connecting";
@@ -3147,6 +3147,7 @@ class LarkApp {
     if (this.config.voice.noise_suppression) noise.classList.add("is-on");
     noise.title = "Lark noise suppression (RNNoise)";
     const hangup = this.iconButton("Disconnect", paths.hangup, () => this.leaveVoice(), false);
+    const diagnostics = this.iconButton("Copy voice diagnostics", paths.copy, () => void this.copyVoiceDiagnostics(), false);
     hangup.classList.add("is-disconnect");
     const strip = this.iconButton(
       this.stripOpen ? "Hide call strip" : "Show call strip",
@@ -3164,11 +3165,12 @@ class LarkApp {
       this.deviceChevron("Input device", () => this.toggleDeviceMenu("input")),
       this.iconButton(session.deafened ? "Undeafen" : "Deafen", session.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session.deafened)),
       this.deviceChevron("Output device", () => this.toggleDeviceMenu("output")),
+      diagnostics,
       hangup,
       el("span", "spacer"),
       strip,
     );
-    panel.append(line, details, actions, this.diagnosticsButton());
+    panel.append(line, details, actions);
     if (this.deviceMenu) panel.append(this.deviceMenuPop());
     return panel;
   }
@@ -3189,7 +3191,7 @@ class LarkApp {
       this.iconButton(deafened ? "Undeafen" : "Deafen", deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), deafened),
       this.deviceChevron("Output device", () => this.toggleDeviceMenu("output")),
     );
-    row.append(micSlot, deafSlot);
+    row.append(micSlot, deafSlot, this.iconButton("Copy voice diagnostics", paths.copy, () => void this.copyVoiceDiagnostics(), false));
     if (!this.voice && this.deviceMenu) row.append(this.deviceMenuPop());
     return row;
   }

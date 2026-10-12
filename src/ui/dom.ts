@@ -51,6 +51,7 @@ export const paths = {
   paperclip: "M8 12.5 14.5 6a3 3 0 0 1 4.2 4.2l-8 8a4.5 4.5 0 0 1-6.4-6.4l7.5-7.5",
   film: "M4 4h16v16H4zM8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4",
   panels: "M4 5h16v14H4zM9 5v14M15 5v14",
+  copy: "M8 8h11v11H8zM5 16V5h11",
   message: "M5 6h14v9H8l-3 3V6z",
   mic: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6",
   micOff: "M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V6a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 11M12 18v3M9 21h6M3 3l18 18",
