@@ -1,23 +1,26 @@
 /* Voice panel, call tiles, speaking ring, and the floating control bar.
-   The bar stays inside the call stage so the text chat underneath stays usable. */
+   The bar stays inside the call stage so the text chat underneath stays usable.
+   Speaking is a static edge. No spinning ring, no drop shadow. */
 
 #app .voice-panel:not(.is-resting) {
-  margin: var(--space-2);
-  padding: var(--space-2) var(--space-2) var(--space-1);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-success) 12%, var(--color-bg));
-  border: 1px solid color-mix(in srgb, var(--color-success) 36%, var(--color-border));
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--color-border);
 }
 
 #app .voice-panel-name {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   letter-spacing: -0.011em;
+  color: var(--color-fg);
 }
 
 #app .voice-panel-details {
   margin-top: 2px;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 #app .voice-panel-actions {
@@ -26,9 +29,9 @@
 }
 
 #app .voice-panel .icon-button {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--color-fg-muted);
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
@@ -45,34 +48,35 @@
 }
 
 #app .voice-panel .icon-button.is-live {
-  color: var(--color-speak);
-  background: color-mix(in srgb, var(--color-speak) 16%, transparent);
+  color: var(--color-fg);
+  background: color-mix(in srgb, var(--color-fg) 10%, transparent);
 }
 
 #app .voice-panel .icon-button.is-disconnect,
 #app .call-button.is-disconnect {
-  background: var(--color-danger);
-  color: white;
+  background: var(--color-fg);
+  color: var(--color-bg);
 }
 
 #app .voice-panel .icon-button.is-hot,
 #app .call-button.is-hot {
-  background: var(--color-danger);
-  color: white;
+  background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+  color: var(--color-danger);
 }
 
 #app .voice-user {
-  border-radius: var(--radius-sm);
-  min-height: 28px;
+  border-radius: var(--radius-xs);
+  min-height: 24px;
 }
 
 #app .voice-user.is-speaking .voice-user-name {
-  color: var(--color-speak);
+  color: var(--color-fg);
 }
 
 #app .call-strip {
-  height: 40px;
-  background: var(--color-bg-muted);
+  height: 36px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
 }
 
 #app .voice-stage {
@@ -92,96 +96,103 @@
 
 #app .voice-grid {
   gap: var(--space-2);
-  padding: var(--space-3);
-  padding-bottom: 76px;
-}
-
-#app .call-split .voice-grid {
+  padding: var(--space-2);
   padding-bottom: 72px;
 }
 
+#app .call-split .voice-grid {
+  padding-bottom: 68px;
+}
+
 #app .voice-tile {
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-subtle) 88%, var(--color-bg));
+  background: var(--color-bg);
 }
 
 #app .voice-tile.is-speaking {
-  border-color: color-mix(in srgb, var(--color-speak) 70%, var(--color-border));
+  border-color: var(--color-border);
+  box-shadow: inset 2px 0 0 var(--color-fg);
 }
 
 #app .voice-tile-name,
 #app .voice-tile-badges {
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  border-radius: var(--radius-xs);
+  background: transparent;
   font-weight: var(--weight-medium);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 #app .voice-bar {
   position: absolute;
   left: 50%;
-  bottom: var(--space-3);
+  bottom: var(--space-2);
   transform: translateX(-50%);
   width: max-content;
-  max-width: calc(100% - var(--space-5));
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border-radius: var(--radius-full);
+  max-width: calc(100% - var(--space-4));
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-subtle) 94%, var(--color-bg));
-  box-shadow: var(--elev-2);
+  background: var(--color-bg);
+  box-shadow: none;
   z-index: 3;
 }
 
 #app .call-button {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--color-fg) 8%, transparent);
-  transition: background-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
 
 #app .call-button svg {
-  width: var(--icon-md);
-  height: var(--icon-md);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 #app .call-button:hover {
-  background: color-mix(in srgb, var(--color-fg) 14%, transparent);
+  background: color-mix(in srgb, var(--color-fg) 8%, transparent);
 }
 
 #app .call-button:active {
-  transform: scale(0.96);
+  transform: none;
 }
 
 #app .call-button.is-live {
-  color: var(--color-speak);
-  background: color-mix(in srgb, var(--color-speak) 18%, transparent);
+  color: var(--color-fg);
+  background: color-mix(in srgb, var(--color-fg) 10%, transparent);
+}
+
+#app .is-speaking .speak-ring-spin {
+  animation: none;
+  opacity: 1;
+  background: var(--color-fg);
 }
 
 #app .voice-pop,
 #app .voice-menu,
 #app .voice-gear {
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-2);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
 }
 
 #app .stage-board {
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-2);
 }
 
 #app .stage-row,
 #app .stage-person {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 #app .stage-person.is-speaking {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-speak) 70%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-fg);
 }
 
 #app .call-pip {
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-2);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
 }
