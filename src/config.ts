@@ -1,4 +1,5 @@
 import { parseCompressMode } from "./clips";
+import { readDisplayFlags } from "./display-flags";
 import { sanitizeGames } from "./game";
 import { sanitizeClipFps, sanitizeClipResolution } from "./clip";
 import { snapShareFps, snapShareHeight } from "./share";
@@ -78,6 +79,11 @@ export function defaultConfig(): AppConfig {
     games: {},
     privacy: { streamer: false, streamer_auto: false },
     accents: {},
+    display: {
+      developer_mode: false,
+      show_embeds: true,
+      show_spoilers: false,
+    },
   };
 }
 
@@ -159,6 +165,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
   if (raw.clips && "resolution" in raw.clips) base.clips.resolution = sanitizeClipResolution(raw.clips.resolution);
   if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
   if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
+  base.display = readDisplayFlags(raw);
   if (raw.desktop) {
     if (typeof raw.desktop.minimize_to_tray === "boolean") base.desktop.minimize_to_tray = raw.desktop.minimize_to_tray;
     if (typeof raw.desktop.autostart === "boolean") base.desktop.autostart = raw.desktop.autostart;

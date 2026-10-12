@@ -29,6 +29,9 @@ pub struct Config {
     pub soundboard: Soundboard,
     pub privacy: Privacy,
     pub accents: BTreeMap<String, String>,
+    /// Developer Mode, embeds, and spoiler reveal. Missing fields keep these defaults.
+    /// Unknown fields are ignored so a newer client can still save.
+    pub display: DisplayFlags,
 }
 
 impl Default for Config {
@@ -45,6 +48,7 @@ impl Default for Config {
             soundboard: Soundboard::default(),
             privacy: Privacy::default(),
             accents: BTreeMap::new(),
+            display: DisplayFlags::default(),
         }
     }
 }
@@ -533,6 +537,32 @@ impl Default for SoundClip {
             path: String::new(),
             hotkey: String::new(),
             volume: 100,
+        }
+    }
+}
+
+/// Flags the message list and menus read.
+/// `show_embeds` defaults on. The other two default off.
+/// Unknown fields are ignored so save_config keeps working.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DisplayFlags {
+    pub developer_mode: bool,
+    #[serde(default = "default_show_embeds")]
+    pub show_embeds: bool,
+    pub show_spoilers: bool,
+}
+
+fn default_show_embeds() -> bool {
+    true
+}
+
+impl Default for DisplayFlags {
+    fn default() -> Self {
+        Self {
+            developer_mode: false,
+            show_embeds: true,
+            show_spoilers: false,
         }
     }
 }
@@ -1476,6 +1506,34 @@ hotkey = "!!!"
     #[test]
     fn unknown_appearance_field_is_rejected() {
         assert!(parse_config("appearance.sparkles = true\n").is_err());
+    }
+
+    #[test]
+    fn display_flags_accept_unknown_and_missing_fields() {
+        let missing = parse_config("").unwrap();
+        assert!(!missing.display.developer_mode);
+        assert!(missing.display.show_embeds);
+        assert!(!missing.display.show_spoilers);
+
+        let partial = parse_config("[display]\ndeveloper_mode = true\nshow_future = true\n").unwrap();
+        assert!(partial.display.developer_mode);
+        assert!(partial.display.show_embeds);
+        assert!(!partial.display.show_spoilers);
+
+        let hidden = parse_config("[display]\nshow_embeds = false\nshow_spoilers = true\n").unwrap();
+        assert!(!hidden.display.show_embeds);
+        assert!(hidden.display.show_spoilers);
+
+        let json: Config = serde_json::from_value(serde_json::json!({
+            "display": { "developer_mode": true, "show_later": 1 }
+        }))
+        .unwrap();
+        assert!(json.display.developer_mode);
+        assert!(json.display.show_embeds);
+        let saved = prepare_saved_config(json).unwrap();
+        assert!(saved.display.developer_mode);
+        assert!(saved.display.show_embeds);
+        assert!(!saved.display.show_spoilers);
     }
 
     #[test]
