@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "store/**"
+      - "scripts/build-store.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,8 +30,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Assemble the progress page and the store
+        run: |
+          rm -rf site
+          mkdir -p site
+          cp -a docs/. site/
+          node scripts/build-store.mjs --publish site
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
