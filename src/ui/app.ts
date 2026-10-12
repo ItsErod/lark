@@ -52,6 +52,7 @@ import { composerCount } from "../pack/words";
 import { replyChain } from "../pack/chain";
 import { connectionLabel, connectionLines, type ConnectionLine } from "../pack/connections";
 import { displayName, setLocalNick } from "../pack/nicks";
+import { folderTitle, orderUnreadFirst, peekNames, summarizeFolder, type FolderServer } from "../pack/folder-extra";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
@@ -2175,7 +2176,10 @@ class LarkApp {
   private railShapeSig(): string {
     const guilds = this.guilds().map((guild) => `${guild.id}:${guild.name}:${guild.iconUrl ?? ""}:${this.guildMuted(guild.id) ? "m" : ""}`).join(",");
     const folders = this.folders.map((folder) => `${folder.id ?? ""}:${folder.name ?? ""}:${folder.color ?? ""}:${folder.id ? this.folderOpen[folder.id] !== false : true}:${folder.guildIds.join(".")}`).join(";");
-    return `${guilds}|${folders}`;
+    const hot = this.hookOn("betterFolders") && this.pack.folderUnreadFirst
+      ? this.guilds().filter((guild) => this.folderHot(guild.id)).map((guild) => guild.id).join(".")
+      : "";
+    return `${guilds}|${folders}|${hot}`;
   }
 
   private railBadgeStamp(): string {
@@ -2214,6 +2218,7 @@ class LarkApp {
       });
       button.classList.toggle("has-unread", badge.mentions > 0 || badge.unread);
       this.setBadge(button, badge.mentions);
+      if (this.hookOn("folderStats") && folder.id) button.title = folderTitle(this.folderSummary(folder.id, folder.name?.trim() || "Folder", folder.guildIds));
     }
   }
 
@@ -2290,7 +2295,15 @@ class LarkApp {
     const button = el("button", `server-button folder-button${open ? " is-open" : ""}`);
     button.type = "button";
     button.dataset.folder = entry.id;
-    button.title = entry.name;
+    const ordered = this.hookOn("betterFolders") && this.pack.folderUnreadFirst
+      ? orderUnreadFirst(entry.guildIds, (guildId) => this.folderHot(guildId))
+      : entry.guildIds;
+    const summary = this.folderSummary(entry.id, entry.name, entry.guildIds);
+    button.title = this.hookOn("folderStats")
+      ? folderTitle(summary)
+      : this.hookOn("betterFolders")
+        ? `${entry.name}: ${peekNames(ordered.map((guildId) => this.folderServer(guildId)))}`
+        : entry.name;
     button.setAttribute("aria-label", `${entry.name} folder`);
     button.setAttribute("aria-expanded", open ? "true" : "false");
     const face = el("span", "server-face");
@@ -2309,7 +2322,7 @@ class LarkApp {
     });
     wrap.append(button);
     if (open) {
-      for (const guildId of entry.guildIds) this.appendServerButton(wrap, guildId, entry.id);
+      for (const guildId of ordered) this.appendServerButton(wrap, guildId, entry.id);
     }
     parent.append(wrap);
   }
@@ -2652,6 +2665,28 @@ class LarkApp {
       }
     }
     return { count, mentions };
+  }
+
+  private folderHot(guildId: string): boolean {
+    if (this.guildMuted(guildId)) return false;
+    const badge = this.guildBadge(guildId);
+    return badge.mentions > 0 || badge.count > 0;
+  }
+
+  private folderServer(guildId: string): FolderServer {
+    const guild = this.guilds().find((item) => item.id === guildId);
+    const badge = this.guildBadge(guildId);
+    return {
+      id: guildId,
+      name: guild?.name ?? "Server",
+      mentions: badge.mentions,
+      unread: badge.count > 0,
+      muted: this.guildMuted(guildId),
+    };
+  }
+
+  private folderSummary(id: string, name: string, guildIds: readonly string[]) {
+    return summarizeFolder(id, name, guildIds.map((guildId) => this.folderServer(guildId)));
   }
 
   private guildMuted(guildId: string): boolean {
@@ -12629,6 +12664,27 @@ class LarkApp {
         row.append(clearNick);
         card.append(row);
       }
+      wrap.append(card);
+    } else if (id === "folder-stats") {
+      const card = el("div", "plugin-card");
+      const folders = this.folders.filter((folder) => folder.id);
+      if (!folders.length) card.append(el("p", "hint", "No server folders yet. Counts stay on this device."));
+      for (const folder of folders) {
+        if (!folder.id) continue;
+        const summary = this.folderSummary(folder.id, folder.name?.trim() || "Folder", folder.guildIds);
+        card.append(el("p", "", folderTitle(summary)));
+      }
+      card.append(el("p", "hint", "Muted servers are left out of the unread and mention counts. Discord's folder list is not changed."));
+      wrap.append(card);
+    } else if (id === "better-folders") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Unread first", this.pack.folderUnreadFirst, (value) => {
+        this.pack.folderUnreadFirst = value;
+        this.savePack();
+        this.railShape = "";
+        this.paintRail();
+      }));
+      card.append(el("p", "hint", "Hover a folder for the server names. Unread servers can move to the top of the folder on this screen. Discord keeps the saved order."));
       wrap.append(card);
     }
     this.appendChatPluginPanel(wrap, id);

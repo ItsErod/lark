@@ -1,0 +1,12 @@
+{
+  "id": "folder-stats",
+  "name": "Server folder stats",
+  "description": "Count servers, unreads, and mentions in each folder. Nothing is saved to Discord.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "archive",
+  "changelog": "Each folder title shows how many servers, unreads, and mentions it holds. Muted servers stay out of the unread count."
+}

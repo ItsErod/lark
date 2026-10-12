@@ -81,6 +81,7 @@ export interface PackState {
   digestDms: boolean;
   wordMin: WordMin;
   localNicks: Record<string, string>;
+  folderUnreadFirst: boolean;
 }
 
 export const PACK_IDS = [
@@ -133,6 +134,8 @@ export const PACK_IDS = [
   "reply-chain",
   "show-connections",
   "local-nicknames",
+  "folder-stats",
+  "better-folders",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -201,6 +204,7 @@ export function defaultPack(): PackState {
     digestDms: true,
     wordMin: 0,
     localNicks: {},
+    folderUnreadFirst: true,
   };
 }
 
@@ -271,6 +275,7 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.digestDms === "boolean") base.digestDms = raw.digestDms;
   if (raw.wordMin !== undefined) base.wordMin = wordMin(raw.wordMin);
   base.localNicks = sanitizeNicks(raw.localNicks);
+  if (typeof raw.folderUnreadFirst === "boolean") base.folderUnreadFirst = raw.folderUnreadFirst;
   return base;
 }
 

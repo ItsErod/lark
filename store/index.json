@@ -18,6 +18,22 @@
       "download": "downloads/auto-away.zip"
     },
     {
+      "id": "better-folders",
+      "name": "Better folders",
+      "description": "Peek at a folder and put unread servers first. The Discord order is kept.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "chat",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "fold",
+      "changelog": "A folder tooltip lists its servers. Unread servers can sit first on this screen without changing Discord.",
+      "sha256": "2ccf55780ec7a579f5227f7a546670510a0ea4496c4a519b652434337c9680ea",
+      "bytes": 185,
+      "file": "plugins/better-folders/plugin.js",
+      "download": "downloads/better-folders.zip"
+    },
+    {
       "id": "better-timestamps",
       "name": "Better timestamps",
       "description": "Absolute or relative time, with a 12-hour or 24-hour clock. Hover the time for the full date.",
@@ -192,6 +208,22 @@
       "bytes": 173,
       "file": "plugins/emote-cloner/plugin.js",
       "download": "downloads/emote-cloner.zip"
+    },
+    {
+      "id": "folder-stats",
+      "name": "Server folder stats",
+      "description": "Count servers, unreads, and mentions in each folder. Nothing is saved to Discord.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "chat",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "archive",
+      "changelog": "Each folder title shows how many servers, unreads, and mentions it holds. Muted servers stay out of the unread count.",
+      "sha256": "a3296f15ffeb6af97761c7ff5a349836ac20d64dbb2eb8ca26a88c9da8eb4235",
+      "bytes": 196,
+      "file": "plugins/folder-stats/plugin.js",
+      "download": "downloads/folder-stats.zip"
     },
     {
       "id": "game-activity",

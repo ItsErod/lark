@@ -1,0 +1,12 @@
+{
+  "id": "better-folders",
+  "name": "Better folders",
+  "description": "Peek at a folder and put unread servers first. The Discord order is kept.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "fold",
+  "changelog": "A folder tooltip lists its servers. Unread servers can sit first on this screen without changing Discord."
+}
