@@ -4,6 +4,7 @@ import {
   ACTIVITIES,
   DISCORD_SPEAK_GREEN,
   activityInviteBody,
+  activityLaunchTarget,
   clampStageTopic,
   isStageChannel,
   messagePreview,
@@ -137,6 +138,12 @@ describe("voice stage", () => {
     expect(ACTIVITIES[0].name).toBe("Watch Together");
     expect(activityInviteBody(ACTIVITIES[0].id)).toMatchObject({ target_type: 2, target_application_id: ACTIVITIES[0].id });
     expect(activityInviteBody("nope")).toBeNull();
+    expect(activityLaunchTarget(ACTIVITIES[0].id, "100000000000000026")).toEqual({
+      channelId: "100000000000000026",
+      applicationId: ACTIVITIES[0].id,
+    });
+    expect(activityLaunchTarget(ACTIVITIES[0].id, null)).toBeNull();
+    expect(activityLaunchTarget("nope", "100000000000000026")).toBeNull();
     expect(watchVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
     expect(watchVideoId("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
     expect(watchVideoId("https://example.com/watch?v=dQw4w9WgXcQ")).toBeNull();

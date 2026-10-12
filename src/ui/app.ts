@@ -13340,6 +13340,7 @@ class LarkApp {
       guildId: this.guildId,
       meId: this.meId(),
       demo: this.demo,
+      voiceChannelId: this.voice?.channelId ?? null,
       channel: (id) => this.channelById(id),
       channels: () => (this.guildId ? this.channelsOf(this.guildId) : []),
       messages: (id) => (this.pages[id] ?? []).map((message) => ({

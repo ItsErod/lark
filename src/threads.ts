@@ -864,6 +864,8 @@ export interface ParityHost {
   guildId: string | null;
   meId: string;
   demo: boolean;
+  /** Voice channel the account is in. Activities invite into this channel. */
+  voiceChannelId: string | null;
   channel(id: string): Channel | undefined;
   channels(): Channel[];
   messages(channelId: string): { id: string; content: string; authorName: string; authorId: string; poll?: unknown }[];
