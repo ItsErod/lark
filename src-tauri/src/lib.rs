@@ -205,21 +205,22 @@ pub fn run() {
             let perf_shortcut = overlay_perf.clone();
             let game_shortcut = overlay_game.clone();
             tauri::async_runtime::spawn(async move {
+                let shell = deferred.clone();
                 let _ = deferred.run_on_main_thread(move || {
                     #[cfg(any(windows, target_os = "linux"))]
                     {
                         use tauri_plugin_deep_link::DeepLinkExt;
-                        if let Err(err) = deferred.deep_link().register_all() {
+                        if let Err(err) = shell.deep_link().register_all() {
                             log::warn!("store link: {err}");
                         }
                     }
-                    overlay::sync_hotkeys(&deferred, &voice_shortcut, &perf_shortcut, &game_shortcut);
-                    if let Err(err) = install_clip_hotkey(&deferred, &clip_shortcut) {
+                    overlay::sync_hotkeys(&shell, &voice_shortcut, &perf_shortcut, &game_shortcut);
+                    if let Err(err) = install_clip_hotkey(&shell, &clip_shortcut) {
                         log::warn!("clip hotkey: {err}");
                     }
-                    let sound_clips = deferred.state::<Shared>().config.blocking_lock().soundboard.clips.clone();
-                    sync_sound_hotkeys(&deferred, &sound_clips);
-                    install_tray(&deferred);
+                    let sound_clips = shell.state::<Shared>().config.blocking_lock().soundboard.clips.clone();
+                    sync_sound_hotkeys(&shell, &sound_clips);
+                    install_tray(&shell);
                 });
                 if let Err(err) = install_watcher(watcher).await {
                     log::warn!("config watcher: {err}");
