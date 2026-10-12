@@ -60,6 +60,10 @@ export interface PackState {
   whoisJoin: boolean;
   emoteStickers: boolean;
   schedulePreset: 15 | 60 | 1440;
+  imageLens: boolean;
+  imageTineye: boolean;
+  imageYandex: boolean;
+  jumboSize: 32 | 48 | 64 | 96;
 }
 
 export const PACK_IDS = [
@@ -98,6 +102,8 @@ export const PACK_IDS = [
   "user-whois",
   "emote-cloner",
   "message-scheduler",
+  "reverse-image",
+  "bigger-emoji",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -149,6 +155,10 @@ export function defaultPack(): PackState {
     whoisJoin: true,
     emoteStickers: true,
     schedulePreset: 15,
+    imageLens: true,
+    imageTineye: true,
+    imageYandex: true,
+    jumboSize: 48,
   };
 }
 
@@ -202,6 +212,10 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.whoisJoin === "boolean") base.whoisJoin = raw.whoisJoin;
   if (typeof raw.emoteStickers === "boolean") base.emoteStickers = raw.emoteStickers;
   if (raw.schedulePreset === 15 || raw.schedulePreset === 60 || raw.schedulePreset === 1440) base.schedulePreset = raw.schedulePreset;
+  if (typeof raw.imageLens === "boolean") base.imageLens = raw.imageLens;
+  if (typeof raw.imageTineye === "boolean") base.imageTineye = raw.imageTineye;
+  if (typeof raw.imageYandex === "boolean") base.imageYandex = raw.imageYandex;
+  if (raw.jumboSize === 32 || raw.jumboSize === 48 || raw.jumboSize === 64 || raw.jumboSize === 96) base.jumboSize = raw.jumboSize;
   return base;
 }
 

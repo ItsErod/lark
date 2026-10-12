@@ -204,6 +204,16 @@
       "id": "message-scheduler",
       "name": "Message scheduler",
       "description": "Schedule a message you wrote. It sends only while Lark stays open."
+    },
+    {
+      "id": "reverse-image",
+      "name": "Reverse image search",
+      "description": "Right-click an image and search Google Lens, TinEye, or Yandex."
+    },
+    {
+      "id": "bigger-emoji",
+      "name": "Bigger emoji",
+      "description": "Make a message that is only emoji larger."
     }
   ]
 }

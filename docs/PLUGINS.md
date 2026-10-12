@@ -183,3 +183,11 @@ Right-click a custom emoji or a sticker and choose **Add to** a server where you
 **Schedule** in the composer queues the message you just wrote. Pick a time, at least 15 seconds from now and at most 7 days. The default delay is 15 minutes, 1 hour, or 1 day.
 
 The queue stays in memory. Closing Lark drops it, including anything that was due while the app was closed. Turning the plugin off drops messages that are already due instead of sending them. Lark sends one due message at a time. A failed send is retried twice, then dropped. Nothing is scheduled unless you press Queue.
+
+## Reverse image search
+
+Right-click an image in a message and choose **Google Lens**, **TinEye**, or **Yandex**. Each engine can be turned off in the plugin’s settings. Lark opens the search in your browser. Only an `https` image address is used, and only when you pick it. The plugin does not receive the token and does not upload the file itself.
+
+## Bigger emoji
+
+A message that is only emoji, up to 27 of them, grows to the size you pick: **32px**, **48px**, **64px**, or **96px**. A message with any other text stays the normal size. Custom emoji and ordinary emoji both count.

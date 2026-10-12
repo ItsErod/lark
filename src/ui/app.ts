@@ -44,6 +44,8 @@ import { cleanPatterns, patternHit, patternsFor, shouldPatternNotify } from "../
 import { queueAcks, readAllIds, READ_ALL_GAP_MS, takeAck, type ReadTarget } from "../pack/read-all";
 import { cloneTargets, discordMedia, emojiCloneBody, stickerCloneRequest } from "../pack/emote-clone";
 import { dropDue, presetLead, queueDraft } from "../pack/live-schedule";
+import { enabledEngines, engineLabel, searchHref, httpsImage, type ImageEngine } from "../pack/image-search";
+import { isJumbo } from "../pack/jumbo";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
@@ -3801,6 +3803,8 @@ class LarkApp {
       this.bindMessageMenu(node, message);
       if (this.hookOn("userWhois")) this.watchMessageWhois(node, message);
       if (this.hookOn("emoteClone")) this.watchEmoteClone(node);
+      if (this.hookOn("imageSearch")) this.watchImageSearch(node);
+      this.markJumbo(node, shown.raw);
       parent.append(node);
       lastDay = day;
       previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
@@ -10994,6 +10998,8 @@ class LarkApp {
         const last = body.lastElementChild;
         if (last instanceof HTMLElement && this.hookOn("userWhois")) this.watchMessageWhois(last, message);
         if (last instanceof HTMLElement && this.hookOn("emoteClone")) this.watchEmoteClone(last);
+        if (last instanceof HTMLElement && this.hookOn("imageSearch")) this.watchImageSearch(last);
+        if (last instanceof HTMLElement) this.markJumbo(last, shown.raw);
       }
     }
     this.splitPane.append(head, body);
@@ -12661,6 +12667,32 @@ class LarkApp {
         if (this.settings) this.renderSettings();
       },
       liveWaiting: this.liveQueue.length,
+      imageLens: this.pack.imageLens,
+      imageTineye: this.pack.imageTineye,
+      imageYandex: this.pack.imageYandex,
+      setImageLens: (value) => {
+        this.pack.imageLens = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      setImageTineye: (value) => {
+        this.pack.imageTineye = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      setImageYandex: (value) => {
+        this.pack.imageYandex = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      jumboSize: this.pack.jumboSize,
+      setJumboSize: (value) => {
+        if (value === 32 || value === 48 || value === 64 || value === 96) this.pack.jumboSize = value;
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+        if (this.settings) this.renderSettings();
+      },
     });
   }
 
@@ -14359,6 +14391,36 @@ class LarkApp {
   private clearWhois() {
     this.whoisUser = "";
     document.getElementById("lark-whois")?.remove();
+  }
+
+  private markJumbo(node: HTMLElement, content: string) {
+    if (!this.hookOn("jumboEmoji") || !isJumbo(content)) return;
+    const article = node.querySelector("article.message");
+    if (!(article instanceof HTMLElement)) return;
+    article.classList.add("is-jumbo");
+    article.style.setProperty("--lark-jumbo", `${this.pack.jumboSize}px`);
+  }
+
+  private watchImageSearch(node: HTMLElement) {
+    node.addEventListener("contextmenu", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLImageElement)) return;
+      if (!target.classList.contains("image-preview") && !target.classList.contains("embed-image")) return;
+      const url = httpsImage(target.currentSrc || target.src);
+      if (!url) return;
+      const engines = enabledEngines({ lens: this.pack.imageLens, tineye: this.pack.imageTineye, yandex: this.pack.imageYandex });
+      if (!engines.length) {
+        event.preventDefault();
+        this.toast("Reverse image search", "Turn on Google Lens, TinEye, or Yandex in the plugin settings.");
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.showSocialMenu(event.clientX, event.clientY, engines.map((engine) => ({ id: engine, label: engineLabel(engine) })), (id) => {
+        const href = searchHref(id as ImageEngine, url);
+        if (href) window.open(href, "_blank", "noopener,noreferrer");
+      });
+    }, true);
   }
 
   private watchEmoteClone(node: HTMLElement) {
