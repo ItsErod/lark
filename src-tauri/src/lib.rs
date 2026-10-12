@@ -325,6 +325,7 @@ pub fn run() {
             guild_admin,
             fetch_thread_index,
             start_thread,
+            start_forum_post,
             edit_thread,
             fetch_thread_members,
             join_thread,
@@ -2576,4 +2577,55 @@ async fn set_custom_status(
     gateway
         .send(lark_core::discord::GatewayCommand::CustomStatus { status, custom, emoji, expires_at, game: game.unwrap_or_default() })
         .map_err(|_| "Gateway is closed.".to_string())
+}
+
+#[derive(Deserialize)]
+struct ForumUpload {
+    name: String,
+    mime: String,
+    base64: String,
+}
+
+fn forum_uploads(files: &[ForumUpload]) -> Result<Vec<lark_core::discord::rest::OutFile>, String> {
+    if files.len() > 10 {
+        return Err("Forum posts can include 10 attachments.".into());
+    }
+    let mut out = Vec::new();
+    for file in files {
+        out.extend(upload_from_base64(Some(file.name.clone()), Some(file.mime.clone()), Some(file.base64.clone()))?);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+async fn start_forum_post(
+    state: State<'_, Shared>,
+    channel_id: String,
+    name: String,
+    auto_archive_duration: Option<i32>,
+    content: Option<String>,
+    applied_tags: Option<Vec<String>>,
+    parent_kind: Option<i32>,
+    parent_flags: Option<i32>,
+    files: Option<Vec<ForumUpload>>,
+) -> Result<lark_core::discord::ClientThreadRecord, String> {
+    let uploads = forum_uploads(&files.unwrap_or_default())?;
+    rest(&state)
+        .await?
+        .start_thread(
+            &channel_id,
+            None,
+            &name,
+            None,
+            auto_archive_duration,
+            None,
+            content.as_deref(),
+            &applied_tags.unwrap_or_default(),
+            "forum-post",
+            parent_kind,
+            parent_flags.unwrap_or(0),
+            &uploads,
+        )
+        .await
+        .map_err(|err| err.to_string())
 }

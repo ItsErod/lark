@@ -313,7 +313,8 @@ function openThreadDialog(draft: ThreadDraft) {
   body.setAttribute("aria-label", "Post");
   const file = el("input");
   file.type = "file";
-  file.accept = "image/*,video/*";
+  file.multiple = forum;
+  file.accept = "image/*,video/*,*/*";
   const archive = el("select");
   for (const minutes of ARCHIVE_DURATIONS) {
     const option = el("option", "", archiveLabel(minutes));
@@ -362,6 +363,7 @@ function openThreadDialog(draft: ThreadDraft) {
   const submit = el("button", "primary", forum ? "Post" : "Create");
   submit.type = "button";
   submit.addEventListener("click", () => {
+    const picked = Array.from(file.files ?? []);
     void submitThread({
       channelId,
       messageId: forum ? null : draft.messageId,
@@ -371,8 +373,9 @@ function openThreadDialog(draft: ThreadDraft) {
       invitable: inviteInput.checked,
       content: body.value,
       appliedTags: [...tags],
-      hasAttachment: Boolean(file.files?.[0]),
-      file: file.files?.[0] ?? null,
+      hasAttachment: picked.length > 0,
+      attachmentCount: picked.length,
+      files: picked,
     });
   });
   const cancel = el("button", "", "Cancel");
@@ -382,7 +385,7 @@ function openThreadDialog(draft: ThreadDraft) {
   if (forum) {
     if (tagsRequired(parent.flags)) panel.append(el("p", "lark-f-help", "A tag is required."));
     if ((parent.availableTags ?? []).length) panel.append(tagBox);
-    panel.append(labeled("Message", body), labeled(media ? "Image or video" : "Attachment", file));
+    panel.append(labeled("Message", body), labeled(media ? "Images or videos, up to 10" : "Attachments, up to 10", file));
   } else {
     panel.append(kindRow, invite);
   }
@@ -397,7 +400,7 @@ function tagLabel(tag: ForumTag): string {
   return tag.emojiName ? `${tag.emojiName} ${tag.name}` : tag.name;
 }
 
-async function submitThread(input: ThreadDraft & { file?: File | null }) {
+async function submitThread(input: ThreadDraft & { file?: File | null; files?: File[] }) {
   const parent = parentOf(input.channelId || "");
   const plan = startThreadFromMessage(input, parent);
   if (!plan.ok) {
@@ -427,31 +430,31 @@ async function submitThread(input: ThreadDraft & { file?: File | null }) {
     return;
   }
   try {
-    let fileName: string | undefined;
-    let fileMime: string | undefined;
-    let fileBase64: string | undefined;
-    if (input.file) {
-      const encoded = await readFile(input.file);
-      fileName = encoded.name;
-      fileMime = encoded.mime;
-      fileBase64 = encoded.base64;
-    }
-    const created = await shell.invoke<ThreadIndexWire["threads"][number]>("start_thread", {
-      channelId: input.channelId,
-      messageId: input.messageId,
-      name: plan.plan.body.name,
-      kind: plan.plan.body.type,
-      autoArchiveDuration: plan.plan.body.auto_archive_duration,
-      invitable: plan.plan.body.invitable,
-      content: input.content ?? "",
-      appliedTags: input.appliedTags ?? [],
-      route: plan.plan.route,
-      parentKind: parent.rawKind,
-      parentFlags: parent.flags ?? 0,
-      fileName,
-      fileMime,
-      fileBase64,
-    });
+    const picked = input.files?.length ? input.files : input.file ? [input.file] : [];
+    const created = plan.plan.route === "forum-post"
+      ? await shell.invoke<ThreadIndexWire["threads"][number]>("start_forum_post", {
+        channelId: input.channelId,
+        name: plan.plan.body.name,
+        autoArchiveDuration: plan.plan.body.auto_archive_duration,
+        content: input.content ?? "",
+        appliedTags: input.appliedTags ?? [],
+        parentKind: parent.rawKind,
+        parentFlags: parent.flags ?? 0,
+        files: await Promise.all(picked.map(readFile)),
+      })
+      : await shell.invoke<ThreadIndexWire["threads"][number]>("start_thread", {
+        channelId: input.channelId,
+        messageId: input.messageId,
+        name: plan.plan.body.name,
+        kind: plan.plan.body.type,
+        autoArchiveDuration: plan.plan.body.auto_archive_duration,
+        invitable: plan.plan.body.invitable,
+        content: input.content ?? "",
+        appliedTags: input.appliedTags ?? [],
+        route: plan.plan.route,
+        parentKind: parent.rawKind,
+        parentFlags: parent.flags ?? 0,
+      });
     applyThreadIndex({ parent: { ...parent, id: parent.id ?? input.channelId ?? "" }, threads: [{ ...created, parentId: created.parentId || input.channelId }] });
     closeDialog();
     shell.refresh();

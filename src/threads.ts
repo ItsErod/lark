@@ -46,6 +46,8 @@ export const ACK_CHUNK = 100;
 export const THREAD_NAME_MAX = 100;
 export const POST_BODY_MAX = 2000;
 export const APPLIED_TAG_MAX = 5;
+/** Discord forum and media posts accept ten files. Regular messages stay on their own cap. */
+export const FORUM_ATTACHMENT_MAX = 10;
 
 export type ThreadRoute = "from-message" | "standalone" | "forum-post";
 export type ForumSort = "latest" | "creation";
@@ -73,6 +75,8 @@ export interface ThreadDraft {
   appliedTags?: string[];
   /** Set when the media post has a file ready to upload. */
   hasAttachment?: boolean;
+  /** Forum and media posts. Discord allows ten. `hasAttachment` still means one. */
+  attachmentCount?: number;
 }
 
 export interface ThreadPlan {
@@ -194,6 +198,14 @@ function fail(error: string): Err {
   return { ok: false, error };
 }
 
+/** How many files a forum or media post is trying to send. */
+export function forumAttachmentCount(draft: { hasAttachment?: boolean; attachmentCount?: number }): number {
+  if (typeof draft.attachmentCount === "number" && Number.isFinite(draft.attachmentCount)) {
+    return Math.max(0, Math.floor(draft.attachmentCount));
+  }
+  return draft.hasAttachment ? 1 : 0;
+}
+
 function clampArchive(value: number | undefined): Result<{ duration: ArchiveDuration }> {
   const picked = value ?? 1440;
   if (!(ARCHIVE_DURATIONS as readonly number[]).includes(picked)) {
@@ -228,8 +240,10 @@ export function startThreadFromMessage(draft: ThreadDraft, parent?: ParentChanne
     if (tagsRequired(parent?.flags) && tags.length === 0) return fail("Pick a tag before posting.");
     const content = (draft.content ?? "").trim();
     if ([...content].length > POST_BODY_MAX) return fail("Posts can be 2,000 characters.");
-    if (!content && !draft.hasAttachment) return fail(media ? "Media posts need an image or video." : "A post needs a message.");
-    if (media && !draft.hasAttachment) return fail("Media posts need an image or video.");
+    const attachments = forumAttachmentCount(draft);
+    if (attachments > FORUM_ATTACHMENT_MAX) return fail("Forum posts can include 10 attachments.");
+    if (!content && attachments === 0) return fail(media ? "Media posts need an image or video." : "A post needs a message.");
+    if (media && attachments === 0) return fail("Media posts need an image or video.");
     const body: Record<string, unknown> = {
       name,
       auto_archive_duration: duration,
