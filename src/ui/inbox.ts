@@ -1,5 +1,5 @@
 /**
- * Discord inbox: Mentions, Unreads, Bookmarks, Reminders, friend requests, Mark All Read.
+ * Discord inbox: Mentions, Unreads, Bookmarks, Reminders, friend requests, message requests, Mark All Read.
  * Bookmarks and reminders are Stream A's lists. The badge prefers Stream C's pending count.
  */
 import { el } from "./dom";
@@ -8,7 +8,7 @@ import * as bookmarkApi from "../pack/bookmarks";
 import type { Reminder } from "../reminders";
 import * as reminderApi from "../reminders";
 import * as socialApi from "../social";
-import { decideFriendRequest } from "../social";
+import { blockedIds, decideFriendRequest } from "../social";
 import type { FriendRequest } from "../types";
 import {
   ackAllStates,
@@ -19,13 +19,28 @@ import {
   inboxFriendBadge,
   readPendingFriendCount,
   reminderRows,
+  type InboxTab,
   type ParityHost,
 } from "../threads";
+import {
+  heldRequestIds,
+  localMessageRequests,
+  mergeMessageRequests,
+  messageRequestGroups,
+  messageRequestsFromPayload,
+  releaseHeldRequest,
+  replaceHeldRequests,
+  type MessageRequest,
+} from "../message-requests";
 
 let open = false;
 let requests: FriendRequest[] = [];
 let asked = false;
-let tab: "mentions" | "unreads" | "bookmarks" | "reminders" | "requests" = "mentions";
+let messageRequests: MessageRequest[] = [];
+let messagesAsked = false;
+let messagesSettled = false;
+let messagesAttemptAt = 0;
+let tab: InboxTab = "mentions";
 
 function shell(): ParityHost | null {
   return currentParityHost();
@@ -38,9 +53,14 @@ function pendingCount(): number | null {
 }
 
 export function paintInboxButton(button: HTMLButtonElement) {
-  const badge = inboxFriendBadge(pendingCount(), asked ? requests : []);
+  const friends = inboxFriendBadge(pendingCount(), asked ? requests : []);
+  const waiting = messageRequests.length;
+  const badge = friends + waiting;
   button.replaceChildren(document.createTextNode("Inbox"));
-  button.setAttribute("aria-label", badge > 0 ? `Inbox, ${badge} friend requests` : "Inbox");
+  const parts = ["Inbox"];
+  if (friends > 0) parts.push(`${friends} friend ${friends === 1 ? "request" : "requests"}`);
+  if (waiting > 0) parts.push(`${waiting} message ${waiting === 1 ? "request" : "requests"}`);
+  button.setAttribute("aria-label", parts.join(", "));
   if (badge > 0) button.append(el("span", "inbox-count", String(badge)));
   if (!asked) {
     asked = true;
@@ -48,6 +68,15 @@ export function paintInboxButton(button: HTMLButtonElement) {
       if (button.isConnected) paintInboxButton(button);
     });
   }
+  if (!messagesSettled) void loadMessageRequests();
+}
+
+/** Relationship index finished. Retry the local fallback if Discord's route was missing. */
+export function noteRelationshipIndex() {
+  if (messagesSettled) return;
+  messagesAsked = false;
+  messagesAttemptAt = 0;
+  void loadMessageRequests();
 }
 
 export function toggleInbox() {
@@ -83,6 +112,7 @@ export function openInbox() {
     ["bookmarks", "Bookmarks"],
     ["reminders", "Reminders"],
     ["requests", "Friend Requests"],
+    ["messages", "Message Requests"],
   ] as const) {
     const button = el("button", tab === item[0] ? "is-on" : "", item[1]);
     button.type = "button";
@@ -99,6 +129,7 @@ export function openInbox() {
   else if (tab === "unreads") paintUnreads(body);
   else if (tab === "bookmarks") paintBookmarks(body);
   else if (tab === "reminders") paintReminders(body);
+  else if (tab === "messages") paintMessageRequests(body);
   else void paintRequests(body);
 }
 
@@ -249,6 +280,150 @@ async function paintRequests(body: HTMLElement) {
       row.append(actions);
     }
     body.append(row);
+  }
+}
+
+async function loadMessageRequests() {
+  if (messagesSettled || messagesAsked) return;
+  const now = Date.now();
+  if (now - messagesAttemptAt < 5000) return;
+  messagesAsked = true;
+  messagesAttemptAt = now;
+  const host = shell();
+  if (!host) {
+    messagesAsked = false;
+    return;
+  }
+  if (!host.demo) {
+    try {
+      const regular = await host.invoke<unknown>("fetch_message_requests", { spam: false });
+      let spamPayload: unknown = [];
+      try {
+        spamPayload = await host.invoke<unknown>("fetch_message_requests", { spam: true });
+      } catch {
+        spamPayload = [];
+      }
+      commitMessageRequests(mergeMessageRequests([
+        ...messageRequestsFromPayload(regular, false),
+        ...messageRequestsFromPayload(spamPayload, true),
+      ]));
+      return;
+    } catch {
+      /* The client route is missing. Classify local non-friend DMs. */
+    }
+  }
+  if (!host.dms || !host.friendIds) {
+    messagesAsked = false;
+    return;
+  }
+  const friends = host.friendIds();
+  if (friends == null) {
+    messagesAsked = false;
+    return;
+  }
+  commitMessageRequests(localMessageRequests({
+    dms: host.dms(),
+    friendIds: friends,
+    blockedIds: blockedIds(),
+    meId: host.meId,
+    spamFilter: host.spamFilter,
+  }));
+}
+
+function commitMessageRequests(rows: MessageRequest[]) {
+  const prior = new Set(heldRequestIds());
+  const next = rows.map((row) => row.id);
+  const changed = prior.size !== next.length || next.some((id) => !prior.has(id));
+  messageRequests = rows;
+  replaceHeldRequests(next);
+  messagesSettled = true;
+  messagesAsked = true;
+  if (changed) shell()?.refresh();
+  if (open && tab === "messages") openInbox();
+}
+
+function paintMessageRequests(body: HTMLElement) {
+  const groups = messageRequestGroups(messageRequests);
+  paintMessageGroup(body, "Message requests", groups.requests, "No message requests.");
+  paintMessageGroup(body, "Spam", groups.spam, "Nothing in spam.");
+}
+
+function paintMessageGroup(body: HTMLElement, title: string, rows: MessageRequest[], empty: string) {
+  body.append(el("p", "lark-f-help", title));
+  if (!rows.length) {
+    body.append(el("p", "lark-f-help", empty));
+    return;
+  }
+  for (const request of rows) body.append(messageRow(request));
+}
+
+function messageRow(request: MessageRequest): HTMLElement {
+  const row = el("div");
+  const openRow = el("button", "lark-f-row");
+  openRow.type = "button";
+  openRow.append(el("strong", "", request.name), el("small", "", request.preview || "Direct message"));
+  openRow.addEventListener("click", () => {
+    const host = shell();
+    toggleInbox();
+    host?.openChannel(request.id);
+  });
+  const actions = el("div", "lark-f-actions");
+  const accept = el("button", "primary", "Accept");
+  accept.type = "button";
+  accept.addEventListener("click", () => void decideMessage(request, "accept"));
+  const ignore = el("button", "", "Ignore");
+  ignore.type = "button";
+  ignore.addEventListener("click", () => void decideMessage(request, "ignore"));
+  actions.append(accept, ignore);
+  row.append(openRow, actions);
+  return row;
+}
+
+async function decideMessage(request: MessageRequest, action: "accept" | "ignore") {
+  const host = shell();
+  if (!host) return;
+  if (host.demo) {
+    releaseHeldRequest(request.id);
+    messageRequests = messageRequests.filter((item) => item.id !== request.id);
+    host.toast("Message Requests", action === "accept" ? "Accepted. The conversation stays in your DMs." : "Ignored.");
+    host.refresh();
+    if (open) openInbox();
+    return;
+  }
+  try {
+    if (action === "accept") {
+      let accepted = false;
+      try {
+        await host.invoke("accept_message_request", { channelId: request.id });
+        accepted = true;
+      } catch {
+        accepted = false;
+      }
+      releaseHeldRequest(request.id);
+      messageRequests = messageRequests.filter((item) => item.id !== request.id);
+      host.toast(
+        "Message Requests",
+        accepted ? "Accepted. The conversation stays in your DMs." : "Discord has no message-request route. The conversation stays in your DMs.",
+      );
+    } else {
+      try {
+        await host.invoke("ignore_message_request", { channelId: request.id });
+      } catch {
+        try {
+          await host.invoke("close_dm", { channelId: request.id });
+        } catch (error) {
+          host.toast("Message Requests", error instanceof Error ? error.message : "Discord refused that.");
+          return;
+        }
+      }
+      releaseHeldRequest(request.id);
+      messageRequests = messageRequests.filter((item) => item.id !== request.id);
+      host.toast("Message Requests", "Ignored.");
+    }
+    host.refresh();
+    if (open) openInbox();
+  } catch (error) {
+    host.toast("Message Requests", error instanceof Error ? error.message : "Discord refused that.");
   }
 }
 

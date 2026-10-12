@@ -3601,3 +3601,121 @@ mod messaging_fields {
         assert_eq!(poll.expiry.as_deref(), Some("2026-10-13T18:00:00.000Z"));
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientMessageRequest {
+    pub id: String,
+    pub name: String,
+    pub preview: String,
+    pub spam: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+}
+
+/// Discord returns an array, or an object with `message_requests`, `channels`, or `spam`.
+pub fn message_requests_from_value(value: &serde_json::Value, spam: bool) -> Vec<ClientMessageRequest> {
+    message_request_list(value)
+        .into_iter()
+        .filter_map(|item| message_request_from_value(item, spam))
+        .collect()
+}
+
+fn message_request_list(value: &serde_json::Value) -> Vec<&serde_json::Value> {
+    if let Some(list) = value.as_array() {
+        return list.iter().collect();
+    }
+    for key in ["message_requests", "channels", "spam"] {
+        if let Some(list) = value.get(key).and_then(|item| item.as_array()) {
+            return list.iter().collect();
+        }
+    }
+    Vec::new()
+}
+
+fn message_request_from_value(value: &serde_json::Value, spam: bool) -> Option<ClientMessageRequest> {
+    let id = json_snowflake(value, &["id", "channel_id"]);
+    if !snowflake_ok(&id) {
+        return None;
+    }
+    let recipient = value
+        .get("recipients")
+        .and_then(|item| item.as_array())
+        .and_then(|list| list.first())
+        .or_else(|| value.get("recipient"));
+    let name = recipient
+        .and_then(|user| value_string(user, "global_name").or_else(|| value_string(user, "username")))
+        .or_else(|| value_string(value, "name"))
+        .unwrap_or_else(|| "Someone".into());
+    let preview = value
+        .get("last_message")
+        .or_else(|| value.get("message"))
+        .and_then(|message| value_string(message, "content"))
+        .or_else(|| value_string(value, "content"))
+        .or_else(|| value_string(value, "preview"))
+        .unwrap_or_default();
+    let preview: String = preview.chars().take(140).collect();
+    let flagged = value
+        .get("is_spam")
+        .and_then(|item| item.as_bool())
+        .or_else(|| value.get("spam").and_then(|item| item.as_bool()))
+        .unwrap_or(spam);
+    let user_id = recipient.and_then(|user| {
+        let id = json_snowflake(user, &["id"]);
+        snowflake_ok(&id).then_some(id)
+    });
+    Some(ClientMessageRequest {
+        id,
+        name,
+        preview,
+        spam: flagged,
+        user_id,
+    })
+}
+
+fn json_snowflake(value: &serde_json::Value, keys: &[&str]) -> String {
+    for key in keys {
+        match value.get(*key) {
+            Some(serde_json::Value::String(text)) => return text.clone(),
+            Some(serde_json::Value::Number(number)) => return number.to_string(),
+            _ => {}
+        }
+    }
+    String::new()
+}
+
+#[cfg(test)]
+mod message_request_fields {
+    use super::*;
+
+    #[test]
+    fn message_requests_keep_channel_recipient_and_spam() {
+        let raw = serde_json::json!([
+            {
+                "id": "100000000000000041",
+                "recipients": [{ "id": "100000000000000009", "username": "stranger", "global_name": "Stranger" }],
+                "last_message": { "content": "hello there" }
+            }
+        ]);
+        let rows = message_requests_from_value(&raw, false);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "100000000000000041");
+        assert_eq!(rows[0].name, "Stranger");
+        assert_eq!(rows[0].preview, "hello there");
+        assert!(!rows[0].spam);
+        assert_eq!(rows[0].user_id.as_deref(), Some("100000000000000009"));
+
+        let wrapped = serde_json::json!({
+            "message_requests": [{
+                "channel_id": "100000000000000042",
+                "is_spam": true,
+                "name": "Inbox"
+            }]
+        });
+        let spam = message_requests_from_value(&wrapped, false);
+        assert!(spam[0].spam);
+        assert_eq!(spam[0].id, "100000000000000042");
+        assert!(message_requests_from_value(&serde_json::json!([]), true).is_empty());
+        assert!(message_requests_from_value(&serde_json::json!([{ "id": "nope" }]), true).is_empty());
+    }
+}

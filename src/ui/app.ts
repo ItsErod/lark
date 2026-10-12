@@ -306,6 +306,7 @@ import {
   type ParityHost,
   type ThreadIndexWire,
 } from "../threads";
+import { isHeldRequest } from "../message-requests";
 import { mountChannelPolls, parityHeaderButtons, parityThreadBar, renderForumSurface } from "./threads-forums";
 import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
 import { applyMoreAction, applyUserMix, applyVoiceState, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
@@ -2189,8 +2190,12 @@ class LarkApp {
     return this.demo ? demoGuilds : this.liveGuilds;
   }
 
-  private dms(): Channel[] {
+  private dmChannels(): Channel[] {
     return sortDms(this.demo ? demoDms : this.liveDms);
+  }
+
+  private dms(): Channel[] {
+    return this.dmChannels().filter((channel) => !isHeldRequest(channel.id));
   }
 
   private currentChannelIsDm(): boolean {
@@ -3314,7 +3319,7 @@ class LarkApp {
 
   private currentChannel(): Channel | undefined {
     const lists = this.demo ? Object.values(demoChannels) : Object.values(this.liveChannels);
-    return [...this.visibleChannels(), ...this.dms(), ...lists.flat()].find((channel) => channel.id === this.channelId);
+    return [...this.visibleChannels(), ...this.dmChannels(), ...lists.flat()].find((channel) => channel.id === this.channelId);
   }
 
   private async openChannel(id: string) {
@@ -8153,7 +8158,7 @@ class LarkApp {
   }
 
   private async openDm(userId: string) {
-    const existing = this.dms().find((channel) => channel.kind === "dm" && (channel.recipientIds?.includes(userId) || channel.recipients?.some((item) => item.id === userId)));
+    const existing = this.dmChannels().find((channel) => channel.kind === "dm" && (channel.recipientIds?.includes(userId) || channel.recipients?.some((item) => item.id === userId)));
     if (existing) {
       this.friendsOpen = false;
       void this.openChannel(existing.id);
@@ -11716,7 +11721,7 @@ class LarkApp {
   }
 
   private channelById(id: string): Channel | undefined {
-    const dm = this.dms().find((channel) => channel.id === id);
+    const dm = this.dmChannels().find((channel) => channel.id === id);
     if (dm) return dm;
     for (const guild of this.guilds()) {
       const found = this.channelsOf(guild.id).find((channel) => channel.id === id);
@@ -13394,6 +13399,19 @@ class LarkApp {
       voiceChannelId: this.voice?.channelId ?? null,
       channel: (id) => this.channelById(id),
       channels: () => (this.guildId ? this.channelsOf(this.guildId) : []),
+      dms: () => this.dmChannels().map((channel) => ({
+        id: channel.id,
+        name: channel.name,
+        kind: channel.kind,
+        recipientIds: channel.recipientIds?.length ? channel.recipientIds : (channel.recipients ?? []).map((item) => item.id),
+        preview: this.dmPreviewLabel(channel.id),
+      })),
+      friendIds: () => {
+        if (this.demo) return people.filter((person) => person.id !== this.meId()).map((person) => person.id);
+        if (this.relationshipsRetry !== Number.POSITIVE_INFINITY) return null;
+        return this.relationships.filter((row) => row.kind === "friend").map((row) => row.id);
+      },
+      spamFilter: this.config.preferences.spam_filter,
       messages: (id) => (this.pages[id] ?? []).map((message) => ({
         id: message.id,
         content: message.content,
@@ -14787,6 +14805,7 @@ class LarkApp {
     void invoke<SocialRelationship[]>("fetch_relationships").then((rows) => {
       this.mergeRelationships(rows, true, false);
       this.relationshipsRetry = Number.POSITIVE_INFINITY;
+      void import("./inbox").then((mod) => mod.noteRelationshipIndex());
       this.msgSig = "";
       if (this.friendsOpen) this.paintFriends();
       if (!this.guildId) this.paintChannels();
