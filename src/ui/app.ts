@@ -42,6 +42,8 @@ import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor
 import { orderDms } from "../pack/pin-dms";
 import { cleanPatterns, patternHit, patternsFor, shouldPatternNotify } from "../pack/patterns";
 import { queueAcks, readAllIds, READ_ALL_GAP_MS, takeAck, type ReadTarget } from "../pack/read-all";
+import { cloneTargets, discordMedia, emojiCloneBody, stickerCloneRequest } from "../pack/emote-clone";
+import { dropDue, presetLead, queueDraft } from "../pack/live-schedule";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
@@ -522,6 +524,9 @@ class LarkApp {
   private whoisUser = "";
   private whoisHide = 0;
   private whoisCache = new Map<string, { joinedAt?: string; mutuals: string[]; at: number }>();
+  private liveQueue: ScheduledSend[] = [];
+  private sendingLive = false;
+  private liveScheduling = false;
   private sendingScheduled = false;
   private scheduling = false;
   private bookmarksOpen = false;
@@ -3795,6 +3800,7 @@ class LarkApp {
       node.dataset.mid = message.id;
       this.bindMessageMenu(node, message);
       if (this.hookOn("userWhois")) this.watchMessageWhois(node, message);
+      if (this.hookOn("emoteClone")) this.watchEmoteClone(node);
       parent.append(node);
       lastDay = day;
       previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
@@ -4344,7 +4350,9 @@ class LarkApp {
       this.composerBanner.append(cancel);
     }
     if (!this.pendingDelete && !this.editing && !this.reminding) {
-      this.paintScheduleBanner();
+      const liveHere = this.hookOn("liveSchedule") && (this.liveScheduling || (!this.scheduling && this.liveQueue.some((item) => item.channelId === this.channelId)));
+      if (liveHere) this.paintLiveScheduleBanner();
+      else this.paintScheduleBanner();
     }
     clear(this.composerMeta);
     ensureMessagingStyles();
@@ -4486,11 +4494,24 @@ class LarkApp {
     later.setAttribute("aria-label", "Send later");
     later.addEventListener("click", () => {
       this.scheduling = !this.scheduling;
+      this.liveScheduling = false;
       this.reminding = null;
       this.paintComposer();
     });
     tools.append(later);
     if (this.hookOn("quickReply")) tools.append(this.repliesButton());
+    if (this.hookOn("liveSchedule")) {
+      const schedule = el("button", "text-button", "Schedule");
+      schedule.type = "button";
+      schedule.setAttribute("aria-label", "Schedule message");
+      schedule.addEventListener("click", () => {
+        this.liveScheduling = !this.liveScheduling;
+        this.scheduling = false;
+        this.reminding = null;
+        this.paintComposer();
+      });
+      tools.append(schedule);
+    }
     for (const item of this.files) {
       const chip = el("span", "file-chip");
       const name = el("button", "text-button", item.name);
@@ -10972,6 +10993,7 @@ class LarkApp {
         }));
         const last = body.lastElementChild;
         if (last instanceof HTMLElement && this.hookOn("userWhois")) this.watchMessageWhois(last, message);
+        if (last instanceof HTMLElement && this.hookOn("emoteClone")) this.watchEmoteClone(last);
       }
     }
     this.splitPane.append(head, body);
@@ -12625,6 +12647,20 @@ class LarkApp {
         this.savePack();
         if (this.settings) this.renderSettings();
       },
+      emoteStickers: this.pack.emoteStickers,
+      setEmoteStickers: (value) => {
+        this.pack.emoteStickers = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      schedulePreset: String(this.pack.schedulePreset),
+      setSchedulePreset: (value) => {
+        const preset = Number(value);
+        if (preset === 15 || preset === 60 || preset === 1440) this.pack.schedulePreset = preset;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      liveWaiting: this.liveQueue.length,
     });
   }
 
@@ -12642,6 +12678,7 @@ class LarkApp {
     this.tickPlaying();
     this.tickHardware();
     void this.tickSchedule();
+    void this.tickLiveSchedule();
   }
 
   private tickAway() {
@@ -14322,6 +14359,136 @@ class LarkApp {
   private clearWhois() {
     this.whoisUser = "";
     document.getElementById("lark-whois")?.remove();
+  }
+
+  private watchEmoteClone(node: HTMLElement) {
+    node.addEventListener("contextmenu", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLImageElement)) return;
+      const sticker = Boolean(target.closest(".sticker"));
+      const emoji = target.classList.contains("emoji");
+      if (!emoji && !sticker) return;
+      if (sticker && !this.pack.emoteStickers) return;
+      const media = discordMedia(target.currentSrc || target.src);
+      if (!media) return;
+      if (sticker && media.kind !== "sticker") return;
+      if (!sticker && media.kind !== "emoji") return;
+      event.preventDefault();
+      const name = (target.alt || target.closest(".sticker")?.querySelector("span")?.textContent || "emoji").replace(/^:|:$/g, "");
+      const targets = cloneTargets(this.guilds(), this.access);
+      if (!targets.length) {
+        this.toast("Emote cloner", "You need Manage Expressions on a server.");
+        return;
+      }
+      this.showMenu(event.clientX, event.clientY, targets.map((guild) => ({ id: guild.id, label: `Add to ${guild.name}` })), (guildId) => {
+        void this.cloneEmote(target.currentSrc || target.src, name, guildId, media.kind, media.animated);
+      });
+    });
+  }
+
+  private async cloneEmote(url: string, name: string, guildId: string, kind: "emoji" | "sticker", animated: boolean) {
+    if (!discordMedia(url)) return;
+    if (this.demo || !isTauri()) {
+      this.toast("Emote cloner", "Cloning runs in the desktop app, on a server you manage.");
+      return;
+    }
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Couldn't download that image.");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (kind === "emoji") {
+        const body = emojiCloneBody(name, bytes, animated);
+        if ("error" in body) {
+          this.toast("Emote cloner", body.error);
+          return;
+        }
+        await invoke("guild_admin", { request: { op: "create_emoji", guildId, body } });
+      } else {
+        const built = stickerCloneRequest(guildId, name, bytes, animated);
+        if ("error" in built) {
+          this.toast("Emote cloner", built.error);
+          return;
+        }
+        await invoke("guild_admin", { request: built.request });
+      }
+      this.toast("Emote cloner", `Added ${name} to the server.`);
+    } catch (err) {
+      this.toast("Emote cloner", err instanceof Error ? err.message : "Discord refused that emoji.");
+    }
+  }
+
+  private paintLiveScheduleBanner() {
+    const channelId = this.channelId;
+    if (!channelId || !this.hookOn("liveSchedule")) return;
+    if (this.liveScheduling) {
+      clear(this.composerBanner);
+      this.composerBanner.hidden = false;
+      const when = el("input");
+      when.type = "datetime-local";
+      when.setAttribute("aria-label", "Send at");
+      when.value = localInputValue(Date.now() + presetLead(this.pack.schedulePreset));
+      const confirm = el("button", "primary", "Queue");
+      confirm.type = "button";
+      confirm.addEventListener("click", () => {
+        const sendAt = Date.parse(when.value);
+        const result = queueDraft(this.liveQueue, { channelId, content: this.composer.value, sendAt }, Date.now());
+        if (!result.ok) {
+          this.toast("Scheduler", result.error);
+          return;
+        }
+        this.liveQueue = result.list;
+        this.composer.value = "";
+        if (this.channelId) delete this.drafts[this.channelId];
+        void this.writeDrafts();
+        this.liveScheduling = false;
+        this.paintComposer();
+        this.toast("Scheduler", "Queued. It sends while Lark stays open.");
+      });
+      const cancel = el("button", "ghost", "Cancel");
+      cancel.type = "button";
+      cancel.addEventListener("click", () => {
+        this.liveScheduling = false;
+        this.paintComposer();
+      });
+      this.composerBanner.append(el("span", "", "Send at"), when, confirm, cancel);
+      return;
+    }
+    const waiting = this.liveQueue.filter((item) => item.channelId === channelId);
+    const next = waiting[0];
+    if (!next) return;
+    clear(this.composerBanner);
+    this.composerBanner.hidden = false;
+    const when = new Date(next.sendAt).toLocaleString();
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      this.liveQueue = this.liveQueue.filter((item) => item.id !== next.id);
+      this.paintComposer();
+    });
+    this.composerBanner.append(el("span", "", `Scheduled ${when}`), cancel);
+  }
+
+  private async tickLiveSchedule() {
+    if (this.sendingLive) return;
+    if (!this.hookOn("liveSchedule")) {
+      this.liveQueue = dropDue(this.liveQueue, Date.now());
+      return;
+    }
+    const picked = takeDue(this.liveQueue, Date.now());
+    if (!picked.due) return;
+    this.sendingLive = true;
+    this.liveQueue = picked.rest;
+    try {
+      const sent = await this.postPlain(picked.due.channelId, picked.due.content);
+      if (!sent) {
+        const retry = backoff(picked.due, Date.now());
+        if (retry && this.hookOn("liveSchedule")) this.liveQueue = [...this.liveQueue, retry].sort((a, b) => a.sendAt - b.sendAt);
+        else this.toast("Scheduler", "That message was not sent.");
+      }
+    } finally {
+      this.sendingLive = false;
+      this.paintComposer();
+    }
   }
 }
 
