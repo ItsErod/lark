@@ -66,17 +66,27 @@ describe("composer plus menu and discord pages", () => {
     }]);
   });
 
-  it("falls back when other streams have not registered hooks", () => {
-    expect(requestCreateThread("100000000000000022", "100000000000000300")).toBe(false);
-    expect(requestCreatePoll("100000000000000022")).toBe(false);
+  it("calls F's thread and poll openers and falls back for activities", () => {
+    expect(requestCreateThread("", "100000000000000300")).toBe(false);
+    expect(requestCreatePoll("")).toBe(false);
+    expect(requestCreateThread("100000000000000022", "100000000000000300")).toBe(true);
+    expect(requestCreatePoll("100000000000000022")).toBe(true);
     expect(requestLaunchActivity("100000000000000022")).toBe(false);
+    let threads = 0;
+    let polls = 0;
     registerMessagingHooks({
-      onCreateThread: () => undefined,
-      onCreatePoll: () => undefined,
+      onCreateThread: () => {
+        threads += 1;
+      },
+      onCreatePoll: () => {
+        polls += 1;
+      },
       onLaunchActivity: () => undefined,
     });
     expect(requestCreateThread("100000000000000022", null)).toBe(true);
     expect(requestCreatePoll("100000000000000022")).toBe(true);
+    expect(threads).toBe(1);
+    expect(polls).toBe(1);
     expect(requestLaunchActivity(null)).toBe(true);
   });
 });

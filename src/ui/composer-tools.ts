@@ -4,8 +4,9 @@
  * Other streams register into this module. Nothing here implements threads,
  * polls, activities, Developer Mode, or the block list.
  *
- * - F: `registerMessagingHooks({ onCreateThread, onCreatePoll })` or assign
- *   `globalThis.__larkOnCreateThread` / `__larkOnCreatePoll`.
+ * - F: `onCreateThread` / `onCreatePoll` in `src/threads.ts`. A registered
+ *   `registerMessagingHooks` callback or `globalThis.__larkOnCreateThread` /
+ *   `__larkOnCreatePoll` wins when present.
  * - E: `onLaunchActivity` or `globalThis.__larkOnLaunchActivity`.
  * - D: Developer Mode via `globalThis.__larkDeveloperMode` or
  *   `config.appearance.developer_mode`. Embed and spoiler flags via
@@ -15,6 +16,7 @@
  */
 import { bookmarkMenuLabel } from "../pack/bookmarks";
 import { reminderMenuLabel } from "../reminders";
+import { onCreatePoll as streamCreatePoll, onCreateThread as streamCreateThread } from "../threads";
 import { el } from "./dom";
 
 const DISCORD_EPOCH = 1_420_070_400_000n;
@@ -61,14 +63,26 @@ function callHook(name: HookName, ...args: [string, (string | null)?]): boolean 
   return true;
 }
 
+function callStream(name: "onCreateThread" | "onCreatePoll", channelId: string, messageId: string | null): boolean {
+  try {
+    if (name === "onCreateThread") streamCreateThread({ channelId, messageId });
+    else streamCreatePoll({ channelId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function requestCreateThread(channelId: string, messageId?: string | null): boolean {
   if (!channelId) return false;
-  return callHook("onCreateThread", channelId, messageId ?? null);
+  if (callHook("onCreateThread", channelId, messageId ?? null)) return true;
+  return callStream("onCreateThread", channelId, messageId ?? null);
 }
 
 export function requestCreatePoll(channelId: string): boolean {
   if (!channelId) return false;
-  return callHook("onCreatePoll", channelId);
+  if (callHook("onCreatePoll", channelId)) return true;
+  return callStream("onCreatePoll", channelId, null);
 }
 
 export function requestLaunchActivity(channelId: string | null): boolean {
