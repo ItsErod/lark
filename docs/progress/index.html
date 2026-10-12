@@ -297,7 +297,7 @@
 
     .stages {
       display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 8px;
       margin: 14px 0 0;
       padding: 0;
@@ -374,6 +374,11 @@
     [data-agent="E"] { --bar-a: #2a5ec4; --bar-b: #8fd4ff; }
     [data-agent="F"] { --bar-a: #a34766; --bar-b: #f2a8c6; }
     [data-agent="plug"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
+    [data-agent="G"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
+    [data-agent="starter"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
+    [data-agent="privacy"] { --bar-a: #1a7464; --bar-b: #7ee0c4; }
+    [data-agent="chat"] { --bar-a: #3c45a5; --bar-b: #9aa6ff; }
+    [data-agent="media"] { --bar-a: #a86a28; --bar-b: #f0c27a; }
     [data-agent="R"] { --bar-a: #8a6230; --bar-b: #f0c27a; }
     .card.just-done { animation: glow 1.2s ease; }
     .kicker {
@@ -767,6 +772,104 @@
       color: var(--amber-2);
     }
     .eta.is-done { color: #3ecf78; }
+    .card[data-stream="G"] .ico {
+      background: color-mix(in srgb, #eb459e 24%, #1e1f22);
+      color: #ffc2e4;
+    }
+    .card-blurb {
+      margin: 4px 0 0;
+      color: var(--secondary);
+      font-size: 13px;
+    }
+    .card.is-feature {
+      grid-column: 1 / -1;
+      padding: 20px;
+      background:
+        radial-gradient(560px 220px at 100% 0%, rgba(235, 69, 158, 0.14), transparent 56%),
+        var(--card);
+    }
+    .shipped {
+      margin: 14px 0 0;
+      color: var(--secondary);
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .shipped strong {
+      color: var(--amber);
+      font-size: 20px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
+    }
+    .plugin-groups {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .plugin-group {
+      min-width: 0;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .plugin-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .plugin-head h4 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+    .plugin-score {
+      margin: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .plugin-pct {
+      font-size: 18px;
+      font-weight: 760;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+    }
+    .plugin-est {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .plugin-group .bar-row { margin-top: 8px; }
+    .plugin-group .meta { margin-top: 8px; }
+    .plugin-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .plugin-chip {
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.3;
+      color: var(--secondary);
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid var(--line);
+    }
+    .plugin-chip.is-landed {
+      color: #04150c;
+      background: var(--green);
+      border-color: transparent;
+      font-weight: 750;
+    }
     .version-body { min-width: 0; }
     .version-name {
       font-size: 18px;
@@ -803,7 +906,7 @@
       .hero { grid-template-columns: 1fr; padding: 20px; text-align: center; }
       .hero .lead { margin-left: auto; margin-right: auto; }
       .stats { justify-content: center; }
-      .streams, .release-actions { grid-template-columns: 1fr; }
+      .streams, .release-actions, .plugin-groups { grid-template-columns: 1fr; }
       .ring-wrap { width: 200px; height: 200px; }
       .ring-pct { font-size: 48px; }
       .top-inner { align-items: flex-start; }
@@ -834,7 +937,7 @@
       </a>
       <div class="top-meta">
         <span class="updated" id="updated">Waiting for GitHub…</span>
-        <span class="clock" id="countdown">Refresh in 2:00</span>
+        <span class="clock" id="countdown">Refresh in 1:00</span>
         <button class="refresh" id="refresh" type="button">Refresh</button>
       </div>
     </div>
@@ -861,7 +964,7 @@
         </div>
       </div>
       <div>
-        <p class="eyebrow">Six workstreams</p>
+        <p class="eyebrow">Seven workstreams</p>
         <h1 id="page-title">Lark 3.0</h1>
         <p id="hero-lead" class="lead">Loading public pull requests…</p>
         <p id="overall-eta" class="overall-eta">3.0 ETA —</p>
@@ -884,24 +987,12 @@
     <section aria-labelledby="streams-title">
       <div class="section-head">
         <h2 id="streams-title">Workstreams</h2>
-        <p>A pull request belongs to a stream when its head branch ends with that stream’s suffix.</p>
+        <p>A pull request belongs to a stream when its head branch ends with that stream’s suffix. Plugin tracks match the longer suffix first.</p>
       </div>
       <div id="streams" class="streams">
         <div class="skel"></div>
         <div class="skel"></div>
         <div class="skel"></div>
-        <div class="skel"></div>
-        <div class="skel"></div>
-        <div class="skel"></div>
-      </div>
-    </section>
-
-    <section aria-labelledby="plugins-title">
-      <div class="section-head">
-        <h2 id="plugins-title">Plugin agents</h2>
-        <p>Each plugin agent is a pull request whose branch ends with -plug. The ETA uses that agent’s progress so far.</p>
-      </div>
-      <div id="plugins" class="streams">
         <div class="skel"></div>
         <div class="skel"></div>
         <div class="skel"></div>
@@ -938,14 +1029,14 @@
     <section aria-labelledby="activity-title">
       <div class="section-head">
         <h2 id="activity-title">Recent merges</h2>
-        <p>The latest merged pull requests across the six workstreams.</p>
+        <p>The latest merged pull requests across the seven workstreams.</p>
       </div>
       <ol id="activity-list" class="timeline"></ol>
     </section>
 
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Pull requests refresh every 2 minutes. Published releases refresh at most every 10 minutes, so the two together stay under GitHub’s 60 unauthenticated requests an hour. The page saves a snapshot in this browser and waits out the limit. A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-agent estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-agent estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -958,6 +1049,7 @@
           <tr><td>D · User settings</td><td><code>60fa</code></td><td>3</td></tr>
           <tr><td>E · Voice, video &amp; stage</td><td><code>24f9</code></td><td>4</td></tr>
           <tr><td>F · Threads, forums, polls, events &amp; inbox</td><td><code>96c</code></td><td>4</td></tr>
+          <tr><td>G · Plugins</td><td><code>-plug</code> Starter, <code>-privacy-plug</code>, <code>-chat-plug</code>, <code>-media-plug</code></td><td>5 + 4 + 4 + 4</td></tr>
         </tbody>
       </table>
     </details>
@@ -974,13 +1066,81 @@
   </footer>
   <canvas id="confetti" aria-hidden="true"></canvas>
   <script>
+    const PLUGIN_GROUPS = [
+      {
+        id: "starter",
+        name: "Starter",
+        suffix: "-plug",
+        estimate: 5,
+        plugins: [
+          "Message Logger",
+          "Better Timestamps",
+          "Silent Typing",
+          "Typing Indicators",
+          "Translate",
+          "Show Hidden Channels",
+          "Spotify Controls",
+          "Quick Reply Templates",
+          "Copy Markdown",
+          "Image Zoom"
+        ]
+      },
+      {
+        id: "privacy",
+        name: "Privacy",
+        suffix: "-privacy-plug",
+        estimate: 4,
+        plugins: [
+          "Panic Key",
+          "Streamer Safe",
+          "Clean Links",
+          "Spoiler Everything",
+          "Hide Blocked Messages",
+          "Incognito Mode"
+        ]
+      },
+      {
+        id: "chat",
+        name: "Chat",
+        suffix: "-chat-plug",
+        estimate: 4,
+        plugins: [
+          "Keyword Highlights",
+          "Pin DMs",
+          "Read All",
+          "User Whois",
+          "Emote Cloner",
+          "Message Scheduler",
+          "Reverse Image Search",
+          "Bigger Emoji"
+        ]
+      },
+      {
+        id: "media",
+        name: "Media",
+        suffix: "-media-plug",
+        estimate: 4,
+        plugins: [
+          "Call Timer",
+          "Volume Booster",
+          "Voice Message Downloader",
+          "View Original Image",
+          "YouTube PiP",
+          "Quick Clip Share",
+          "Game Activity Toggle",
+          "Now Playing Status"
+        ]
+      }
+    ];
+
     const STREAMS = [
       { id: "A", suffix: "290f", estimate: 2, name: "Messages & composer", short: "Messages", blurb: "Chat, the composer, and message actions." },
       { id: "B", suffix: "dbd3", estimate: 5, name: "Servers, channels & server settings", short: "Servers", blurb: "Server list, channels, and server settings." },
       { id: "C", suffix: "5585", estimate: 2, name: "DMs, friends & profiles", short: "DMs", blurb: "Direct messages, friends, and profiles." },
       { id: "D", suffix: "60fa", estimate: 3, name: "User settings", short: "Settings", blurb: "Account, app, and appearance settings." },
       { id: "E", suffix: "24f9", estimate: 4, name: "Voice, video & stage", short: "Voice", blurb: "Voice, video, and stage channels." },
-      { id: "F", suffix: "96c", estimate: 4, name: "Threads, forums, polls, events & inbox", short: "Threads", blurb: "Threads, forums, polls, events, and inbox." }
+      { id: "F", suffix: "96c", estimate: 4, name: "Threads, forums, polls, events & inbox", short: "Threads", blurb: "Threads, forums, polls, events, and inbox." },
+      { id: "G", suffix: "-plug", estimate: 17, name: "Plugins", short: "Plugins", blurb: "Four tracks. Each plugin stays off until you turn it on.", groups: PLUGIN_GROUPS }
     ];
 
     const ICONS = {
@@ -989,7 +1149,8 @@
       C: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 11.2a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm6.5.4a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4ZM3.2 18.6C3.2 15.8 5.8 14 9 14s5.8 1.8 5.8 4.6V20H3.2v-1.4Zm8.7-4.3c.5-.1 1-.2 1.6-.2 2.8 0 5.3 1.6 5.3 4.1V20h-4.2v-1.4c0-1.5-.8-2.8-2.1-3.8-.2-.2-.4-.3-.6-.5Z"/></svg>',
       D: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 7.2h8.6a2.4 2.4 0 0 0 4.7 0H20a1 1 0 1 0 0-2h-2.7a2.4 2.4 0 0 0-4.7 0H4a1 1 0 0 0 0 2Zm5.2 5.8H20a1 1 0 1 0 0-2H9.2a2.4 2.4 0 0 0-4.7 0H4a1 1 0 0 0 0 2h.5a2.4 2.4 0 0 0 4.7 0ZM4 18.8a1 1 0 1 0 0 2h8.1a2.4 2.4 0 0 0 4.7 0H20a1 1 0 1 0 0-2h-3.2a2.4 2.4 0 0 0-4.7 0H4Z"/></svg>',
       E: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 3.2a1.1 1.1 0 0 1 1.1 1.1v15.4a1.1 1.1 0 1 1-2.2 0V4.3A1.1 1.1 0 0 1 11 3.2Zm-4.2 3.6A1.1 1.1 0 0 1 8 7.9v8.2a1.1 1.1 0 1 1-2.2 0V7.9a1.1 1.1 0 0 1 1-1.1Zm8.4.8a1.1 1.1 0 0 1 1.1 1.1v6.6a1.1 1.1 0 1 1-2.2 0V8.7a1.1 1.1 0 0 1 1.1-1.1ZM4.6 10a1.1 1.1 0 0 1 1.1 1.1v1.8a1.1 1.1 0 1 1-2.2 0v-1.8A1.1 1.1 0 0 1 4.6 10Zm14.8 0a1.1 1.1 0 0 1 1.1 1.1v1.8a1.1 1.1 0 1 1-2.2 0v-1.8a1.1 1.1 0 0 1 1.1-1.1Z"/></svg>',
-      F: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.5 3h11A3.5 3.5 0 0 1 21 6.5v6.2a3.5 3.5 0 0 1-3.5 3.5H13l-3.2 2.5c-.8.6-1.8-.1-1.8-1V16.2A3.5 3.5 0 0 1 6.5 12.7V6.5A3.5 3.5 0 0 1 6.5 3Zm1.6 4.4a1 1 0 0 0 0 2h8.8a1 1 0 1 0 0-2H8.1Zm0 3.8a1 1 0 0 0 0 2h5.4a1 1 0 1 0 0-2H8.1Z"/></svg>'
+      F: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.5 3h11A3.5 3.5 0 0 1 21 6.5v6.2a3.5 3.5 0 0 1-3.5 3.5H13l-3.2 2.5c-.8.6-1.8-.1-1.8-1V16.2A3.5 3.5 0 0 1 6.5 12.7V6.5A3.5 3.5 0 0 1 6.5 3Zm1.6 4.4a1 1 0 0 0 0 2h8.8a1 1 0 1 0 0-2H8.1Zm0 3.8a1 1 0 0 0 0 2h5.4a1 1 0 1 0 0-2H8.1Z"/></svg>',
+      G: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.2 3.1a2.15 2.15 0 0 1 1.9 1.15h2.2A2.15 2.15 0 1 1 14.6 6.4h2.1a2 2 0 0 1 2 2v1.7a2.15 2.15 0 1 1 0 3.8v1.8a2 2 0 0 1-2 2h-1.8a2.15 2.15 0 1 1-3.8 0H8.7a2.2 2.2 0 0 1-2.2-2.2v-1.5a2.15 2.15 0 1 0 0-3.6V7.3A2.2 2.2 0 0 1 8.7 5.1h.6A2.15 2.15 0 0 1 8.2 3.1Z"/></svg>'
     };
     const PLUG_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.2 3.1a2.15 2.15 0 0 1 1.9 1.15h2.2A2.15 2.15 0 1 1 14.6 6.4h2.1a2 2 0 0 1 2 2v1.7a2.15 2.15 0 1 1 0 3.8v1.8a2 2 0 0 1-2 2h-1.8a2.15 2.15 0 1 1-3.8 0H8.7a2.2 2.2 0 0 1-2.2-2.2v-1.5a2.15 2.15 0 1 0 0-3.6V7.3A2.2 2.2 0 0 1 8.7 5.1h.6A2.15 2.15 0 0 1 8.2 3.1Z"/></svg>';
 
@@ -997,7 +1158,7 @@
     const RELEASE_URL = "https://api.github.com/repos/ItsErod/lark/releases/latest";
     const RELEASES_URL = "https://api.github.com/repos/ItsErod/lark/releases?per_page=100";
     const RELEASES_CACHE_KEY = "lark30-version-history-v1";
-    const REFRESH_MS = 120000;
+    const REFRESH_MS = 60000;
     const CACHE_KEY = "lark30-progress-v1";
     const SEEN_KEY = "lark30-progress-seen-v1";
     const LIMIT_KEY = "lark30-progress-limit-v1";
@@ -1005,7 +1166,112 @@
     const DMG_NAME = "Lark_3.0.0_universal.dmg";
     const STATUS_LABEL = { coding: "Coding", review: "In review", merged: "Merged", done: "Done" };
 
+    function mentionsPlugin(title, name) {
+      const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp("\\b" + escaped + "\\b", "i").test(String(title || ""));
+    }
+
+    function pluginGroupFor(ref) {
+      const name = String(ref || "").toLowerCase();
+      for (let i = 0; i < PLUGIN_GROUPS.length; i++) {
+        const group = PLUGIN_GROUPS[i];
+        if (group.id === "starter") continue;
+        if (name.endsWith(group.suffix)) return group;
+      }
+      const starter = PLUGIN_GROUPS[0];
+      if (name.endsWith(starter.suffix)) return starter;
+      return null;
+    }
+
+    function classifyPulls(pulls, match) {
+      const list = (pulls || []).filter((pr) => {
+        const ref = pr && pr.head && pr.head.ref ? String(pr.head.ref) : "";
+        return match(ref);
+      });
+      return {
+        list,
+        mergedPrs: list.filter((pr) => pr.merged_at),
+        openPrs: list.filter((pr) => !pr.merged_at && pr.state === "open"),
+        closedPrs: list.filter((pr) => !pr.merged_at && pr.state !== "open")
+      };
+    }
+
+    function ratioFor(estimate, merged, open) {
+      const actual = merged + open;
+      const expected = Math.max(estimate, actual);
+      if (actual === 0) return { expected, ratio: 0.05, status: "coding" };
+      if (open === 0 && merged >= estimate) return { expected, ratio: 1, status: "done" };
+      return {
+        expected,
+        ratio: Math.min(0.95, (merged + 0.5 * open) / expected),
+        status: open > 0 ? "review" : "merged"
+      };
+    }
+
+    function computePluginGroup(group, pulls) {
+      const bucket = classifyPulls(pulls, (ref) => {
+        const hit = pluginGroupFor(ref);
+        return !!(hit && hit.id === group.id);
+      });
+      const progress = ratioFor(group.estimate, bucket.mergedPrs.length, bucket.openPrs.length);
+      const landed = group.plugins.filter((name) => bucket.mergedPrs.some((pr) => mentionsPlugin(pr.title, name)));
+      return {
+        id: group.id,
+        name: group.name,
+        suffix: group.suffix,
+        estimate: group.estimate,
+        plugins: group.plugins,
+        landed,
+        merged: bucket.mergedPrs.length,
+        open: bucket.openPrs.length,
+        expected: progress.expected,
+        ratio: progress.ratio,
+        percent: Math.round(progress.ratio * 100),
+        status: progress.status,
+        mergedPrs: bucket.mergedPrs,
+        openPrs: bucket.openPrs,
+        closedPrs: bucket.closedPrs,
+        all: bucket.list
+      };
+    }
+
+    function pluginStreamStatus(groups) {
+      if (groups.every((group) => group.status === "done")) return "done";
+      if (groups.some((group) => group.status === "review")) return "review";
+      if (groups.some((group) => group.status === "merged" || group.status === "done")) return "merged";
+      return "coding";
+    }
+
+    function computePluginStream(stream, pulls) {
+      const groups = stream.groups.map((group) => computePluginGroup(group, pulls));
+      const ratio = groups.reduce((sum, group) => sum + group.ratio, 0) / groups.length;
+      const status = pluginStreamStatus(groups);
+      return {
+        id: stream.id,
+        name: stream.name,
+        short: stream.short,
+        blurb: stream.blurb,
+        suffix: stream.suffix,
+        estimate: groups.reduce((sum, group) => sum + group.estimate, 0),
+        merged: groups.reduce((sum, group) => sum + group.merged, 0),
+        open: groups.reduce((sum, group) => sum + group.open, 0),
+        expected: groups.reduce((sum, group) => sum + group.expected, 0),
+        ratio,
+        percent: Math.round(ratio * 100),
+        status,
+        active: status !== "done",
+        mergedPrs: groups.reduce((list, group) => list.concat(group.mergedPrs), []),
+        openPrs: groups.reduce((list, group) => list.concat(group.openPrs), []),
+        closedPrs: groups.reduce((list, group) => list.concat(group.closedPrs), []),
+        all: groups.reduce((list, group) => list.concat(group.all), []),
+        groups,
+        shipped: groups.reduce((sum, group) => sum + group.landed.length, 0),
+        pluginTotal: groups.reduce((sum, group) => sum + group.plugins.length, 0)
+      };
+    }
+
     function computeStream(stream, pulls) {
+      if (stream.groups) return computePluginStream(stream, pulls);
       const list = (pulls || []).filter((pr) => {
         const ref = pr && pr.head && pr.head.ref ? String(pr.head.ref) : "";
         return ref.toLowerCase().endsWith(stream.suffix);
@@ -1242,7 +1508,11 @@
       const name = String(ref || "").toLowerCase();
       if (!name.endsWith("-plug")) return false;
       const streams = typeof STREAMS === "undefined" ? [] : STREAMS;
-      return !streams.some((stream) => name.endsWith(stream.suffix));
+      return !streams.some((stream) => {
+        const suffix = String(stream && stream.suffix || "").toLowerCase();
+        if (!suffix || suffix === "-plug" || suffix.endsWith("-plug")) return false;
+        return name.endsWith(suffix);
+      });
     }
 
     function earliestStamp(prs, field) {
@@ -1377,6 +1647,7 @@
       let current = null;
       let signature = "";
       let sawPayload = false;
+      let sawAllDone = false;
       const ringLength = 2 * Math.PI * 84;
       const ring = document.getElementById("ring-value");
       ring.style.strokeDasharray = String(ringLength);
@@ -1387,13 +1658,32 @@
       stages.append(stageNode({ id: "R", short: "Release", release: true }));
 
       document.getElementById("refresh").addEventListener("click", () => { refresh(true); });
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          tick();
+          return;
+        }
+        if (inflight) return;
+        const blocked = limitBlock();
+        if (blocked) {
+          nextAt = blocked.resetMs;
+          showLimitNotice(blocked.resetMs, !!current);
+          tick();
+          return;
+        }
+        nextAt = Date.now() + REFRESH_MS;
+        refresh(false);
+      });
 
       let historyModel = null;
       let historySignature = "";
       paintHistoryFromCache();
 
       const cached = readJson(CACHE_KEY);
-      if (cached && Array.isArray(cached.pulls)) applyPayload(cached, { fromCache: true, quiet: true });
+      if (cached && Array.isArray(cached.pulls)) {
+        sawAllDone = STREAMS.every((stream) => computeStream(stream, cached.pulls).status === "done");
+        applyPayload(cached, { fromCache: true, quiet: true });
+      }
 
       refresh(false);
       window.setInterval(tick, 1000);
@@ -1498,6 +1788,8 @@
         const clock = document.getElementById("countdown");
         if (inflight) {
           clock.textContent = "Refreshing…";
+        } else if (document.hidden) {
+          clock.textContent = "Paused";
         } else {
           const remain = Math.max(0, nextAt - Date.now());
           const paused = remain > REFRESH_MS + 5000;
@@ -1513,10 +1805,9 @@
         });
         paintHistoryClock();
         tickEtas();
-        if (!inflight && Date.now() >= nextAt) {
-          nextAt = Date.now() + REFRESH_MS;
-          refresh(false);
-        }
+        if (document.hidden || inflight || Date.now() < nextAt) return;
+        nextAt = Date.now() + REFRESH_MS;
+        refresh(false);
       }
 
       function limitBlock() {
@@ -1528,6 +1819,7 @@
 
       async function refresh(manual) {
         if (inflight) return;
+        if (document.hidden && !manual) return;
         const blocked = limitBlock();
         if (blocked) {
           nextAt = blocked.resetMs;
@@ -1557,9 +1849,12 @@
             pulls = pullsInfo.json.map(slimPull);
           }
 
+          const allDoneNow = !!(pulls && STREAMS.every((stream) => computeStream(stream, pulls).status === "done"));
+          const justFinished = allDoneNow && !sawAllDone;
+          if (pulls) sawAllDone = allDoneNow;
           const savedReleases = readJson(RELEASES_CACHE_KEY);
           const haveReleases = !!(savedReleases && Array.isArray(savedReleases.releases));
-          const releasesFresh = haveReleases && Number.isFinite(savedReleases.fetchedAt) && (Date.now() - savedReleases.fetchedAt) < RELEASES_REFRESH_MS;
+          const releasesFresh = !justFinished && haveReleases && Number.isFinite(savedReleases.fetchedAt) && (Date.now() - savedReleases.fetchedAt) < RELEASES_REFRESH_MS;
           if (!releasesFresh && !pullsLimited && remaining >= 8) {
             const loaded = await loadAllReleases();
             if (loaded.remaining != null) remaining = Math.min(remaining, loaded.remaining);
@@ -1872,7 +2167,6 @@
         const plugins = pluginAgentsFrom(payload.pulls);
         if (changed || !sawPayload) {
           paintStreams(results);
-          paintPlugins(plugins);
           paintActivity(results);
         }
         refreshEtas(results, plugins);
@@ -2009,6 +2303,8 @@
         const card = document.createElement("article");
         card.className = "card";
         card.dataset.status = item.status;
+        card.dataset.stream = item.id;
+        if (item.groups) card.classList.add("is-feature");
         card.style.animationDelay = (index * 40) + "ms";
         if (item.status === "done" && seen.ready && !seen[item.id]) card.classList.add("just-done");
 
@@ -2025,6 +2321,12 @@
         const heading = document.createElement("h3");
         heading.textContent = item.name;
         titles.append(kicker, heading);
+        if (item.groups) {
+          const blurb = document.createElement("p");
+          blurb.className = "card-blurb";
+          blurb.textContent = item.blurb;
+          titles.append(blurb);
+        }
         const side = document.createElement("div");
         side.className = "card-side";
         const pct = document.createElement("span");
@@ -2054,9 +2356,10 @@
         });
 
         const bits = [];
+        if (item.groups) bits.push(item.groups.length + " tracks");
         if (item.merged) bits.push(item.merged + " merged");
         if (item.open) bits.push(item.open + " in review");
-        bits.push(item.expected + " expected");
+        if (!item.groups) bits.push(item.expected + " expected");
         const meta = document.createElement("p");
         meta.className = "meta";
         meta.textContent = bits.join(" · ");
@@ -2067,9 +2370,11 @@
         eta.textContent = "ETA —";
 
         card.append(top, pill, bar, meta, eta);
+        if (item.groups && item.groups.length) card.append(pluginFeature(item));
 
         const prs = item.all.slice().sort(comparePrs);
         if (!prs.length) {
+          if (item.groups) return card;
           const note = document.createElement("p");
           note.className = "empty-note";
           note.textContent = "No pull requests yet. This stays near 5% while the code is being written.";
@@ -2091,6 +2396,78 @@
         details.append(summary, list);
         card.append(details);
         return card;
+      }
+
+      function pluginFeature(item) {
+        const wrap = document.createElement("div");
+        const shipped = document.createElement("p");
+        shipped.className = "shipped";
+        const strong = document.createElement("strong");
+        strong.textContent = String(item.shipped);
+        shipped.append(
+          document.createTextNode("plugins shipped "),
+          strong,
+          document.createTextNode("/" + item.pluginTotal)
+        );
+        const grid = document.createElement("div");
+        grid.className = "plugin-groups";
+        item.groups.forEach((group) => grid.append(pluginGroupPanel(group)));
+        wrap.append(shipped, grid);
+        return wrap;
+      }
+
+      function pluginGroupPanel(group) {
+        const panel = document.createElement("section");
+        panel.className = "plugin-group";
+        panel.dataset.status = group.status;
+        const head = document.createElement("div");
+        head.className = "plugin-head";
+        const title = document.createElement("h4");
+        title.textContent = group.name;
+        const score = document.createElement("p");
+        score.className = "plugin-score";
+        const pct = document.createElement("span");
+        pct.className = "plugin-pct";
+        countUp(pct, "plugin-" + group.id, group.percent);
+        const est = document.createElement("span");
+        est.className = "plugin-est";
+        est.textContent = "estimate";
+        score.append(pct, est);
+        head.append(title, score);
+        const bar = progressBar({
+          key: "track-" + group.id,
+          percent: group.percent,
+          done: group.status === "done",
+          agent: group.id,
+          slim: true,
+          beside: true,
+          name: group.name + " progress"
+        });
+        const bits = [];
+        if (group.merged) bits.push(group.merged + " merged");
+        if (group.open) bits.push(group.open + " in review");
+        bits.push(group.expected + " expected");
+        const meta = document.createElement("p");
+        meta.className = "meta";
+        meta.textContent = STATUS_LABEL[group.status] + " · " + bits.join(" · ");
+        panel.append(head, bar, meta, pluginChips(group));
+        return panel;
+      }
+
+      function pluginChips(group) {
+        const list = document.createElement("ul");
+        list.className = "plugin-list";
+        list.setAttribute("aria-label", group.name + " plugins");
+        const landed = new Set(group.landed || []);
+        group.plugins.forEach((name) => {
+          const li = document.createElement("li");
+          const on = landed.has(name);
+          li.className = "plugin-chip" + (on ? " is-landed" : "");
+          li.textContent = name;
+          if (on) li.setAttribute("aria-label", name + ", merged");
+          list.append(li);
+        });
+        return list;
       }
 
       function prRow(pr) {
