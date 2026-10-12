@@ -7,6 +7,7 @@ import type { ScheduledSend } from "./schedule";
 import type { LogEntry } from "./logger";
 import { sanitizeLog } from "./logger";
 import type { HourCycle, TimeMode } from "./time";
+import type { TranslatePrefer } from "./inline-translate";
 import { cleanWords } from "./keywords";
 import { defaultPrivacy, sanitizePrivacy, type PrivacyOptions } from "./privacy";
 
@@ -34,6 +35,10 @@ export interface PackState {
   timeHours: HourCycle;
   typingChannels: boolean;
   typingDms: boolean;
+  inlineLang: Lang;
+  inlineSource: Lang;
+  inlinePrefer: TranslatePrefer;
+  hiddenTopics: boolean;
   privacy: PrivacyOptions;
 }
 
@@ -55,6 +60,8 @@ export const PACK_IDS = [
   "message-logger",
   "better-timestamps",
   "typing-list",
+  "inline-translate",
+  "show-hidden",
   "panic-key",
   "incognito",
 ] as const;
@@ -87,6 +94,10 @@ export function defaultPack(): PackState {
     timeHours: "12",
     typingChannels: true,
     typingDms: true,
+    inlineLang: "es",
+    inlineSource: "en",
+    inlinePrefer: "remote",
+    hiddenTopics: true,
     privacy: defaultPrivacy(),
   };
 }
@@ -111,6 +122,10 @@ export function sanitizePack(input: unknown): PackState {
   if (raw.timeHours === "12" || raw.timeHours === "24") base.timeHours = raw.timeHours;
   if (typeof raw.typingChannels === "boolean") base.typingChannels = raw.typingChannels;
   if (typeof raw.typingDms === "boolean") base.typingDms = raw.typingDms;
+  if (typeof raw.inlineLang === "string" && LANGS.has(raw.inlineLang as Lang)) base.inlineLang = raw.inlineLang as Lang;
+  if (typeof raw.inlineSource === "string" && LANGS.has(raw.inlineSource as Lang)) base.inlineSource = raw.inlineSource as Lang;
+  if (raw.inlinePrefer === "remote" || raw.inlinePrefer === "local") base.inlinePrefer = raw.inlinePrefer;
+  if (typeof raw.hiddenTopics === "boolean") base.hiddenTopics = raw.hiddenTopics;
   base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);

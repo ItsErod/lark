@@ -116,6 +116,16 @@
       "description": "Show who is typing on the channel row and the direct message row."
     },
     {
+      "id": "inline-translate",
+      "name": "Translate",
+      "description": "Right-click a message to translate it in place. Uses a free endpoint, then a local phrase book. No key."
+    },
+    {
+      "id": "show-hidden",
+      "name": "Show hidden channels",
+      "description": "List channels you cannot view, with a lock and the topic. Opening one is refused."
+    },
+    {
       "id": "panic-key",
       "name": "Panic Key",
       "description": "A hotkey that hides or minimizes Lark and mutes."

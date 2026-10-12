@@ -162,12 +162,47 @@ pub struct DiscordMessage {
     pub kind: i32,
     #[serde(default, deserialize_with = "de_optional_nonce")]
     pub nonce: Option<String>,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub call: Option<DiscordCall>,
+    #[serde(default)]
+    pub message_snapshots: Vec<DiscordSnapshot>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordCall {
+    #[serde(default)]
+    pub ended_timestamp: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordSnapshotMessage {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub author: Option<DiscordUser>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DiscordSnapshot {
+    #[serde(default)]
+    pub message: Option<DiscordSnapshotMessage>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DiscordReference {
     #[serde(default)]
     pub message_id: Option<String>,
+    /// 0 is a reply. 1 is a forward.
+    #[serde(default, rename = "type")]
+    pub kind: i32,
+    #[serde(default)]
+    pub channel_id: Option<String>,
+    #[serde(default)]
+    pub guild_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -514,6 +549,16 @@ pub struct ClientMessage {
     pub thread: Option<ClientThread>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub author_role_ids: Vec<String>,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub message_type: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_ended: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded: Option<ClientReply>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -867,6 +912,29 @@ fn reply_from(referenced: &DiscordMessage) -> ClientReply {
     }
 }
 
+fn snapshot_reply(snapshot: &DiscordSnapshotMessage) -> ClientReply {
+    let author_name = snapshot
+        .author
+        .as_ref()
+        .map(|user| user.display_name())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Someone".into());
+    let preview = if snapshot.content.is_empty() {
+        "Forwarded message".into()
+    } else {
+        collapse_preview(snapshot.content.clone())
+    };
+    ClientReply {
+        id: if snapshot.id.is_empty() {
+            "forward".into()
+        } else {
+            snapshot.id.clone()
+        },
+        author_name,
+        preview,
+    }
+}
+
 fn sticker_url(id: &str, format: i32) -> Option<String> {
     if !snowflake_ok(id) {
         return None;
@@ -883,8 +951,19 @@ fn sticker_url(id: &str, format: i32) -> Option<String> {
 
 pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
     let author = message.author.as_ref();
-    let reply = if let Some(referenced) = message.referenced_message.as_ref() {
+    let reference_kind = message
+        .message_reference
+        .as_ref()
+        .map(|reference| reference.kind)
+        .unwrap_or(0);
+    let preview = if let Some(referenced) = message.referenced_message.as_ref() {
         Some(reply_from(referenced))
+    } else if let Some(snapshot) = message
+        .message_snapshots
+        .iter()
+        .find_map(|item| item.message.as_ref())
+    {
+        Some(snapshot_reply(snapshot))
     } else {
         message
             .message_reference
@@ -895,6 +974,11 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
                 author_name: "Original message".into(),
                 preview: "Message deleted".into(),
             })
+    };
+    let (reply, forwarded) = if reference_kind == 1 {
+        (None, preview)
+    } else {
+        (preview, None)
     };
     ClientMessage {
         id: message.id.clone(),
@@ -956,6 +1040,19 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
         guild_id: message.guild_id.clone().filter(|id| snowflake_ok(id)),
         reply,
         kind: kind_name(message.kind).into(),
+        author_role_ids: message
+            .member
+            .as_ref()
+            .map(|member| member.roles.clone())
+            .unwrap_or_default(),
+        pinned: message.pinned,
+        message_type: message.kind,
+        call_ended: message
+            .call
+            .as_ref()
+            .and_then(|call| call.ended_timestamp.clone())
+            .filter(|stamp| !stamp.is_empty()),
+        forwarded,
         stickers: message
             .sticker_items
             .iter()
@@ -1527,6 +1624,33 @@ pub fn validate_outgoing(
     }
     if content.trim().is_empty() && file_count == 0 {
         return Err("Write a message or attach a file.".into());
+    }
+    if file_count > 4 {
+        return Err("Lark sends up to 4 files at a time.".into());
+    }
+    if file_bytes > limit_bytes {
+        let mb = (limit_bytes / (1024 * 1024)).max(1);
+        return Err(format!("Attachments are limited to {mb} MB on this account."));
+    }
+    Ok(())
+}
+
+/// Like `validate_outgoing`, except a sticker or a forward may have an empty body.
+pub fn validate_composed(
+    content: &str,
+    file_count: usize,
+    file_bytes: u64,
+    limit_bytes: u64,
+    extras: usize,
+) -> Result<(), String> {
+    if extras == 0 {
+        return validate_outgoing(content, file_count, file_bytes, limit_bytes);
+    }
+    if content.chars().count() > 2_000 {
+        return Err("Messages are limited to 2,000 characters.".into());
+    }
+    if extras > 3 {
+        return Err("Discord accepts up to 3 stickers.".into());
     }
     if file_count > 4 {
         return Err("Lark sends up to 4 files at a time.".into());
@@ -2484,6 +2608,7 @@ mod tests {
     }
 }
 
+
 // Stream F. Thread, poll, and scheduled-event payloads. Append-only: existing
 // channel kinds stay in `channel_kind_name`.
 
@@ -3275,5 +3400,79 @@ mod parity_stream_f {
         assert_eq!(body["poll"]["answers"][0]["poll_media"]["emoji"]["name"], "👍");
         let bulk = ack_bulk_body(&[("100000000000000022".into(), "100000000000000220".into())]).unwrap();
         assert_eq!(bulk["read_states"][0]["read_state_type"], 0);
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientGif {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientReactionUser {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientAppOption {
+    pub name: String,
+    pub description: String,
+    #[serde(rename = "type")]
+    pub type_id: i32,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientAppCommand {
+    pub id: String,
+    pub application_id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(rename = "type")]
+    pub kind: i32,
+    pub version: String,
+    pub options: Vec<ClientAppOption>,
+}
+
+#[cfg(test)]
+mod messaging_fields {
+    use super::*;
+
+    #[test]
+    fn system_calls_forwards_and_role_ids_survive_mapping() {
+        let raw = r#"{
+            "id": "100000000000000300",
+            "channel_id": "100000000000000022",
+            "guild_id": "100000000000000010",
+            "type": 3,
+            "content": "",
+            "timestamp": "2026-10-06T12:00:00.000Z",
+            "pinned": true,
+            "author": {"id": "7", "username": "maya", "global_name": "Maya Chen"},
+            "member": {"roles": ["100000000000000099"]},
+            "call": {"ended_timestamp": "2026-10-06T12:05:00.000Z"},
+            "message_reference": {"type": 1, "message_id": "100000000000000111", "channel_id": "100000000000000022"},
+            "message_snapshots": [{"message": {"id": "100000000000000111", "content": "earlier", "author": {"id": "8", "username": "jonah", "global_name": "Jonah"}}}]
+        }"#;
+        let parsed: DiscordMessage = serde_json::from_str(raw).unwrap();
+        let client = message_to_client(&parsed);
+        assert_eq!(client.message_type, 3);
+        assert!(client.pinned);
+        assert_eq!(client.author_role_ids, vec!["100000000000000099"]);
+        assert_eq!(client.call_ended.as_deref(), Some("2026-10-06T12:05:00.000Z"));
+        assert!(client.reply.is_none());
+        assert_eq!(client.forwarded.as_ref().unwrap().preview, "earlier");
+        assert!(validate_composed("", 0, 0, 10_000, 1).is_ok());
+        assert!(validate_composed("", 0, 0, 10_000, 0).is_err());
     }
 }

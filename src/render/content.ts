@@ -417,6 +417,16 @@ export function mediaBox(width?: number, height?: number, max = MEDIA_MAX): Medi
   return { reserved: false, width: MEDIA_FALLBACK_W, height: MEDIA_FALLBACK_H };
 }
 
+/** Discord hides an upload when its filename starts with this prefix. */
+export function isSpoilerFile(name: string): boolean {
+  return name.startsWith("SPOILER_");
+}
+
+export function displayFileName(name: string): string {
+  const stripped = name.replace(/^(?:SPOILER_)+/, "");
+  return stripped || name;
+}
+
 export function attachmentKind(att: { contentType?: string; name: string }): "image" | "video" | "audio" | "file" {
   const type = att.contentType ?? "";
   if (type.startsWith("image/")) return "image";

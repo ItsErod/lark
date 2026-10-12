@@ -52,6 +52,23 @@ A channel row and a direct-message row can show that someone is typing there.
 - **Channel list** and **Direct messages** turn each list off on its own.
 - The label clears about eight seconds after the last typing event, the same window as the line under the composer.
 
+## Translate
+
+Right-click a message and choose **Translate**. The line is replaced in place. **Show original** puts it back.
+
+- Lark asks MyMemory, a free endpoint that does not need a key. Nothing in this plugin stores a token or a paid credential.
+- If that request fails, or the quota warning comes back, Lark uses the local phrase book (English, Spanish, French, German, Japanese) and any lines you saved on the message translator.
+- **Translate into**, **Source language**, and **Prefer** live in the plugin’s settings. Prefer can try the local book first.
+- A line that matches neither stays as it was, and Lark says so.
+
+## Show hidden channels
+
+Channels you cannot view stay in the channel list under **Hidden**, with a lock.
+
+- The topic is shown under the name when **Show topics** is on.
+- Clicking one does not open it and does not fetch its messages. Lark says you cannot view it.
+- Categories are left out. A channel you can already open is unchanged.
+
 ## Panic Key
 
 A hotkey that instantly hides or minimizes Lark and mutes.
@@ -67,4 +84,3 @@ Don't mark channels read until you choose, and hide your activity locally.
 
 - **Hold read receipts.** Opening a channel, following the bottom, or sending a message does not tell Discord the channel is read. The unread badge stays, including while the channel is open. **Mark read** in the header, or Esc when nothing else is open, is the choice that sends the receipt.
 - **Hide activity on this device.** The account chip says Incognito. Your custom status and activity line are blank on this screen. Lark does not send a typing indicator, and it does not publish an automatic status from auto away, now playing, or hardware. A status you set yourself still publishes.
-
