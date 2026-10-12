@@ -1300,3 +1300,28 @@ button.guild-row:hover { background: var(--hover); }
 }
 .voice-media:has(.voice-camera.is-live) > svg,
 .voice-media:has(.voice-camera.is-live) > span { display: none; }
+.net-panel {
+  position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 60;
+  max-height: min(420px, 46vh); display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px; padding: 10px 12px; background: var(--bg-0); color: var(--text);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+}
+.net-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.net-bar strong { margin-right: 4px; }
+.net-bar input { flex: 1 1 120px; min-width: 0; }
+.net-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr); gap: 8px; min-height: 0; overflow: auto; }
+.net-col { min-width: 0; display: grid; align-content: start; gap: 4px; }
+.net-col h3 { margin: 0; font-size: 12px; color: var(--muted); }
+.net-col p { margin: 0; font: 12px/1.4 var(--mono); }
+.net-row {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  color: var(--text); font: 12px/1.4 var(--mono); padding: 2px 4px; border-radius: 4px; cursor: pointer;
+}
+.net-row:hover { background: var(--hover); }
+.net-payload {
+  margin: 0; max-height: 120px; overflow: auto; font: 12px/1.4 var(--mono);
+  background: var(--bg-2); border-radius: 8px; padding: 8px; white-space: pre-wrap;
+}
+@media (max-width: 720px) {
+  .net-cols { grid-template-columns: 1fr; }
+}

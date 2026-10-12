@@ -282,6 +282,9 @@ where
                     }
                     Message::Text(text) => {
                         if let Some(ms) = voice_ping_ms(&text, &mut beat) {
+                            if let Ok(mut guard) = log.lock() {
+                                guard.note_ping(ms);
+                            }
                             emit(VoiceLinkEvent::Ping { ping_ms: ms, endpoint: hello.endpoint.clone(), epoch: hello.epoch });
                         }
                         handle_gateway_text(&text, hello, &ssrc_users, &mut seq_ack, dave.as_ref(), emit)?;
@@ -319,7 +322,7 @@ where
                             return Err("UDP send failed".into());
                         }
                         if let Ok(mut guard) = log.lock() {
-                            guard.udp_out = guard.udp_out.saturating_add(1);
+                            guard.note_udp_out(bytes.len());
                         }
                     }
                     None => {
@@ -330,10 +333,10 @@ where
             }
             received = udp_recv.recv(&mut packet) => {
                 if let Ok(size) = received {
-                    if let Ok(mut guard) = log.lock() {
-                        guard.udp_in = guard.udp_in.saturating_add(1);
-                    }
                     let datagram = &packet[..size];
+                    if let Ok(mut guard) = log.lock() {
+                        guard.note_udp_in(size, crate::discord::voice_log::rtp_seq(datagram));
+                    }
                     if is_camera_rtp(datagram) {
                         let users = ssrc_users.lock().map(|guard| guard.clone()).unwrap_or_default();
                         if let Some(picture) = camera_rx.push(datagram, mode, &key, ssrc, &users) {
