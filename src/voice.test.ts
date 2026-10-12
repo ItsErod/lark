@@ -184,6 +184,7 @@ describe("voice roster", () => {
       agc: true,
       inputVolume: 80,
       outputVolume: 110,
+      noiseQuality: "high",
       soundToggles: { honk: false },
     });
     const prefs = readVoicePrefs(saved);
@@ -193,6 +194,8 @@ describe("voice roster", () => {
     expect(prefs.agc).toBe(true);
     expect(prefs.inputVolume).toBe(80);
     expect(prefs.outputVolume).toBe(110);
+    expect(prefs.noiseQuality).toBe("high");
     expect(readVoicePrefs("not json").echoCancellation).toBe(true);
+    expect(readVoicePrefs("not json").noiseQuality).toBe("standard");
   });
 });

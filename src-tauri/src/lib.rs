@@ -1159,6 +1159,7 @@ async fn join_voice(
         agc: previous.agc,
         input_volume: previous.input_volume,
         output_volume: previous.output_volume,
+        noise_quality: previous.noise_quality,
     });
     let speaking = state.speaking.subscribe();
     let audio = state.voice_audio.subscribe();
@@ -1328,6 +1329,7 @@ async fn set_voice_audio(
         agc: previous.agc,
         input_volume: previous.input_volume,
         output_volume: previous.output_volume,
+        noise_quality: previous.noise_quality,
     });
     Ok(())
 }
@@ -1339,12 +1341,16 @@ fn set_voice_processing(
     agc: bool,
     input_volume: u8,
     output_volume: u8,
+    noise_quality: Option<String>,
 ) -> Result<(), String> {
     let mut audio = state.voice_audio.borrow().clone();
     audio.echo_cancellation = echo_cancellation;
     audio.agc = agc;
     audio.input_volume = input_volume.min(200);
     audio.output_volume = output_volume.min(200);
+    if let Some(quality) = noise_quality {
+        audio.noise_quality = if quality == "high" { "high".into() } else { "standard".into() };
+    }
     let _ = state.voice_audio.send(audio);
     Ok(())
 }
