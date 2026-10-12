@@ -39,6 +39,8 @@ export interface PackState {
   inlineSource: Lang;
   inlinePrefer: TranslatePrefer;
   hiddenTopics: boolean;
+  spotifyPresence: boolean;
+  spotifyLinks: boolean;
   privacy: PrivacyOptions;
 }
 
@@ -62,6 +64,7 @@ export const PACK_IDS = [
   "typing-list",
   "inline-translate",
   "show-hidden",
+  "spotify-controls",
   "panic-key",
   "incognito",
 ] as const;
@@ -98,6 +101,8 @@ export function defaultPack(): PackState {
     inlineSource: "en",
     inlinePrefer: "remote",
     hiddenTopics: true,
+    spotifyPresence: true,
+    spotifyLinks: true,
     privacy: defaultPrivacy(),
   };
 }
@@ -126,6 +131,8 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.inlineSource === "string" && LANGS.has(raw.inlineSource as Lang)) base.inlineSource = raw.inlineSource as Lang;
   if (raw.inlinePrefer === "remote" || raw.inlinePrefer === "local") base.inlinePrefer = raw.inlinePrefer;
   if (typeof raw.hiddenTopics === "boolean") base.hiddenTopics = raw.hiddenTopics;
+  if (typeof raw.spotifyPresence === "boolean") base.spotifyPresence = raw.spotifyPresence;
+  if (typeof raw.spotifyLinks === "boolean") base.spotifyLinks = raw.spotifyLinks;
   base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);

@@ -55,6 +55,7 @@ export interface PluginHooks {
   typingList: boolean;
   inlineTranslate: boolean;
   showHidden: boolean;
+  spotify: boolean;
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
@@ -95,6 +96,7 @@ export function emptyHooks(): PluginHooks {
     typingList: false,
     inlineTranslate: false,
     showHidden: false,
+    spotify: false,
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
@@ -281,6 +283,7 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.typingList = record.typingList === true;
   hooks.inlineTranslate = record.inlineTranslate === true;
   hooks.showHidden = record.showHidden === true;
+  hooks.spotify = record.spotify === true;
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;

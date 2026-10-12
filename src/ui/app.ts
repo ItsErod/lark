@@ -52,6 +52,7 @@ import { holdRead as privacyHoldRead, panicPlan, publishActivity, visibleStatus 
 import type { HourCycle, TimeMode } from "../pack/time";
 import { typingLabel } from "../pack/typing-list";
 import { unseenChannels } from "../pack/unseen";
+import { openTarget, playerTrack } from "../pack/spotify";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -2596,7 +2597,7 @@ class LarkApp {
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
     const favs = (this.favorites[this.guildId ?? ""] ?? []).join(".");
     const timer = this.hookOn("callTimer") ? `${this.pack.callTimerFrom}:${this.pack.callTimerStyle}` : "";
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${this.hiddenStamp()}|${bits.join(",")}`;
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${this.hiddenStamp()}|${this.spotifyStamp()}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -2755,8 +2756,9 @@ class LarkApp {
       this.openProfile(me, true);
     });
     const panel = this.voice ? this.voicePanel() : null;
-    if (panel) this.channelPane.append(head, scroll, panel, profile);
-    else this.channelPane.append(head, scroll, profile);
+    const player = this.spotifyPlayer();
+    const tail = [panel, player, profile].filter((node): node is HTMLElement => Boolean(node));
+    this.channelPane.append(head, scroll, ...tail);
     scroll.scrollTop = kept;
     this.bindSocialMenus();
     this.scheduleSocialChrome();
@@ -3010,6 +3012,33 @@ class LarkApp {
     row.append(copy);
     row.addEventListener("click", () => this.toast("Hidden channel", "You can't view this channel."));
     return row;
+  }
+
+  private spotifyStamp(): string {
+    const track = this.currentSpotify();
+    return track ? `${track.title}:${track.artist}:${track.url}` : "";
+  }
+
+  private currentSpotify() {
+    if (!this.hookOn("spotify")) return null;
+    const me = this.demo ? people[0] : this.me;
+    const contents = this.pack.spotifyLinks && this.channelId ? (this.pages[this.channelId] ?? []).map((message) => message.content) : [];
+    return playerTrack(me.activity ?? "", contents, this.pack.spotifyPresence, this.pack.spotifyLinks);
+  }
+
+  private spotifyPlayer(): HTMLElement | null {
+    const track = this.currentSpotify();
+    if (!track) return null;
+    const panel = el("section", "spotify-player");
+    panel.setAttribute("aria-label", "Spotify");
+    panel.append(el("strong", "", this.maskText(track.title)));
+    if (track.artist) panel.append(el("span", "", this.maskText(track.artist)));
+    const open = el("a", "text-button", "Open");
+    open.href = openTarget(track);
+    open.target = "_blank";
+    open.rel = "noreferrer noopener";
+    panel.append(open);
+    return panel;
   }
 
   private currentChannel(): Channel | undefined {
@@ -10613,6 +10642,20 @@ class LarkApp {
         this.paintChannels();
       }));
       card.append(el("p", "hint", "Locked channels stay in the list. Opening one is refused, and nothing is fetched from them."));
+      wrap.append(card);
+    } else if (id === "spotify-controls") {
+      const card = el("div", "plugin-card");
+      card.append(this.toggle("Listening status", this.pack.spotifyPresence, (value) => {
+        this.pack.spotifyPresence = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(this.toggle("Spotify links", this.pack.spotifyLinks, (value) => {
+        this.pack.spotifyLinks = value;
+        this.savePack();
+        this.paintChannels();
+      }));
+      card.append(el("p", "hint", "The player uses the listening line already on a profile, plus Spotify links in the open channel. No login and no key."));
       wrap.append(card);
     }
   }

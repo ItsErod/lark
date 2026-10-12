@@ -126,6 +126,11 @@
       "description": "List channels you cannot view, with a lock and the topic. Opening one is refused."
     },
     {
+      "id": "spotify-controls",
+      "name": "Spotify controls",
+      "description": "A mini player in the user panel from the listening line and Spotify links. No login and no key."
+    },
+    {
       "id": "panic-key",
       "name": "Panic Key",
       "description": "A hotkey that hides or minimizes Lark and mutes."
