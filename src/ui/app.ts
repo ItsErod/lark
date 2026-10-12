@@ -39,6 +39,8 @@ import { noteActivity, stepAway, type AwayClock } from "../pack/away";
 import { isBookmarked, toggleBookmark, type Bookmark } from "../pack/bookmarks";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
 import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
+import { orderDms } from "../pack/pin-dms";
+import { cleanPatterns, patternHit, patternsFor, shouldPatternNotify } from "../pack/patterns";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
 import { backoff, cancelSend, queueSend, takeDue, type ScheduledSend } from "../pack/schedule";
@@ -267,6 +269,7 @@ import {
   type MenuEntry,
   withMoveTargets,
 } from "../server-model";
+import { mountChatPluginPanel } from "./chat-plugin-panels";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
 import { mountGuildSettings } from "./guild-pages";
 import { mountChannelEditor, mountCreateChannel, mountInviteModal } from "./channel-settings";
@@ -2676,19 +2679,13 @@ class LarkApp {
         this.msgSig = "";
         this.paint();
       });
-      scroll.append(friends, this.clipsNavButton(), el("div", "category", "Direct messages"));
+      scroll.append(friends, this.clipsNavButton());
       const group = el("button", "channel-row");
       group.type = "button";
       group.append(icon(paths.plus), el("span", "row-label", "New Group DM"));
       group.addEventListener("click", () => this.openGroupCreator());
       scroll.append(group);
-      this.ensureDmPins();
-      const dms = floatPinned(
-        [...this.dms()].sort((a, b) => a.position - b.position).filter((channel) => !this.closedDms.has(channel.id)),
-        this.dmPins,
-      );
-      if (!dms.length) scroll.append(el("p", "empty", "No direct messages yet."));
-      for (const dm of dms) scroll.append(this.channelButton(dm, true));
+      this.paintDirectMessages(scroll);
     } else {
       scroll.append(this.clipsNavButton(), this.sidebarRow("Events", () => this.openEventsEntry()), this.sidebarRow("Server Boosts", () => externalLink(DISCORD_LINKS.boost)));
       const list = [...this.visibleChannels()]
@@ -2977,6 +2974,10 @@ class LarkApp {
       if (channel.kind === "media" && openMediaChannel(channel.id)) return;
       void this.openChannel(channel.id);
     });
+    if (dm && this.hookOn("pinDms") && this.dmPins.has(channel.id)) {
+      button.classList.add("is-pinned");
+      button.append(el("span", "faint", "pinned"));
+    }
     if (dm) {
       button.addEventListener("contextmenu", (event) => {
         event.preventDefault();
@@ -7514,6 +7515,7 @@ class LarkApp {
         if (this.config.preferences.message_sound) playSoftTone("message");
       }
       this.considerKeyword(message, level, mentionsMe, alreadyNotified);
+    this.considerPattern(message, level, alreadyNotified);
       if (viewing) {
         if (follow) this.pinnedToBottom = true;
         this.nearBottom = this.pinnedToBottom;
@@ -10156,7 +10158,7 @@ class LarkApp {
   private pluginSettings(channelId: string): Record<string, Record<string, string>> {
     const settings: Record<string, Record<string, string>> = {};
     for (const plugin of this.enabledPlugins()) {
-      const record = settingsFor(this.pack, plugin.id, channelId);
+      const record = settingsFor(this.pack, plugin.id, channelId, this.guildForChannel(channelId) ?? "");
       if (Object.keys(record).length) settings[plugin.id] = record;
     }
     return settings;
@@ -10658,6 +10660,7 @@ class LarkApp {
       card.append(el("p", "hint", "The player uses the listening line already on a profile, plus Spotify links in the open channel. No login and no key."));
       wrap.append(card);
     }
+    this.appendChatPluginPanel(wrap, id);
   }
 
   private paintScheduleBanner() {
@@ -11222,6 +11225,92 @@ class LarkApp {
     this.keywordLast = gate.last;
     if (!gate.ok || !hit) return;
     void this.notify(this.maskText(message.authorName), this.maskText(plainPreview(message.content, this.renderContext()) || hit));
+  }
+
+  private considerPattern(message: RawMessage, level: NotifyLevel, alreadyNotified: boolean) {
+    if (!this.hookOn("patternNotify") || !this.pack.highlightNotify) return;
+    const guildId = message.guildId || this.guildForChannel(message.channelId) || "";
+    const hit = patternHit(message.content, patternsFor(this.pack.highlightPatterns, this.pack.highlightGuilds, guildId));
+    if (!shouldPatternNotify({
+      notify: true,
+      muted: level === "mute",
+      fromMe: message.authorId === this.meId(),
+      windowFocused: this.focused,
+      sameChannel: message.channelId === this.channelId,
+      hit: Boolean(hit),
+      alreadyNotified,
+    })) return;
+    const gate = allowKeywordNotify(`pattern:${message.channelId}:${hit}`, Date.now(), this.keywordLast);
+    this.keywordLast = gate.last;
+    if (!gate.ok || !hit) return;
+    void this.notify(this.maskText(message.authorName), this.maskText(plainPreview(message.content, this.renderContext()) || hit));
+  }
+
+  private paintDirectMessages(scroll: HTMLElement) {
+    this.ensureDmPins();
+    const dms = [...this.dms()].sort((a, b) => a.position - b.position).filter((channel) => !this.closedDms.has(channel.id));
+    if (!this.hookOn("pinDms")) {
+      scroll.append(el("div", "category", "Direct messages"));
+      if (!dms.length) scroll.append(el("p", "empty", "No direct messages yet."));
+      for (const dm of floatPinned(dms, this.dmPins)) scroll.append(this.channelButton(dm, true));
+      return;
+    }
+    if (!dms.length) {
+      scroll.append(el("div", "category", "Direct messages"));
+      scroll.append(el("p", "empty", "No direct messages yet."));
+      return;
+    }
+    const split = orderDms(dms, [...this.dmPins]);
+    if (split.pinned.length) {
+      scroll.append(el("div", "category", "Pinned"));
+      for (const dm of split.pinned) scroll.append(this.channelButton(dm, true));
+    }
+    if (split.rest.length) {
+      scroll.append(el("div", "category", "Direct messages"));
+      for (const dm of split.rest) scroll.append(this.channelButton(dm, true));
+    }
+  }
+
+  private appendChatPluginPanel(wrap: HTMLElement, id: string) {
+    this.ensureDmPins();
+    const guildId = this.guildId ?? "";
+    const guildName = guildId ? this.guilds().find((guild) => guild.id === guildId)?.name ?? "" : "";
+    mountChatPluginPanel(wrap, id, {
+      highlightPatterns: this.pack.highlightPatterns.join("\n"),
+      highlightNotify: this.pack.highlightNotify,
+      guildPatterns: guildId ? (this.pack.highlightGuilds[guildId] ?? []).join("\n") : "",
+      guildName,
+      pinnedNames: [...this.dmPins].map((dmId) => ({ id: dmId, name: this.dms().find((channel) => channel.id === dmId)?.name ?? "Conversation" })),
+      setHighlightPatterns: (value) => {
+        this.pack.highlightPatterns = cleanPatterns(value);
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+        if (this.settings) this.renderSettings();
+      },
+      setHighlightNotify: (value) => {
+        this.pack.highlightNotify = value;
+        this.savePack();
+        if (this.settings) this.renderSettings();
+      },
+      setGuildPatterns: (value) => {
+        if (!guildId) return;
+        const patterns = cleanPatterns(value);
+        if (!patterns.length) delete this.pack.highlightGuilds[guildId];
+        else this.pack.highlightGuilds[guildId] = patterns;
+        this.savePack();
+        this.msgSig = "";
+        this.paintMessages();
+        if (this.settings) this.renderSettings();
+      },
+      unpinDm: (dmId) => {
+        this.ensureDmPins();
+        this.dmPins = togglePin(this.dmPins, dmId);
+        this.saveDmPins();
+        this.paintChannels();
+        if (this.settings) this.renderSettings();
+      },
+    });
   }
 
   private tickClock() {
