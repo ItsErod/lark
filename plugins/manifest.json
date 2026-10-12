@@ -131,6 +131,16 @@
       "description": "A mini player in the user panel from the listening line and Spotify links. No login and no key."
     },
     {
+      "id": "keyword-highlights",
+      "name": "Keyword highlights",
+      "description": "Highlight words or a small regex across servers, and notify when you are not already looking."
+    },
+    {
+      "id": "pin-dms",
+      "name": "Pin DMs",
+      "description": "Pin direct-message conversations to a Pinned category at the top of the list."
+    },
+    {
       "id": "panic-key",
       "name": "Panic Key",
       "description": "A hotkey that hides or minimizes Lark and mutes."

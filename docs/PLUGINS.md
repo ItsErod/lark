@@ -1,6 +1,6 @@
 # Lark plugins
 
-These plugins use the existing local plugin host. Each one stays **off** until you turn them on in **Settings → Plugins**, and each one has its own options there. A plugin never receives the token. The scripts in `plugins/` do not call the network.
+These plugins use the existing local plugin host. Each one stays **off** until you turn them on in **Settings → Plugins**, and each one has its own options there. A plugin never receives the token. The scripts in `plugins/` do not call the network. Anything that talks to Discord is a host action you started yourself, through the same commands the rest of Lark already uses.
 
 ## Message logger
 
@@ -76,6 +76,22 @@ A small player sits above your name in the user panel.
 - It reads the listening line already on a profile (`Listening to …`). It does not sign in to Spotify and it does not store a key.
 - A Spotify track, album, or playlist link in the open channel fills in an **Open** link. Without a link, **Open** searches Spotify for the title.
 - **Listening status** and **Spotify links** can be turned off on their own.
+## Keyword highlights
+
+Highlight a word or a small regular expression in every server, and optionally notify.
+
+- One pattern per line. `deploy` matches that word anywhere, ignoring case.
+- `/deploy/i` is a regular expression. Flags are `i`, `m`, and `u` only.
+- Patterns that match an empty string, use a backreference, or nest a quantifier inside a quantified group are dropped.
+- **Also in this server** adds lines that apply only while you are in that server. The global list still applies everywhere, including direct messages.
+- **Notifications** pings when the channel is not muted, you are not already looking at it, and Lark did not already notify you for that message. The same pattern in the same channel waits a minute before it can ping again. **Mute wins.**
+
+The highlight is the same wash as other keyword highlights.
+
+## Pin DMs
+
+Right-click a direct message and choose **Pin**. While this plugin is on, pinned conversations move into a **Pinned** category above **Direct messages**, in the order you pinned them. **Unpin** in the plugin’s settings, or **Unpin** on the conversation, puts it back. The list is the same local pin list Lark already keeps. Discord’s own pin list is unchanged. With the plugin off, pinned conversations still sit at the top of **Direct messages**.
+
 
 ## Panic Key
 
