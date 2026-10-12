@@ -219,7 +219,7 @@ function paintBookmarks(body: HTMLElement) {
   const list = savedList();
   const host = shell();
   if (!list.length) {
-    body.append(el("p", "lark-f-help", "No bookmarks yet. Save a message and it stays on this device."));
+    body.append(el("p", "lark-f-help", "No bookmarks yet. Save a message and it stays with your account."));
     return;
   }
   for (const bookmark of list) {

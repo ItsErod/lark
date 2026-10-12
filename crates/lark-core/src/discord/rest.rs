@@ -2358,6 +2358,37 @@ impl DiscordRest {
         .await?;
         Ok(())
     }
+
+    /// Saved messages and reminders. `due_at` is an ISO timestamp, or null for a bookmark.
+    pub async fn list_saved_messages(&self) -> Result<Value, RestError> {
+        let path = "/users/@me/saved-messages";
+        let route = route_key("GET", "/users/@me/saved-messages", "me");
+        self.send_json(Method::GET, &route, "me", path, None).await
+    }
+
+    pub async fn put_saved_message(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        due_at: Option<&str>,
+    ) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let path = format!("/users/@me/saved-messages/{channel_id}/{message_id}");
+        let route = route_key("PUT", "/users/@me/saved-messages/{channel.id}/{message.id}", "me");
+        self.send_json(Method::PUT, &route, "me", &path, Some(json!({ "due_at": due_at })))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_saved_message(&self, channel_id: &str, message_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let path = format!("/users/@me/saved-messages/{channel_id}/{message_id}");
+        let route = route_key("DELETE", "/users/@me/saved-messages/{channel.id}/{message.id}", "me");
+        self.send_json(Method::DELETE, &route, "me", &path, None).await?;
+        Ok(())
+    }
 }
 
 fn messages_from_search(value: &Value) -> Vec<ClientMessage> {
