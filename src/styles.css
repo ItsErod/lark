@@ -1202,3 +1202,6 @@ button.guild-row:hover { background: var(--hover); }
   .stage.is-profile, .stage.is-profile.is-split { grid-template-columns: minmax(0, 1fr); }
   .profile-panel { border-left: 0; border-top: 1px solid var(--line); max-height: 42vh; }
 }
+.voice-panel-timer {
+  margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: var(--ok);
+}

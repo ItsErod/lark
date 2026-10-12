@@ -1384,7 +1384,7 @@ async fn save_user_note(state: State<'_, Shared>, user_id: String, note: String)
 
 #[tauri::command]
 async fn set_voice_volume(state: State<'_, Shared>, user_id: String, volume: u16) -> Result<(), String> {
-    let gain = (volume as f32 / 100.0).clamp(0.0, 2.0);
+    let gain = (volume as f32 / 100.0).clamp(0.0, lark_core::discord::voice_media::USER_GAIN_CAP);
     if let Ok(mut volumes) = state.voice_volumes.lock() {
         volumes.insert(user_id, gain);
     }

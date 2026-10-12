@@ -43,6 +43,10 @@ import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playi
 import { formatRelative } from "../pack/relative";
 import { backoff, cancelSend, queueSend, takeDue, type ScheduledSend } from "../pack/schedule";
 import { defaultPack, PACK_IDS, sanitizePack, settingsFor, type PackState } from "../pack/state";
+import { callTimerLabel } from "../media/call-timer";
+import { boostedPlayback, volumeCeiling } from "../media/volume";
+import { renderMediaPanel, type MediaHost } from "../media/registry";
+import "../media/call-volume";
 import { commandCatalog, matchCommands } from "../palette";
 import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type DraftMap } from "../drafts";
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
@@ -228,7 +232,7 @@ import {
 } from "../threads";
 import { mountChannelPolls, parityHeaderButtons, parityThreadBar, renderForumSurface } from "./threads-forums";
 import { clipForHotkey, soundHotkeyIsGlobal } from "../soundboard";
-import { applyUserMix, applyVoiceState, hydrateMix, participantsIn, playbackVolume, replaceGuildVoice, setSpeaking, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { applyUserMix, applyVoiceState, hydrateMix, participantsIn, replaceGuildVoice, setSpeaking, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
@@ -554,6 +558,9 @@ class LarkApp {
   private voice: VoiceSession | null = null;
   private voiceRoster: VoiceRoster = {};
   private voiceEpoch = 0;
+  private voiceJoinedAt = 0;
+  private voiceConnectedAt = 0;
+  private callTimerTick = 0;
   private callSurface: CallSurface = "chat";
   private stripOpen = false;
   private pipCorner: PipCorner = "bottom-right";
@@ -1065,6 +1072,7 @@ class LarkApp {
       this.away = noteActivity(this.away, Date.now());
     }, { passive: true });
     this.bindPolls();
+    this.armCallTimer();
     this.messagesEl.addEventListener("scroll", () => {
       if (this.scrollLock > 0) return;
       const top = this.messagesEl.scrollTop;
@@ -2484,7 +2492,8 @@ class LarkApp {
     const me = this.demo ? people[0] : this.me;
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
     const favs = (this.favorites[this.guildId ?? ""] ?? []).join(".");
-    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${pins}|${favs}|${bits.join(",")}`;
+    const timer = this.hookOn("callTimer") ? `${this.pack.callTimerFrom}:${this.pack.callTimerStyle}` : "";
+    return `${this.guildId ?? ""}|${this.friendsOpen ? 1 : 0}|${this.clipsOpen ? 1 : 0}|${this.streamerOn() ? 1 : 0}|${me.id}|${me.name}|${this.voice?.channelId ?? ""}|${this.voice?.status ?? ""}|${this.voice?.muted ? 1 : 0}|${this.voice?.deafened ? 1 : 0}|${this.shareOn ? 1 : 0}|${this.stripOpen ? 1 : 0}|${this.hideMuted ? 1 : 0}|${this.viewAsRoleId ?? ""}|${timer}|${pins}|${favs}|${bits.join(",")}`;
   }
 
   private patchChannelRows() {
@@ -2689,14 +2698,69 @@ class LarkApp {
     return row;
   }
 
+  private userVolumeCeiling(): number {
+    return volumeCeiling(this.hookOn("volumeBoost"), this.pack.volumeCap);
+  }
+
+  private callTimerText(now = Date.now()): string {
+    if (!this.hookOn("callTimer") || !this.voice) return "";
+    return callTimerLabel(this.pack.callTimerFrom, this.pack.callTimerStyle, this.voiceJoinedAt, this.voiceConnectedAt, now);
+  }
+
+  private noteVoiceConnected() {
+    if (!this.voiceConnectedAt) this.voiceConnectedAt = Date.now();
+  }
+
+  private clearVoiceClock() {
+    this.voiceJoinedAt = 0;
+    this.voiceConnectedAt = 0;
+  }
+
+  private armCallTimer() {
+    if (this.callTimerTick) return;
+    this.callTimerTick = window.setInterval(() => this.syncCallTimer(), 1000);
+  }
+
+  private syncCallTimer() {
+    const label = this.callTimerText();
+    const node = this.root.querySelector(".voice-panel-timer");
+    if (!label) {
+      node?.remove();
+      return;
+    }
+    if (!(node instanceof HTMLElement)) {
+      this.channelShape = "";
+      this.paintChannels();
+      return;
+    }
+    if (node.textContent !== label) node.textContent = label;
+  }
+
+  private resendVoiceMix() {
+    this.sentMix.clear();
+    this.syncCallMembers();
+    this.paintVoiceFloats();
+  }
+
+  private mediaHost(): MediaHost {
+    return {
+      pack: this.pack,
+      savePack: () => this.savePack(),
+      choice: (values, current, onPick, labels) => this.choice(values, current, onPick, labels),
+      resendVoiceMix: () => this.resendVoiceMix(),
+    };
+  }
+
   private voicePanel(): HTMLElement {
     const session = this.voice;
     const status = session?.status ?? "connecting";
     const panel = el("section", "voice-panel");
     const audible = status === "connected" ? "Voice connected" : status === "reconnecting" ? "Reconnecting" : "Connecting";
-    panel.setAttribute("aria-label", `${audible}, ${session?.name ?? "Voice"}`);
+    const timer = this.callTimerText();
+    panel.setAttribute("aria-label", timer ? `${audible}, ${session?.name ?? "Voice"}, ${timer}` : `${audible}, ${session?.name ?? "Voice"}`);
     const line = el("div", "voice-panel-line");
     line.append(signalMeter(status), el("strong", "voice-panel-name", session?.name ?? "Voice"));
+    if (timer) line.append(el("time", "voice-panel-timer", timer));
     if (this.shareOn) line.append(liveBadge(this.sharePaused));
     const actions = el("div", "voice-panel-actions");
     const share = this.iconButton(this.shareOn ? "Stop sharing" : "Share your screen", paths.monitor, () => this.toggleShare(), false);
@@ -6919,11 +6983,13 @@ class LarkApp {
       if (this.voice && (state === "connected" || state === "connecting" || state === "reconnecting")) {
         this.voice.status = state as VoiceSession["status"];
         this.voice.detail = friendlyVoiceDetail(detail);
+        if (state === "connected") this.noteVoiceConnected();
         this.paintVoice();
         this.paintChannels();
       }
       if (state === "left" && epoch === this.voiceEpoch) {
         this.voice = null;
+        this.clearVoiceClock();
         this.paintVoice();
         this.paintChannels();
       }
@@ -7362,6 +7428,8 @@ class LarkApp {
       deafened: false,
       members: [],
     };
+    this.voiceJoinedAt = Date.now();
+    this.voiceConnectedAt = 0;
     this.syncCallMembers();
     this.paintChannels();
     this.paintVoice();
@@ -7369,6 +7437,7 @@ class LarkApp {
       window.setTimeout(() => {
         if (!this.voice || this.voice.channelId !== channel.id) return;
         this.voice.status = "connected";
+        this.noteVoiceConnected();
         this.refreshSpeaking();
         this.paintChannels();
         this.paintVoice();
@@ -7397,6 +7466,7 @@ class LarkApp {
     const guildId = this.voice?.guildId ?? "";
     if (this.voice) applyVoiceState(this.voiceRoster, { guildId, channelId: "", userId: this.meId() });
     this.voice = null;
+    this.clearVoiceClock();
     this.shareOn = false;
     this.sharePaused = false;
     this.shareUserPaused = false;
@@ -7518,7 +7588,7 @@ class LarkApp {
     if (this.demo) return;
     for (const member of this.voice.members) {
       if (member.id === this.meId()) continue;
-      const gain = playbackVolume(member.volume, Boolean(member.localMuted));
+      const gain = boostedPlayback(member.volume, Boolean(member.localMuted), this.userVolumeCeiling());
       if (this.sentMix.get(member.id) === gain) continue;
       this.sentMix.set(member.id, gain);
       void invoke("set_voice_volume", { userId: member.id, volume: gain }).catch(() => undefined);
@@ -8683,12 +8753,14 @@ class LarkApp {
     host.style.left = `${menu.x}px`;
     host.style.top = `${menu.y}px`;
     host.append(el("strong", "", person.name));
-    const readout = el("span", "hint", `User volume ${person.volume}%`);
+    const ceiling = this.userVolumeCeiling();
+    const shown = Math.min(person.volume, ceiling);
+    const readout = el("span", "hint", `User volume ${shown}%`);
     const vol = el("input");
     vol.type = "range";
     vol.min = "0";
-    vol.max = "200";
-    vol.value = String(person.volume);
+    vol.max = String(ceiling);
+    vol.value = String(shown);
     vol.setAttribute("aria-label", `Volume for ${person.name}`);
     const muted = person.localMuted;
     vol.addEventListener("input", () => {
@@ -8810,7 +8882,7 @@ class LarkApp {
   }
 
   private setUserMix(userId: string, volume: number, muted: boolean) {
-    const mix = { volume: playbackVolume(volume, false), muted };
+    const mix = { volume: boostedPlayback(volume, false, this.userVolumeCeiling()), muted };
     this.config.voice.levels[userId] = mix;
     applyUserMix(this.voiceRoster, userId, mix);
     void this.persist();
@@ -8820,7 +8892,7 @@ class LarkApp {
   }
 
   private previewMix(userId: string, volume: number, muted: boolean) {
-    const mix = { volume: playbackVolume(volume, false), muted };
+    const mix = { volume: boostedPlayback(volume, false, this.userVolumeCeiling()), muted };
     this.config.voice.levels[userId] = mix;
     applyUserMix(this.voiceRoster, userId, mix);
     const member = this.voice?.members.find((item) => item.id === userId);
@@ -8829,7 +8901,7 @@ class LarkApp {
       member.localMuted = muted;
     }
     if (this.demo || !this.voice) return;
-    const gain = playbackVolume(mix.volume, muted);
+    const gain = boostedPlayback(mix.volume, muted, this.userVolumeCeiling());
     if (this.sentMix.get(userId) === gain) return;
     this.sentMix.set(userId, gain);
     void invoke("set_voice_volume", { userId, volume: gain }).catch(() => undefined);
@@ -9371,10 +9443,12 @@ class LarkApp {
     }
     this.persist();
     this.msgSig = "";
+    if (id === "volume-booster") this.resendVoiceMix();
     this.paint();
   }
 
   private appendPluginPanel(wrap: HTMLElement, id: string) {
+    if (renderMediaPanel(wrap, id, this.mediaHost())) return;
     if (id === "message-translate") {
       const card = el("div", "plugin-card");
       card.append(el("div", "hint", "Phrase book language"));

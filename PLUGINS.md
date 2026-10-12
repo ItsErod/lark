@@ -73,3 +73,5 @@ While this is on, the composer does not send a typing indicator. Incoming typing
 | edit-log | off | Badges an edited message |
 | collapse-long | off | Folds a message longer than 280 characters |
 | translate | off | Rewrites a line that starts with `tr:` if it is in a one-line glossary |
+
+Call Timer, Volume Booster, and the other media plugins are documented in [docs/PLUGINS.md](docs/PLUGINS.md).
