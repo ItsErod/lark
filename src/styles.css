@@ -841,6 +841,7 @@ html.is-game-mode *::after {
   background: var(--bg-panel); flex: none; border-top: 1px solid var(--line);
 }
 .voice-panel-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.voice-panel-line .voice-diagnostics { flex: none; height: 14px; margin: 0; padding: 0 4px; font-size: 11px; line-height: 14px; white-space: nowrap; }
 .voice-panel-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--heading); }
 .voice-signal { display: flex; align-items: flex-end; gap: 2px; height: 14px; flex: none; }
 .voice-signal i { display: block; width: 3px; border-radius: 1px; background: var(--bg-4); }

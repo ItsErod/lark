@@ -882,7 +882,7 @@ mod tests {
     use super::super::voice::{decrypt_voice, encrypt_voice, rtp_header, CipherMode};
     use super::super::voice_dave::{DaveCall, DaveWire};
     use super::super::voice_log::VoiceLog;
-    use super::super::voice_media::VoiceAudio;
+    use super::super::voice_media::{TestCodec, VoiceAudio, FRAME_SAMPLES};
     use super::{drive_voice, VoiceHello, VoiceLinkEvent};
     use crate::soundboard::SoundMix;
 
@@ -895,7 +895,7 @@ mod tests {
 
     #[tokio::test]
     async fn mock_voice_server_round_trips_encrypted_opus() {
-        let result = tokio::time::timeout(Duration::from_secs(25), round_trip()).await;
+        let result = tokio::time::timeout(Duration::from_secs(25), round_trip(false)).await;
         match result {
             Ok(Ok(())) => {}
             Ok(Err(err)) => panic!("{err}"),
@@ -903,7 +903,17 @@ mod tests {
         }
     }
 
-    async fn round_trip() -> Result<(), String> {
+    #[tokio::test]
+    async fn mock_voice_server_round_trips_pcm_both_ways() {
+        let result = tokio::time::timeout(Duration::from_secs(30), round_trip(true)).await;
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => panic!("{err}"),
+            Err(_) => panic!("pcm voice round trip timed out"),
+        }
+    }
+
+    async fn round_trip(tone: bool) -> Result<(), String> {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|err| err.to_string())?;
         let addr = listener.local_addr().map_err(|err| err.to_string())?;
         let udp = UdpSocket::bind("127.0.0.1:0").await.map_err(|err| err.to_string())?;
@@ -912,8 +922,21 @@ mod tests {
         let log = Arc::new(std::sync::Mutex::new(VoiceLog::default()));
         let secret = secret_key();
 
-        let server = mock_server(listener, udp, udp_port, external, proposal, peer, log.clone(), secret);
-        let client = client_drive(addr, log.clone());
+        // A pure tone is not speech. Suppression and echo cancellation stay off
+        // so the test measures encode, DAVE, transport, decode, and playback.
+        let audio = if tone {
+            VoiceAudio {
+                noise_suppression: false,
+                echo_cancellation: false,
+                agc: false,
+                vad: false,
+                ..VoiceAudio::default()
+            }
+        } else {
+            VoiceAudio::default()
+        };
+        let server = mock_server(listener, udp, udp_port, external, proposal, peer, log.clone(), secret, tone);
+        let client = client_drive(addr, log.clone(), audio, tone);
         let (server, client) = tokio::join!(server, client);
         if let Err(err) = &server {
             let text = log.lock().map(|guard| guard.export()).unwrap_or_default();
@@ -929,12 +952,12 @@ mod tests {
         Ok(())
     }
 
-    async fn client_drive(addr: SocketAddr, log: Arc<std::sync::Mutex<VoiceLog>>) -> Result<(), String> {
+    async fn client_drive(addr: SocketAddr, log: Arc<std::sync::Mutex<VoiceLog>>, audio: VoiceAudio, speaking: bool) -> Result<(), String> {
         let tcp = TcpStream::connect(addr).await.map_err(|err| err.to_string())?;
         let (socket, _) = client_async(format!("ws://{addr}/?v=8"), tcp).await.map_err(|err| err.to_string())?;
         let (_cancel_tx, mut cancel) = watch::channel(false);
-        let (_speaking_tx, mut speaking) = watch::channel(false);
-        let (_audio_tx, audio) = watch::channel(VoiceAudio::default());
+        let (_speaking_tx, mut speaking_rx) = watch::channel(speaking);
+        let (_audio_tx, audio) = watch::channel(audio);
         let volumes = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         let board = Arc::new(std::sync::Mutex::new(SoundMix::new()));
         let hello = VoiceHello {
@@ -947,7 +970,7 @@ mod tests {
             epoch: 1,
             camera: Arc::new(crate::discord::voice_camera::CameraInbox::new()),
         };
-        drive_voice(&hello, socket, &mut cancel, &mut speaking, &audio, &volumes, &board, &log, &mut |_event: VoiceLinkEvent| {}).await
+        drive_voice(&hello, socket, &mut cancel, &mut speaking_rx, &audio, &volumes, &board, &log, &mut |_event: VoiceLinkEvent| {}).await
     }
 
     async fn mock_server(
@@ -959,6 +982,7 @@ mod tests {
         mut peer: DaveCall,
         log: Arc<std::sync::Mutex<VoiceLog>>,
         secret: [u8; 32],
+        tone: bool,
     ) -> Result<(), String> {
         let (tcp, _) = listener.accept().await.map_err(|err| err.to_string())?;
         let socket = accept_async(tcp).await.map_err(|err| err.to_string())?;
@@ -1032,10 +1056,13 @@ mod tests {
         }
 
         wait_log(&log, "execute transition 7 sender ready").await?;
+        let mode = CipherMode::Aes256GcmRtpSize;
+        if tone {
+            return exchange_pcm(&mut write, &mut read, &udp, client_addr, &secret, mode, &mut peer, &log).await;
+        }
         let inject = log.lock().map_err(|err| err.to_string())?.inject.clone().ok_or("audio inject was not installed")?;
         inject.send(MIC.to_vec()).map_err(|_| "audio inject closed".to_string())?;
 
-        let mode = CipherMode::Aes256GcmRtpSize;
         let outbound = wait_udp_opus(&mut read, &udp, &secret, mode, &mut peer).await?;
         if outbound != MIC {
             return Err(format!("outbound opus was {outbound:?}"));
@@ -1167,6 +1194,127 @@ mod tests {
                 }
             }
         }
+    }
+
+    async fn exchange_pcm<R>(
+        write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
+        read: &mut R,
+        udp: &UdpSocket,
+        client_addr: SocketAddr,
+        secret: &[u8; 32],
+        mode: CipherMode,
+        peer: &mut DaveCall,
+        log: &Arc<std::sync::Mutex<VoiceLog>>,
+    ) -> Result<(), String>
+    where
+        R: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        let pcm_tx = log
+            .lock()
+            .map_err(|err| err.to_string())?
+            .pcm_inject
+            .clone()
+            .ok_or("pcm inject was not installed")?;
+        let mut codec = TestCodec::new().map_err(|_| "opus codec failed to start".to_string())?;
+        for _ in 0..4 {
+            pcm_tx.send(sine_frame()).map_err(|_| "pcm inject closed".to_string())?;
+        }
+
+        let mut buf = [0u8; 2048];
+        let mut outbound = 0.0f32;
+        let start = Instant::now();
+        while outbound <= 1.0 {
+            if start.elapsed() > Duration::from_secs(5) {
+                let text = log.lock().map(|guard| guard.export()).unwrap_or_default();
+                return Err(format!("outbound pcm energy was {outbound}\n{text}"));
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+                frame = read.next() => {
+                    let frame = frame.ok_or("client closed before outbound pcm")?.map_err(|err| err.to_string())?;
+                    if let Some(text) = text_of(&frame) {
+                        if text.contains("\"op\":31") {
+                            return Err(format!("client rejected the commit: {text}"));
+                        }
+                    }
+                }
+                received = udp.recv_from(&mut buf) => {
+                    let (size, _) = received.map_err(|err| err.to_string())?;
+                    let Ok(sealed) = decrypt_voice(mode, secret, &buf[..size]) else { continue };
+                    let Ok(opus) = peer.open_opus(CLIENT_ID, &sealed) else { continue };
+                    if let Ok(pcm) = codec.decode_mono_packet(&opus) {
+                        let energy: f32 = pcm.iter().map(|sample| sample * sample).sum();
+                        if energy > outbound {
+                            outbound = energy;
+                        }
+                    }
+                }
+            }
+        }
+
+        send_json(
+            write,
+            serde_json::json!({"op": 5, "d": {"speaking": 1, "delay": 0, "ssrc": 99, "user_id": "222"}}),
+        )
+        .await?;
+        let pause = Instant::now();
+        while pause.elapsed() < Duration::from_millis(150) {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(150)) => break,
+                frame = read.next() => {
+                    let _ = frame;
+                }
+            }
+        }
+        let mut seq = 1u16;
+        let mut timestamp = FRAME_SAMPLES as u32;
+        let mut nonce = 1u32;
+        for _ in 0..4 {
+            let opus = codec.encode_mono(&sine_frame()).map_err(|_| "could not encode inbound pcm")?;
+            let sealed = peer.seal_opus(&opus).map_err(|_| "peer could not seal inbound pcm")?;
+            let header = rtp_header(seq, timestamp, 99);
+            let packet = encrypt_voice(mode, secret, &header, &sealed, nonce).map_err(|_| "peer transport encrypt failed")?;
+            udp.send_to(&packet, client_addr).await.map_err(|err| err.to_string())?;
+            seq = seq.wrapping_add(1);
+            timestamp = timestamp.wrapping_add(FRAME_SAMPLES as u32);
+            nonce = nonce.wrapping_add(1);
+        }
+
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(5) {
+                let guard = log.lock().map_err(|err| err.to_string())?;
+                return Err(format!(
+                    "inbound playback energy was {} decoded {}\n{}",
+                    guard.playback_energy,
+                    guard.decoded_energy,
+                    guard.export()
+                ));
+            }
+            let ready = log
+                .lock()
+                .map(|guard| guard.decoded_energy > 1.0 && guard.playback_energy > 1.0)
+                .unwrap_or(false);
+            if ready {
+                return Ok(());
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+                frame = read.next() => {
+                    if frame.is_none() {
+                        return Err("client closed before inbound pcm".into());
+                    }
+                }
+            }
+        }
+    }
+
+    fn sine_frame() -> Vec<f32> {
+        let mut tone = vec![0.0; FRAME_SAMPLES];
+        for (index, sample) in tone.iter_mut().enumerate() {
+            *sample = (index as f32 * 0.2).sin() * 0.4;
+        }
+        tone
     }
 
     async fn next_text<R>(read: &mut R) -> Result<Value, String>

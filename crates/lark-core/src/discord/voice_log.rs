@@ -37,6 +37,12 @@ pub struct VoiceLog {
     pub last_opus_out: Vec<u8>,
     pub last_opus_in: Vec<u8>,
     pub inject: Option<mpsc::SyncSender<Vec<u8>>>,
+    /// Microphone PCM for the integration test. One frame per send.
+    pub pcm_inject: Option<mpsc::SyncSender<Vec<f32>>>,
+    /// Peak energy of decoded inbound PCM. Not written into `export`.
+    pub decoded_energy: f32,
+    /// Peak energy after the playback mix. Not written into `export`.
+    pub playback_energy: f32,
 }
 
 impl Default for VoiceLog {
@@ -72,6 +78,9 @@ impl Default for VoiceLog {
             last_opus_out: Vec::new(),
             last_opus_in: Vec::new(),
             inject: None,
+            pcm_inject: None,
+            decoded_energy: 0.0,
+            playback_energy: 0.0,
         }
     }
 }

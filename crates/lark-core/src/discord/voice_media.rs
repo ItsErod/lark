@@ -399,8 +399,10 @@ pub fn start_media(
     let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
     let (inbound_tx, inbound_rx) = mpsc::sync_channel(64);
     let (inject_tx, inject_rx) = mpsc::sync_channel(8);
+    let (pcm_tx, pcm_rx) = mpsc::sync_channel(8);
     if let Ok(mut guard) = log.lock() {
         guard.inject = Some(inject_tx);
+        guard.pcm_inject = Some(pcm_tx);
     }
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_thread = cancel.clone();
@@ -425,6 +427,7 @@ pub fn start_media(
                 inbound: inbound_rx,
                 outbound: outbound_tx,
                 inject: inject_rx,
+                pcm_inject: pcm_rx,
                 cancel: cancel_thread,
             });
         })
@@ -453,6 +456,7 @@ struct MediaArgs {
     inbound: mpsc::Receiver<Vec<u8>>,
     outbound: async_mpsc::UnboundedSender<VoiceWire>,
     inject: mpsc::Receiver<Vec<u8>>,
+    pcm_inject: mpsc::Receiver<Vec<f32>>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -577,7 +581,15 @@ fn produce_frame(
         *silence_left = SILENCE_TAIL;
         send_opus(args, &opus, seq, timestamp, nonce);
     }
-    let frame = args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf));
+    let injected = args.pcm_inject.try_recv().ok().map(|mut samples| {
+        if samples.len() < FRAME_SAMPLES {
+            samples.resize(FRAME_SAMPLES, 0.0);
+        } else if samples.len() > FRAME_SAMPLES {
+            samples.truncate(FRAME_SAMPLES);
+        }
+        samples
+    });
+    let frame = injected.or_else(|| args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf)));
     let have_audio = frame.is_some();
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
     apply_input_gain(&mut owned, controls.input_volume);
@@ -782,7 +794,33 @@ fn deliver(args: &MediaArgs, ssrc: u32, pcm: &[f32]) {
         .unwrap_or_default();
     if let Ok(mut play) = args.playback.lock() {
         push_speaker(&mut play, ssrc, &user_id, pcm);
+        let decoded = pcm.iter().map(|sample| sample * sample).sum();
+        let played = playback_frame_energy(pcm, play.deafened, play.output_gain);
+        drop(play);
+        if let Ok(mut log) = args.log.lock() {
+            if decoded > log.decoded_energy {
+                log.decoded_energy = decoded;
+            }
+            if played > log.playback_energy {
+                log.playback_energy = played;
+            }
+        }
     }
+}
+
+/// Energy of one decoded frame after the same mix the speakers play.
+/// The copy is rendered so the live queue is not drained.
+fn playback_frame_energy(pcm: &[f32], deafened: bool, output_gain: f32) -> f32 {
+    if pcm.is_empty() {
+        return 0.0;
+    }
+    let frames = pcm.len().min(FRAME_SAMPLES);
+    let mut play = Playback::new();
+    play.deafened = deafened;
+    play.output_gain = output_gain;
+    push_speaker(&mut play, 1, "mix", &pcm[..frames]);
+    let mixed = play.render(frames, &HashMap::new());
+    mixed.iter().map(|sample| sample * sample).sum()
 }
 
 impl Incoming {
@@ -857,6 +895,34 @@ fn encode_opus_frame(encoder: &mut OpusEncoder, mono: &[f32]) -> Result<Vec<u8>,
 fn decode_opus_frame(decoder: &mut OpusDecoder, packet: &[u8]) -> Result<Vec<f32>, ()> {
     let mut scratch = vec![0i16; 12_000];
     decode_mono(decoder, Some(packet), &mut scratch).ok_or(())
+}
+
+/// Opus pair for the mock voice server. The pointers stay on the test task.
+#[cfg(test)]
+pub struct TestCodec {
+    encoder: OpusEncoder,
+    decoder: OpusDecoder,
+}
+
+#[cfg(test)]
+unsafe impl Send for TestCodec {}
+
+#[cfg(test)]
+impl TestCodec {
+    pub fn new() -> Result<Self, ()> {
+        Ok(Self {
+            encoder: OpusEncoder::new()?,
+            decoder: OpusDecoder::new()?,
+        })
+    }
+
+    pub fn encode_mono(&mut self, mono: &[f32]) -> Result<Vec<u8>, ()> {
+        encode_opus_frame(&mut self.encoder, mono)
+    }
+
+    pub fn decode_mono_packet(&mut self, packet: &[u8]) -> Result<Vec<f32>, ()> {
+        decode_opus_frame(&mut self.decoder, packet)
+    }
 }
 
 #[cfg(test)]

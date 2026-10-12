@@ -288,6 +288,13 @@ export function micLevel(samples: ArrayLike<number>): number {
   return Math.min(100, Math.max(0, Math.round(rms * 100)));
 }
 
+/** Browser ids can be passed to getUserMedia. Desktop device names cannot. */
+export function browserMicConstraint(stored: string, browserIds: readonly string[]): true | { deviceId: { exact: string } } {
+  const id = stored.trim();
+  if (id && browserIds.includes(id)) return { deviceId: { exact: id } };
+  return true;
+}
+
 export interface VoiceLinkDetails {
   pingMs: number | null;
   endpoint: string;

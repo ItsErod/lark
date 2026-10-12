@@ -7,6 +7,7 @@ import {
   hydrateMix,
   joinVoiceTarget,
   memberVoiceBody,
+  browserMicConstraint,
   micLevel,
   participantMenu,
   participantsIn,
@@ -197,5 +198,11 @@ describe("voice roster", () => {
     expect(prefs.noiseQuality).toBe("high");
     expect(readVoicePrefs("not json").echoCancellation).toBe(true);
     expect(readVoicePrefs("not json").noiseQuality).toBe("standard");
+  });
+
+  it("passes a browser id to the mic test and leaves a desktop name alone", () => {
+    expect(browserMicConstraint("hash-1", ["hash-1", "hash-2"])).toEqual({ deviceId: { exact: "hash-1" } });
+    expect(browserMicConstraint("Headset (Realtek Audio)", ["hash-1"])).toBe(true);
+    expect(browserMicConstraint("", ["hash-1"])).toBe(true);
   });
 });
