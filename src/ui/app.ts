@@ -156,9 +156,12 @@ import {
   validateThemeCss,
 } from "../themes";
 import {
+  applyMemberListSort,
   applyMemberOps,
   emptyMemberList,
   groupMembers,
+  MEMBER_LIST_SORTS,
+  type MemberListSort,
   highestIndex,
   MEMBER_ROW,
   memberSubtitle,
@@ -212,6 +215,7 @@ import {
   withMoveTargets,
 } from "../server-model";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
+import { mountGuildSettings } from "./guild-pages";
 import { mountChannelEditor, mountCreateChannel, mountInviteModal } from "./channel-settings";
 import {
   colorControl,
@@ -586,6 +590,8 @@ class LarkApp {
   private hideMuted = false;
   private viewAsRoleId: string | null = null;
   private viewAsPermissions = "";
+  private guildSettingsEl: HTMLElement | null = null;
+  private memberListSort: MemberListSort = "status";
   private audioInputs: { id: string; label: string }[] = [];
   private audioOutputs: { id: string; label: string }[] = [];
   private videoInputs: { id: string; label: string }[] = [];
@@ -3575,6 +3581,9 @@ class LarkApp {
         }
       }
     }
+    const sorted = applyMemberListSort(rows, this.memberListSort);
+    rows.length = 0;
+    rows.push(...sorted);
     const count = rows.filter((row) => row.type === "member").length;
     const online = list?.onlineCount || roster.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
     const total = list?.memberCount || roster.length;
@@ -3587,7 +3596,7 @@ class LarkApp {
 
   private memberShapeOf(rows: PaintedRow[], note: string, more: boolean): string {
     const body = rows.map((row) => row.type === "group" ? `g:${row.id}:${row.count}:${row.color ?? ""}:${row.label}` : `m:${row.person.id}:${row.color ?? ""}:${row.person.name}`).join("|");
-    return `${this.guildId}|${note}|${more ? 1 : 0}|${body}`;
+    return `${this.guildId}|${this.memberListSort}|${note}|${more ? 1 : 0}|${body}`;
   }
 
   private patchMemberPresence() {
@@ -3721,6 +3730,25 @@ class LarkApp {
     const head = el("div", "member-head");
     const scroll = el("div", "member-scroll");
     head.append(el("h2", "", "Members"));
+    const sort = el("button", "text-button", MEMBER_LIST_SORTS.find((item) => item.id === this.memberListSort)?.label ?? "Sort");
+    sort.type = "button";
+    sort.setAttribute("aria-label", "Sort member list");
+    sort.addEventListener("click", (event) => {
+      const rect = sort.getBoundingClientRect();
+      this.closeContextMenu();
+      this.contextMenuEl = mountMenu(rect.left, rect.bottom + 4, MEMBER_LIST_SORTS.map((item) => ({
+        id: item.id,
+        label: item.label,
+        hint: item.id === this.memberListSort ? "On" : "",
+      })), (id) => {
+        if (id === "status" || id === "name" || id === "activity") this.memberListSort = id;
+        this.closeContextMenu();
+        this.memberShape = "";
+        this.paintMembers();
+      });
+      event.stopPropagation();
+    });
+    head.append(sort);
     if (board.total) head.append(el("p", "member-count", `${board.online.toLocaleString()} online · ${board.total.toLocaleString()} members`));
     if (board.note && !board.rows.length) scroll.append(el("p", "empty", board.note));
     this.paintMemberRows(scroll, board.rows, kept);
@@ -10444,7 +10472,35 @@ class LarkApp {
       opener(guildId);
       return;
     }
-    this.toast("Server Settings", `${this.guilds().find((guild) => guild.id === guildId)?.name ?? "Server"} settings are not open in this build yet.`);
+    const guild = this.guilds().find((item) => item.id === guildId);
+    if (!guild) return;
+    this.guildSettingsEl?.remove();
+    this.guildSettingsEl = mountGuildSettings({
+      invoke: (command, args) => invoke(command, args),
+      toast: (title, detail) => this.toast(title, detail),
+      guild: () => this.guilds().find((item) => item.id === guildId) ?? guild,
+      channels: () => this.channelsOf(guildId),
+      me: () => ({ id: this.meId(), name: this.me.name }),
+      access: () => {
+        const access = this.access[guildId];
+        return access ? { owner: access.owner, permissions: access.permissions } : null;
+      },
+      refresh: () => {
+        void this.ensureGuild(guildId);
+        this.paint();
+      },
+      close: () => {
+        this.guildSettingsEl?.remove();
+        this.guildSettingsEl = null;
+      },
+      viewAs: (roleId, permissions, name) => {
+        this.viewAsRoleId = roleId;
+        this.viewAsPermissions = permissions;
+        this.toast("View as role", roleId ? `Viewing as ${name}` : "Stopped.");
+        this.paint();
+      },
+      copy: (text) => this.copyText(text),
+    });
   }
 
   private channelHost(guildId: string) {

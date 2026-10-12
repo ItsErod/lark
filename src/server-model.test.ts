@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_ACTIONS,
+  GUILD_SETTINGS_PAGES,
   automodBody,
   boostProgress,
   channelContextItems,
@@ -229,6 +230,29 @@ describe("server menus and channel tools", () => {
     expect(permissionsIn("Advanced").map((item) => item.label)).toEqual(["Administrator"]);
     expect(hasPerm(togglePerm(0n, VIEW_CHANNEL, true), VIEW_CHANNEL)).toBe(true);
     expect(AUDIT_ACTIONS.some((item) => item.label === "Member banned")).toBe(true);
+    const pages = GUILD_SETTINGS_PAGES.map((page) => page.label);
+    expect(pages).toEqual([
+      "Server Profile",
+      "Server Tag",
+      "Engagement",
+      "Boost Perks",
+      "Emoji",
+      "Stickers",
+      "Soundboard",
+      "Members",
+      "Roles",
+      "Invites",
+      "Access",
+      "Integrations",
+      "Safety Setup",
+      "Audit Log",
+      "Bans",
+      "AutoMod",
+      "Enable Community",
+      "Server Template",
+      "Boosts",
+      "Delete Server",
+    ]);
   });
 
   it("falls back when other streams have not registered their hooks", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyMemberListSort,
   applyMemberOps,
   emptyMemberList,
   groupMembers,
@@ -115,5 +116,16 @@ describe("role groups", () => {
       person({ id: "3", name: "Bea", status: "online" }),
     ]);
     expect(people.map((item) => item.name)).toEqual(["Bea", "Amy", "Zoe"]);
+  });
+
+  it("sorts the member list by name or activity and keeps role groups for status", () => {
+    const rows = [
+      { type: "group" as const, id: "online", label: "Online", count: 2, color: null },
+      { type: "member" as const, person: person({ id: "1", name: "Zoe", activity: "Queue" }), color: null },
+      { type: "member" as const, person: person({ id: "2", name: "Amy" }), color: null },
+    ];
+    expect(applyMemberListSort(rows, "status")).toHaveLength(3);
+    expect(applyMemberListSort(rows, "name").map((row) => row.type === "member" ? row.person.name : "")).toEqual(["Amy", "Zoe"]);
+    expect(applyMemberListSort(rows, "activity").map((row) => row.type === "member" ? row.person.name : "")).toEqual(["Zoe", "Amy"]);
   });
 });
