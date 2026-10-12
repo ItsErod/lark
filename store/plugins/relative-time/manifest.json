@@ -1,0 +1,12 @@
+{
+  "id": "relative-time",
+  "name": "Relative time",
+  "description": "Show 3m ago instead of the clock. The tooltip stays the local date and time.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "clock",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

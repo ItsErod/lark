@@ -55,7 +55,7 @@ describe("message logger", () => {
     expect(pack.messageLog).toHaveLength(1);
     expect(pack.logDeleted).toBe(false);
     expect(pack.logEdits).toBe(true);
-    const plugin = describePlugin(readFileSync("plugins/message-logger.js", "utf8"), "message-logger");
+    const plugin = describePlugin(readFileSync("store/plugins/message-logger/plugin.js", "utf8"), "message-logger");
     expect(plugin.hooks.messageLog).toBe(true);
     expect(plugin.name).toBe("Message logger");
   });

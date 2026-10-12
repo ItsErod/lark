@@ -1,0 +1,12 @@
+{
+  "id": "message-scheduler",
+  "name": "Message scheduler",
+  "description": "Schedule a message you wrote. It sends only while Lark stays open.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "clock",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

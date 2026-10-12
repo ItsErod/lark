@@ -1,0 +1,12 @@
+{
+  "id": "hide-muted",
+  "name": "Hide muted people",
+  "description": "Drop messages from people you hide locally. This does not block them on Discord.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "eye-off",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

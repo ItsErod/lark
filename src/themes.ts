@@ -91,13 +91,17 @@ export function titleFromId(id: string): string {
     .join(" ");
 }
 
+/** Installed themes only. Known ids keep their titles. Nothing is bundled with the app. */
 export function galleryEntries(extraIds: string[]): ThemeMeta[] {
-  const known = new Set(SHIPPED_THEMES.map((theme) => theme.id));
-  const extras = [...new Set(extraIds)]
-    .filter((id) => THEME_ID.test(id) && !known.has(id))
-    .sort()
-    .map((id) => ({ id, title: titleFromId(id), blurb: "Installed theme" }));
-  return [...SHIPPED_THEMES, ...extras];
+  const out: ThemeMeta[] = [];
+  const seen = new Set<string>();
+  for (const id of extraIds) {
+    if (!THEME_ID.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    const known = SHIPPED_THEMES.find((theme) => theme.id === id);
+    out.push(known ?? { id, title: titleFromId(id), blurb: "Installed theme" });
+  }
+  return out;
 }
 
 export function filterThemes(themes: ThemeMeta[], query: string): ThemeMeta[] {

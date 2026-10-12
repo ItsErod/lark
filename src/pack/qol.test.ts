@@ -29,9 +29,9 @@ describe("composer and message quality of life", () => {
   });
 
   it("declares the three hooks and their options", () => {
-    expect(describePlugin(readFileSync("plugins/quick-replies.js", "utf8"), "quick-replies").hooks.quickReply).toBe(true);
-    expect(describePlugin(readFileSync("plugins/copy-markdown.js", "utf8"), "copy-markdown").hooks.copyMarkdown).toBe(true);
-    expect(describePlugin(readFileSync("plugins/image-zoom.js", "utf8"), "image-zoom").hooks.imageZoom).toBe(true);
+    expect(describePlugin(readFileSync("store/plugins/quick-replies/plugin.js", "utf8"), "quick-replies").hooks.quickReply).toBe(true);
+    expect(describePlugin(readFileSync("store/plugins/copy-markdown/plugin.js", "utf8"), "copy-markdown").hooks.copyMarkdown).toBe(true);
+    expect(describePlugin(readFileSync("store/plugins/image-zoom/plugin.js", "utf8"), "image-zoom").hooks.imageZoom).toBe(true);
     const pack = sanitizePack({ copyMeta: true, zoomMax: 4, templates: [{ id: "a", label: "Hi", body: "there" }] });
     expect(pack.copyMeta).toBe(true);
     expect(pack.zoomMax).toBe(4);

@@ -1,0 +1,12 @@
+{
+  "id": "phosphor",
+  "name": "Phosphor",
+  "description": "Green on black, with a mono face.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "terminal",
+  "changelog": "First store release. Same colours as the file that used to ship inside Lark."
+}

@@ -26,7 +26,7 @@ describe("youtube picture in picture", () => {
   });
 
   it("declares the picture-in-picture hook", () => {
-    const source = readFileSync("plugins/youtube-pip.js", "utf8");
+    const source = readFileSync("store/plugins/youtube-pip/plugin.js", "utf8");
     const plugin = describePlugin(source, "youtube-pip");
     expect(plugin.name).toBe("YouTube Picture-in-Picture");
     expect(plugin.hooks.youtubePip).toBe(true);
@@ -64,7 +64,7 @@ describe("quick clip share", () => {
   });
 
   it("declares the clip share hook", () => {
-    const source = readFileSync("plugins/clip-share.js", "utf8");
+    const source = readFileSync("store/plugins/clip-share/plugin.js", "utf8");
     const plugin = describePlugin(source, "clip-share");
     expect(plugin.hooks.clipShare).toBe(true);
     expect(source).not.toMatch(/fetch\s*\(|XMLHttpRequest|\btoken\b/i);

@@ -1797,7 +1797,8 @@ class LarkApp {
     for (const theme of visible) grid.append(this.themeCard(theme));
     const empty = root.querySelector(".theme-empty");
     if (!visible.length) {
-      if (!empty) grid.insertAdjacentElement("afterend", el("p", "theme-empty hint", "No theme matches that."));
+      const note = this.themeFilter.trim() ? "No theme matches that." : "No themes installed. The built-in colours stay on.";
+      if (!empty) grid.insertAdjacentElement("afterend", el("p", "theme-empty hint", note));
     } else {
       empty?.remove();
     }
@@ -6520,7 +6521,7 @@ class LarkApp {
           .filter((file) => validPluginId(file.id))
           .map((file) => ({ id: file.id, name: file.name || file.id, description: file.description || "" }));
       } else {
-        const manifest = await fetch("/plugins/manifest.json", { cache: "no-store" }).then((res) => res.json());
+        const manifest = await fetch("/store/plugins/manifest/plugin.json", { cache: "no-store" }).then((res) => res.json());
         this.catalog = parseCatalog(manifest);
       }
     } catch {

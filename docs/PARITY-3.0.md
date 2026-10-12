@@ -117,7 +117,7 @@ Discord’s hover bar is three quick reactions, Add Reaction, Edit, Forward, and
 
 | Discord feature | Lark status | Notes and file pointers |
 | --- | --- | --- |
-| Three quick reactions on hover | Partial | `plugins/quick-react.js` adds five emoji, and only after the plugin is turned on. The default bar does not show them. |
+| Three quick reactions on hover | Partial | `store/plugins/quick-react/plugin.js` adds five emoji, and only after the plugin is turned on. The default bar does not show them. |
 | Add Reaction | Done | `src/ui/messages.ts` action row; `toggleReaction`. |
 | Edit (your messages) | Done | `beginEdit`; `edit_message`. |
 | Forward | Missing | |
@@ -177,7 +177,7 @@ Discord’s pages, in the inventory’s order. Lark’s settings catalog is `SET
 | Appearance: Light, Ash, Dark, Onyx | Missing | `paneAppearance` applies Lark theme files (`src/themes.ts`), not these four modes. |
 | Appearance: color themes | Partial | The gallery and CSS/JSON import are a different system. Keep them. |
 | Appearance: app icon | Missing | |
-| Appearance: message media and embed toggles | Missing | The quiet-media plugin can hide embeds locally (`plugins/quiet-media.js`). |
+| Appearance: message media and embed toggles | Missing | The quiet-media plugin can hide embeds locally (`store/plugins/quiet-media/plugin.js`). |
 | Accessibility: text size 12–24 | Partial | The slider is 12–20 (`paneAppearance`, clamped in `src/config.ts`). It is on Appearance, not an Accessibility page. |
 | Accessibility: underline links, UI density, group spacing, saturation, high contrast | Missing | |
 | Accessibility: compact or cozy | Partial | Cozy, compact, and IRC are one density control, and IRC is extra. Discord splits UI density from message density. |
@@ -300,7 +300,7 @@ Leave these in place. Bookmark and Remind are listed above as Partial because Di
 | Extra | Where it lives | What it does |
 | --- | --- | --- |
 | Theme gallery and CSS/JSON editor | `src/themes.ts`, `paneAppearance` | Separate from Light / Ash / Dark / Onyx. |
-| Plugin pack | `src/plugins.ts`, `plugins/` | Off until enabled. No token. |
+| Plugin pack | `src/plugins.ts`, `store/plugins/` | Off until enabled. No token. |
 | Scheduled send | `src/pack/schedule.ts` | Device queue. Not a Discord API. |
 | Encrypted drafts | `src/drafts.ts` | Keychain or Credential Manager. |
 | Streamer mode | `src/privacy.ts` | Local redaction. |

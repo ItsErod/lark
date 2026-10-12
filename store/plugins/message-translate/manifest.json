@@ -1,0 +1,12 @@
+{
+  "id": "message-translate",
+  "name": "Message translator",
+  "description": "Click Translate for a local phrase book. No network and no token.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "translation",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "languages",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

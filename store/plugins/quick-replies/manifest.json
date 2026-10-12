@@ -1,0 +1,12 @@
+{
+  "id": "quick-replies",
+  "name": "Quick reply templates",
+  "description": "Save canned replies and insert one from the composer.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "pencil",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

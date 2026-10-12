@@ -1,0 +1,12 @@
+{
+  "id": "emote-cloner",
+  "name": "Emote cloner",
+  "description": "Right-click an emoji or sticker and add it to a server you manage.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "smile",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

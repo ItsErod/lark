@@ -21,7 +21,7 @@ describe("reverse image search", () => {
   });
 
   it("declares the image search hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/reverse-image.js", "utf8"), "reverse-image");
+    const plugin = describePlugin(readFileSync("store/plugins/reverse-image/plugin.js", "utf8"), "reverse-image");
     expect(plugin.hooks.imageSearch).toBe(true);
     expect(plugin.name).toBe("Reverse image search");
   });

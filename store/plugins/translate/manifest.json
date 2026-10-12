@@ -1,0 +1,12 @@
+{
+  "id": "translate",
+  "name": "Translate",
+  "description": "Local glossary only. No network, no token.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "translation",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "languages",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

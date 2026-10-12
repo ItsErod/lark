@@ -30,7 +30,7 @@ describe("panic key", () => {
   });
 
   it("declares the panic hook and leaves messages alone", () => {
-    const plugin = describePlugin(readFileSync("plugins/panic-key.js", "utf8"), "panic-key");
+    const plugin = describePlugin(readFileSync("store/plugins/panic-key/plugin.js", "utf8"), "panic-key");
     expect(plugin.hooks.panicKey).toBe(true);
     expect(plugin.name).toBe("Panic Key");
     const message = {
@@ -75,7 +75,7 @@ describe("incognito mode", () => {
   });
 
   it("declares the incognito hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/incognito.js", "utf8"), "incognito");
+    const plugin = describePlugin(readFileSync("store/plugins/incognito/plugin.js", "utf8"), "incognito");
     expect(plugin.hooks.incognito).toBe(true);
     expect(plugin.hooks.panicKey).toBe(false);
     expect(plugin.description).toContain("read");
@@ -107,7 +107,7 @@ describe("streamer safe", () => {
   });
 
   it("hides a direct message and a phone when the plugin is active", () => {
-    const plugin = describePlugin(readFileSync("plugins/streamer-safe.js", "utf8"), "streamer-safe");
+    const plugin = describePlugin(readFileSync("store/plugins/streamer-safe/plugin.js", "utf8"), "streamer-safe");
     expect(plugin.hooks.streamerSafe).toBe(true);
     const message = {
       id: "m",
@@ -143,7 +143,7 @@ describe("clean links", () => {
   });
 
   it("cleans a received message and can leave it when opening is off", () => {
-    const plugin = describePlugin(readFileSync("plugins/clean-links.js", "utf8"), "clean-links");
+    const plugin = describePlugin(readFileSync("store/plugins/clean-links/plugin.js", "utf8"), "clean-links");
     expect(plugin.hooks.cleanLinks).toBe(true);
     const message = {
       id: "m",
@@ -170,7 +170,7 @@ describe("spoiler everything", () => {
     expect(spoilerMode({ ...defaultPrivacy(), spoilerDefault: "off", spoilerChannels: { c1: "on" } }, "c1")).toBe("on");
     expect(spoilerMode({ ...defaultPrivacy(), spoilerChannels: { c1: "off" } }, "c1")).toBe("off");
     expect(sanitizePrivacy({ spoilerChannels: { "bad id": "on", c1: "off", c2: "maybe" } }).spoilerChannels).toEqual({ c1: "off" });
-    const plugin = describePlugin(readFileSync("plugins/spoiler-everything.js", "utf8"), "spoiler-everything");
+    const plugin = describePlugin(readFileSync("store/plugins/spoiler-everything/plugin.js", "utf8"), "spoiler-everything");
     expect(plugin.hooks.spoilerMedia).toBe(true);
     const message = {
       id: "m",
@@ -191,7 +191,7 @@ describe("spoiler everything", () => {
 
 describe("hide blocked messages", () => {
   it("drops a blocked author and leaves everyone else", () => {
-    const plugin = describePlugin(readFileSync("plugins/hide-blocked.js", "utf8"), "hide-blocked");
+    const plugin = describePlugin(readFileSync("store/plugins/hide-blocked/plugin.js", "utf8"), "hide-blocked");
     expect(plugin.hooks.hideBlocked).toBe(true);
     const message = {
       id: "m",

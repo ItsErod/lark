@@ -1,0 +1,12 @@
+{
+  "id": "youtube-pip",
+  "name": "YouTube Picture-in-Picture",
+  "description": "Pop a YouTube embed into a floating mini player.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "image",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

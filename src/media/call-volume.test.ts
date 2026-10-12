@@ -21,7 +21,7 @@ describe("call timer", () => {
   });
 
   it("declares the call timer hook and stays off the network", () => {
-    const source = readFileSync("plugins/call-timer.js", "utf8");
+    const source = readFileSync("store/plugins/call-timer/plugin.js", "utf8");
     const plugin = describePlugin(source, "call-timer");
     expect(plugin.name).toBe("Call Timer");
     expect(plugin.hooks.callTimer).toBe(true);
@@ -46,7 +46,7 @@ describe("volume booster", () => {
   });
 
   it("declares the volume booster hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/volume-booster.js", "utf8"), "volume-booster");
+    const plugin = describePlugin(readFileSync("store/plugins/volume-booster/plugin.js", "utf8"), "volume-booster");
     expect(plugin.name).toBe("Volume Booster");
     expect(plugin.hooks.volumeBoost).toBe(true);
     expect(plugin.hooks.callTimer).toBe(false);

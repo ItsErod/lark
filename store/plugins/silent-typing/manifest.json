@@ -1,0 +1,12 @@
+{
+  "id": "silent-typing",
+  "name": "Silent typing",
+  "description": "Keep the typing indicator to yourself. Lark does not send one while this is on.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "status",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "keyboard",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

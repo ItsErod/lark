@@ -1,0 +1,12 @@
+{
+  "id": "message-logger",
+  "name": "Message logger",
+  "description": "Keep deleted and edited messages on this device. Deleted lines stay, greyed out, with the earlier text.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "archive",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

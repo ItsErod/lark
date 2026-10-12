@@ -15,12 +15,12 @@ describe("spotify controls", () => {
     expect(openTarget(merged!)).toBe("https://open.spotify.com/track/abc123");
     expect(openTarget({ title: "Apricot", artist: "Maya", url: "" })).toContain("open.spotify.com/search/Apricot");
     expect(playerTrack("Listening to Apricot", [], false, true)).toBeNull();
-    const source = readFileSync("plugins/spotify-controls.js", "utf8");
+    const source = readFileSync("store/plugins/spotify-controls/plugin.js", "utf8");
     expect(source).not.toMatch(/client_secret|spotify_secret|Authorization/i);
   });
 
   it("declares the hook and the two toggles", () => {
-    const plugin = describePlugin(readFileSync("plugins/spotify-controls.js", "utf8"), "spotify-controls");
+    const plugin = describePlugin(readFileSync("store/plugins/spotify-controls/plugin.js", "utf8"), "spotify-controls");
     expect(plugin.hooks.spotify).toBe(true);
     const pack = sanitizePack({ spotifyPresence: false, spotifyLinks: true });
     expect(pack.spotifyPresence).toBe(false);

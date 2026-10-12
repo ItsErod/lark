@@ -1,0 +1,12 @@
+{
+  "id": "media-status",
+  "name": "Now Playing Status",
+  "description": "Set your custom status from the current game or from what the system is playing.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "status",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "music",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

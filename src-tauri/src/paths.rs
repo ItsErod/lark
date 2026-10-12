@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf
 
 use tauri::{AppHandle, Manager};
 
@@ -33,8 +33,7 @@ pub fn resolve(app: &AppHandle) -> Result<ResolvedPaths, String> {
     fs::create_dir_all(&themes_dir).map_err(|err| err.to_string())?;
     fs::create_dir_all(&plugins_dir).map_err(|err| err.to_string())?;
     fs::create_dir_all(&clips_dir).map_err(|err| err.to_string())?;
-    let _ = lark_core::config::copy_missing_themes(&themes_dir, &bundled(app, "themes"));
-    seed_missing_files(&plugins_dir, &bundled(app, "plugins"));
+    // Plugins and themes are installed from the store. A new data dir starts empty.
     let config_file = dir.join("config.toml");
     if !config_file.exists() {
         fs::write(&config_file, lark_core::config::example_config_text())
@@ -67,32 +66,3 @@ pub fn describe(paths: &ResolvedPaths) -> AppPaths {
     }
 }
 
-fn bundled(app: &AppHandle, folder: &str) -> PathBuf {
-    if let Ok(resource) = app.path().resource_dir() {
-        let candidate = resource.join(folder);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(folder)
-}
-
-fn seed_missing_files(dest: &Path, source: &Path) {
-    if !source.exists() {
-        return;
-    }
-    let Ok(entries) = fs::read_dir(source) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let file_type = entry.file_type().ok();
-        if file_type.map(|kind| kind.is_file()).unwrap_or(false) {
-            let target = dest.join(entry.file_name());
-            if !target.exists() {
-                let _ = fs::copy(entry.path(), target);
-            }
-        }
-    }
-}

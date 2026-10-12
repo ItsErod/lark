@@ -1,0 +1,12 @@
+{
+  "id": "original-image",
+  "name": "View Original Image",
+  "description": "Open the full image and download it in one click.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "image",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

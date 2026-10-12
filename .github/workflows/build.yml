@@ -118,6 +118,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Frontend tests
         run: npm test
+      - name: Store index matches the registry
+        run: node scripts/build-store.mjs --check
       - uses: dtolnay/rust-toolchain@1.99.0
       - uses: swatinem/rust-cache@v2
       - name: Install build dependencies

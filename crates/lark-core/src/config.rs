@@ -1030,7 +1030,7 @@ pub struct Plugins {
 impl Default for Plugins {
     fn default() -> Self {
         Self {
-            enabled: vec!["highlight-mentions".into(), "code-badge".into()],
+            enabled: Vec::new(),
         }
     }
 }
@@ -1563,7 +1563,7 @@ mod tests {
                 .effective(Some("100000000000000011"), "100000000000000025"),
             NotifyLevel::Mute
         );
-        assert_eq!(cfg.plugins.enabled, vec!["highlight-mentions", "code-badge"]);
+        assert!(cfg.plugins.enabled.is_empty());
         assert_eq!(cfg.desktop.frame_cap, 240);
         assert!(!cfg.desktop.hardware_status);
         assert!(!cfg.desktop.perf_overlay);

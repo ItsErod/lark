@@ -47,7 +47,7 @@ describe("plugin api", () => {
   });
 
   it("hides an author only through the host list", () => {
-    const plugin = describePlugin(readFileSync("plugins/hide-muted.js", "utf8"), "hide-muted");
+    const plugin = describePlugin(readFileSync("store/plugins/hide-muted/plugin.js", "utf8"), "hide-muted");
     expect(plugin.hooks.hideUsers).toBe(true);
     const hidden = applyPlugins(message(), [plugin], { hiddenAuthors: new Set(["7"]) });
     expect(hidden).toBeNull();
@@ -88,17 +88,18 @@ describe("plugin api", () => {
     expect(enabledSources(["missing", "alpha", "alpha"], loaded).map((item) => item.id)).toEqual(["alpha"]);
   });
 
-  it("ships the pack off by default", () => {
+  it("ships with no plugins enabled", () => {
     const enabled = new Set(defaultConfig().plugins.enabled);
+    expect(enabled.size).toBe(0);
     for (const id of PACK_IDS) expect(enabled.has(id)).toBe(false);
-    expect(enabled.has("highlight-mentions")).toBe(true);
+    expect(enabled.has("highlight-mentions")).toBe(false);
   });
 
   it("keeps pack scripts free of the token and the network", () => {
-    const files = readdirSync("plugins").filter((name) => name.endsWith(".js"));
-    expect(files.length).toBeGreaterThanOrEqual(12);
-    for (const name of files) {
-      const source = readFileSync(`plugins/${name}`, "utf8").replace(/\/\/.*$/gm, "");
+    const ids = readdirSync("store/plugins");
+    expect(ids.length).toBeGreaterThanOrEqual(12);
+    for (const id of ids) {
+      const source = readFileSync(`store/plugins/${id}/plugin.js`, "utf8").replace(/\/\/.*$/gm, "");
       expect(source).not.toMatch(/fetch\s*\(|XMLHttpRequest|discord\.com\/api|Authorization|localStorage|document\.cookie|\btoken\b/i);
     }
   });

@@ -2,7 +2,7 @@
 
 Lark themes are CSS files that set colour and type variables. Layout, motion, and the frame cap stay in the app. The gallery in **Settings → Appearance** previews every installed theme and applies one with a click. The command palette entry is **Theme gallery**.
 
-Shipped files live in `themes/`. On first launch, and whenever a new file is missing, Lark copies it into the app config folder. A file you already have there is left alone, including one you edited.
+Themes are not part of the app download. The files live in `store/themes/<id>/`. Installing one writes it into the app config folder. A file you already have there is left alone, including one you edited. With nothing installed, the built-in colours in the app stylesheet stay on. They match the Discord palette.
 
 | File | Look |
 | --- | --- |

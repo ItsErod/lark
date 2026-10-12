@@ -72,9 +72,9 @@ describe("message view", () => {
   });
 
   it("runs the sample plugins", () => {
-    const highlight = describePlugin(readFileSync("plugins/highlight-mentions.js", "utf8"), "highlight-mentions");
-    const code = describePlugin(readFileSync("plugins/code-badge.js", "utf8"), "code-badge");
-    const hide = describePlugin(readFileSync("plugins/hide-joins.js", "utf8"), "hide-joins");
+    const highlight = describePlugin(readFileSync("store/plugins/highlight-mentions/plugin.js", "utf8"), "highlight-mentions");
+    const code = describePlugin(readFileSync("store/plugins/code-badge/plugin.js", "utf8"), "code-badge");
+    const hide = describePlugin(readFileSync("store/plugins/hide-joins/plugin.js", "utf8"), "hide-joins");
     expect(highlight.name).toBe("Highlight mentions");
     const mentioned = buildViewMessage(raw({ mentionIds: ["42"], content: "hey" }), ctx, [highlight]);
     expect(mentioned?.highlights).toContain("mention");
@@ -82,8 +82,8 @@ describe("message view", () => {
     expect(fenced?.badges).toContain("code");
     expect(fenced?.blocks[0].t).toBe("pre");
     expect(buildViewMessage(raw({ kind: "join", content: "Maya joined" }), ctx, [hide])).toBeNull();
-    const quiet = describePlugin(readFileSync("plugins/quiet-media.js", "utf8"), "quiet-media");
-    const relative = describePlugin(readFileSync("plugins/relative-time.js", "utf8"), "relative-time");
+    const quiet = describePlugin(readFileSync("store/plugins/quiet-media/plugin.js", "utf8"), "quiet-media");
+    const relative = describePlugin(readFileSync("store/plugins/relative-time/plugin.js", "utf8"), "relative-time");
     const preview = buildViewMessage(raw({ content: "https://example.com/a" }), ctx, [quiet, relative], [], {
       settings: { "quiet-media": { previews: "hide", compact: "off" } },
     });

@@ -1,0 +1,12 @@
+{
+  "id": "panic-key",
+  "name": "Panic Key",
+  "description": "A hotkey that hides or minimizes Lark and mutes.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "privacy",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "shield",
+  "changelog": "First store release. Same behaviour as the copy that used to ship inside Lark."
+}

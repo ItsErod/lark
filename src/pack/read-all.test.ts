@@ -32,7 +32,7 @@ describe("read all", () => {
   });
 
   it("declares the read-all hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/read-all.js", "utf8"), "read-all");
+    const plugin = describePlugin(readFileSync("store/plugins/read-all/plugin.js", "utf8"), "read-all");
     expect(plugin.hooks.readAll).toBe(true);
     expect(plugin.name).toBe("Read all");
   });

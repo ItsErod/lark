@@ -11,7 +11,7 @@ describe("game activity", () => {
   });
 
   it("declares the toggle hook", () => {
-    const source = readFileSync("plugins/game-activity.js", "utf8");
+    const source = readFileSync("store/plugins/game-activity/plugin.js", "utf8");
     const plugin = describePlugin(source, "game-activity");
     expect(plugin.name).toBe("Game Activity Toggle");
     expect(plugin.hooks.gameActivity).toBe(true);
@@ -31,7 +31,7 @@ describe("now playing status", () => {
   });
 
   it("declares a status hook separate from the existing player", () => {
-    const source = readFileSync("plugins/media-status.js", "utf8");
+    const source = readFileSync("store/plugins/media-status/plugin.js", "utf8");
     const plugin = describePlugin(source, "media-status");
     expect(plugin.hooks.mediaStatus).toBe(true);
     expect(plugin.hooks.nowPlaying).toBe(false);

@@ -1,6 +1,6 @@
 # Lark plugins
 
-These plugins use the existing local plugin host. Each one stays **off** until you turn them on in **Settings → Plugins**, and each one has its own options there. A plugin never receives the token. The scripts in `plugins/` do not call the network. Anything that talks to Discord is a host action you started yourself, through the same commands the rest of Lark already uses.
+These plugins use the existing local plugin host. Each one stays **off** until you turn them on in **Settings → Plugins and Themes**, and each one has its own options there. A plugin never receives the token. The scripts in `store/plugins/` do not call the network. Anything that talks to Discord is a host action you started yourself, through the same commands the rest of Lark already uses.
 
 ## Message logger
 

@@ -26,7 +26,7 @@ describe("pin DMs", () => {
   });
 
   it("declares the pin hook", () => {
-    const plugin = describePlugin(readFileSync("plugins/pin-dms.js", "utf8"), "pin-dms");
+    const plugin = describePlugin(readFileSync("store/plugins/pin-dms/plugin.js", "utf8"), "pin-dms");
     expect(plugin.hooks.pinDms).toBe(true);
     expect(plugin.name).toBe("Pin DMs");
   });
