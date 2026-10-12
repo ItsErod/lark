@@ -262,7 +262,8 @@ pub fn run() {
             rename_clip,
             delete_clip,
             trim_clip,
-            compress_clip
+            compress_clip,
+            guild_admin
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -1520,6 +1521,18 @@ async fn set_guild_folders(
     rest(&state)
         .await?
         .set_guild_folders(&folders)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn guild_admin(
+    state: State<'_, Shared>,
+    request: lark_core::discord::guild_admin::GuildAdminRequest,
+) -> Result<serde_json::Value, String> {
+    rest(&state)
+        .await?
+        .guild_admin(request)
         .await
         .map_err(|err| err.to_string())
 }

@@ -15,12 +15,13 @@ use crate::ratelimit::{
 };
 use crate::redact::redact;
 
+use super::guild_admin::{build_admin_call, GuildAdminRequest};
 use super::shell::{encode_guild_folders, invite_code_ok, invite_from_json, ClientFolder, ClientInvite};
 use super::types::{
-    friends_from_relationships, member_to_client, message_to_client, profile_from_value,
-    role_to_client, safe_file_name, snowflake_ok, validate_outgoing, ClientChannel, ClientEmoji,
-    ClientMember, ClientMessage, ClientProfile, ClientRole, DiscordChannel, DiscordMember,
-    DiscordMessage, DiscordRole, DiscordUser,
+    channel_to_client, friends_from_relationships, member_to_client, message_to_client,
+    profile_from_value, role_to_client, safe_file_name, snowflake_ok, validate_outgoing,
+    ClientChannel, ClientEmoji, ClientMember, ClientMessage, ClientProfile, ClientRole,
+    DiscordChannel, DiscordMember, DiscordMessage, DiscordRole, DiscordUser,
 };
 
 const API: &str = "https://discord.com/api/v10";
@@ -708,6 +709,31 @@ impl DiscordRest {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn guild_admin(&self, request: GuildAdminRequest) -> Result<Value, RestError> {
+        let call = build_admin_call(&request).map_err(RestError::Message)?;
+        let value = if let Some(file) = call.file.as_ref() {
+            let upload = OutFile {
+                name: file.name.clone(),
+                mime: file.mime.clone(),
+                bytes: file.bytes.clone(),
+            };
+            let response = self
+                .send(call.method, &call.route, &call.path, call.body, std::slice::from_ref(&upload))
+                .await?;
+            Self::json_body(response, &self.token).await?
+        } else {
+            self.send_json(call.method, &call.route, &call.major, &call.path, call.body)
+                .await?
+        };
+        if !call.channel_shaped || value.is_null() {
+            return Ok(value);
+        }
+        let channel: DiscordChannel = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read that channel".into()))?;
+        serde_json::to_value(channel_to_client(&channel))
+            .map_err(|_| RestError::Message("Could not read that channel".into()))
     }
 
     fn ensure_invite(&self, code: &str) -> Result<(), RestError> {

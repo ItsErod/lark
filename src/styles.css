@@ -1100,3 +1100,36 @@ html.is-game-mode .is-speaking .speak-ring-spin { opacity: 1; background: var(--
 .advanced summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .advanced .token-input { margin-top: 8px; }
 .oauth-note { line-height: 1.45; }
+
+.ctx-menu, .ctx-sub {
+  position: fixed; z-index: 50; min-width: 220px; padding: 6px; display: grid; gap: 2px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.ctx-sub { position: absolute; left: calc(100% - 4px); top: 0; display: none; }
+.ctx-item { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); border-radius: 4px; padding: 6px 8px; }
+.ctx-item:hover, .ctx-item:focus-visible { background: var(--hover); }
+.ctx-item:hover > .ctx-sub, .ctx-item:focus-within > .ctx-sub { display: grid; }
+.ctx-item.is-danger { color: #ed4245; }
+.ctx-hint, .ctx-more { color: var(--muted); font-size: 12px; }
+.folder-commands { display: grid; gap: 2px; }
+.channel-head-button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer; }
+.channel-lock { margin-left: auto; font-size: 12px; }
+.view-as-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; font-size: 12px; color: var(--muted); }
+.rail-glyph { font-size: 12px; font-weight: 700; }
+.modal-layer { position: fixed; inset: 0; z-index: 45; background: rgba(0, 0, 0, 0.55); display: grid; overflow: auto; }
+.modal-card {
+  width: min(480px, calc(100% - 32px)); margin: 10vh auto; background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: grid; gap: 10px;
+}
+.modal-card h2 { margin: 0; }
+.modal-card input, .modal-card select, .modal-card textarea {
+  width: 100%; background: var(--bg-0); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 8px;
+}
+.modal-card textarea { min-height: 72px; resize: vertical; }
+.template-grid { display: grid; gap: 6px; }
+.template-card { display: grid; gap: 2px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); color: var(--text); border-radius: 8px; padding: 8px; }
+.template-card.is-on, .choice-row .ghost.is-on { border-color: var(--accent); }
+.check-row { display: flex; align-items: center; gap: 8px; }
+.field-label { font-size: 12px; font-weight: 700; color: var(--muted); }
+.invite-friends, .role-picks { display: grid; gap: 2px; max-height: 160px; overflow: auto; }
