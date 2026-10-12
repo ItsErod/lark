@@ -9,6 +9,8 @@ import { sanitizeLog } from "./logger";
 import type { HourCycle, TimeMode } from "./time";
 import type { TranslatePrefer } from "./inline-translate";
 import { cleanWords } from "./keywords";
+import { cleanPinnedDms } from "./pin-dms";
+import { cleanPatterns, patternsFor } from "./patterns";
 
 export interface PackState {
   translateLang: Lang;
@@ -40,6 +42,10 @@ export interface PackState {
   hiddenTopics: boolean;
   spotifyPresence: boolean;
   spotifyLinks: boolean;
+  highlightPatterns: string[];
+  highlightGuilds: Record<string, string[]>;
+  highlightNotify: boolean;
+  pinnedDms: string[];
 }
 
 export const PACK_IDS = [
@@ -63,6 +69,8 @@ export const PACK_IDS = [
   "inline-translate",
   "show-hidden",
   "spotify-controls",
+  "keyword-highlights",
+  "pin-dms",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -99,6 +107,10 @@ export function defaultPack(): PackState {
     hiddenTopics: true,
     spotifyPresence: true,
     spotifyLinks: true,
+    highlightPatterns: [],
+    highlightGuilds: {},
+    highlightNotify: true,
+    pinnedDms: [],
   };
 }
 
@@ -135,16 +147,25 @@ export function sanitizePack(input: unknown): PackState {
   base.bookmarks = sanitizeBookmarks(raw.bookmarks);
   base.hiddenAuthors = sanitizeHidden(raw.hiddenAuthors);
   base.keywordChannels = sanitizeChannels(raw.keywordChannels);
+  if (Array.isArray(raw.highlightPatterns)) {
+    base.highlightPatterns = cleanPatterns(raw.highlightPatterns.filter((item) => typeof item === "string").join("\n"));
+  }
+  if (typeof raw.highlightNotify === "boolean") base.highlightNotify = raw.highlightNotify;
+  base.highlightGuilds = sanitizeHighlightGuilds(raw.highlightGuilds);
+  base.pinnedDms = cleanPinnedDms(raw.pinnedDms);
   return base;
 }
 
-export function settingsFor(pack: PackState, pluginId: string, channelId: string): Record<string, string> {
+export function settingsFor(pack: PackState, pluginId: string, channelId: string, guildId = ""): Record<string, string> {
   if (pluginId === "message-translate") return { lang: pack.translateLang };
   if (pluginId === "quiet-media") return { previews: pack.mediaPreviews, compact: pack.mediaCompact };
   if (pluginId === "keyword-ping") {
     const local = pack.keywordChannels[channelId]?.words ?? [];
     const words = local.length ? local : pack.keywordGlobal;
     return { words: words.join(", ") };
+  }
+  if (pluginId === "keyword-highlights") {
+    return { patterns: patternsFor(pack.highlightPatterns, pack.highlightGuilds, guildId).join("\n") };
   }
   return {};
 }
@@ -220,6 +241,19 @@ function sanitizeHidden(value: unknown): HiddenAuthor[] {
     seen.add(id);
     out.push({ id, name: typeof record.name === "string" && record.name.trim() ? record.name.trim().slice(0, 80) : id });
     if (out.length >= 200) break;
+  }
+  return out;
+}
+
+function sanitizeHighlightGuilds(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object") return {};
+  const out: Record<string, string[]> = {};
+  for (const [guildId, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(guildId) || !Array.isArray(raw)) continue;
+    const patterns = cleanPatterns(raw.filter((item) => typeof item === "string").join("\n"));
+    if (!patterns.length) continue;
+    out[guildId] = patterns;
+    if (Object.keys(out).length >= 50) break;
   }
   return out;
 }
