@@ -173,6 +173,23 @@ describe("forums and media", () => {
       message: { content: "Hello" },
     });
     expect(made.plan.body).not.toHaveProperty("type");
+    const ten = startThreadFromMessage({
+      channelId: CHANNEL,
+      name: "Frames",
+      content: "",
+      appliedTags: [TAG],
+      attachmentCount: 10,
+    }, parent);
+    expect(ten.ok).toBe(true);
+    const eleven = startThreadFromMessage({
+      channelId: CHANNEL,
+      name: "Frames",
+      content: "Hello",
+      appliedTags: [TAG],
+      attachmentCount: 11,
+    }, parent);
+    expect(eleven.ok).toBe(false);
+    if (!eleven.ok) expect(eleven.error).toMatch(/10 attachments/);
   });
 
   it("sorts by latest activity or creation and filters tags", () => {
