@@ -13,6 +13,7 @@ use super::shell::{
     access_from_guild, folder_snapshot, guild_prefs, my_roles_from_merged, read_markers,
     ClientFolder, ClientGuildAccess, ClientGuildPref,
 };
+use super::shell::user_lists_from_b64;
 use super::types::{
     activity_parts, blocked_user_ids, channel_kind_name, channel_to_client, friends_from_relationships,
     guild_to_client, message_to_client, parse_guild_voice_states, parse_voice_state, role_to_client,
@@ -255,6 +256,20 @@ pub enum ClientEvent {
         relationships: Vec<super::types::ClientRelationship>,
         replace: bool,
         removed: bool,
+    },
+    /// Favorites (settings proto field 15) and Lark pin lists. Absent options were not in the proto.
+    UserLists {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        favorites: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        favorites_muted: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        favorite_extras: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pinned_dms: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        channel_pins: Option<Vec<super::shell::GuildChannelPins>>,
+        from_ready: bool,
     },
 }
 
@@ -1001,6 +1016,7 @@ fn handle_dispatch(
                 if !entries.is_empty() {
                     emit(ClientEvent::GuildNotify { entries });
                 }
+                emit_user_lists(ready.user_settings_proto.as_deref(), true, emit);
                 if let Some(guilds) = data.get("guilds").and_then(|value| value.as_array()) {
                     for guild in guilds {
                         let Some(states) = parse_guild_voice_states(guild) else { continue };
@@ -1222,6 +1238,7 @@ fn handle_dispatch(
             if !folders.folders.is_empty() {
                 emit(ClientEvent::Folders { folders: folders.folders });
             }
+            emit_user_lists(encoded, false, emit);
             false
         }
         "GUILD_MEMBERS_CHUNK" => {
@@ -2111,6 +2128,41 @@ mod tests {
             _ => panic!("expected reaction"),
         }
     }
+
+    #[test]
+    fn settings_proto_emits_favorites_without_wiping_absent_pins() {
+        let encoded = super::super::shell::encode_user_lists(
+            &["100000000000000030".into()],
+            false,
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        let data = json!({ "settings": { "proto": encoded } });
+        let mut events = Vec::new();
+        let mut session = None;
+        handle_dispatch(
+            "USER_SETTINGS_PROTO_UPDATE",
+            &data,
+            None,
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        let lists = events.iter().find_map(|event| match event {
+            ClientEvent::UserLists {
+                favorites,
+                pinned_dms,
+                from_ready,
+                ..
+            } => Some((favorites.clone(), pinned_dms.clone(), *from_ready)),
+            _ => None,
+        });
+        let (favorites, pins, from_ready) = lists.expect("user lists");
+        assert_eq!(favorites.unwrap(), vec!["100000000000000030".to_string()]);
+        assert_eq!(pins.unwrap(), Vec::<String>::new());
+        assert!(!from_ready);
+    }
 }
 
 /// Gateway READY session, kept for interaction payloads. The voice slot's session id is a different value.
@@ -2127,4 +2179,24 @@ pub fn note_gateway_session(id: &str) {
 
 pub fn gateway_session() -> String {
     GATEWAY_SESSION.lock().map(|slot| slot.clone()).unwrap_or_default()
+}
+
+fn emit_user_lists(encoded: Option<&str>, from_ready: bool, emit: &mut impl FnMut(ClientEvent)) {
+    let proto = encoded.map(str::trim).filter(|value| !value.is_empty());
+    if proto.is_none() {
+        return;
+    }
+    let lists = user_lists_from_b64(proto);
+    let any = lists.favorites.is_some() || lists.pinned_dms.is_some() || lists.channel_pins.is_some();
+    if !any && !from_ready {
+        return;
+    }
+    emit(ClientEvent::UserLists {
+        favorites: lists.favorites,
+        favorites_muted: lists.favorites_muted,
+        favorite_extras: lists.favorite_extras,
+        pinned_dms: lists.pinned_dms,
+        channel_pins: lists.channel_pins,
+        from_ready,
+    });
 }

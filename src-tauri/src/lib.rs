@@ -374,7 +374,8 @@ pub fn run() {
             reaction_users,
             search_app_commands,
             invoke_command,
-            open_discord_page
+            open_discord_page,
+            set_user_lists
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -2687,4 +2688,26 @@ async fn load_guild_pcm(client: &DiscordRest, state: &Shared, sound_id: &str) ->
     }
     let _ = fs::write(&path, &downloaded);
     Ok(pcm)
+}
+
+#[tauri::command]
+async fn set_user_lists(
+    state: State<'_, Shared>,
+    favorites: Vec<String>,
+    favorites_muted: Option<bool>,
+    favorite_extras: Option<Vec<String>>,
+    pinned_dms: Vec<String>,
+    channel_pins: Vec<lark_core::discord::shell::GuildChannelPins>,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_user_lists(
+            &favorites,
+            favorites_muted.unwrap_or(false),
+            favorite_extras.as_deref().unwrap_or(&[]),
+            &pinned_dms,
+            &channel_pins,
+        )
+        .await
+        .map_err(|err| err.to_string())
 }
