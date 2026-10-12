@@ -627,6 +627,49 @@
       100% { box-shadow: 0 0 0 12px transparent; }
     }
 
+    .history-total {
+      margin-top: 14px;
+      background:
+        radial-gradient(560px 180px at 0% 0%, rgba(226, 161, 90, 0.18), transparent 58%),
+        var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
+    }
+    .history-total-value {
+      margin: 2px 0 0;
+      font-size: clamp(40px, 6vw, 68px);
+      font-weight: 760;
+      letter-spacing: -0.045em;
+      line-height: 0.95;
+      font-variant-numeric: tabular-nums;
+    }
+    .history-total-note { margin: 8px 0 0; color: var(--secondary); }
+    .version-body { min-width: 0; }
+    .version-name {
+      font-size: 18px;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+    }
+    a.version-name:hover { text-decoration: underline; }
+    .version-body .pill { margin: 0 0 0 8px; vertical-align: 2px; }
+    .version-meta { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .event .version-duration {
+      color: var(--amber-2);
+      font-size: 15px;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .event.is-live .version-duration { font-size: 18px; font-weight: 760; }
+    .event.is-live .event-dot {
+      background: var(--amber);
+      box-shadow: 0 0 0 4px rgba(226, 161, 90, 0.22);
+      animation: pulse 1.6s ease-out infinite;
+    }
+
     @media (max-width: 980px) {
       .streams { grid-template-columns: 1fr 1fr; }
       .stages { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
@@ -645,6 +688,7 @@
       .top-inner { align-items: flex-start; }
       .event { grid-template-columns: 16px 1fr; }
       .event time { grid-column: 2; }
+      .history-total { padding: 18px; }
     }
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
@@ -739,6 +783,19 @@
       <div id="release-actions" class="release-actions" hidden></div>
     </section>
 
+    <section aria-labelledby="history-title">
+      <div class="section-head">
+        <h2 id="history-title">Version history</h2>
+        <p>Update time runs from the previous release’s publish time to this one. The version still in progress counts live from the latest release.</p>
+      </div>
+      <div class="history-total">
+        <p class="eyebrow">Total update time</p>
+        <p class="history-total-value" id="history-total-value">–</p>
+        <p class="history-total-note" id="history-total-note">Loading published releases…</p>
+      </div>
+      <ol id="history-list" class="timeline"></ol>
+    </section>
+
     <section aria-labelledby="activity-title">
       <div class="section-head">
         <h2 id="activity-title">Recent merges</h2>
@@ -749,7 +806,7 @@
 
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. The page refreshes every 2 minutes. GitHub allows 60 unauthenticated requests an hour, so a full hour of refreshes would spend the budget; the page saves a snapshot in this browser and waits out the limit.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Pull requests refresh every 2 minutes. Published releases refresh at most every 10 minutes, so the two together stay under GitHub’s 60 unauthenticated requests an hour. The page saves a snapshot in this browser and waits out the limit. A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -798,6 +855,8 @@
 
     const PULLS_URL = "https://api.github.com/repos/ItsErod/lark/pulls?state=all&per_page=100";
     const RELEASE_URL = "https://api.github.com/repos/ItsErod/lark/releases/latest";
+    const RELEASES_URL = "https://api.github.com/repos/ItsErod/lark/releases?per_page=100";
+    const RELEASES_CACHE_KEY = "lark30-version-history-v1";
     const REFRESH_MS = 120000;
     const CACHE_KEY = "lark30-progress-v1";
     const SEEN_KEY = "lark30-progress-seen-v1";
@@ -934,12 +993,109 @@
         name: asset && asset.name ? String(asset.name) : "",
         browser_download_url: asset && asset.browser_download_url ? String(asset.browser_download_url) : ""
       })) : [];
+      const published = release.published_at || release.created_at || null;
       return {
         tag_name: release.tag_name ? String(release.tag_name) : "",
         html_url: safeGithubUrl(release.html_url, "https://github.com/ItsErod/lark/releases"),
+        published_at: published ? String(published) : null,
+        prerelease: !!release.prerelease,
         assets
       };
     }
+
+    /* version-history-api */
+    const RELEASES_REFRESH_MS = 10 * 60 * 1000;
+
+    function parseTag(tag) {
+      const match = String(tag || "").trim().match(/^v?(\d+)\.(\d+)(?:\.(\d+))?/i);
+      if (!match) return null;
+      return { major: Number(match[1]), minor: Number(match[2]), patch: match[3] ? Number(match[3]) : 0 };
+    }
+
+    function inProgressName(tags) {
+      const parsed = (tags || []).map(parseTag).filter(Boolean);
+      if (!parsed.some((item) => item.major >= 3)) return "3.0";
+      parsed.sort((a, b) => a.major - b.major || a.minor - b.minor || a.patch - b.patch);
+      const top = parsed[parsed.length - 1];
+      return top.major + "." + top.minor + "." + (top.patch + 1);
+    }
+
+    function formatDuration(ms, live) {
+      if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
+      const total = Math.floor(ms / 1000);
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const mins = Math.floor((total % 3600) / 60);
+      const secs = total % 60;
+      if (live) {
+        const clock = String(hours).padStart(2, "0") + ":" + String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0");
+        return days ? days + "d " + clock : clock;
+      }
+      const parts = [];
+      if (days) parts.push(days + (days === 1 ? " day" : " days"));
+      if (hours) parts.push(hours + (hours === 1 ? " hour" : " hours"));
+      if (days || hours) {
+        if (mins) parts.push(mins + " min");
+        return parts.join(" ");
+      }
+      if (mins) parts.push(mins + " min");
+      if (secs || !mins) parts.push(secs === 1 ? "1 sec" : secs + " sec");
+      return parts.join(" ");
+    }
+
+    function buildVersionHistory(releases, now) {
+      const nowMs = Number.isFinite(now) ? now : Date.now();
+      const list = (releases || [])
+        .map((release) => {
+          const published = Date.parse(release && (release.published_at || release.created_at));
+          const tag = release && release.tag_name ? String(release.tag_name) : "";
+          if (!tag || !Number.isFinite(published)) return null;
+          return {
+            tag,
+            published,
+            url: release.html_url ? String(release.html_url) : "",
+            prerelease: !!(release && release.prerelease)
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.published - b.published || a.tag.localeCompare(b.tag));
+
+      const versions = list.map((item, index) => ({
+        kind: "release",
+        version: item.tag,
+        date: item.published,
+        durationMs: index === 0 ? null : item.published - list[index - 1].published,
+        since: index === 0 ? null : list[index - 1].tag,
+        url: item.url,
+        prerelease: item.prerelease
+      }));
+      const latest = list.length ? list[list.length - 1] : null;
+      const completedMs = versions.reduce((sum, item) => sum + (item.durationMs || 0), 0);
+      let inProgress = null;
+      if (latest) {
+        inProgress = {
+          kind: "progress",
+          version: inProgressName(list.map((item) => item.tag)),
+          date: nowMs,
+          startedAt: latest.published,
+          durationMs: Math.max(0, nowMs - latest.published),
+          since: latest.tag,
+          url: "",
+          prerelease: false
+        };
+      }
+      return {
+        entries: inProgress ? [inProgress].concat(versions.slice().reverse()) : [],
+        inProgress,
+        versions,
+        completedMs,
+        totalMs: completedMs + (inProgress ? inProgress.durationMs : 0),
+        startedAt: inProgress ? inProgress.startedAt : null,
+        firstTag: list.length ? list[0].tag : "",
+        latestTag: latest ? latest.tag : ""
+      };
+    }
+    /* version-history-api-end */
 
     function downloadUrl(release, name) {
       const assets = release && Array.isArray(release.assets) ? release.assets : [];
@@ -958,7 +1114,11 @@
       formatAgo,
       formatClock,
       slimPull,
-      REFRESH_MS
+      REFRESH_MS,
+      RELEASES_REFRESH_MS,
+      formatDuration,
+      buildVersionHistory,
+      inProgressName
     };
 
     function boot() {
@@ -979,6 +1139,10 @@
       stages.append(stageNode({ id: "R", short: "Release", release: true }));
 
       document.getElementById("refresh").addEventListener("click", () => { refresh(true); });
+
+      let historyModel = null;
+      let historySignature = "";
+      paintHistoryFromCache();
 
       const cached = readJson(CACHE_KEY);
       if (cached && Array.isArray(cached.pulls)) applyPayload(cached, { fromCache: true, quiet: true });
@@ -1029,6 +1193,7 @@
           const epoch = Number(node.dataset.epoch);
           if (epoch) node.textContent = formatAgo(epoch);
         });
+        paintHistoryClock();
         if (!inflight && Date.now() >= nextAt) {
           nextAt = Date.now() + REFRESH_MS;
           refresh(false);
@@ -1053,43 +1218,74 @@
             const saved = readJson(CACHE_KEY);
             if (saved && Array.isArray(saved.pulls)) applyPayload(saved, { fromCache: true, quiet: true });
           }
+          paintHistoryFromCache();
           return;
         }
         inflight = true;
         document.getElementById("refresh").disabled = true;
         tick();
         try {
-          const [pullsRes, releaseRes] = await Promise.all([fetch(PULLS_URL), fetch(RELEASE_URL)]);
+          const pullsRes = await fetch(PULLS_URL);
           const pullsInfo = await readResponse(pullsRes);
-          const releaseInfo = await readResponse(releaseRes);
-          const remaining = Math.min(pullsInfo.remaining ?? 99, releaseInfo.remaining ?? 99);
-          const resetMs = Math.max(pullsInfo.resetMs || 0, releaseInfo.resetMs || 0);
+          let remaining = pullsInfo.remaining == null ? 99 : pullsInfo.remaining;
+          let resetMs = pullsInfo.resetMs || 0;
           storageSet(LIMIT_KEY, JSON.stringify({ remaining, resetMs }));
 
           const pullsLimited = isRateLimited(pullsRes.status, pullsInfo);
-          const releaseLimited = isRateLimited(releaseRes.status, releaseInfo);
           const cachedNow = readJson(CACHE_KEY);
           let pulls = null;
-          let release = null;
-          let releaseKnown = false;
-
           if (!pullsLimited && pullsRes.ok && Array.isArray(pullsInfo.json)) {
             pulls = pullsInfo.json.map(slimPull);
           }
-          if (!releaseLimited && releaseRes.status === 404) {
-            release = null;
-            releaseKnown = true;
-          } else if (!releaseLimited && releaseRes.ok && releaseInfo.json && typeof releaseInfo.json === "object" && !releaseInfo.json.message) {
-            release = slimRelease(releaseInfo.json);
-            releaseKnown = true;
+
+          const savedReleases = readJson(RELEASES_CACHE_KEY);
+          const haveReleases = !!(savedReleases && Array.isArray(savedReleases.releases));
+          const releasesFresh = haveReleases && Number.isFinite(savedReleases.fetchedAt) && (Date.now() - savedReleases.fetchedAt) < RELEASES_REFRESH_MS;
+          if (!releasesFresh && !pullsLimited && remaining >= 8) {
+            const loaded = await loadAllReleases();
+            if (loaded.remaining != null) remaining = Math.min(remaining, loaded.remaining);
+            if (loaded.resetMs) resetMs = Math.max(resetMs, loaded.resetMs);
+            storageSet(LIMIT_KEY, JSON.stringify({ remaining, resetMs }));
+            if (loaded.releases) {
+              storageSet(RELEASES_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), releases: loaded.releases }));
+            }
           }
 
-          if (!pulls && (pullsLimited || releaseLimited)) {
+          const releaseCache = readJson(RELEASES_CACHE_KEY);
+          let release = null;
+          let releaseKnown = false;
+          if (releaseCache && Array.isArray(releaseCache.releases)) {
+            release = newestStable(releaseCache.releases);
+            releaseKnown = true;
+          } else if (!pullsLimited && remaining >= 2) {
+            const releaseRes = await fetch(RELEASE_URL);
+            const releaseInfo = await readResponse(releaseRes);
+            if (releaseInfo.remaining != null) remaining = Math.min(remaining, releaseInfo.remaining);
+            if (releaseInfo.resetMs) resetMs = Math.max(resetMs, releaseInfo.resetMs);
+            storageSet(LIMIT_KEY, JSON.stringify({ remaining, resetMs }));
+            const releaseLimited = isRateLimited(releaseRes.status, releaseInfo);
+            if (!releaseLimited && releaseRes.status === 404) {
+              release = null;
+              releaseKnown = true;
+            } else if (!releaseLimited && releaseRes.ok && releaseInfo.json && typeof releaseInfo.json === "object" && !releaseInfo.json.message) {
+              release = slimRelease(releaseInfo.json);
+              releaseKnown = true;
+            } else if (releaseLimited) {
+              showLimitNotice(resetMs, false);
+            }
+          }
+          if (!(releaseCache && Array.isArray(releaseCache.releases)) && !historyModel) {
+            const note = document.getElementById("history-total-note");
+            if (note) note.textContent = "Couldn't load the full release list just now. It will try again shortly.";
+          }
+
+          if (!pulls && pullsLimited) {
             showLimitNotice(resetMs, false);
             nextAt = resetMs || Date.now() + REFRESH_MS;
             if (!current && cachedNow && Array.isArray(cachedNow.pulls)) {
               applyPayload(cachedNow, { fromCache: true, quiet: false });
             }
+            paintHistoryFromCache();
             return;
           }
           if (!pulls) throw new Error("pulls");
@@ -1124,6 +1320,10 @@
           } else {
             setNotice("Couldn't reach GitHub. Still showing the last snapshot from this browser.");
           }
+          if (!paintHistoryFromCache()) {
+            const note = document.getElementById("history-total-note");
+            if (note && !historyModel) note.textContent = "Couldn't load releases just now. They'll show up on the next successful refresh.";
+          }
           nextAt = Date.now() + REFRESH_MS;
         } finally {
           inflight = false;
@@ -1145,6 +1345,165 @@
             resetMs: Number.isFinite(resetSec) ? resetSec * 1000 : 0
           };
         });
+      }
+
+      function nextReleasesUrl(link) {
+        if (!link) return "";
+        const parts = String(link).split(",");
+        for (let i = 0; i < parts.length; i += 1) {
+          const match = parts[i].match(/<([^>]+)>;\s*rel="next"/);
+          if (!match) continue;
+          try {
+            const parsed = new URL(match[1]);
+            const named = parsed.pathname === "/repos/ItsErod/lark/releases";
+            const numbered = /^\/repositories\/\d+\/releases$/.test(parsed.pathname);
+            if (parsed.protocol === "https:" && parsed.hostname === "api.github.com" && (named || numbered)) {
+              return parsed.href;
+            }
+          } catch (err) { /* ignore a malformed link */ }
+        }
+        return "";
+      }
+
+      async function loadAllReleases() {
+        let url = RELEASES_URL;
+        const all = [];
+        let remaining = null;
+        let resetMs = 0;
+        for (let page = 0; page < 5 && url; page += 1) {
+          const res = await fetch(url);
+          const info = await readResponse(res);
+          if (info.remaining != null) remaining = info.remaining;
+          if (info.resetMs) resetMs = Math.max(resetMs, info.resetMs);
+          if (isRateLimited(res.status, info) || !res.ok || !Array.isArray(info.json)) {
+            return { releases: null, remaining: isRateLimited(res.status, info) ? 0 : remaining, resetMs };
+          }
+          info.json.forEach((item) => {
+            const slim = slimRelease(item);
+            if (slim && slim.tag_name) all.push(slim);
+          });
+          url = nextReleasesUrl(res.headers.get("link"));
+          if (url && remaining != null && remaining < 8) {
+            return { releases: null, remaining, resetMs };
+          }
+        }
+        return { releases: all, remaining, resetMs };
+      }
+
+      function newestStable(list) {
+        const stable = (list || []).filter((item) => item && item.tag_name && !item.prerelease);
+        stable.sort((a, b) => Date.parse(b.published_at || 0) - Date.parse(a.published_at || 0));
+        return stable[0] || null;
+      }
+
+      function formatStamp(ms) {
+        return new Date(ms).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
+        });
+      }
+
+      function paintHistoryFromCache() {
+        const saved = readJson(RELEASES_CACHE_KEY);
+        if (!saved || !Array.isArray(saved.releases)) return false;
+        paintHistory(saved.releases);
+        return true;
+      }
+
+      function paintHistory(releases) {
+        const signature = (releases || []).map((item) => {
+          return [item && item.tag_name, item && item.published_at, item && item.prerelease ? 1 : 0].join("|");
+        }).join("\n");
+        if (signature === historySignature && historyModel) return;
+        historySignature = signature;
+        historyModel = buildVersionHistory(releases, Date.now());
+        const list = document.getElementById("history-list");
+        const total = document.getElementById("history-total-value");
+        const note = document.getElementById("history-total-note");
+        list.textContent = "";
+        if (!historyModel.entries.length) {
+          total.textContent = "—";
+          note.textContent = "No published releases yet.";
+          const empty = document.createElement("li");
+          empty.className = "empty-note";
+          empty.textContent = "Versions will appear here when GitHub publishes a release.";
+          list.append(empty);
+          return;
+        }
+        const count = historyModel.versions.length;
+        const progress = historyModel.inProgress;
+        note.textContent = count + " published " + (count === 1 ? "version" : "versions") +
+          (progress ? " · " + progress.version + " in progress since " + progress.since : "") +
+          (historyModel.firstTag ? " · from " + historyModel.firstTag : "");
+        historyModel.entries.forEach((entry) => list.append(historyRow(entry)));
+        paintHistoryClock();
+      }
+
+      function paintHistoryClock() {
+        if (!historyModel || !historyModel.inProgress || historyModel.startedAt == null) return;
+        const liveMs = Math.max(0, Date.now() - historyModel.startedAt);
+        const total = document.getElementById("history-total-value");
+        const live = document.getElementById("history-live-duration");
+        if (total) total.textContent = formatDuration(historyModel.completedMs + liveMs, true);
+        if (live) live.textContent = formatDuration(liveMs, true);
+      }
+
+      function historyRow(entry) {
+        const li = document.createElement("li");
+        li.className = "event" + (entry.kind === "progress" ? " is-live" : "");
+        const dot = document.createElement("span");
+        dot.className = "event-dot";
+        dot.setAttribute("aria-hidden", "true");
+        const body = document.createElement("div");
+        body.className = "version-body";
+        if (entry.kind === "progress") {
+          const name = document.createElement("span");
+          name.className = "version-name";
+          name.textContent = entry.version;
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.dataset.status = "coding";
+          const pillDot = document.createElement("span");
+          pillDot.className = "dot";
+          pillDot.setAttribute("aria-hidden", "true");
+          pill.append(pillDot, document.createTextNode("In progress"));
+          const meta = document.createElement("p");
+          meta.className = "version-meta";
+          meta.textContent = "Since " + entry.since;
+          body.append(name, pill, meta);
+        } else {
+          const link = document.createElement("a");
+          link.className = "version-name";
+          link.href = safeGithubUrl(entry.url, "https://github.com/ItsErod/lark/releases/tag/" + encodeURIComponent(entry.version));
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = entry.version;
+          const meta = document.createElement("p");
+          meta.className = "version-meta";
+          const when = document.createElement("time");
+          when.dateTime = new Date(entry.date).toISOString();
+          when.textContent = formatStamp(entry.date);
+          meta.append(when);
+          if (entry.prerelease) meta.append(document.createTextNode(" · pre-release"));
+          meta.append(document.createTextNode(entry.since ? " · from " + entry.since : " · first release"));
+          body.append(link, meta);
+        }
+        const duration = document.createElement("time");
+        duration.className = "version-duration";
+        if (entry.kind === "progress") {
+          duration.id = "history-live-duration";
+          duration.dateTime = new Date(entry.startedAt).toISOString();
+          duration.textContent = formatDuration(entry.durationMs, true);
+        } else if (entry.durationMs == null) {
+          duration.textContent = "—";
+        } else {
+          duration.textContent = formatDuration(entry.durationMs, false);
+        }
+        li.append(dot, body, duration);
+        return li;
       }
 
       function isRateLimited(status, info) {
@@ -1196,6 +1555,7 @@
           paintActivity(results);
         }
         paintRelease(payload.release, ready);
+        paintHistoryFromCache();
         sawPayload = true;
         document.title = "Lark 3.0 · " + overall.percent + "% estimate";
         const celebrate = markSeen(results, ready);
