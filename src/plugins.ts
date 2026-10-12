@@ -74,6 +74,8 @@ export interface PluginHooks {
   hideBlocked: boolean;
   readAll: boolean;
   userWhois: boolean;
+  emoteClone: boolean;
+  liveSchedule: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -128,6 +130,8 @@ export function emptyHooks(): PluginHooks {
     hideBlocked: false,
     readAll: false,
     userWhois: false,
+    emoteClone: false,
+    liveSchedule: false,
   };
 }
 
@@ -334,6 +338,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.hideBlocked = record.hideBlocked === true;
   hooks.readAll = record.readAll === true;
   hooks.userWhois = record.userWhois === true;
+  hooks.emoteClone = record.emoteClone === true;
+  hooks.liveSchedule = record.liveSchedule === true;
   return hooks;
 }
 

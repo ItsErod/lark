@@ -58,6 +58,8 @@ export interface PackState {
   whoisAge: boolean;
   whoisMutuals: boolean;
   whoisJoin: boolean;
+  emoteStickers: boolean;
+  schedulePreset: 15 | 60 | 1440;
 }
 
 export const PACK_IDS = [
@@ -94,6 +96,8 @@ export const PACK_IDS = [
   "image-zoom",
   "read-all",
   "user-whois",
+  "emote-cloner",
+  "message-scheduler",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -143,6 +147,8 @@ export function defaultPack(): PackState {
     whoisAge: true,
     whoisMutuals: true,
     whoisJoin: true,
+    emoteStickers: true,
+    schedulePreset: 15,
   };
 }
 
@@ -194,6 +200,8 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.whoisAge === "boolean") base.whoisAge = raw.whoisAge;
   if (typeof raw.whoisMutuals === "boolean") base.whoisMutuals = raw.whoisMutuals;
   if (typeof raw.whoisJoin === "boolean") base.whoisJoin = raw.whoisJoin;
+  if (typeof raw.emoteStickers === "boolean") base.emoteStickers = raw.emoteStickers;
+  if (raw.schedulePreset === 15 || raw.schedulePreset === 60 || raw.schedulePreset === 1440) base.schedulePreset = raw.schedulePreset;
   return base;
 }
 

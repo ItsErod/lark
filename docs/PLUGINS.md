@@ -171,3 +171,15 @@ Hover a name or an avatar. The card shows:
 - **Join date**, from the profile, for the server you are in.
 
 Each line can be turned off. Streamer mode hides the card. The hover does not change roles or send a message.
+
+## Emote cloner
+
+Right-click a custom emoji or a sticker and choose **Add to** a server where you can manage expressions (or you own the server). Lark downloads that image from Discord’s CDN and uploads it with the same server action the expression settings use. You start every copy. The plugin does not receive the token.
+
+**Stickers** can be turned off if you only want emoji.
+
+## Message scheduler
+
+**Schedule** in the composer queues the message you just wrote. Pick a time, at least 15 seconds from now and at most 7 days. The default delay is 15 minutes, 1 hour, or 1 day.
+
+The queue stays in memory. Closing Lark drops it, including anything that was due while the app was closed. Turning the plugin off drops messages that are already due instead of sending them. Lark sends one due message at a time. A failed send is retried twice, then dropped. Nothing is scheduled unless you press Queue.

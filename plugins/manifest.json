@@ -194,6 +194,16 @@
       "id": "user-whois",
       "name": "User whois",
       "description": "Hover a person for account age, mutual servers, and the date they joined."
+    },
+    {
+      "id": "emote-cloner",
+      "name": "Emote cloner",
+      "description": "Right-click an emoji or sticker and add it to a server you manage."
+    },
+    {
+      "id": "message-scheduler",
+      "name": "Message scheduler",
+      "description": "Schedule a message you wrote. It sends only while Lark stays open."
     }
   ]
 }
