@@ -265,36 +265,15 @@
     h2 { font-size: 22px; }
     .lead { margin: 10px 0 0; color: var(--secondary); max-width: 62ch; }
     .meter {
+      --bar-a: #4752c4;
+      --bar-b: #f0c27a;
+      position: relative;
       margin-top: 18px;
-      height: 12px;
+      height: 16px;
       border-radius: 999px;
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.38);
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
       overflow: hidden;
-    }
-    .meter > span, .bar > span {
-      display: block;
-      height: 100%;
-      width: 0;
-      border-radius: inherit;
-      position: relative;
-      background-image: linear-gradient(100deg, #4752c4, #5865f2 28%, #e2a15a 72%, #f0c27a);
-      background-size: 220% 100%;
-      animation: flow 3.4s linear infinite;
-      transition: width 0.8s cubic-bezier(.2, .8, .2, 1);
-    }
-    .meter > span::after, .bar > span::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.5) 50%, transparent 75%);
-      transform: translateX(-130%);
-      animation: shimmer 2.6s ease-in-out infinite;
-    }
-    .meter.is-idle > span, .bar.is-idle > span,
-    .meter.is-idle > span::after, .bar.is-idle > span::after { animation: none; }
-    .meter.is-done > span, .bar.is-done > span {
-      background-image: linear-gradient(100deg, #1e8f4e, #23a55a 40%, #e2a15a 78%, #f0c27a);
     }
     .stats {
       display: flex;
@@ -349,7 +328,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .stage .bar { margin-top: 8px; height: 6px; }
+    .stage .bar { margin-top: 8px; height: 8px; flex: none; }
     .stage.is-release { outline: 1px dashed rgba(226, 161, 90, 0.45); }
     .stage.is-ready { outline: 1px solid rgba(226, 161, 90, 0.8); background: #3a3228; }
 
@@ -388,6 +367,14 @@
     .card[data-status="review"] { --accent: #8ea1ff; }
     .card[data-status="merged"] { --accent: #3ecf78; }
     .card[data-status="done"] { --accent: #f0c27a; }
+    [data-agent="A"] { --bar-a: #3c45a5; --bar-b: #9aa6ff; }
+    [data-agent="B"] { --bar-a: #a86a28; --bar-b: #f0c27a; }
+    [data-agent="C"] { --bar-a: #1a7464; --bar-b: #7ee0c4; }
+    [data-agent="D"] { --bar-a: #6444aa; --bar-b: #cbb8ff; }
+    [data-agent="E"] { --bar-a: #2a5ec4; --bar-b: #8fd4ff; }
+    [data-agent="F"] { --bar-a: #a34766; --bar-b: #f2a8c6; }
+    [data-agent="plug"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
+    [data-agent="R"] { --bar-a: #8a6230; --bar-b: #f0c27a; }
     .card.just-done { animation: glow 1.2s ease; }
     .kicker {
       margin: 0;
@@ -433,13 +420,126 @@
       animation: pulse 1.6s ease-out infinite;
     }
     .pill[data-status="done"] .dot { animation: none; }
-    .bar {
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       margin-top: 14px;
-      height: 10px;
+      min-width: 0;
+    }
+    .bar {
+      position: relative;
+      flex: 1 1 auto;
+      height: 18px;
+      min-width: 0;
       border-radius: 999px;
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba(0, 0, 0, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
       overflow: hidden;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+    .bar-row.is-slim .bar { height: 12px; }
+    .bar:not(.is-idle),
+    .meter:not(.is-idle) {
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+        0 0 14px color-mix(in srgb, var(--bar-b, #f0c27a) 42%, transparent);
+    }
+    .bar.is-done,
+    .meter.is-done {
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 0 14px rgba(35, 165, 90, 0.4);
+    }
+    .stage .bar:not(.is-idle) {
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+        0 0 8px color-mix(in srgb, var(--bar-b, #f0c27a) 38%, transparent);
+    }
+    .stage .bar.is-done {
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 0 8px rgba(35, 165, 90, 0.38);
+    }
+    .bar-fill {
+      display: block;
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      position: relative;
+      background-image: linear-gradient(
+        90deg,
+        var(--bar-a, #4752c4),
+        color-mix(in srgb, var(--bar-a, #4752c4) 42%, var(--bar-b, #f0c27a)) 52%,
+        var(--bar-b, #f0c27a)
+      );
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+      transition: width 0.9s cubic-bezier(.2, .8, .2, 1);
+    }
+    .bar-fill::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(100deg, transparent 36%, rgba(255, 255, 255, 0.34) 50%, transparent 64%);
+      transform: translateX(-120%);
+      animation: shimmer 3.2s ease-in-out infinite;
+    }
+    .bar.is-idle .bar-fill::after,
+    .meter.is-idle .bar-fill::after,
+    .bar.is-done .bar-fill::after,
+    .meter.is-done .bar-fill::after { animation: none; opacity: 0; }
+    .bar.is-done .bar-fill,
+    .meter.is-done .bar-fill {
+      background: var(--green);
+      background-image: none;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    }
+    .bar-label {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+    }
+    .bar.is-done .bar-label,
+    .meter.is-done .bar-label {
+      color: #04210f;
+      text-shadow: none;
+      padding-right: 26px;
+    }
+    .bar-check {
+      position: absolute;
+      z-index: 2;
+      right: 6px;
+      top: 50%;
+      width: 14px;
+      height: 14px;
+      transform: translateY(-50%);
+      color: #04210f;
+      pointer-events: none;
+    }
+    .bar-check svg { width: 100%; height: 100%; display: block; }
+    .bar-row.is-slim .bar-check { width: 10px; height: 10px; right: 4px; }
+    .meter .bar-check { width: 13px; height: 13px; right: 6px; }
+    .bar-value {
+      flex: 0 0 auto;
+      min-width: 2.6em;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      font-variant-numeric: tabular-nums;
+      color: var(--secondary);
     }
     .meta { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
     .prs { margin-top: 8px; }
@@ -765,7 +865,10 @@
         <h1 id="page-title">Lark 3.0</h1>
         <p id="hero-lead" class="lead">Loading public pull requests…</p>
         <p id="overall-eta" class="overall-eta">3.0 ETA —</p>
-        <div class="meter is-idle" id="overall-meter" aria-hidden="true"><span id="overall-fill"></span></div>
+        <div class="meter is-idle" id="overall-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Overall progress">
+          <span class="bar-fill" id="overall-fill"></span>
+          <span class="bar-label" id="overall-bar-label" aria-hidden="true">–</span>
+        </div>
         <ul id="hero-stats" class="stats"></ul>
       </div>
     </section>
@@ -812,7 +915,9 @@
         <p id="release-status">Checking the latest GitHub release…</p>
         <p id="release-latest"></p>
       </div>
-      <div class="meter is-idle" id="release-meter" aria-hidden="true"><span id="release-fill"></span></div>
+      <div class="meter is-idle" id="release-meter" data-agent="R" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Release progress">
+        <span class="bar-fill" id="release-fill"></span>
+      </div>
       <p class="soon" id="release-soon">Windows and Mac installers appear here after v3.0.0 is published: Lark_3.0.0_x64-setup.exe and Lark_3.0.0_universal.dmg.</p>
       <div id="release-actions" class="release-actions" hidden></div>
     </section>
@@ -1264,6 +1369,8 @@
 
     function boot() {
       const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const CHECK_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.4 12.15 2.7 8.45l1.35-1.35 2.35 2.35 5.55-5.55 1.35 1.35-6.9 6.9z"/></svg>';
+      const barWidths = {};
       const shown = {};
       let inflight = false;
       let nextAt = Date.now() + REFRESH_MS;
@@ -1292,10 +1399,79 @@
       window.setInterval(tick, 1000);
       tick();
 
+      function setFillWidth(fill, key, percent) {
+        const next = Math.max(0, Math.min(100, Number(percent) || 0));
+        const prev = barWidths[key];
+        barWidths[key] = next;
+        if (!fill) return;
+        const width = next + "%";
+        if (reduceMotion || prev === next) {
+          fill.style.width = width;
+          return;
+        }
+        fill.style.transition = "none";
+        fill.style.width = (prev == null ? 0 : prev) + "%";
+        void fill.offsetWidth;
+        fill.style.transition = "";
+        fill.style.width = width;
+      }
+
+      function syncCheck(bar, done) {
+        if (!bar) return;
+        const check = bar.querySelector(".bar-check");
+        if (!done) {
+          if (check) check.remove();
+          return;
+        }
+        if (check) return;
+        const mark = document.createElement("span");
+        mark.className = "bar-check";
+        mark.setAttribute("aria-hidden", "true");
+        mark.innerHTML = CHECK_SVG;
+        bar.append(mark);
+      }
+
+      function progressBar(opts) {
+        const percent = Math.max(0, Math.min(100, Number(opts.percent) || 0));
+        const done = !!opts.done;
+        const row = document.createElement("div");
+        row.className = "bar-row" + (opts.slim ? " is-slim" : "");
+        if (opts.agent) row.dataset.agent = opts.agent;
+        const bar = document.createElement("div");
+        bar.className = "bar" + (done ? " is-done" : percent === 0 ? " is-idle" : "");
+        bar.setAttribute("role", "meter");
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", "100");
+        bar.setAttribute("aria-valuenow", String(percent));
+        bar.setAttribute("aria-label", opts.name || "Progress");
+        const fill = document.createElement("span");
+        fill.className = "bar-fill";
+        bar.append(fill);
+        if (opts.inside) {
+          const label = document.createElement("span");
+          label.className = "bar-label";
+          label.setAttribute("aria-hidden", "true");
+          label.textContent = percent + "%";
+          bar.append(label);
+        }
+        if (done) syncCheck(bar, true);
+        row.append(bar);
+        if (opts.beside) {
+          const value = document.createElement("span");
+          value.className = "bar-value";
+          value.setAttribute("aria-hidden", "true");
+          value.textContent = percent + "%";
+          row.append(value);
+        }
+        setFillWidth(fill, opts.key, percent);
+        return row;
+      }
+
       function stageNode(stream) {
         const li = document.createElement("li");
         li.className = "stage" + (stream.release ? " is-release" : "");
         li.id = "stage-" + stream.id;
+        li.dataset.agent = stream.id;
         const k = document.createElement("div");
         k.className = "stage-k";
         const id = document.createElement("span");
@@ -1311,6 +1487,7 @@
         bar.className = "bar is-idle";
         bar.id = "stage-bar-" + stream.id;
         const fill = document.createElement("span");
+        fill.className = "bar-fill";
         fill.id = "stage-fill-" + stream.id;
         bar.append(fill);
         li.append(k, name, bar);
@@ -1742,9 +1919,14 @@
         countUp(document.getElementById("overall-pct"), "overall", overall.percent);
         const fill = document.getElementById("overall-fill");
         const meter = document.getElementById("overall-meter");
-        fill.style.width = overall.percent + "%";
+        const complete = overall.percent === 100;
+        setFillWidth(fill, "overall", overall.percent);
         meter.classList.toggle("is-idle", overall.percent === 0);
-        meter.classList.toggle("is-done", overall.percent === 100);
+        meter.classList.toggle("is-done", complete);
+        meter.setAttribute("aria-valuenow", String(overall.percent));
+        const label = document.getElementById("overall-bar-label");
+        if (label) label.textContent = overall.percent + "%";
+        syncCheck(meter, complete);
         setRing(overall.percent);
         const review = results.filter((item) => item.status === "review").length;
         const coding = results.filter((item) => item.status === "coding").length;
@@ -1791,7 +1973,7 @@
           const bar = document.getElementById("stage-bar-" + item.id);
           bar.classList.toggle("is-idle", item.percent === 0);
           bar.classList.toggle("is-done", item.status === "done");
-          document.getElementById("stage-fill-" + item.id).style.width = item.percent + "%";
+          setFillWidth(document.getElementById("stage-fill-" + item.id), "stage-" + item.id, item.percent);
         });
         const pct = document.getElementById("stage-pct-R");
         const bar = document.getElementById("stage-bar-R");
@@ -1799,7 +1981,7 @@
         pct.textContent = ready ? "100%" : "Waiting";
         bar.classList.toggle("is-idle", !ready);
         bar.classList.toggle("is-done", ready);
-        document.getElementById("stage-fill-R").style.width = ready ? "100%" : "0%";
+        setFillWidth(document.getElementById("stage-fill-R"), "stage-R", ready ? 100 : 0);
         stage.classList.toggle("is-ready", ready);
       }
 
@@ -1862,11 +2044,14 @@
         dot.setAttribute("aria-hidden", "true");
         pill.append(dot, document.createTextNode(STATUS_LABEL[item.status]));
 
-        const bar = document.createElement("div");
-        bar.className = "bar" + (item.status === "done" ? " is-done" : "");
-        const fill = document.createElement("span");
-        fill.style.width = item.percent + "%";
-        bar.append(fill);
+        const bar = progressBar({
+          key: "stream-" + item.id,
+          percent: item.percent,
+          done: item.status === "done",
+          agent: item.id,
+          inside: true,
+          name: item.name + " progress"
+        });
 
         const bits = [];
         if (item.merged) bits.push(item.merged + " merged");
@@ -2059,11 +2244,15 @@
         dot.className = "dot";
         dot.setAttribute("aria-hidden", "true");
         pill.append(dot, document.createTextNode(item.status === "done" ? "Done" : "In review"));
-        const bar = document.createElement("div");
-        bar.className = "bar" + (item.status === "done" ? " is-done" : "");
-        const fill = document.createElement("span");
-        fill.style.width = item.percent + "%";
-        bar.append(fill);
+        const bar = progressBar({
+          key: "plug-" + item.number,
+          percent: item.percent,
+          done: item.status === "done",
+          agent: "plug",
+          slim: true,
+          beside: true,
+          name: item.name + " progress"
+        });
         const meta = document.createElement("p");
         meta.className = "meta";
         meta.textContent = "#" + item.number + (item.user && item.user.login ? " · " + item.user.login : "");
@@ -2136,7 +2325,9 @@
           actions.hidden = false;
           meter.classList.remove("is-idle");
           meter.classList.add("is-done");
-          fill.style.width = "100%";
+          meter.setAttribute("aria-valuenow", "100");
+          setFillWidth(fill, "release", 100);
+          syncCheck(meter, true);
           if (!actions.childElementCount) {
             actions.append(
               downloadLink("Windows", "Download setup", EXE_NAME, downloadUrl(release, EXE_NAME), false),
@@ -2149,7 +2340,9 @@
           actions.hidden = true;
           meter.classList.add("is-idle");
           meter.classList.remove("is-done");
-          fill.style.width = "0%";
+          meter.setAttribute("aria-valuenow", "0");
+          setFillWidth(fill, "release", 0);
+          syncCheck(meter, false);
         }
       }
 
