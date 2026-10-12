@@ -11,11 +11,12 @@
  * - D: `developerMode`, `showEmbeds`, and `showSpoilers` from `src/display-flags.ts`
  *   (`config.display`). `globalThis.__larkDeveloperMode`, `__larkShowEmbeds`,
  *   and `__larkRevealSpoilers` still override when set.
- * - C: blocked authors via `globalThis.__larkBlockedIds` (Set, array, or getter).
+ * - C: `blockedIds()` from `src/social.ts`. `globalThis.__larkBlockedIds` is included too.
  */
 import { developerMode, showEmbeds, showSpoilers, type DisplaySource } from "../display-flags";
 import { bookmarkMenuLabel } from "../pack/bookmarks";
 import { reminderMenuLabel } from "../reminders";
+import { blockedIds as relationshipBlockedIds } from "../social";
 import { onCreatePoll as streamCreatePoll, onCreateThread as streamCreateThread } from "../threads";
 import { el } from "./dom";
 
@@ -572,13 +573,14 @@ export function readRevealSpoilers(config: unknown): boolean {
 }
 
 export function readBlockedIds(): Set<string> {
+  const ids = new Set<string>(relationshipBlockedIds());
   const bag = globalThis as unknown as { __larkBlockedIds?: unknown };
   const value = typeof bag.__larkBlockedIds === "function"
     ? safeCall(bag.__larkBlockedIds as () => unknown)
     : bag.__larkBlockedIds;
-  if (value instanceof Set) return new Set([...value].map((item) => String(item)));
-  if (Array.isArray(value)) return new Set(value.map((item) => String(item)));
-  return new Set();
+  if (value instanceof Set) for (const item of value) ids.add(String(item));
+  else if (Array.isArray(value)) for (const item of value) ids.add(String(item));
+  return ids;
 }
 
 function safeCall(fn: () => unknown): unknown {

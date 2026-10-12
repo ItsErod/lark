@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { expandShortcodes, setCustomEmojis } from "../emoji";
 import { composedError, spoilerUploadName } from "../compose";
+import { setRelationshipIndex } from "../social";
 import {
   commandsFromPayload,
   discordPageOk,
@@ -237,6 +238,7 @@ describe("slash commands, spoilers, and stream flags", () => {
     delete bag.__larkShowEmbeds;
     delete bag.__larkRevealSpoilers;
     delete bag.__larkBlockedIds;
+    setRelationshipIndex([]);
     expect(readDeveloperMode({})).toBe(false);
     expect(readShowEmbeds({})).toBe(true);
     expect(readRevealSpoilers({})).toBe(false);
@@ -244,11 +246,14 @@ describe("slash commands, spoilers, and stream flags", () => {
     expect(readShowEmbeds({ display: { developer_mode: true, show_embeds: false, show_spoilers: true } })).toBe(false);
     expect(readRevealSpoilers({ display: { developer_mode: true, show_embeds: false, show_spoilers: true } })).toBe(true);
     expect(readBlockedIds().size).toBe(0);
+    setRelationshipIndex([{ id: "9", kind: "blocked", name: "Blocked", username: "blocked", nickname: "" }]);
+    expect([...readBlockedIds()]).toEqual(["9"]);
     bag.__larkDeveloperMode = true;
     bag.__larkBlockedIds = new Set(["7"]);
     expect(readDeveloperMode({})).toBe(true);
-    expect([...readBlockedIds()]).toEqual(["7"]);
+    expect([...readBlockedIds()].sort()).toEqual(["7", "9"]);
     delete bag.__larkDeveloperMode;
     delete bag.__larkBlockedIds;
+    setRelationshipIndex([]);
   });
 });
