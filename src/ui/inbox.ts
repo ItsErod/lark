@@ -8,6 +8,7 @@ import * as bookmarkApi from "../pack/bookmarks";
 import type { Reminder } from "../reminders";
 import * as reminderApi from "../reminders";
 import * as socialApi from "../social";
+import { decideFriendRequest } from "../social";
 import type { FriendRequest } from "../types";
 import {
   ackAllStates,
@@ -236,7 +237,37 @@ async function paintRequests(body: HTMLElement) {
   for (const request of requests) {
     const row = el("div", "lark-f-row");
     row.append(el("strong", "", request.name), el("small", "", request.incoming ? "Incoming friend request" : "Outgoing friend request"));
+    if (request.incoming) {
+      const actions = el("div", "lark-f-actions");
+      const accept = el("button", "primary", "Accept");
+      accept.type = "button";
+      accept.addEventListener("click", () => void decideRequest(request, "accept"));
+      const ignore = el("button", "", "Ignore");
+      ignore.type = "button";
+      ignore.addEventListener("click", () => void decideRequest(request, "ignore"));
+      actions.append(accept, ignore);
+      row.append(actions);
+    }
     body.append(row);
+  }
+}
+
+async function decideRequest(request: FriendRequest, action: "accept" | "ignore") {
+  const host = shell();
+  if (!host || host.demo) {
+    host?.toast("Friends", "Demo relationships stay on this device.");
+    return;
+  }
+  try {
+    if (action === "accept") await host.invoke("add_relationship", { userId: request.id });
+    else await host.invoke("ignore_user", { userId: request.id });
+    decideFriendRequest(request.id, action);
+    requests = requests.filter((item) => item.id !== request.id);
+    host.toast("Friends", action === "accept" ? "Friend request accepted." : "Ignored.");
+    host.refresh();
+    if (open) openInbox();
+  } catch (error) {
+    host.toast("Friends", error instanceof Error ? error.message : "Discord refused that.");
   }
 }
 

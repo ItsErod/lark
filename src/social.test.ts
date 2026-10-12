@@ -15,7 +15,9 @@ import {
   friendUsernameOk,
   friendsForTab,
   groupMemberCount,
+  indexedRelationships,
   memberContextMenu,
+  decideFriendRequest,
   pendingFriendCount,
   readPinList,
   requestAddFavorite,
@@ -73,6 +75,12 @@ describe("relationships", () => {
     expect(pendingFriendCount([{ kind: "outgoing" }])).toBe(0);
     setRelationshipIndex(rows);
     expect(pendingFriendCount()).toBe(2);
+    expect([...blockedIds()]).toEqual(["6"]);
+    decideFriendRequest("9", "accept");
+    expect(pendingFriendCount()).toBe(1);
+    expect(indexedRelationships().find((row) => row.id === "9")?.kind).toBe("friend");
+    decideFriendRequest("8", "ignore");
+    expect(pendingFriendCount()).toBe(0);
     expect([...blockedIds()]).toEqual(["6"]);
   });
 
