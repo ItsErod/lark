@@ -1633,27 +1633,7 @@ async fn remove_connection(state: State<'_, Shared>, kind: String, id: String) -
 
 #[tauri::command]
 fn open_discord_link(url: String) -> Result<(), String> {
-    if !lark_core::discord::rest::discord_settings_url_ok(&url) {
-        return Err("That link is not a Discord page.".into());
-    }
-    let status = {
-        #[cfg(target_os = "macos")]
-        {
-            std::process::Command::new("open").arg(&url).status()
-        }
-        #[cfg(target_os = "windows")]
-        {
-            std::process::Command::new("cmd").args(["/C", "start", "", &url]).status()
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        {
-            std::process::Command::new("xdg-open").arg(&url).status()
-        }
-    };
-    match status {
-        Ok(status) if status.success() => Ok(()),
-        _ => Err("Couldn't open Discord.".into()),
-    }
+    browser_login::open_discord_https(&url)
 }
 
 #[tauri::command]
