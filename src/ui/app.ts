@@ -432,6 +432,8 @@ import {
   type SlashCommand,
 } from "./composer-tools";
 import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
+import { toggleInbox } from "./inbox";
+import { callKeyAction } from "../keybind-actions";
 import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
@@ -4718,25 +4720,8 @@ class LarkApp {
           if (!ok) this.toast("Gift", "Couldn't open Discord Nitro.");
         });
       },
-      onGif: () => {
-        toggleComposerPanel("gif");
-        if (composerPanel() === "gif") scheduleGifLoad(gifQueryText());
-        this.paintComposer();
-      },
-      onStickers: () => {
-        toggleComposerPanel("stickers");
-        const guildId = this.guildId;
-        if (composerPanel() === "stickers" && guildId && !this.demo && stickerGuildNow() !== guildId) {
-          void invoke<{ id: string; name: string; url?: string | null }[]>("fetch_stickers", { guildId }).then((list) => {
-            setStickerHits(guildId, list.map((item) => ({ id: item.id, name: item.name, url: item.url ?? null })));
-            if (composerPanel() === "stickers") this.paintComposer();
-          }).catch(() => {
-            setStickerHits(guildId, []);
-            if (composerPanel() === "stickers") this.paintComposer();
-          });
-        }
-        this.paintComposer();
-      },
+      onGif: () => this.toggleGifPicker(),
+      onStickers: () => this.toggleStickerPicker(),
       onEmoji: () => {
         this.pickerFor = this.pickerFor === "composer" ? null : "composer";
         this.emojiQuery = "";
@@ -6623,8 +6608,55 @@ class LarkApp {
       this.openDiscord("https://discord.com/channels/@me");
       return true;
     }
+    if (id === "toggle_inbox") {
+      toggleInbox();
+      return true;
+    }
+    if (id === "toggle_gif_picker") {
+      this.toggleGifPicker();
+      return true;
+    }
+    if (id === "toggle_sticker_picker") {
+      this.toggleStickerPicker();
+      return true;
+    }
+    if (id === "create_group") {
+      this.openGroupCreator();
+      return true;
+    }
+    const call = callKeyAction(id, this.currentChannel() ?? null, this.voice);
+    if (call) {
+      if (call.op === "join") {
+        const channel = this.currentChannel();
+        if (channel && channel.id === call.channelId) this.startDmCall(channel, false);
+      } else if (call.op === "focus") void this.openChannel(call.channelId);
+      else if (call.op === "leave") this.leaveVoice();
+      else this.toast("Call", call.message);
+      return true;
+    }
     window.dispatchEvent(new CustomEvent("lark-keybind", { detail: { id } }));
     return true;
+  }
+
+  private toggleGifPicker() {
+    toggleComposerPanel("gif");
+    if (composerPanel() === "gif") scheduleGifLoad(gifQueryText());
+    this.paintComposer();
+  }
+
+  private toggleStickerPicker() {
+    toggleComposerPanel("stickers");
+    const guildId = this.guildId;
+    if (composerPanel() === "stickers" && guildId && !this.demo && stickerGuildNow() !== guildId) {
+      void invoke<{ id: string; name: string; url?: string | null }[]>("fetch_stickers", { guildId }).then((list) => {
+        setStickerHits(guildId, list.map((item) => ({ id: item.id, name: item.name, url: item.url ?? null })));
+        if (composerPanel() === "stickers") this.paintComposer();
+      }).catch(() => {
+        setStickerHits(guildId, []);
+        if (composerPanel() === "stickers") this.paintComposer();
+      });
+    }
+    this.paintComposer();
   }
 
   private holdPushMute() {
