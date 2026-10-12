@@ -2395,3 +2395,89 @@ mod messaging_search {
         assert_eq!(gifs[0].title, "wave");
     }
 }
+
+impl DiscordRest {
+    /// Download one guild soundboard file. The token is sent only to Discord's CDN.
+    pub async fn download_soundboard_sound(&self, sound_id: &str) -> Result<Vec<u8>, RestError> {
+        self.ensure_snowflake(sound_id)?;
+        let urls = crate::soundboard::guild_sound_urls(sound_id).map_err(RestError::Message)?;
+        let client = reqwest::Client::builder()
+            .user_agent("Lark/0.1.0 (personal client)")
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                let host = attempt.url().host_str().unwrap_or("");
+                if attempt.previous().len() >= 2 || !crate::soundboard::guild_cdn_host(host) {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|_| RestError::Message("Could not start the soundboard download.".into()))?;
+        let mut last = RestError::Message("Could not download that guild sound.".into());
+        for url in urls {
+            let parsed = reqwest::Url::parse(&url)
+                .map_err(|_| RestError::Message("That sound URL is not allowed.".into()))?;
+            if !crate::soundboard::guild_cdn_host(parsed.host_str().unwrap_or("")) {
+                return Err(RestError::Message("That sound URL is not on Discord's CDN.".into()));
+            }
+            let response = match client.get(parsed).header(AUTHORIZATION, &self.token).send().await {
+                Ok(response) => response,
+                Err(err) => {
+                    last = RestError::Message(explain_transport(&redact(&err.to_string(), &[&self.token])));
+                    continue;
+                }
+            };
+            let final_host = response.url().host_str().unwrap_or("");
+            if !crate::soundboard::guild_cdn_host(final_host) {
+                last = RestError::Message("That sound download left Discord's CDN.".into());
+                continue;
+            }
+            if !response.status().is_success() {
+                last = RestError::Message(format!(
+                    "Discord's CDN returned HTTP {}.",
+                    response.status().as_u16()
+                ));
+                continue;
+            }
+            let mut bytes = Vec::new();
+            let mut body = response;
+            loop {
+                match body.chunk().await {
+                    Ok(Some(chunk)) => {
+                        if bytes.len().saturating_add(chunk.len()) > crate::soundboard::MAX_BYTES {
+                            return Err(RestError::Message("That sound file is larger than 8 MB.".into()));
+                        }
+                        bytes.extend_from_slice(&chunk);
+                    }
+                    Ok(None) => break,
+                    Err(_) => {
+                        last = RestError::Message("The guild sound download stopped early.".into());
+                        bytes.clear();
+                        break;
+                    }
+                }
+            }
+            if bytes.is_empty() {
+                if !matches!(last, RestError::Message(ref text) if text.contains("stopped early")) {
+                    last = RestError::Message("That guild sound file is empty.".into());
+                }
+                continue;
+            }
+            return Ok(bytes);
+        }
+        Err(last)
+    }
+}
+
+#[cfg(test)]
+mod soundboard_download {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_bad_sound_id_never_leaves_the_client() {
+        let rest = DiscordRest::new("token".into()).unwrap();
+        let err = rest.download_soundboard_sound("../x").await.unwrap_err();
+        assert!(err.to_string().contains("snowflake"));
+    }
+}
