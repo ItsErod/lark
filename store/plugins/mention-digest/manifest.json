@@ -1,0 +1,12 @@
+{
+  "id": "mention-digest",
+  "name": "Mention digest",
+  "description": "List mention counts already on this device. Nothing is fetched.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "at",
+  "changelog": "Opens a list of channels that already have a mention count. Direct messages can be left out."
+}

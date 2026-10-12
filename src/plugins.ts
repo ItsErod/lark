@@ -84,6 +84,9 @@ export interface PluginHooks {
   clipShare: boolean;
   gameActivity: boolean;
   mediaStatus: boolean;
+  readReceipts: boolean;
+  mentionDigest: boolean;
+  wordCount: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -151,6 +154,9 @@ export function emptyHooks(): PluginHooks {
     clipShare: false,
     gameActivity: false,
     mediaStatus: false,
+    readReceipts: false,
+    mentionDigest: false,
+    wordCount: false,
   };
 }
 
@@ -367,6 +373,9 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.clipShare = record.clipShare === true;
   hooks.gameActivity = record.gameActivity === true;
   hooks.mediaStatus = record.mediaStatus === true;
+  hooks.readReceipts = record.readReceipts === true;
+  hooks.mentionDigest = record.mentionDigest === true;
+  hooks.wordCount = record.wordCount === true;
   return hooks;
 }
 

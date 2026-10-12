@@ -386,6 +386,22 @@
       "download": "downloads/media-status.zip"
     },
     {
+      "id": "mention-digest",
+      "name": "Mention digest",
+      "description": "List mention counts already on this device. Nothing is fetched.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "messages",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "at",
+      "changelog": "Opens a list of channels that already have a mention count. Direct messages can be left out.",
+      "sha256": "4d4d53350a3984e7cc49f45a8f9613878e2ae1813d2915a9a10ba0499679b7f1",
+      "bytes": 175,
+      "file": "plugins/mention-digest/plugin.js",
+      "download": "downloads/mention-digest.zip"
+    },
+    {
       "id": "message-logger",
       "name": "Message logger",
       "description": "Keep deleted and edited messages on this device. Deleted lines stay, greyed out, with the earlier text.",
@@ -560,6 +576,22 @@
       "bytes": 189,
       "file": "plugins/read-all/plugin.js",
       "download": "downloads/read-all.zip"
+    },
+    {
+      "id": "read-receipts",
+      "name": "Read receipts",
+      "description": "Mark messages you have seen on this device. Discord is not told.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "privacy",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "eye-off",
+      "changelog": "Shows a local Seen mark for messages you have scrolled past. Nothing is sent to Discord.",
+      "sha256": "be258c6d00bcc2b69b66d2b56543ecf3f76bc11061fbc8d5758abe2de6e94dbf",
+      "bytes": 174,
+      "file": "plugins/read-receipts/plugin.js",
+      "download": "downloads/read-receipts.zip"
     },
     {
       "id": "relative-time",
@@ -768,6 +800,22 @@
       "bytes": 181,
       "file": "plugins/volume-booster/plugin.js",
       "download": "downloads/volume-booster.zip"
+    },
+    {
+      "id": "word-counter",
+      "name": "Word counter",
+      "description": "Count words in the composer, and badge a long message.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "chat",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "pencil",
+      "changelog": "The composer shows a word count next to the character count. Long messages can wear a word badge.",
+      "sha256": "c85767d6c28a403632d8df297c75b58d9a36116ea06f1f1aed993c9812ead6e9",
+      "bytes": 479,
+      "file": "plugins/word-counter/plugin.js",
+      "download": "downloads/word-counter.zip"
     },
     {
       "id": "youtube-pip",

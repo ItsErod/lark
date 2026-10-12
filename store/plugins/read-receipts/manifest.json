@@ -1,0 +1,12 @@
+{
+  "id": "read-receipts",
+  "name": "Read receipts",
+  "description": "Mark messages you have seen on this device. Discord is not told.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "privacy",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "eye-off",
+  "changelog": "Shows a local Seen mark for messages you have scrolled past. Nothing is sent to Discord."
+}

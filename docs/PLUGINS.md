@@ -244,3 +244,26 @@ Your custom status can follow the detected game or whatever this computer is pla
 - **System player** reads `Listening to Apricot — Maya`. That player is the system media session, including Spotify. Lark does not sign in.
 - **Keep a status you wrote** leaves a custom status alone. **Replace it** overwrites it.
 - This is separate from the Now playing plugin. Both share the same short wait between status writes.
+
+## Read receipts
+
+A message you scroll past can show **Seen**.
+
+- The mark is stored on this device, one cursor per channel.
+- Lark does not send a read receipt. Incognito and Mark read are unchanged.
+- **Show Seen** turns the label off without forgetting the cursor.
+
+## Mention digest
+
+**Mentions** in the channel header lists channels that already have a mention count.
+
+- The list uses counts Lark already has. It does not fetch history.
+- **Include direct messages** can leave those out.
+- Opening a row jumps to that channel.
+
+## Word counter
+
+The composer shows how many words you have typed, next to the character count.
+
+- **Badge a message** can mark a message of 40, 100, or 280 words. **Off** leaves messages alone.
+- The count stays on this device. Nothing is sent.
