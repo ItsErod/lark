@@ -240,6 +240,9 @@ describe("slash commands, spoilers, and stream flags", () => {
     expect(readDeveloperMode({})).toBe(false);
     expect(readShowEmbeds({})).toBe(true);
     expect(readRevealSpoilers({})).toBe(false);
+    expect(readDeveloperMode({ display: { developer_mode: true, show_embeds: false, show_spoilers: true } })).toBe(true);
+    expect(readShowEmbeds({ display: { developer_mode: true, show_embeds: false, show_spoilers: true } })).toBe(false);
+    expect(readRevealSpoilers({ display: { developer_mode: true, show_embeds: false, show_spoilers: true } })).toBe(true);
     expect(readBlockedIds().size).toBe(0);
     bag.__larkDeveloperMode = true;
     bag.__larkBlockedIds = new Set(["7"]);

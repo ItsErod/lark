@@ -8,12 +8,12 @@
  *   `registerMessagingHooks` callback or `globalThis.__larkOnCreateThread` /
  *   `__larkOnCreatePoll` wins when present.
  * - E: `onLaunchActivity` or `globalThis.__larkOnLaunchActivity`.
- * - D: Developer Mode via `globalThis.__larkDeveloperMode` or
- *   `config.appearance.developer_mode`. Embed and spoiler flags via
- *   `config.appearance.show_embeds` and `show_spoiler_content`, or
- *   `globalThis.__larkShowEmbeds` / `__larkRevealSpoilers`.
+ * - D: `developerMode`, `showEmbeds`, and `showSpoilers` from `src/display-flags.ts`
+ *   (`config.display`). `globalThis.__larkDeveloperMode`, `__larkShowEmbeds`,
+ *   and `__larkRevealSpoilers` still override when set.
  * - C: blocked authors via `globalThis.__larkBlockedIds` (Set, array, or getter).
  */
+import { developerMode, showEmbeds, showSpoilers, type DisplaySource } from "../display-flags";
 import { bookmarkMenuLabel } from "../pack/bookmarks";
 import { reminderMenuLabel } from "../reminders";
 import { onCreatePoll as streamCreatePoll, onCreateThread as streamCreateThread } from "../threads";
@@ -537,44 +537,38 @@ export function filterLoadedMessages<T extends SearchableMessage>(messages: read
   return messages.filter((message) => messageMatchesSearch(message, search)).slice(0, 20);
 }
 
-export function readDeveloperMode(config: unknown): boolean {
-  const bag = globalThis as unknown as { __larkDeveloperMode?: unknown };
-  if (typeof bag.__larkDeveloperMode === "function") {
-    try {
-      return Boolean((bag.__larkDeveloperMode as () => unknown)());
-    } catch {
-      return false;
-    }
+function displaySource(config: unknown): DisplaySource {
+  if (!config || typeof config !== "object") return undefined;
+  return config as DisplaySource;
+}
+
+function globalFlag(key: string): boolean | undefined {
+  const value = (globalThis as unknown as Record<string, unknown>)[key];
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "function") return undefined;
+  try {
+    return Boolean((value as () => unknown)());
+  } catch {
+    return undefined;
   }
-  if (typeof bag.__larkDeveloperMode === "boolean") return bag.__larkDeveloperMode;
-  return readFlag(config, ["developer_mode", "developerMode"]) === true;
+}
+
+export function readDeveloperMode(config: unknown): boolean {
+  const override = globalFlag("__larkDeveloperMode");
+  if (override !== undefined) return override;
+  return developerMode(displaySource(config));
 }
 
 export function readShowEmbeds(config: unknown): boolean {
-  const bag = globalThis as unknown as { __larkShowEmbeds?: unknown };
-  if (typeof bag.__larkShowEmbeds === "function") {
-    try {
-      return Boolean((bag.__larkShowEmbeds as () => unknown)());
-    } catch {
-      return true;
-    }
-  }
-  if (typeof bag.__larkShowEmbeds === "boolean") return bag.__larkShowEmbeds;
-  const flag = readFlag(config, ["show_embeds", "showEmbeds"]);
-  return flag === undefined ? true : flag;
+  const override = globalFlag("__larkShowEmbeds");
+  if (override !== undefined) return override;
+  return showEmbeds(displaySource(config));
 }
 
 export function readRevealSpoilers(config: unknown): boolean {
-  const bag = globalThis as unknown as { __larkRevealSpoilers?: unknown };
-  if (typeof bag.__larkRevealSpoilers === "function") {
-    try {
-      return Boolean((bag.__larkRevealSpoilers as () => unknown)());
-    } catch {
-      return false;
-    }
-  }
-  if (typeof bag.__larkRevealSpoilers === "boolean") return bag.__larkRevealSpoilers;
-  return readFlag(config, ["show_spoiler_content", "reveal_spoilers", "showSpoilers"]) === true;
+  const override = globalFlag("__larkRevealSpoilers");
+  if (override !== undefined) return override;
+  return showSpoilers(displaySource(config));
 }
 
 export function readBlockedIds(): Set<string> {
@@ -593,23 +587,6 @@ function safeCall(fn: () => unknown): unknown {
   } catch {
     return undefined;
   }
-}
-
-function readFlag(config: unknown, keys: string[]): boolean | undefined {
-  if (!config || typeof config !== "object") return undefined;
-  const record = config as Record<string, unknown>;
-  for (const key of keys) {
-    if (typeof record[key] === "boolean") return record[key] as boolean;
-  }
-  for (const sectionName of ["appearance", "privacy", "advanced"]) {
-    const section = record[sectionName];
-    if (!section || typeof section !== "object") continue;
-    const flags = section as Record<string, unknown>;
-    for (const key of keys) {
-      if (typeof flags[key] === "boolean") return flags[key] as boolean;
-    }
-  }
-  return undefined;
 }
 
 export interface SlashOption {
