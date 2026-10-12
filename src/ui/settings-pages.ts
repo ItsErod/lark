@@ -12,7 +12,15 @@ import {
   type DiscordLink,
 } from "../user-settings";
 import { el } from "./dom";
-import { segmentControl, settingCard, settingHead, settingRow, sliderControl, switchControl } from "./settings";
+import { registerSettingEntries, segmentControl, settingCard, settingHead, settingRow, sliderControl, switchControl } from "./settings";
+
+registerSettingEntries([{
+  id: "advanced.network",
+  section: "advanced",
+  label: "Network",
+  description: "REST, gateway, and voice traffic. Nothing is recorded while this panel is closed.",
+  keywords: "devtools traffic websocket rest gateway",
+}]);
 
 export interface SettingsHost {
   config: AppConfig;
@@ -40,6 +48,8 @@ export interface SettingsHost {
   rebindDiscord: (id: string) => void;
   formatShortcut: (shortcut: string) => string;
   open: (url: string) => void;
+  onDeveloper?: (on: boolean) => void;
+  openNetwork?: () => void;
 }
 
 function emailControl(host: SettingsHost): HTMLElement {
@@ -429,11 +439,23 @@ export function renderAdvancedPane(host: SettingsHost): HTMLElement {
   card.append(settingRow(
     "advanced.developer",
     "Developer Mode",
-    "Copy ID appears where the menus support it.",
+    "Copy ID appears where the menus support it. Network traffic is recorded only while its panel is open.",
     toggle(host, "Developer Mode", host.config.display.developer_mode, (value) => {
       host.config.display.developer_mode = value;
+      host.onDeveloper?.(value);
     }),
   ));
+  if (host.config.display.developer_mode) {
+    const open = el("button", "text-button", "Open");
+    open.type = "button";
+    open.addEventListener("click", () => host.openNetwork?.());
+    card.append(settingRow(
+      "advanced.network",
+      "Network",
+      "Live REST calls, gateway events, and voice stats. Tokens and auth headers are removed.",
+      open,
+    ));
+  }
   wrap.append(card);
   return wrap;
 }

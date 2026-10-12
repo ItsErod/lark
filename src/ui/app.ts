@@ -349,6 +349,7 @@ import { mountChatPluginPanel } from "./chat-plugin-panels";
 import { renderWhois } from "./whois-card";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
 import { loadSettingsPages, peekSettingsPages, type SettingsPages } from "./lazy-chrome";
+import { httpStatus, noteGateway, noteRest, noteVoice, noteVoiceDiagnostics, setTrafficArmed, trafficArmed } from "../net/traffic";
 import {
   colorControl,
   groupedSections,
@@ -763,6 +764,10 @@ class LarkApp {
   private desk: DeskAudio = restingDesk();
   private callView: CallViewPrefs = defaultCallView();
   private voiceDetails = voiceLinkDetails({});
+  private netPanel: { close: () => void } | null = null;
+  private netVoiceTimer = 0;
+  private netTicket = 0;
+  private netOpening = false;
   private inputProfiles: InputProfile[] = [];
   private inputProfileId = "";
   private inputVolume = 100;
@@ -5510,7 +5515,50 @@ class LarkApp {
       },
       formatShortcut: (shortcut: string) => formatShortcut(shortcut, this.platform.os),
       open: (url: string) => this.openDiscord(url),
+      onDeveloper: (on: boolean) => { if (!on) this.closeNetworkPanel(); },
+      openNetwork: () => this.openNetworkPanel(),
     };
+  }
+
+  private openNetworkPanel() {
+    if (this.netPanel || this.netOpening || !this.config.display.developer_mode) return;
+    this.netOpening = true;
+    const ticket = ++this.netTicket;
+    setTrafficArmed(true);
+    void import("./net-panel").then(({ mountNetPanel }) => {
+      this.netOpening = false;
+      if (ticket !== this.netTicket || !this.config.display.developer_mode) {
+        if (ticket === this.netTicket) this.disarmNetwork();
+        return;
+      }
+      this.netPanel = mountNetPanel(() => this.disarmNetwork(), (name, body) => downloadFile(name, body, "application/json"));
+      this.netVoiceTimer = window.setInterval(() => this.pollVoiceTraffic(), 1000);
+    }).catch(() => {
+      this.netOpening = false;
+      if (ticket === this.netTicket) this.disarmNetwork();
+    });
+  }
+
+  private pollVoiceTraffic() {
+    if (!trafficArmed()) return;
+    void invoke<string>("voice_diagnostics").then((text) => {
+      if (trafficArmed()) noteVoiceDiagnostics(text);
+    }).catch(() => undefined);
+  }
+
+  private disarmNetwork() {
+    setTrafficArmed(false);
+    window.clearInterval(this.netVoiceTimer);
+    this.netVoiceTimer = 0;
+    this.netPanel = null;
+  }
+
+  private closeNetworkPanel() {
+    this.netTicket += 1;
+    this.netOpening = false;
+    const panel = this.netPanel;
+    if (panel) panel.close();
+    else this.disarmNetwork();
   }
 
   private paneAppearance(): HTMLElement {
@@ -8346,6 +8394,7 @@ class LarkApp {
 
   private onDiscord(payload: unknown) {
     if (!payload || typeof payload !== "object") return;
+    if (trafficArmed()) noteGateway(payload);
     const event = payload as {
       kind?: string;
       state?: string;
@@ -9478,6 +9527,10 @@ class LarkApp {
         this.voice.status = "connected";
         this.noteVoiceConnected();
         this.voiceDetails = voiceLinkDetails({ pingMs: 28, endpoint: "c-demo.discord.gg", mode: "connected" });
+        if (trafficArmed()) {
+          noteVoice({ ping: 28 });
+          noteGateway({ kind: "voiceLink", state: "connected", endpoint: "c-demo.discord.gg", pingMs: 28, mode: "connected" });
+        }
         this.refreshSpeaking();
         this.paintChannels();
         this.paintVoice();
@@ -16074,8 +16127,20 @@ function isTauri(): boolean {
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: call } = await import("@tauri-apps/api/core");
-  return call<T>(command, args);
+  if (!trafficArmed()) {
+    const { invoke: call } = await import("@tauri-apps/api/core");
+    return call<T>(command, args);
+  }
+  const started = performance.now();
+  try {
+    const { invoke: call } = await import("@tauri-apps/api/core");
+    const body = await call<T>(command, args);
+    noteRest({ command, args, ok: true, ms: performance.now() - started, status: 200, body });
+    return body;
+  } catch (error) {
+    noteRest({ command, args, ok: false, ms: performance.now() - started, status: httpStatus(error) });
+    throw error;
+  }
 }
 
 function delay(ms: number): Promise<void> {
