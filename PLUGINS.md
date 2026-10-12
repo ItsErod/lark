@@ -63,6 +63,8 @@ Timestamps read as `3m ago` or `just now`. Hover or focus the time for the full 
 
 While this is on, the composer does not send a typing indicator. Incoming typing lines are unchanged.
 
+Chat plugins added after the pack are written up in [docs/PLUGINS.md](docs/PLUGINS.md). Keyword highlights and Pin DMs are the first of that set. Both start off.
+
 ## Samples that were already here
 
 | Plugin | Default | What it does |

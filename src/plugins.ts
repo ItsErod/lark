@@ -59,6 +59,8 @@ export interface PluginHooks {
   quickReactions: string[];
   callTimer: boolean;
   volumeBoost: boolean;
+  patternNotify: boolean;
+  pinDms: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -98,6 +100,8 @@ export function emptyHooks(): PluginHooks {
     quickReactions: [],
     callTimer: false,
     volumeBoost: false,
+    patternNotify: false,
+    pinDms: false,
   };
 }
 
@@ -283,6 +287,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.quickReactions = cleanEmoji(record.quickReactions);
   hooks.callTimer = record.callTimer === true;
   hooks.volumeBoost = record.volumeBoost === true;
+  hooks.patternNotify = record.patternNotify === true;
+  hooks.pinDms = record.pinDms === true;
   return hooks;
 }
 
