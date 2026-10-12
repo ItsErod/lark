@@ -59,6 +59,8 @@ import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
 import "../media/files-panel";
 import "../media/watch-panel";
+import "../media/activity-panel";
+import { gameActivityName, mediaStatusLine } from "../media/activity";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
 import { holdRead as privacyHoldRead, obsDetected, panicPlan, publishActivity, redactStreamerText, streamerSafeActive, visibleStatus } from "../pack/privacy";
 import { stripTrackingText, stripTrackingUrl } from "../pack/links";
@@ -2924,6 +2926,7 @@ class LarkApp {
         this.msgSig = "";
         this.paintMessages();
       },
+      resendPresence: () => this.pushPresence(),
     };
   }
 
@@ -12831,6 +12834,7 @@ class LarkApp {
     if (this.view !== "app") return;
     this.tickAway();
     this.tickPlaying();
+    this.tickMediaStatus();
     this.tickHardware();
     void this.tickSchedule();
     void this.tickLiveSchedule();
@@ -12849,6 +12853,26 @@ class LarkApp {
     const session = navigator.mediaSession?.metadata;
     if (!session?.title) return;
     this.writePlaying(playingLine(session.title, session.artist ?? ""), false);
+  }
+
+  private tickMediaStatus() {
+    if (!this.hookOn("mediaStatus")) return;
+    const session = navigator.mediaSession?.metadata;
+    const line = mediaStatusLine(this.pack.mediaStatusSource, this.detectedGame ?? "", session?.title ?? "", session?.artist ?? "");
+    if (!line) return;
+    this.writePlaying(line, false, this.pack.mediaStatusReplace);
+  }
+
+  private presenceGame(): string {
+    if (!this.hookOn("gameActivity")) return "";
+    return gameActivityName(this.pack.gameActivity, this.detectedGame ?? "");
+  }
+
+  private pushPresence() {
+    if (this.demo) return;
+    const status = this.presenceStatus();
+    const wireStatus = status === "invisible" ? "invisible" : status;
+    void invoke("set_presence", { status: wireStatus, custom: this.me.custom ?? "", game: this.presenceGame() });
   }
 
   private tickHardware() {
@@ -12873,7 +12897,7 @@ class LarkApp {
     if (now - this.hardwarePushAt < 30_000) return;
     this.hardwarePushAt = now;
     const status = this.presenceStatus();
-    void invoke("set_presence", { status, custom }).then(() => {
+    void invoke("set_presence", { status, custom, game: this.presenceGame() }).then(() => {
       this.hardwarePushFailed = false;
     }, () => {
       this.hardwarePushFailed = true;
@@ -12928,12 +12952,12 @@ class LarkApp {
     else localStorage.removeItem(HARDWARE_STORAGE_KEY);
   }
 
-  private writePlaying(line: string, fromButton: boolean) {
+  private writePlaying(line: string, fromButton: boolean, replace = this.pack.playingReplace) {
     if (!line) {
       if (fromButton) this.toast("Now playing", "Add a track title first.");
       return;
     }
-    if (!canReplaceCustom(this.me.custom ?? "", this.pack.playingReplace)) {
+    if (!canReplaceCustom(this.me.custom ?? "", replace)) {
       if (fromButton) this.toast("Now playing", "Your custom status stays. Turn on replace if this line should take over.");
       return;
     }
@@ -13040,8 +13064,8 @@ class LarkApp {
     } else if (changed) {
       const wireStatus = status === "invisible" ? "invisible" : status;
       const pending = extra
-        ? invoke("set_custom_status", { status: wireStatus, custom, emoji, expiresAt: clearAt })
-        : invoke("set_presence", { status: wireStatus, custom });
+        ? invoke("set_custom_status", { status: wireStatus, custom, emoji, expiresAt: clearAt, game: this.presenceGame() })
+        : invoke("set_presence", { status: wireStatus, custom, game: this.presenceGame() });
       if (source === "plugin" && this.hardware.enabled && custom === this.hardware.owned) {
         this.hardwarePushFailed = true;
         this.hardwarePushAt = Date.now();

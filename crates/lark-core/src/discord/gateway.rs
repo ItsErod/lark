@@ -335,6 +335,8 @@ pub enum GatewayCommand {
     Presence {
         status: String,
         custom: String,
+        /// Playing activity (type 0). Empty leaves the profile without a game.
+        game: String,
     },
     /// Opcode 3 with a custom-status emoji and a clear-after timestamp. The plain Presence command stays.
     CustomStatus {
@@ -342,6 +344,7 @@ pub enum GatewayCommand {
         custom: String,
         emoji: String,
         expires_at: Option<i64>,
+        game: String,
     },
     /// Subscribe to a channel's member-list ranges. Opcode 14.
     /// Empty `ranges` clears the subscription for that guild.
@@ -401,29 +404,11 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
         GatewayCommand::StreamSetPaused { stream_key, paused } => {
             super::stream::stream_set_paused_payload(stream_key, *paused)
         }
-        GatewayCommand::Presence { status, custom } => {
-            let activities = if custom.is_empty() {
-                Vec::<serde_json::Value>::new()
-            } else {
-                vec![serde_json::json!({
-                    "name": "Custom Status",
-                    "type": 4,
-                    "state": custom
-                })]
-            };
-            serde_json::json!({
-                "op": 3,
-                "d": {
-                    "since": null,
-                    "activities": activities,
-                    "status": status,
-                    "afk": false
-                }
-            })
-            .to_string()
+        GatewayCommand::Presence { status, custom, game } => {
+            super::types::presence_payload(status, custom, game)
         }
-        GatewayCommand::CustomStatus { status, custom, emoji, expires_at } => {
-            super::types::custom_status_payload(status, custom, emoji, *expires_at)
+        GatewayCommand::CustomStatus { status, custom, emoji, expires_at, game } => {
+            super::types::custom_status_payload(status, custom, emoji, *expires_at, game)
         }
         GatewayCommand::VoiceStateVideo {
             guild_id,

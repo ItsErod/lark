@@ -70,6 +70,9 @@ export interface PackState {
   youtubePipSize: "small" | "medium";
   youtubePipStart: "muted" | "sound";
   clipShareKey: ClipShareKey;
+  gameActivity: "show" | "hide";
+  mediaStatusSource: "game" | "spotify" | "either";
+  mediaStatusReplace: boolean;
 }
 
 export const PACK_IDS = [
@@ -114,6 +117,8 @@ export const PACK_IDS = [
   "original-image",
   "youtube-pip",
   "clip-share",
+  "game-activity",
+  "media-status",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -174,6 +179,9 @@ export function defaultPack(): PackState {
     youtubePipSize: "small",
     youtubePipStart: "muted",
     clipShareKey: "mod+shift+x",
+    gameActivity: "show",
+    mediaStatusSource: "either",
+    mediaStatusReplace: false,
   };
 }
 
@@ -212,6 +220,9 @@ export function sanitizePack(input: unknown): PackState {
   if (raw.youtubePipSize === "small" || raw.youtubePipSize === "medium") base.youtubePipSize = raw.youtubePipSize;
   if (raw.youtubePipStart === "muted" || raw.youtubePipStart === "sound") base.youtubePipStart = raw.youtubePipStart;
   if (raw.clipShareKey === "mod+shift+x" || raw.clipShareKey === "mod+shift+k" || raw.clipShareKey === "mod+alt+x") base.clipShareKey = raw.clipShareKey;
+  if (raw.gameActivity === "show" || raw.gameActivity === "hide") base.gameActivity = raw.gameActivity;
+  if (raw.mediaStatusSource === "game" || raw.mediaStatusSource === "spotify" || raw.mediaStatusSource === "either") base.mediaStatusSource = raw.mediaStatusSource;
+  if (typeof raw.mediaStatusReplace === "boolean") base.mediaStatusReplace = raw.mediaStatusReplace;
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
   base.schedule = sanitizeSchedule(raw.schedule);
@@ -255,6 +266,8 @@ export function settingsFor(pack: PackState, pluginId: string, channelId: string
   if (pluginId === "original-image") return { action: pack.originalImageAction };
   if (pluginId === "youtube-pip") return { size: pack.youtubePipSize, start: pack.youtubePipStart };
   if (pluginId === "clip-share") return { hotkey: pack.clipShareKey };
+  if (pluginId === "game-activity") return { visibility: pack.gameActivity };
+  if (pluginId === "media-status") return { source: pack.mediaStatusSource, replace: pack.mediaStatusReplace ? "replace" : "keep" };
   return {};
 }
 

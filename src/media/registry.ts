@@ -7,6 +7,7 @@ export interface MediaHost {
   choice(values: string[], current: string, onPick: (value: string) => void, labels?: Record<string, string>): HTMLElement;
   resendVoiceMix(): void;
   refreshMessages(): void;
+  resendPresence(): void;
 }
 
 type Panel = (wrap: HTMLElement, id: string, host: MediaHost) => boolean;

@@ -1691,14 +1691,14 @@ async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>, game: O
 }
 
 #[tauri::command]
-async fn set_presence(state: State<'_, Shared>, status: String, custom: String) -> Result<(), String> {
+async fn set_presence(state: State<'_, Shared>, status: String, custom: String, game: Option<String>) -> Result<(), String> {
     let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
     let allowed = ["online", "idle", "dnd", "invisible"];
     if !allowed.contains(&status.as_str()) {
         return Err("Unknown status.".into());
     }
     gateway
-        .send(lark_core::discord::GatewayCommand::Presence { status, custom })
+        .send(lark_core::discord::GatewayCommand::Presence { status, custom, game: game.unwrap_or_default() })
         .map_err(|_| "Gateway is closed.".to_string())
 }
 
@@ -2560,6 +2560,7 @@ async fn set_custom_status(
     custom: String,
     emoji: String,
     expires_at: Option<i64>,
+    game: Option<String>,
 ) -> Result<(), String> {
     let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
     let allowed = ["online", "idle", "dnd", "invisible"];
@@ -2567,6 +2568,6 @@ async fn set_custom_status(
         return Err("Unknown status.".into());
     }
     gateway
-        .send(lark_core::discord::GatewayCommand::CustomStatus { status, custom, emoji, expires_at })
+        .send(lark_core::discord::GatewayCommand::CustomStatus { status, custom, emoji, expires_at, game: game.unwrap_or_default() })
         .map_err(|_| "Gateway is closed.".to_string())
 }
