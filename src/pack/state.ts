@@ -20,6 +20,9 @@ export interface PackState {
   playingArtist: string;
   playingReplace: boolean;
   awayMinutes: 5 | 15 | 30;
+  callTimerFrom: "connected" | "join";
+  callTimerStyle: "auto" | "clock";
+  volumeCap: 200 | 300 | 400;
 }
 
 export const PACK_IDS = [
@@ -35,6 +38,8 @@ export const PACK_IDS = [
   "hide-muted",
   "relative-time",
   "silent-typing",
+  "call-timer",
+  "volume-booster",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -55,6 +60,9 @@ export function defaultPack(): PackState {
     playingArtist: "",
     playingReplace: false,
     awayMinutes: 5,
+    callTimerFrom: "connected",
+    callTimerStyle: "auto",
+    volumeCap: 400,
   };
 }
 
@@ -69,6 +77,9 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.playingTitle === "string") base.playingTitle = raw.playingTitle.trim().slice(0, 80);
   if (typeof raw.playingArtist === "string") base.playingArtist = raw.playingArtist.trim().slice(0, 80);
   if (typeof raw.playingReplace === "boolean") base.playingReplace = raw.playingReplace;
+  if (raw.callTimerFrom === "join" || raw.callTimerFrom === "connected") base.callTimerFrom = raw.callTimerFrom;
+  if (raw.callTimerStyle === "clock" || raw.callTimerStyle === "auto") base.callTimerStyle = raw.callTimerStyle;
+  if (raw.volumeCap === 200 || raw.volumeCap === 300 || raw.volumeCap === 400) base.volumeCap = raw.volumeCap;
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
   base.schedule = sanitizeSchedule(raw.schedule);

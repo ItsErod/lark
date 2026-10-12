@@ -160,6 +160,16 @@ pub struct Playback {
     pub channels: u16,
 }
 
+/// Playback gain ceiling. The voice slider uses 2.0. The volume booster plugin uses 4.0.
+pub const USER_GAIN_CAP: f32 = 4.0;
+
+pub fn user_gain(value: f32) -> f32 {
+    if !value.is_finite() {
+        return 1.0;
+    }
+    value.clamp(0.0, USER_GAIN_CAP)
+}
+
 impl Playback {
     pub fn new() -> Self {
         Self {
@@ -183,7 +193,7 @@ impl Playback {
             let gain = if self.deafened {
                 0.0
             } else {
-                volumes.get(&speaker.user_id).copied().unwrap_or(1.0).clamp(0.0, 2.0)
+                user_gain(volumes.get(&speaker.user_id).copied().unwrap_or(1.0))
             };
             for sample in mixed.iter_mut() {
                 let Some(input) = speaker.samples.pop_front() else { break };
@@ -753,6 +763,17 @@ mod tests {
         let silent = play.render(4, &volumes);
         assert!(silent.iter().all(|sample| *sample == 0.0));
         assert!(play.speakers.get(&2).unwrap().samples.is_empty());
+    }
+
+    #[test]
+    fn booster_gain_reaches_four_before_the_sample_clamp() {
+        let mut play = Playback::new();
+        push_speaker(&mut play, 1, "a", &[0.2; 4]);
+        let mut volumes = HashMap::new();
+        volumes.insert("a".into(), 4.0);
+        let mixed = play.render(4, &volumes);
+        assert!(mixed.iter().all(|sample| (*sample - 0.8).abs() < 0.001));
+        assert!((user_gain(9.0) - USER_GAIN_CAP).abs() < f32::EPSILON);
     }
 
     #[test]

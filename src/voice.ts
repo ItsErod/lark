@@ -134,8 +134,13 @@ export function setSpeaking(roster: VoiceRoster, userId: string, speaking: boole
   return changed;
 }
 
+/** Built-in per-user slider. */
+export const VOLUME_SLIDER_MAX = 200;
+/** Storage ceiling for the volume booster plugin. Playback stays at the slider max until that plugin is on. */
+export const VOLUME_BOOST_MAX = 400;
+
 export function setVolume(roster: VoiceRoster, userId: string, volume: number): void {
-  const next = Math.min(200, Math.max(0, Math.round(volume)));
+  const next = playbackVolume(volume, false, VOLUME_BOOST_MAX);
   for (const person of Object.values(roster)) {
     if (person.userId === userId) person.volume = next;
   }
@@ -146,14 +151,17 @@ export interface UserMix {
   muted: boolean;
 }
 
-/** What the playback mix should use. Local mute forces silence and keeps the slider. */
-export function playbackVolume(volume: number, muted: boolean): number {
+/** What the playback mix should use. Local mute forces silence and keeps the slider.
+ *  `cap` defaults to the built-in slider. The volume booster plugin may pass 300 or 400. */
+export function playbackVolume(volume: number, muted: boolean, cap = VOLUME_SLIDER_MAX): number {
   if (muted) return 0;
-  return Math.min(200, Math.max(0, Math.round(volume)));
+  const requested = Number.isFinite(cap) ? Math.round(cap) : VOLUME_SLIDER_MAX;
+  const ceiling = Math.min(VOLUME_BOOST_MAX, Math.max(VOLUME_SLIDER_MAX, requested));
+  return Math.min(ceiling, Math.max(0, Math.round(volume)));
 }
 
 export function applyUserMix(roster: VoiceRoster, userId: string, mix: UserMix): void {
-  const volume = playbackVolume(mix.volume, false);
+  const volume = playbackVolume(mix.volume, false, VOLUME_BOOST_MAX);
   for (const person of Object.values(roster)) {
     if (person.userId !== userId) continue;
     person.volume = volume;

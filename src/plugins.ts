@@ -51,6 +51,8 @@ export interface PluginHooks {
   channelRules: boolean;
   relativeTime: boolean;
   quickReactions: string[];
+  callTimer: boolean;
+  volumeBoost: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -82,6 +84,8 @@ export function emptyHooks(): PluginHooks {
     channelRules: false,
     relativeTime: false,
     quickReactions: [],
+    callTimer: false,
+    volumeBoost: false,
   };
 }
 
@@ -259,6 +263,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.channelRules = record.channelRules === true;
   hooks.relativeTime = record.relativeTime === true;
   hooks.quickReactions = cleanEmoji(record.quickReactions);
+  hooks.callTimer = record.callTimer === true;
+  hooks.volumeBoost = record.volumeBoost === true;
   return hooks;
 }
 

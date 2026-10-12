@@ -89,6 +89,16 @@
       "id": "silent-typing",
       "name": "Silent typing",
       "description": "Keep the typing indicator to yourself. Lark does not send one while this is on."
+    },
+    {
+      "id": "call-timer",
+      "name": "Call Timer",
+      "description": "Shows how long you have been in the voice channel."
+    },
+    {
+      "id": "volume-booster",
+      "name": "Volume Booster",
+      "description": "Raise one person's volume up to 400%. Mute for you still silences them."
     }
   ]
 }
