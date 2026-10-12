@@ -399,7 +399,7 @@ export function selectControl(label: string, current: string, options: { id: str
 
 export function colorControl(value: string, label: string, onPick: (hex: string) => void, onReset?: () => void): HTMLElement {
   const line = el("div", "color-line");
-  const fallback = normalizeHex(value) ?? "#5865f2";
+  const fallback = normalizeHex(value) ?? "#fafafa";
   const input = el("input");
   input.type = "color";
   input.value = fallback;

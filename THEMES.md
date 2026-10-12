@@ -2,7 +2,7 @@
 
 Lark themes are CSS files that set colour and type variables. Layout, motion, and the frame cap stay in the app. The gallery in **Settings → Appearance** previews every installed theme and applies one with a click. The command palette entry is **Theme gallery**.
 
-Themes are not part of the app download. The files live in `store/themes/<id>/`. Installing one writes it into the app config folder. A file you already have there is left alone, including one you edited. With nothing installed, the built-in colours in the app stylesheet stay on. They match the Discord palette.
+Themes are not part of the app download. The files live in `store/themes/<id>/`. Installing one writes it into the app config folder. A file you already have there is left alone, including one you edited. With nothing installed, the built-in colours in the app stylesheet stay on. They are the Minimal Mono palette: near-black surfaces, a white accent, and hairline edges.
 
 | File | Look |
 | --- | --- |
@@ -27,7 +27,7 @@ Themes are not part of the app download. The files live in `store/themes/<id>/`.
 
 `modern-dark`, `daylight`, and `ink-contrast` keep their original overlay shadow. Discord and the rest of the pack use a 1–2px shadow or a hairline, which is what the message list and the overlays read from `--shadow`.
 
-Discord also sets the rail, channel, chat, and user-panel colours (`--bg-0` `#1e1f22`, `--bg-1` `#2b2d31`, `--bg-2` `#313338`, `--bg-panel` `#232428`), blurple `--accent` `#5865f2`, text `#dbdee1`, muted `#949ba4`, online `#23a55a`, and danger `#f23f43`. A theme can override `--hover`, `--selected`, `--message-hover`, `--highlight`, and `--scrollbar`. The server rail, channel rows, message hover, and thin scrollbars live in the app and follow those variables. A config that already names `modern-dark` stays on warm ink. A new config uses `discord`.
+Discord also sets the rail, channel, chat, and user-panel colours (`--bg-0` `#1e1f22`, `--bg-1` `#2b2d31`, `--bg-2` `#313338`, `--bg-panel` `#232428`), blurple `--accent` `#5865f2`, text `#dbdee1`, muted `#949ba4`, online `#23a55a`, and danger `#f23f43`. A theme can override `--hover`, `--selected`, `--message-hover`, `--highlight`, and `--scrollbar`. The server rail, channel rows, message hover, and thin scrollbars live in the app and follow those variables. A config that already names `modern-dark` stays on warm ink. A new config uses `discord`. Until that file is installed, the app shows the built-in Minimal Mono palette.
 
 ## What a file can contain
 
