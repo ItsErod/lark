@@ -267,3 +267,27 @@ The composer shows how many words you have typed, next to the character count.
 
 - **Badge a message** can mark a message of 40, 100, or 280 words. **Off** leaves messages alone.
 - The count stays on this device. Nothing is sent.
+
+## Reply chain
+
+Right-click a reply and choose **Reply chain**.
+
+- Lark walks the reply parents that are already loaded, up to 12.
+- A parent that isn't loaded stops the chain. It is not fetched.
+- A repeating chain stops instead of looping.
+
+## Show connections
+
+Right-click a message and choose **Connections**.
+
+- Lark loads that one profile and lists linked accounts.
+- The same profile is reused for five minutes. The member list is not scanned.
+- Streamer mode hides the names.
+
+## Local nicknames
+
+Right-click a message and choose **Local nickname**.
+
+- The name is shown in messages and the member list on this device.
+- **Clear** removes it. Discord's nickname is unchanged.
+- The list stops at 100 names, and each name stops at 32 characters.

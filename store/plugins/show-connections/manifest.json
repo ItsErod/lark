@@ -1,0 +1,12 @@
+{
+  "id": "show-connections",
+  "name": "Show connections",
+  "description": "Show linked accounts from one profile you open. Nothing is scanned.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "link",
+  "changelog": "Right-click a message and choose Connections. Lark asks for that one profile, then lists the linked accounts."
+}

@@ -1,0 +1,12 @@
+{
+  "id": "reply-chain",
+  "name": "Reply chain",
+  "description": "Show the reply parents already loaded in this channel.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "messages",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "link",
+  "changelog": "Right-click a reply to see the chain from messages already on screen. Missing parents are not fetched."
+}

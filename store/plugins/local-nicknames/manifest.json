@@ -1,0 +1,12 @@
+{
+  "id": "local-nicknames",
+  "name": "Local nicknames",
+  "description": "Name someone on this device only. Discord nicknames stay as they are.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "chat",
+  "minLark": "2.4.0",
+  "entry": "plugin.js",
+  "icon": "pencil",
+  "changelog": "Right-click a message to set a nickname that only this device shows. Discord is not updated."
+}

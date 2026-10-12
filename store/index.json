@@ -370,6 +370,22 @@
       "download": "downloads/keyword-ping.zip"
     },
     {
+      "id": "local-nicknames",
+      "name": "Local nicknames",
+      "description": "Name someone on this device only. Discord nicknames stay as they are.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "chat",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "pencil",
+      "changelog": "Right-click a message to set a nickname that only this device shows. Discord is not updated.",
+      "sha256": "5befb66821a6059cb93645c7ac4f82452278ccb09c44881050ac953130df8c25",
+      "bytes": 179,
+      "file": "plugins/local-nicknames/plugin.js",
+      "download": "downloads/local-nicknames.zip"
+    },
+    {
       "id": "media-status",
       "name": "Now Playing Status",
       "description": "Set your custom status from the current game or from what the system is playing.",
@@ -610,6 +626,22 @@
       "download": "downloads/relative-time.zip"
     },
     {
+      "id": "reply-chain",
+      "name": "Reply chain",
+      "description": "Show the reply parents already loaded in this channel.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "messages",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "link",
+      "changelog": "Right-click a reply to see the chain from messages already on screen. Missing parents are not fetched.",
+      "sha256": "7e81a7ccecef44342c626a35395857d950e8533f11be6334a876bbebe8fdd103",
+      "bytes": 160,
+      "file": "plugins/reply-chain/plugin.js",
+      "download": "downloads/reply-chain.zip"
+    },
+    {
       "id": "reverse-image",
       "name": "Reverse image search",
       "description": "Right-click an image and search Google Lens, TinEye, or Yandex.",
@@ -640,6 +672,22 @@
       "bytes": 200,
       "file": "plugins/send-later/plugin.js",
       "download": "downloads/send-later.zip"
+    },
+    {
+      "id": "show-connections",
+      "name": "Show connections",
+      "description": "Show linked accounts from one profile you open. Nothing is scanned.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "chat",
+      "minLark": "2.4.0",
+      "entry": "plugin.js",
+      "icon": "link",
+      "changelog": "Right-click a message and choose Connections. Lark asks for that one profile, then lists the linked accounts.",
+      "sha256": "c30f8e876d5e5557c262f7c10231fce44eaac50ab522894db2f27ed7a5049801",
+      "bytes": 183,
+      "file": "plugins/show-connections/plugin.js",
+      "download": "downloads/show-connections.zip"
     },
     {
       "id": "show-hidden",
