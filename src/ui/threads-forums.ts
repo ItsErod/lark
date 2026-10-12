@@ -38,7 +38,12 @@ import {
   mergeThreadChannels,
   parentInfo,
   partitionBoard,
+  pollAnswerShare,
+  pollExpiryLabel,
+  pollExpired,
+  pollFromClient,
   pollPlan,
+  pollShowsResults,
   pollsIn,
   rememberEvent,
   rememberPoll,
@@ -113,8 +118,12 @@ export function parityStyles() {
     .lark-f-tile span { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px; background: linear-gradient(transparent, rgba(0,0,0,.72)); color: #fff; font-weight: 600; }
     .lark-f-detail { padding: 8px; background: var(--bg-3); border-radius: 8px; }
     .lark-f-detail img { max-width: 100%; border-radius: 8px; }
-    .lark-f-poll { margin: 8px 16px; padding: 12px; background: var(--bg-3); border-radius: 8px; }
-    .lark-f-poll button.answer { display: flex; justify-content: space-between; width: 100%; margin-top: 6px; }
+    .lark-f-poll { margin: 6px 0 2px; padding: 12px; background: var(--bg-3); border-radius: 8px; max-width: 420px; }
+    .lark-f-poll .poll-expiry { color: var(--muted); display: block; margin-top: 2px; }
+    .lark-f-poll button.answer { position: relative; overflow: hidden; display: flex; justify-content: space-between; gap: 8px; width: 100%; margin-top: 6px; text-align: left; }
+    .lark-f-poll button.answer .bar { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); opacity: 0.28; pointer-events: none; }
+    .lark-f-poll button.answer span, .lark-f-poll button.answer strong { position: relative; }
+    .lark-f-poll button.answer.is-mine { outline: 1px solid var(--accent); }
     .lark-f-bar { padding: 0; margin-top: 6px; }
     .inbox-count { margin-left: 6px; background: var(--danger); color: #fff; border-radius: 999px; padding: 0 6px; font-size: 12px; font-weight: 700; }
     .lark-f-close { margin-left: auto; }
@@ -723,41 +732,110 @@ async function toggleForumFollow(channelId: string) {
   }
 }
 
+function pollSignature(poll: Poll): string {
+  return `${poll.messageId}:${poll.finalized}:${poll.expiry ?? ""}:${poll.answers.map((answer) => `${answer.answerId}:${answer.count}${answer.meVoted ? "*" : ""}`).join(",")}`;
+}
+
+function rememberMessagePolls(channelId: string) {
+  for (const message of host()?.messages(channelId) ?? []) {
+    const poll = pollFromClient(message.poll, { messageId: message.id, channelId });
+    if (poll?.messageId && poll.channelId) rememberPoll(poll);
+  }
+}
+
+/** Discord draws the poll on the message. The old channel dock is not used. */
 export function mountChannelPolls(container: HTMLElement | null) {
   if (!container) return;
+  container.querySelector(".lark-f-polls")?.remove();
+  if (container.querySelector(".friends-board, .clip-library")) return;
   const channelId = host()?.channelId;
-  const polls = channelId ? pollsIn(channelId) : [];
-  const existing = container.querySelector<HTMLElement>(".lark-f-polls");
-  if (!polls.length) {
-    existing?.remove();
-    return;
+  if (!channelId) return;
+  rememberMessagePolls(channelId);
+  const polls = pollsIn(channelId);
+  const seen = new Set(polls.map((poll) => poll.messageId));
+  for (const node of container.querySelectorAll<HTMLElement>(".lark-f-poll")) {
+    if (!node.dataset.messageId || !seen.has(node.dataset.messageId)) node.remove();
   }
-  const sig = polls.map((poll) => `${poll.messageId}:${poll.finalized}:${poll.answers.map((answer) => `${answer.count}${answer.meVoted ? "*" : ""}`).join(",")}`).join("|");
+  for (const poll of polls) placePoll(container, poll);
+  armPollExpiry();
+}
+
+function placePoll(container: HTMLElement, poll: Poll) {
+  if (!poll.messageId) return;
+  const sig = pollSignature(poll);
+  const article = container.querySelector<HTMLElement>(`article.message[data-id="${poll.messageId}"]`);
+  const body = article?.querySelector<HTMLElement>(".message-body") ?? article;
+  const existing = (body ?? container).querySelector<HTMLElement>(`:scope > .lark-f-poll[data-message-id="${poll.messageId}"]`);
   if (existing?.dataset.sig === sig) return;
   existing?.remove();
-  const dock = el("div", "lark-f-polls");
-  dock.dataset.sig = sig;
-  for (const poll of polls) dock.append(pollCard(poll));
-  container.prepend(dock);
+  const card = pollCard(poll);
+  card.dataset.sig = sig;
+  if (body) {
+    body.append(card);
+    return;
+  }
+  const column = container.querySelector<HTMLElement>(":scope > .message-column");
+  if (!column) return;
+  const row = el("article", "message");
+  row.dataset.id = poll.messageId;
+  const next = el("div", "message-body");
+  next.append(card);
+  row.append(next);
+  column.append(row);
+}
+
+let expiryTimer = 0;
+
+function armPollExpiry() {
+  if (expiryTimer || typeof window === "undefined") return;
+  expiryTimer = window.setInterval(() => {
+    for (const node of document.querySelectorAll<HTMLElement>(".lark-f-poll .poll-expiry")) {
+      const channelId = node.dataset.channelId ?? "";
+      const messageId = node.dataset.messageId ?? "";
+      const poll = pollsIn(channelId).find((item) => item.messageId === messageId);
+      if (!poll) continue;
+      const label = pollExpiryLabel(poll);
+      if (node.textContent === label) continue;
+      node.textContent = label;
+      if (label === "Poll closed" || label === "Final results") host()?.refresh();
+    }
+  }, 30_000);
 }
 
 function pollCard(poll: Poll): HTMLElement {
   const card = el("div", "lark-f-poll");
+  card.dataset.messageId = poll.messageId;
+  card.dataset.channelId = poll.channelId;
   card.append(el("strong", "", poll.question));
-  if (poll.finalized) card.append(el("small", "", "Final results"));
+  const expiry = el("small", "poll-expiry", pollExpiryLabel(poll));
+  expiry.dataset.channelId = poll.channelId;
+  expiry.dataset.messageId = poll.messageId;
+  if (expiry.textContent) card.append(expiry);
+  const results = pollShowsResults(poll);
+  const closed = poll.finalized || pollExpired(poll);
   for (const answer of poll.answers) {
-    const button = el("button", "answer", `${answer.emojiName ? `${answer.emojiName} ` : ""}${answer.text}`);
+    const button = el("button", `answer${answer.meVoted ? " is-mine" : ""}`);
     button.type = "button";
-    const count = el("span", "", String(answer.count));
-    button.append(count);
+    const label = el("strong", "", `${answer.emojiName ? `${answer.emojiName} ` : ""}${answer.text}`);
+    button.append(label);
+    if (results) {
+      const share = pollAnswerShare(poll, answer.count);
+      const bar = el("span", "bar");
+      bar.style.width = `${share}%`;
+      const count = el("span", "", `${answer.count} · ${share}%`);
+      button.append(bar, count);
+    }
     button.disabled = !canVote(poll, answer.answerId);
     button.addEventListener("click", () => void castVote(poll, answer.answerId));
     const voters = el("button", "", "Voters");
     voters.type = "button";
-    voters.addEventListener("click", () => void showVoters(poll, answer.answerId, answer.text));
+    voters.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void showVoters(poll, answer.answerId, answer.text);
+    });
     card.append(button, voters);
   }
-  if (!poll.finalized) {
+  if (!closed) {
     const end = el("button", "", "End poll");
     end.type = "button";
     end.addEventListener("click", () => void endPoll(poll));

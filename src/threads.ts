@@ -551,8 +551,81 @@ export function pollPlan(draft: PollDraft): Result<{ plan: PollPlan }> {
   };
 }
 
-export function canVote(poll: Poll, answerId: number): boolean {
-  if (poll.finalized) return false;
+export function pollExpired(poll: Pick<Poll, "finalized" | "expiry">, now = Date.now()): boolean {
+  if (poll.finalized) return true;
+  if (!poll.expiry) return false;
+  const at = Date.parse(poll.expiry);
+  return Number.isFinite(at) && at <= now;
+}
+
+/** Discord shows the countdown on the poll card, then "Final results" once it closes. */
+export function pollExpiryLabel(poll: Pick<Poll, "finalized" | "expiry">, now = Date.now()): string {
+  if (poll.finalized) return "Final results";
+  if (!poll.expiry) return "";
+  const at = Date.parse(poll.expiry);
+  if (!Number.isFinite(at)) return "";
+  if (at <= now) return "Poll closed";
+  const minutes = Math.max(1, Math.round((at - now) / 60_000));
+  if (minutes < 60) return minutes === 1 ? "Ends in 1 minute" : `Ends in ${minutes} minutes`;
+  const hours = Math.max(1, Math.round(minutes / 60));
+  if (hours < 48) return hours === 1 ? "Ends in 1 hour" : `Ends in ${hours} hours`;
+  const days = Math.max(1, Math.round(hours / 24));
+  return days === 1 ? "Ends in 1 day" : `Ends in ${days} days`;
+}
+
+export function pollShowsResults(poll: Poll, now = Date.now()): boolean {
+  return poll.finalized || pollExpired(poll, now) || poll.answers.some((answer) => answer.meVoted);
+}
+
+export function pollAnswerShare(poll: Poll, count: number): number {
+  const total = poll.answers.reduce((sum, answer) => sum + Math.max(0, answer.count), 0);
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((Math.max(0, count) / total) * 100)));
+}
+
+function pollString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/** Client poll payloads use camelCase. A raw Discord poll object is not accepted here. */
+export function pollFromClient(value: unknown, fallback?: { messageId?: string; channelId?: string }): Poll | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const question = pollString(raw.question).trim();
+  if (!question) return null;
+  const answers: Poll["answers"] = [];
+  for (const item of Array.isArray(raw.answers) ? raw.answers : []) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const answerId = typeof row.answerId === "number" ? row.answerId : typeof row.answer_id === "number" ? row.answer_id : 0;
+    const text = pollString(row.text).trim();
+    if (!answerId || !text) continue;
+    answers.push({
+      answerId,
+      text,
+      emojiName: pollString(row.emojiName) || pollString(row.emoji_name) || null,
+      emojiId: pollString(row.emojiId) || pollString(row.emoji_id) || null,
+      count: typeof row.count === "number" && row.count > 0 ? row.count : 0,
+      meVoted: row.meVoted === true || row.me_voted === true,
+    });
+  }
+  if (!answers.length) return null;
+  const messageId = pollString(raw.messageId) || pollString(raw.message_id) || fallback?.messageId || "";
+  const channelId = pollString(raw.channelId) || pollString(raw.channel_id) || fallback?.channelId || "";
+  return {
+    messageId,
+    channelId,
+    question,
+    answers,
+    expiry: pollString(raw.expiry) || null,
+    allowMultiselect: raw.allowMultiselect === true || raw.allow_multiselect === true,
+    layoutType: typeof raw.layoutType === "number" ? raw.layoutType : typeof raw.layout_type === "number" ? raw.layout_type : 1,
+    finalized: raw.finalized === true,
+  };
+}
+
+export function canVote(poll: Poll, answerId: number, now = Date.now()): boolean {
+  if (poll.finalized || pollExpired(poll, now)) return false;
   const answer = poll.answers.find((item) => item.answerId === answerId);
   if (!answer || answer.meVoted) return false;
   if (!poll.allowMultiselect && poll.answers.some((item) => item.meVoted)) return false;
@@ -793,7 +866,7 @@ export interface ParityHost {
   demo: boolean;
   channel(id: string): Channel | undefined;
   channels(): Channel[];
-  messages(channelId: string): { id: string; content: string; authorName: string; authorId: string }[];
+  messages(channelId: string): { id: string; content: string; authorName: string; authorId: string; poll?: unknown }[];
   bookmarks: readonly Bookmark[];
   reminders: readonly Reminder[];
   /** null when Stream C has not published a count. */

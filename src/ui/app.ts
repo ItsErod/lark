@@ -3988,6 +3988,7 @@ class LarkApp {
     } catch (error) {
       reportCrash(error);
     }
+    mountChannelPolls(this.messagesEl);
   }
 
   private paintMessageList() {
@@ -13346,6 +13347,7 @@ class LarkApp {
         content: message.content,
         authorName: message.authorName,
         authorId: message.authorId,
+        poll: message.poll,
       })),
       bookmarks: this.pack.bookmarks,
       reminders: this.reminders,

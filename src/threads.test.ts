@@ -17,6 +17,11 @@ import {
   canStartEvent,
   canVote,
   chunkAck,
+  pollAnswerShare,
+  pollExpiryLabel,
+  pollExpired,
+  pollFromClient,
+  pollShowsResults,
   clearParityMemory,
   defaultForumSort,
   endPollPlan,
@@ -278,6 +283,32 @@ describe("polls", () => {
     const end = endPollPlan(poll);
     expect(end.ok && end.path).toBe(`/channels/${CHANNEL}/polls/${MESSAGE}/expire`);
     expect(endPollPlan({ ...poll, finalized: true }).ok).toBe(false);
+  });
+
+  it("closes an expired poll in place and reads a client poll payload", () => {
+    const now = Date.parse("2026-10-12T18:00:00.000Z");
+    const open = { ...poll, expiry: "2026-10-12T19:00:00.000Z" };
+    expect(pollExpired(open, now)).toBe(false);
+    expect(pollExpiryLabel(open, now)).toBe("Ends in 1 hour");
+    expect(pollShowsResults(open, now)).toBe(false);
+    const closed = { ...poll, expiry: "2026-10-12T17:00:00.000Z" };
+    expect(pollExpired(closed, now)).toBe(true);
+    expect(pollExpiryLabel(closed, now)).toBe("Poll closed");
+    expect(canVote(closed, 1, now)).toBe(false);
+    expect(pollExpiryLabel({ ...poll, finalized: true }, now)).toBe("Final results");
+    const voted = applyPollVote(poll, 1, true, true);
+    expect(pollShowsResults(voted, now)).toBe(true);
+    expect(pollAnswerShare(voted, 2)).toBe(100);
+    const parsed = pollFromClient({
+      messageId: MESSAGE,
+      channelId: CHANNEL,
+      question: "Lunch?",
+      answers: [{ answerId: 1, text: "Yes", count: 2, meVoted: true }],
+      expiry: "2026-10-13T18:00:00.000Z",
+      finalized: false,
+    });
+    expect(parsed).toMatchObject({ question: "Lunch?", messageId: MESSAGE, answers: [{ count: 2, meVoted: true }] });
+    expect(pollFromClient({ question: "" })).toBeNull();
   });
 });
 
