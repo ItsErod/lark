@@ -813,6 +813,29 @@ export function openMediaChannel(channelId: string): boolean {
   return true;
 }
 
+export const GUILD_SETTINGS_PAGES: { id: string; label: string; group: string }[] = [
+  { id: "profile", label: "Server Profile", group: "Server" },
+  { id: "tag", label: "Server Tag", group: "Server" },
+  { id: "engagement", label: "Engagement", group: "Server" },
+  { id: "perks", label: "Boost Perks", group: "Server" },
+  { id: "emoji", label: "Emoji", group: "Expression" },
+  { id: "stickers", label: "Stickers", group: "Expression" },
+  { id: "soundboard", label: "Soundboard", group: "Expression" },
+  { id: "members", label: "Members", group: "User Management" },
+  { id: "roles", label: "Roles", group: "User Management" },
+  { id: "invites", label: "Invites", group: "User Management" },
+  { id: "access", label: "Access", group: "Access" },
+  { id: "integrations", label: "Integrations", group: "Apps" },
+  { id: "safety", label: "Safety Setup", group: "Moderation" },
+  { id: "audit", label: "Audit Log", group: "Moderation" },
+  { id: "bans", label: "Bans", group: "Moderation" },
+  { id: "automod", label: "AutoMod", group: "Moderation" },
+  { id: "community", label: "Enable Community", group: "Community" },
+  { id: "template", label: "Server Template", group: "Community" },
+  { id: "boosts", label: "Boosts", group: "Community" },
+  { id: "delete", label: "Delete Server", group: "Community" },
+];
+
 export function extraChannelItems(channel: { id: string; kind: string }): MenuEntry[] {
   const hook = (globalThis as { larkChannelMenu?: (channel: { id: string; kind: string }) => MenuEntry[] }).larkChannelMenu;
   if (typeof hook !== "function") return [];

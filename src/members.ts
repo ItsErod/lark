@@ -254,6 +254,29 @@ export function sortPeople(people: Person[]): Person[] {
   return [...people].sort((a, b) => (STATUS_RANK[a.status ?? "offline"] ?? 4) - (STATUS_RANK[b.status ?? "offline"] ?? 4) || a.name.localeCompare(b.name));
 }
 
+export type MemberListSort = "status" | "name" | "activity";
+
+export const MEMBER_LIST_SORTS: { id: MemberListSort; label: string }[] = [
+  { id: "status", label: "Status" },
+  { id: "name", label: "Name" },
+  { id: "activity", label: "Activity" },
+];
+
+/** Status keeps role groups. Name and activity flatten the list. */
+export function applyMemberListSort(rows: PaintedRow[], sort: MemberListSort): PaintedRow[] {
+  if (sort === "status") return rows;
+  const members = rows.filter((row): row is Extract<PaintedRow, { type: "member" }> => row.type === "member");
+  return [...members].sort((a, b) => {
+    if (sort === "activity") {
+      const left = a.person.activity || a.person.custom || "\uffff";
+      const right = b.person.activity || b.person.custom || "\uffff";
+      const byActivity = left.localeCompare(right);
+      if (byActivity) return byActivity;
+    }
+    return a.person.name.localeCompare(b.person.name);
+  });
+}
+
 export function memberSubtitle(person: Person): string {
   if (person.custom) return person.custom;
   if (person.activity) return person.activity;
