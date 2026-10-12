@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CHANNEL_GATEWAY_GRACE_MS } from "./guilds";
 import {
   CACHE_WARM_MS,
   MIN_SPLASH_MS,
   SLOW_CONNECT_MS,
+  SPLASH_CAP_MS,
   STARTUP_CHANNEL_WAIT_MS,
   STARTUP_FLOOR,
   cacheWarmDone,
@@ -53,6 +55,29 @@ describe("startup splash", () => {
     expect(startupLabel("ready", true)).toBe("Loading servers and channels");
     expect(startupLabel("channels", true)).toBe("Opening a channel");
     expect(startupLabel("ui", true)).toBe("Ready");
+  });
+
+  it("gives the splash a finite cap past the channel grace", () => {
+    expect(SPLASH_CAP_MS).toBeGreaterThan(STARTUP_CHANNEL_WAIT_MS + MIN_SPLASH_MS);
+    expect(SPLASH_CAP_MS).toBeLessThanOrEqual(15_000);
+  });
+
+  it("shows the shell when the splash ends, and cannot hold the splash forever", () => {
+    const source = readFileSync("src/ui/app.ts", "utf8");
+    const finish = source.slice(source.indexOf("private finishStartup"), source.indexOf("private hideSplash"));
+    const revealAt = finish.indexOf("this.revealShell()");
+    const openAt = finish.indexOf("this.openChannel(id)");
+    expect(revealAt).toBeGreaterThan(0);
+    expect(openAt).toBeGreaterThan(revealAt);
+    expect(finish).toContain("this.clearSplashCap()");
+    expect(finish).toContain("force");
+    const begin = source.slice(source.indexOf("private beginStartup"), source.indexOf("private showPreviewSplash"));
+    expect(begin).toContain("this.armSplashCap()");
+    const open = source.slice(source.indexOf("private async openChannel"), source.indexOf("private finishChannelChrome"));
+    expect(open.indexOf("this.revealShell()")).toBeGreaterThan(0);
+    expect(open.indexOf("this.revealShell()")).toBeLessThan(open.indexOf("this.paintMessages()"));
+    expect(source).toContain("SPLASH_CAP_MS");
+    expect(source).toContain("reportCrash");
   });
 
   it("holds a finished splash only for the crossfade", () => {

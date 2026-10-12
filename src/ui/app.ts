@@ -1,5 +1,6 @@
 import { channelIsBehind, firstUnreadId, mergeIncoming, outgoingNonce, sameOutgoing, sameReaction, shouldGroup, typingLine } from "../chat";
 import { outgoingError } from "../compose";
+import { reportCrash } from "../crash";
 import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
 import { rememberEmoji, frecency, EMOJI, type EmojiUse } from "../emoji";
@@ -66,6 +67,7 @@ import { HISTORY_PAGE, initialHistory, reconcileHistory } from "../history";
 import {
   PLACE_KEY,
   SLOW_CONNECT_MS,
+  SPLASH_CAP_MS,
   STARTUP_CHANNEL_WAIT_MS,
   channelsReady,
   landingTarget,
@@ -268,8 +270,12 @@ interface ClipAsk {
 }
 
 export function mount(root: HTMLElement) {
-  const app = new LarkApp(root);
-  void app.start();
+  try {
+    const app = new LarkApp(root);
+    void app.start().catch((error) => reportCrash(error));
+  } catch (error) {
+    reportCrash(error);
+  }
 }
 
 class LarkApp {
@@ -396,6 +402,7 @@ class LarkApp {
   private channelGraceTimer = 0;
   private splashFinishTimer = 0;
   private splashHideTimer = 0;
+  private splashCapTimer = 0;
   private liveDms: Channel[] = [];
   private liveMembers: Person[] = [];
   private membersByGuild: Record<string, Person[]> = {};
@@ -1041,6 +1048,7 @@ class LarkApp {
     this.gate.hidden = true;
     if (!this.shellShown) this.shell.hidden = true;
     this.syncSplash();
+    this.armSplashCap();
   }
 
   /** Browser preview of the cold-start splash, then the sample shell. */
@@ -1193,9 +1201,16 @@ class LarkApp {
     this.finishStartup();
   }
 
-  private finishStartup() {
-    if (!this.holdShell) return;
-    const wait = splashReleaseDelay(performance.now() - this.splashShownAt);
+  private finishStartup(force = false) {
+    if (!this.holdShell) {
+      if (force) this.hideSplash();
+      return;
+    }
+    if (force && this.splashFinishTimer) {
+      window.clearTimeout(this.splashFinishTimer);
+      this.splashFinishTimer = 0;
+    }
+    const wait = force ? 0 : splashReleaseDelay(performance.now() - this.splashShownAt);
     if (wait > 0) {
       if (this.splashFinishTimer) return;
       this.startupMilestone = "ui";
@@ -1215,8 +1230,12 @@ class LarkApp {
     window.clearTimeout(this.channelGraceTimer);
     this.channelGraceTimer = 0;
     this.clearSlowSplash();
+    this.clearSplashCap();
     if (!overlay) {
       this.view = "app";
+      // Channel open paints into the shell. The splash hid that shell, and
+      // message paint does not show it, which left a blank window in 2.4.4.
+      this.revealShell();
       const id = this.channelId;
       if (id) void this.openChannel(id);
       else this.paint();
@@ -1265,12 +1284,36 @@ class LarkApp {
 
   private clearStartupTimers() {
     this.clearSlowSplash();
+    this.clearSplashCap();
     if (this.channelGraceTimer) window.clearTimeout(this.channelGraceTimer);
     if (this.splashFinishTimer) window.clearTimeout(this.splashFinishTimer);
     if (this.splashHideTimer) window.clearTimeout(this.splashHideTimer);
     this.channelGraceTimer = 0;
     this.splashFinishTimer = 0;
     this.splashHideTimer = 0;
+  }
+
+  /** Drop the splash if connect, channels, or the first paint never finish. */
+  private armSplashCap() {
+    this.clearSplashCap();
+    this.splashCapTimer = window.setTimeout(() => {
+      this.splashCapTimer = 0;
+      if (!this.holdShell && !this.splashLeaving) return;
+      this.finishStartup(true);
+    }, SPLASH_CAP_MS);
+  }
+
+  private clearSplashCap() {
+    if (!this.splashCapTimer) return;
+    window.clearTimeout(this.splashCapTimer);
+    this.splashCapTimer = 0;
+  }
+
+  /** Show the gate or the shell. Message paint does not do this on its own. */
+  private revealShell() {
+    if (this.holdShell) return;
+    this.gate.hidden = this.view !== "gate";
+    this.shell.hidden = this.view !== "app";
   }
 
   private syncSplash() {
@@ -1303,15 +1346,22 @@ class LarkApp {
   }
 
   private paint() {
+    try {
+      this.paintView();
+    } catch (error) {
+      reportCrash(error);
+    }
+  }
+
+  private paintView() {
     if (this.holdShell) {
       this.gate.hidden = true;
       this.shell.hidden = !this.shellShown;
       this.syncSplash();
       return;
     }
+    this.revealShell();
     this.applyAppearance();
-    this.gate.hidden = this.view !== "gate";
-    this.shell.hidden = this.view !== "app";
     if (this.view === "gate") this.paintGate();
     if (this.view === "app") {
       this.paintRail();
@@ -2551,6 +2601,7 @@ class LarkApp {
 
   private async openChannel(id: string) {
     if (this.holdShell) return;
+    this.revealShell();
     this.prefetchToken += 1;
     const perf = (window as unknown as { __lark?: PerfMarks }).__lark;
     if (perf) perf.lastSwitch = -1;
@@ -3175,6 +3226,14 @@ class LarkApp {
   }
 
   private paintMessages() {
+    try {
+      this.paintMessageList();
+    } catch (error) {
+      reportCrash(error);
+    }
+  }
+
+  private paintMessageList() {
     if (this.holdShell) return;
     if (this.clipsOpen) {
       this.paintClipLibrary();

@@ -21,6 +21,12 @@ export const CACHE_WARM_MS = 900;
  */
 export const MIN_SPLASH_MS = 400;
 
+/**
+ * Hard stop for a cold start. Channel grace and the crossfade finish well
+ * inside this. Past it, the splash gets out of the way with whatever loaded.
+ */
+export const SPLASH_CAP_MS = 8_000;
+
 export const PLACE_KEY = "lark.place.v1";
 
 export type StartupMilestone = "connect" | "ready" | "channels" | "cache" | "ui";
