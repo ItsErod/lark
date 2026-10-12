@@ -1007,6 +1007,105 @@ impl DiscordRest {
         Ok(())
     }
 
+    pub async fn guild_soundboard(&self, guild_id: &str) -> Result<Vec<Value>, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/soundboard-sounds");
+        let route = route_key("GET", "/guilds/{guild.id}/soundboard-sounds", guild_id);
+        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        Ok(soundboard_from_json(&value))
+    }
+
+    pub async fn send_soundboard_sound(&self, channel_id: &str, sound_id: &str, source_guild_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(sound_id)?;
+        self.ensure_snowflake(source_guild_id)?;
+        let path = format!("/channels/{channel_id}/send-soundboard-sound");
+        let route = route_key("POST", "/channels/{channel.id}/send-soundboard-sound", channel_id);
+        self.send_json(
+            Method::POST,
+            &route,
+            channel_id,
+            &path,
+            Some(json!({ "sound_id": sound_id, "source_guild_id": source_guild_id })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_invite(&self, channel_id: &str, application_id: Option<&str>) -> Result<String, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/invites");
+        let route = route_key("POST", "/channels/{channel.id}/invites", channel_id);
+        let mut body = json!({ "max_age": 86400, "max_uses": 0, "unique": true });
+        if let Some(application_id) = application_id {
+            self.ensure_snowflake(application_id)?;
+            body["target_type"] = json!(2);
+            body["target_application_id"] = json!(application_id);
+        }
+        let value = self.send_json(Method::POST, &route, channel_id, &path, Some(body)).await?;
+        Ok(invite_link(&value))
+    }
+
+    pub async fn modify_channel(&self, channel_id: &str, name: Option<&str>, topic: Option<&str>) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}");
+        let route = route_key("PATCH", "/channels/{channel.id}", channel_id);
+        let mut body = serde_json::Map::new();
+        if let Some(name) = name {
+            body.insert("name".into(), json!(name));
+        }
+        if let Some(topic) = topic {
+            body.insert("topic".into(), json!(topic));
+        }
+        self.send_json(Method::PATCH, &route, channel_id, &path, Some(Value::Object(body))).await?;
+        Ok(())
+    }
+
+    pub async fn channel_json(&self, channel_id: &str) -> Result<Value, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}");
+        let route = route_key("GET", "/channels/{channel.id}", channel_id);
+        self.send_json(Method::GET, &route, channel_id, &path, None).await
+    }
+
+    pub async fn create_guild_channel(&self, guild_id: &str, body: Value) -> Result<Value, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/channels");
+        let route = route_key("POST", "/guilds/{guild.id}/channels", guild_id);
+        self.send_json(Method::POST, &route, guild_id, &path, Some(body)).await
+    }
+
+    pub async fn set_voice_status(&self, channel_id: &str, status: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/voice-status");
+        let route = route_key("PUT", "/channels/{channel.id}/voice-status", channel_id);
+        self.send_json(Method::PUT, &route, channel_id, &path, Some(json!({ "status": status }))).await?;
+        Ok(())
+    }
+
+    pub async fn start_stage(&self, channel_id: &str, topic: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let route = route_key("POST", "/stage-instances", "stage");
+        self.send_json(
+            Method::POST,
+            &route,
+            "stage",
+            "/stage-instances",
+            Some(json!({ "channel_id": channel_id, "topic": topic, "privacy_level": 2 })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_member_voice(&self, guild_id: &str, user_id: &str, body: Value) -> Result<(), RestError> {
+        self.ensure_snowflake(guild_id)?;
+        self.ensure_snowflake(user_id)?;
+        let path = format!("/guilds/{guild_id}/members/{user_id}");
+        let route = route_key("PATCH", "/guilds/{guild.id}/members/{user.id}", guild_id);
+        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body)).await?;
+        Ok(())
+    }
+
     fn ensure_invite(&self, code: &str) -> Result<(), RestError> {
         if invite_code_ok(code) {
             Ok(())
@@ -1467,6 +1566,58 @@ impl DiscordRest {
     }
 }
 
+pub fn soundboard_from_json(value: &Value) -> Vec<Value> {
+    let items = value.get("items").and_then(|item| item.as_array()).or_else(|| value.as_array());
+    let Some(items) = items else { return Vec::new() };
+    items
+        .iter()
+        .filter_map(|item| {
+            let id = item.get("sound_id").and_then(|id| id.as_str()).unwrap_or("");
+            if id.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "sound_id": id,
+                "name": item.get("name").and_then(|name| name.as_str()).unwrap_or("Sound"),
+                "volume": item.get("volume").and_then(|volume| volume.as_f64()).unwrap_or(1.0),
+                "emoji_name": item.get("emoji_name").and_then(|emoji| emoji.as_str()).unwrap_or(""),
+                "available": item.get("available").and_then(|flag| flag.as_bool()).unwrap_or(true),
+            }))
+        })
+        .take(48)
+        .collect()
+}
+
+pub fn invite_link(value: &Value) -> String {
+    let code = value.get("code").and_then(|code| code.as_str()).unwrap_or("").trim();
+    if code.is_empty() || code.len() > 32 || !code.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+        return String::new();
+    }
+    format!("https://discord.gg/{code}")
+}
+
+pub fn member_voice_json(mute: Option<bool>, deaf: Option<bool>, channel_id: Option<&str>, disconnect: bool, suppress: Option<bool>) -> Value {
+    let mut body = serde_json::Map::new();
+    if let Some(mute) = mute {
+        body.insert("mute".into(), json!(mute));
+    }
+    if let Some(deaf) = deaf {
+        body.insert("deaf".into(), json!(deaf));
+        if deaf {
+            body.entry("mute").or_insert(json!(true));
+        }
+    }
+    if disconnect {
+        body.insert("channel_id".into(), Value::Null);
+    } else if let Some(channel_id) = channel_id {
+        body.insert("channel_id".into(), json!(channel_id));
+    }
+    if let Some(suppress) = suppress {
+        body.insert("suppress".into(), json!(suppress));
+    }
+    Value::Object(body)
+}
+
 #[derive(Deserialize)]
 struct TooMany {
     retry_after: f64,
@@ -1640,6 +1791,21 @@ impl Drop for ChannelLead<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn soundboard_and_invites_keep_discord_ids() {
+        let sounds = soundboard_from_json(&json!({
+            "items": [{ "sound_id": "100000000000000099", "name": "Honk", "volume": 0.5, "available": true }]
+        }));
+        assert_eq!(sounds.len(), 1);
+        assert_eq!(sounds[0]["sound_id"], "100000000000000099");
+        assert_eq!(invite_link(&json!({ "code": "abc123" })), "https://discord.gg/abc123");
+        assert!(invite_link(&json!({ "code": "bad code" })).is_empty());
+        let moved = member_voice_json(None, None, Some("100000000000000026"), false, None);
+        assert_eq!(moved["channel_id"], "100000000000000026");
+        let gone = member_voice_json(None, None, None, true, None);
+        assert!(gone["channel_id"].is_null());
+    }
 
     #[test]
     fn message_history_asks_for_the_newest_page() {

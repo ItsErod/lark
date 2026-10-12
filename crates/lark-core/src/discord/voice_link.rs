@@ -22,6 +22,7 @@ use super::voice::{
 };
 use crate::soundboard::SoundMix;
 
+use super::voice_camera::{CameraInbox, CameraSender};
 use super::voice_dave::{DaveCall, DaveWire};
 use super::voice_log::{log_step, VoiceLog};
 use super::voice_media::{start_media, VoiceAudio, VoiceWire};
@@ -34,12 +35,14 @@ pub struct VoiceHello {
     pub session_id: String,
     pub token: String,
     pub epoch: u64,
+    pub camera: Arc<CameraInbox>,
 }
 
 #[derive(Debug, Clone)]
 pub enum VoiceLinkEvent {
     Status { state: String, detail: String, epoch: u64 },
     Speaking { user_id: String, speaking: bool, epoch: u64 },
+    Ping { ping_ms: u64, endpoint: String, epoch: u64 },
 }
 
 fn watched(rx: &watch::Receiver<bool>) -> bool {
@@ -236,10 +239,19 @@ where
     }
     let udp = Arc::new(udp);
     let mut packet = [0u8; 4096];
+    let mut camera_tx = CameraSender::default();
 
     loop {
         if watched(cancel) {
             return Ok(());
+        }
+        if let Some(payload) = camera_tx.note_active(hello.camera.active(), ssrc) {
+            let _ = write.send(Message::Text(payload)).await;
+        }
+        for sealed in camera_tx.take_packets(mode, &key, ssrc, &hello.camera) {
+            if udp.send(&sealed).await.is_err() {
+                return Err("UDP send failed".into());
+            }
         }
         let wait = beat.until();
         let udp_send = udp.clone();
@@ -256,6 +268,7 @@ where
                     beat.sent();
                 }
             }
+            _ = hello.camera.notified() => {}
             incoming = read.next() => {
                 let Some(frame) = incoming else { return Err("Voice gateway closed".into()); };
                 let frame = frame.map_err(|_| "Voice gateway closed".to_string())?;
@@ -265,6 +278,9 @@ where
                         let _ = write.send(Message::Pong(payload)).await;
                     }
                     Message::Text(text) => {
+                        if let Some(ms) = voice_ping_ms(&text, &mut beat) {
+                            emit(VoiceLinkEvent::Ping { ping_ms: ms, endpoint: hello.endpoint.clone(), epoch: hello.epoch });
+                        }
                         handle_gateway_text(&text, hello, &ssrc_users, &mut seq_ack, dave.as_ref(), emit)?;
                         if let Some(dave) = dave.as_ref() {
                             publish_dave(&mut write, dave, log).await?;
@@ -399,11 +415,12 @@ where
 struct Heartbeat {
     every: Option<Duration>,
     next: Option<Instant>,
+    sent_at: Option<Instant>,
 }
 
 impl Heartbeat {
     fn new() -> Self {
-        Self { every: None, next: None }
+        Self { every: None, next: None, sent_at: None }
     }
 
     fn note_hello(&mut self, raw: u64) {
@@ -428,10 +445,20 @@ impl Heartbeat {
     }
 
     fn sent(&mut self) {
+        self.sent_at = Some(Instant::now());
         if let Some(every) = self.every {
             self.next = Some(Instant::now() + every);
         }
     }
+}
+
+fn voice_ping_ms(text: &str, beat: &mut Heartbeat) -> Option<u64> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    if value.get("op").and_then(|item| item.as_i64()) != Some(6) {
+        return None;
+    }
+    let sent = beat.sent_at.take()?;
+    Some(sent.elapsed().as_millis() as u64)
 }
 
 #[derive(Default)]
@@ -902,6 +929,7 @@ mod tests {
             session_id: "session".into(),
             token: "super-secret-voice-token".into(),
             epoch: 1,
+            camera: Arc::new(crate::discord::voice_camera::CameraInbox::new()),
         };
         drive_voice(&hello, socket, &mut cancel, &mut speaking, &audio, &volumes, &board, &log, &mut |_event: VoiceLinkEvent| {}).await
     }
