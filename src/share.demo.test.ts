@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs";
 import { createServer, type ViteDevServer } from "vite";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,7 +9,6 @@ describe("go live share surfaces", () => {
   let browser: Browser;
 
   beforeAll(async () => {
-    mkdirSync("/opt/cursor/artifacts", { recursive: true });
     server = await createServer({
       server: { host: "127.0.0.1", port, strictPort: true },
     });
@@ -32,7 +30,6 @@ describe("go live share surfaces", () => {
       inMessages: Boolean(document.querySelector(".messages .share-dialog, .messages .stream-tile")),
       sources: document.querySelectorAll(".share-source").length,
     }));
-    await page.screenshot({ path: "/opt/cursor/artifacts/share-dialog.png" });
     await page.close();
     expect(placed.dialog).toBe(true);
     expect(placed.inMessages).toBe(false);
@@ -52,7 +49,6 @@ describe("go live share surfaces", () => {
       pipInChat: Boolean(document.querySelector(".messages [data-call-pip], .composer-wrap [data-call-pip]")),
       watch: Boolean([...document.querySelectorAll(".stream-tile-actions button")].some((button) => button.textContent === "Watch")),
     }));
-    await page.screenshot({ path: "/opt/cursor/artifacts/share-live.png" });
     await page.close();
     expect(placed.tile).toBe(true);
     expect(placed.badge).toBe("LIVE");

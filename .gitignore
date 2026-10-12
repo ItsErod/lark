@@ -1,9 +1,44 @@
+# Dependencies and build output
 node_modules/
 dist/
 target/
 src-tauri/target/
 src-tauri/gen/
-.DS_Store
+src-tauri/WixTools/
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+/config.toml
+*.pem
+*.p12
+*.pfx
+*.key
+
+# Installers and local bundles
+*.dmg
+*.msi
+*.exe
+*.app
+*.deb
+*.AppImage
+
+# Logs, caches, and test artifacts
 *.log
 .vite/
 coverage/
+test-results/
+playwright-report/
+blob-report/
+artifacts/
+screenshots/
+
+# Editors and OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*~

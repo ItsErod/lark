@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs";
 import { createServer, type ViteDevServer } from "vite";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,7 +22,6 @@ describe("compact channel open", () => {
   });
 
   it("aligns compact rows, shows the image, and anchors older history", async () => {
-    mkdirSync("/opt/cursor/artifacts/screenshots", { recursive: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.addInitScript(() => {
       localStorage.setItem("lark.config.v1", JSON.stringify({ appearance: { density: "compact", show_member_list: false } }));
@@ -117,8 +115,6 @@ describe("compact channel open", () => {
       const img = document.querySelector(".image-preview");
       return img instanceof HTMLImageElement && img.getAttribute("src")?.includes("/media/frame.svg") && img.complete && img.naturalWidth > 0;
     }, undefined, { timeout: 15_000 });
-    const shot = "/opt/cursor/artifacts/screenshots/compact-channel.png";
-    await page.screenshot({ path: shot });
     await page.close();
     expect(layout.firstPaint).not.toBeNull();
     console.log(`[lark-perf] demo first message paint ${layout.firstPaint}ms`);
