@@ -3125,7 +3125,9 @@ class LarkApp {
     const timer = this.callTimerText();
     panel.setAttribute("aria-label", timer ? `${audible}, ${session.name ?? "Voice"}, ${timer}` : `${audible}, ${session.name ?? "Voice"}`);
     const line = el("div", "voice-panel-line");
-    line.append(signalMeter(status), el("strong", "voice-panel-name", session.name ?? "Voice"));
+    const diagnostics = this.diagnosticsButton();
+    diagnostics.classList.add("voice-diagnostics");
+    line.append(signalMeter(status), el("strong", "voice-panel-name", session.name ?? "Voice"), diagnostics);
     if (timer) line.append(el("time", "voice-panel-timer", timer));
     if (this.shareOn) line.append(liveBadge(this.sharePaused));
     const details = el("p", "voice-panel-details", voiceDetailLine(this.voiceDetails, status));
@@ -3147,7 +3149,6 @@ class LarkApp {
     if (this.config.voice.noise_suppression) noise.classList.add("is-on");
     noise.title = "Lark noise suppression (RNNoise)";
     const hangup = this.iconButton("Disconnect", paths.hangup, () => this.leaveVoice(), false);
-    const diagnostics = this.iconButton("Copy voice diagnostics", paths.copy, () => void this.copyVoiceDiagnostics(), false);
     hangup.classList.add("is-disconnect");
     const strip = this.iconButton(
       this.stripOpen ? "Hide call strip" : "Show call strip",
@@ -3165,7 +3166,6 @@ class LarkApp {
       this.deviceChevron("Input device", () => this.toggleDeviceMenu("input")),
       this.iconButton(session.deafened ? "Undeafen" : "Deafen", session.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session.deafened)),
       this.deviceChevron("Output device", () => this.toggleDeviceMenu("output")),
-      diagnostics,
       hangup,
       el("span", "spacer"),
       strip,
@@ -3191,7 +3191,7 @@ class LarkApp {
       this.iconButton(deafened ? "Undeafen" : "Deafen", deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), deafened),
       this.deviceChevron("Output device", () => this.toggleDeviceMenu("output")),
     );
-    row.append(micSlot, deafSlot, this.iconButton("Copy voice diagnostics", paths.copy, () => void this.copyVoiceDiagnostics(), false));
+    row.append(micSlot, deafSlot);
     if (!this.voice && this.deviceMenu) row.append(this.deviceMenuPop());
     return row;
   }
@@ -11545,6 +11545,7 @@ class LarkApp {
     clear(host);
     host.setAttribute("aria-label", "Voice settings");
     host.append(el("strong", "", "Voice settings"));
+    host.append(this.diagnosticsButton());
     host.append(this.devicePicker("Microphone", this.config.voice.input_device, this.captureDevices(), (value) => {
       this.config.voice.input_device = value;
       this.persist();
