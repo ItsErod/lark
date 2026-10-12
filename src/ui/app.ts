@@ -2727,7 +2727,9 @@ class LarkApp {
   }
 
   private guildMuted(guildId: string): boolean {
-    return Boolean(this.discordNotify.guilds[guildId]?.muted || this.config.notifications.guilds[guildId]?.muted);
+    const remote = this.discordNotify.guilds[guildId];
+    if (remote?.authoritative) return remote.muted;
+    return Boolean(remote?.muted || this.config.notifications.guilds[guildId]?.muted);
   }
 
   private levelFor(guildId: string | null, channelId: string) {
@@ -3602,6 +3604,7 @@ class LarkApp {
     const current = this.levelFor(this.guildId, this.channelId);
     const next = order[(order.indexOf(current) + 1) % order.length];
     this.config.notifications.channels[this.channelId] = next === "mute" ? { muted: true } : { level: next, muted: false };
+    this.stageNotify(this.guildId, this.channelId, next);
     this.persist();
     void this.writeNotify(this.guildId, this.channelId, next);
     this.toast("Notifications", `${this.currentChannel()?.name ?? "Channel"} is set to ${next}.`);
@@ -10841,10 +10844,7 @@ class LarkApp {
     }
     if (action === "mute") {
       const muted = this.levelFor(this.guildId, channel.id) === "mute";
-      this.config.notifications.channels[channel.id] = muted ? { level: "all", muted: false } : { level: "mute", muted: true };
-      this.persist();
-      this.toast("Notifications", muted ? `${channel.name} is unmuted.` : `${channel.name} is muted.`);
-      this.paintChannels();
+      this.writeChannelLevel(channel.id, muted ? "all" : "mute");
       return;
     }
     if (action === "edit") {
@@ -12643,9 +12643,11 @@ class LarkApp {
         card.append(this.choice(["all", "mentions", "mute"], level, (value) => {
           const next = value as NotifyLevel;
           this.config.notifications.channels[this.channelId!] = next === "mute" ? { muted: true } : { level: next, muted: false };
+          this.stageNotify(this.guildId, this.channelId, next);
           const words = this.pack.keywordChannels[this.channelId!]?.words ?? [];
           this.pack.keywordChannels[this.channelId!] = { words, level: next };
           this.persist();
+          void this.writeNotify(this.guildId, this.channelId, next);
           this.savePack();
           this.paint();
         }));
@@ -14086,7 +14088,12 @@ class LarkApp {
         if (channel.collapsed && !this.catSeeded) this.collapsedCats.add(channel.channelId);
       }
       if (!entry.guildId) {
-        for (const [id, pref] of Object.entries(channels)) this.discordNotify.dms[id] = pref;
+        this.discordNotify.dms = channels;
+        this.discordNotify.dmsReady = true;
+        for (const dm of this.dms()) {
+          if (!channels[dm.id]) delete this.config.notifications.channels[dm.id];
+        }
+        for (const [id, pref] of Object.entries(channels)) this.config.notifications.channels[id] = this.overrideFromPref(pref);
         continue;
       }
       const level = entry.level === "all" || entry.level === "mentions" || entry.level === "mute" ? entry.level : null;
@@ -14096,8 +14103,53 @@ class LarkApp {
         suppressEveryone: Boolean(entry.suppressEveryone),
         suppressRoles: Boolean(entry.suppressRoles),
         channels,
+        authoritative: true,
       };
+      this.config.notifications.guilds[entry.guildId] = entry.muted ? { muted: true } : { muted: false, level: level ?? undefined };
+      const known = new Set(Object.keys(channels));
+      for (const channel of this.channelsOf(entry.guildId)) {
+        if (!known.has(channel.id)) delete this.config.notifications.channels[channel.id];
+      }
+      for (const [id, pref] of Object.entries(channels)) this.config.notifications.channels[id] = this.overrideFromPref(pref);
     }
+    if (entries.length) this.persist();
+  }
+
+  private overrideFromPref(pref: { muted: boolean; level: "all" | "mentions" | "mute" | null }): { muted: boolean; level?: NotifyLevel } {
+    if (pref.muted || pref.level === "mute") return { muted: true };
+    return pref.level ? { muted: false, level: pref.level } : { muted: false };
+  }
+
+  private stageNotify(guildId: string | null, channelId: string | null, level: NotifyLevel) {
+    const muted = level === "mute";
+    const pref = { muted, level: muted ? "mute" as const : level, collapsed: false };
+    if (guildId && channelId) {
+      const guild = this.discordNotify.guilds[guildId] ?? {
+        muted: false,
+        level: null,
+        suppressEveryone: false,
+        suppressRoles: false,
+        channels: {},
+      };
+      const previous = guild.channels[channelId];
+      guild.channels[channelId] = { ...pref, collapsed: previous?.collapsed ?? false };
+      this.discordNotify.guilds[guildId] = guild;
+      return;
+    }
+    if (guildId) {
+      const guild = this.discordNotify.guilds[guildId] ?? {
+        muted: false,
+        level: null,
+        suppressEveryone: false,
+        suppressRoles: false,
+        channels: {},
+      };
+      guild.muted = muted;
+      guild.level = muted ? "mute" : level;
+      this.discordNotify.guilds[guildId] = guild;
+      return;
+    }
+    if (channelId) this.discordNotify.dms[channelId] = pref;
   }
 
   private markReadFromEscape() {
@@ -14410,6 +14462,7 @@ class LarkApp {
     if (id.startsWith("guild-notify:")) {
       const level = id.slice("guild-notify:".length) as NotifyLevel;
       this.config.notifications.guilds[guildId] = level === "mute" ? { muted: true } : { level, muted: false };
+      this.stageNotify(guildId, null, level);
       this.persist();
       void this.writeNotify(guildId, null, level);
       this.toast("Notifications", `Server notifications are set to ${level}.`);
@@ -14615,6 +14668,7 @@ class LarkApp {
 
   private writeChannelLevel(channelId: string, level: NotifyLevel) {
     this.config.notifications.channels[channelId] = level === "mute" ? { muted: true } : { level, muted: false };
+    this.stageNotify(this.guildId, channelId, level);
     this.persist();
     void this.writeNotify(this.guildId, channelId, level);
     this.toast("Notifications", `${level}.`);
@@ -15004,15 +15058,12 @@ class LarkApp {
   }
 
   private async muteDm(channelId: string, muted: boolean) {
+    const level: NotifyLevel = muted ? "mute" : "all";
     this.config.notifications.channels[channelId] = muted ? { muted: true } : { level: "all", muted: false };
+    this.stageNotify(null, channelId, level);
     void this.persist();
     this.paint();
-    if (this.demo) return;
-    try {
-      await invoke("mute_dm", { channelId, muted });
-    } catch (err) {
-      this.toast("Notifications", err instanceof Error ? err.message : "Discord did not save that mute. It is saved on this device.");
-    }
+    await this.writeNotify(null, channelId, level);
   }
 
   private async closeDmChannel(channel: Channel) {

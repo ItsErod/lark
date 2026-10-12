@@ -121,6 +121,15 @@ describe("discord notification settings", () => {
     };
     expect(effectiveLevel(config, "g1", "c1", discord)).toBe("mute");
     expect(effectiveLevel(config, "g1", "c2", discord)).toBe("all");
+    config.notifications.channels["c2"] = { muted: true };
+    expect(effectiveLevel(config, "g1", "c2", discord)).toBe("mute");
+    discord.guilds.g1.authoritative = true;
+    expect(effectiveLevel(config, "g1", "c2", discord)).toBe("all");
+    expect(effectiveLevel(config, "g1", "c1", discord)).toBe("mute");
+    const dms = { ...discord, dmsReady: true, dms: { dm1: { muted: true, level: "mute" as const, collapsed: false } } };
+    config.notifications.channels["dm2"] = { muted: true };
+    expect(effectiveLevel(config, null, "dm1", dms)).toBe("mute");
+    expect(effectiveLevel(config, null, "dm2", dms)).toBe("all");
     expect(mentionsUser({
       mentionIds: [],
       mentionRoles: [],

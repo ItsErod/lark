@@ -45,11 +45,15 @@ export interface GuildPref {
   suppressEveryone: boolean;
   suppressRoles: boolean;
   channels: Record<string, ChannelPref>;
+  /** Set when this guild's settings were read from Discord, not typed on this device. */
+  authoritative?: boolean;
 }
 
 export interface DiscordNotify {
   guilds: Record<string, GuildPref>;
   dms: Record<string, ChannelPref>;
+  /** The private-channel (`@me`) settings snapshot has arrived. */
+  dmsReady?: boolean;
 }
 
 export interface ReadMarker {
@@ -185,22 +189,36 @@ export function asLevel(value: unknown): NotifyLevel | null {
   return typeof value === "string" && LEVELS.has(value as NotifyLevel) ? (value as NotifyLevel) : null;
 }
 
+function levelFromPref(pref: { muted?: boolean; level?: NotifyLevel | null } | undefined): NotifyLevel | null {
+  if (!pref) return null;
+  if (pref.muted || pref.level === "mute") return "mute";
+  if (pref.level) return pref.level;
+  return null;
+}
+
 export function effectiveLevel(
   config: AppConfig,
   guildId: string | null,
   channelId: string,
   discord?: DiscordNotify | null,
 ): NotifyLevel {
+  if (guildId && discord?.guilds[guildId]?.authoritative) {
+    const guild = discord.guilds[guildId];
+    return levelFromPref(guild.channels[channelId]) ?? levelFromPref(guild) ?? config.notifications.default;
+  }
+  if (!guildId && discord?.dmsReady) {
+    return levelFromPref(discord.dms[channelId]) ?? config.notifications.default;
+  }
   const channelPref = guildId ? discord?.guilds[guildId]?.channels[channelId] : discord?.dms[channelId];
-  if (channelPref?.muted) return "mute";
-  if (channelPref?.level) return channelPref.level;
+  const remoteChannel = levelFromPref(channelPref);
+  if (remoteChannel) return remoteChannel;
   const savedChannel = config.notifications.channels[channelId];
   if (savedChannel?.muted) return "mute";
   if (savedChannel?.level) return savedChannel.level;
   if (guildId) {
     const guildPref = discord?.guilds[guildId];
-    if (guildPref?.muted) return "mute";
-    if (guildPref?.level) return guildPref.level;
+    const remoteGuild = levelFromPref(guildPref);
+    if (remoteGuild) return remoteGuild;
     const savedGuild = config.notifications.guilds[guildId];
     if (savedGuild?.muted) return "mute";
     if (savedGuild?.level) return savedGuild.level;
