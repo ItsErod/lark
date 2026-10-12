@@ -342,3 +342,28 @@ commands.allow = ["trim_clip"]
 identifier = "allow-compress-clip"
 description = "Re-encode a copy of a clip under the upload limit."
 commands.allow = ["compress_clip"]
+
+[[permission]]
+identifier = "allow-store-index"
+description = "Read the plugin and theme store catalog."
+commands.allow = ["store_index"]
+
+[[permission]]
+identifier = "allow-install-store-item"
+description = "Install a store plugin or theme after its hash matches."
+commands.allow = ["install_store_item"]
+
+[[permission]]
+identifier = "allow-uninstall-store-item"
+description = "Remove an installed store plugin or theme."
+commands.allow = ["uninstall_store_item"]
+
+[[permission]]
+identifier = "allow-installed-store"
+description = "List plugins and themes installed from the store."
+commands.allow = ["installed_store"]
+
+[[permission]]
+identifier = "allow-open-store-page"
+description = "Open the Lark store page in the system browser."
+commands.allow = ["open_store_page"]

@@ -79,7 +79,26 @@ import { DRAFTS_PLAIN_KEY, DRAFTS_SEALED_KEY, parseDraftMap, planDraftLoad, type
 import { dmPreview, personalLine, redactBlocks, redactSensitive, streamerActive } from "../privacy";
 import { addReminder, cancelReminder, reminderFor, reminderPresets, sanitizeReminders, takeDueReminders, type Reminder } from "../reminders";
 import { browserPlatform, fontStack, type PlatformInfo } from "../platform";
-import { describePlugin, enabledSources, parseCatalog, validPluginId, type PluginCatalogItem, type PluginHooks, type PluginSource } from "../plugins";
+import { describePlugin, enabledSources, validPluginId, type PluginCatalogItem, type PluginHooks, type PluginSource } from "../plugins";
+import {
+  acceptBytes,
+  APP_VERSION,
+  entryUrl,
+  findStoreItem,
+  hashMatches,
+  larkVersionOk,
+  newerVersion,
+  parseInstallUrl,
+  parseStoreIndex,
+  readLocalStore,
+  sha256Hex,
+  STORE_INDEX_URL,
+  STORE_LOCAL_KEY,
+  STORE_PAGE_URL,
+  writeLocalStore,
+  type InstalledRecord,
+  type StoreIndex,
+} from "../store";
 import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
 import { fpsFromMarks, FrameClock, noteFpsMark } from "../frame";
@@ -505,6 +524,11 @@ class LarkApp {
   private youtubeFloat: string | null = null;
   private youtubeFloatStamp = "";
   private catalog: PluginCatalogItem[] = [];
+  private storeIndex: StoreIndex | null = null;
+  private installed: InstalledRecord[] = [];
+  private preferBuiltin = false;
+  private storeListening = false;
+  private storeRefreshing = false;
   private loaded = new Map<string, PluginSource>();
   private pack: PackState = defaultPack();
   private translated: Record<string, string> = {};
@@ -854,6 +878,7 @@ class LarkApp {
     }
     this.away.lastActivity = Date.now();
     this.imported = loadImportedThemes(localStorage.getItem("lark.imported-themes.v1"));
+    this.preferBuiltin = localStorage.getItem("lark.theme.builtin") === "1";
     for (const [id, css] of this.imported) this.themeCache.set(id, css);
     this.extraThemeIds = [...this.imported.keys()];
     this.seedUnreads();
@@ -1706,6 +1731,13 @@ class LarkApp {
   }
 
   private async applyTheme() {
+    if (this.preferBuiltin) {
+      document.getElementById("lark-theme")?.remove();
+      delete document.documentElement.dataset.theme;
+      this.syncMaterial("none");
+      applyUserChrome(this.root, this.config);
+      return;
+    }
     const name = this.config.appearance.theme;
     if (!THEME_ID.test(name)) return;
     try {
@@ -1736,6 +1768,8 @@ class LarkApp {
     if (!isTauri()) {
       const imported = this.imported.get(name);
       if (imported) return imported;
+      const saved = readLocalStore(localStorage.getItem(STORE_LOCAL_KEY)).themes[name];
+      if (saved?.css) return saved.css;
     }
     if (isTauri()) return invoke<string>("read_theme", { name });
     const res = await fetch(`/themes/${name}.css`, { cache: "no-store" });
@@ -1763,6 +1797,7 @@ class LarkApp {
 
   private async refreshThemeIndex() {
     const ids = [...this.imported.keys()];
+    if (!isTauri()) ids.push(...Object.keys(readLocalStore(localStorage.getItem(STORE_LOCAL_KEY)).themes));
     if (isTauri()) {
       try {
         ids.push(...(await invoke<string[]>("list_themes")));
@@ -1787,6 +1822,8 @@ class LarkApp {
 
   private selectTheme(id: string) {
     if (!THEME_ID.test(id)) return;
+    this.preferBuiltin = false;
+    localStorage.removeItem("lark.theme.builtin");
     for (const name of ["--bg-0", "--bg-2", "--text"]) this.root.style.removeProperty(name);
     this.config.appearance.theme = id;
     this.config.preferences.color_mode = "";
@@ -5021,6 +5058,7 @@ class LarkApp {
   private afterSettingsSection() {
     if (!this.settings) return;
     if (this.section === "appearance") void this.refreshThemeIndex();
+    if (this.section === "plugins") void this.refreshPluginsPane();
     if (this.section === "account" || this.section === "connections") void this.loadAccountOverview();
     if (this.section === "clips") {
       void this.pullClipStatus().then(() => {
@@ -5938,24 +5976,257 @@ class LarkApp {
 
   private panePlugins(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Plugins", "Plugins stay off until you turn them on. They never receive the token."));
-    const card = settingCard("Installed");
+    const head = settingHead("Plugins and Themes", "Nothing here ships inside the app. Browse the store, then turn an item on. Lark still runs with none installed.");
+    const browse = el("button", "text-button", "Browse");
+    browse.type = "button";
+    browse.addEventListener("click", () => void this.openStorePage());
+    head.append(browse);
+    wrap.append(head);
+    const card = settingCard("Plugins");
     card.dataset.setting = "plugins.list";
-    card.append(el("p", "setting-help", "Reading tools stay on this device. Send later and the status plugins use the same single Discord requests as the composer and the profile chip, paced so they cannot burst."));
+    card.append(el("p", "setting-help", "Reading tools stay on this device. They never receive the token."));
     const pack = new Set<string>(PACK_IDS);
-    let headed = false;
-    for (const plugin of this.catalog) {
-      if (!headed && pack.has(plugin.id)) {
-        headed = true;
-        card.append(el("h3", "", "Pack"));
-      }
-      const enabled = this.config.plugins.enabled.includes(plugin.id);
-      card.append(this.switchRow(`plugin.${plugin.id}`, plugin.name, plugin.description, enabled, (value) => this.setPluginEnabled(plugin.id, value)));
-      if (enabled) this.appendPluginPanel(card, plugin.id);
+    const plugins = this.installed.filter((item) => item.kind === "plugin");
+    const themes = this.installed.filter((item) => item.kind === "theme");
+    const samples = plugins.filter((item) => !pack.has(item.id));
+    const packed = plugins.filter((item) => pack.has(item.id));
+    const paintPlugin = (item: InstalledRecord) => {
+      const enabled = this.config.plugins.enabled.includes(item.id);
+      card.append(this.switchRow(`plugin.${item.id}`, item.name || item.id, this.storeBlurb(item), enabled, (value) => this.setPluginEnabled(item.id, value)));
+      card.append(this.storeActions(item));
+      if (enabled) this.appendPluginPanel(card, item.id);
+    };
+    for (const item of samples) paintPlugin(item);
+    if (packed.length) card.append(el("h3", "", "Pack"));
+    for (const item of packed) paintPlugin(item);
+    if (!plugins.length) card.append(el("p", "setting-help", "No plugins installed. Browse the store to add one."));
+    const themeCard = settingCard("Themes");
+    themeCard.append(el("p", "setting-help", "One theme can be on. Turning it off keeps the built-in colours."));
+    for (const item of themes) {
+      const on = !this.preferBuiltin && this.config.appearance.theme === item.id;
+      themeCard.append(this.switchRow(`theme.${item.id}`, item.name || item.id, this.storeBlurb(item), on, (value) => this.setThemeEnabled(item.id, value)));
+      themeCard.append(this.storeActions(item));
     }
-    if (!this.catalog.length) card.append(el("p", "setting-help", "No plugins found."));
-    wrap.append(card);
+    if (!themes.length) themeCard.append(el("p", "setting-help", "No themes installed. The built-in colours stay on."));
+    wrap.append(card, themeCard);
     return wrap;
+  }
+
+  private storeBlurb(item: InstalledRecord): string {
+    const remote = this.storeIndex ? findStoreItem(this.storeIndex, item.id) : null;
+    const update = remote && newerVersion(item.version, remote.item.version) ? " · Update available" : "";
+    const description = item.description ? `${item.description} · ` : "";
+    return `${description}v${item.version}${update}`;
+  }
+
+  private storeActions(item: InstalledRecord): HTMLElement {
+    const row = el("div", "store-actions");
+    const remote = this.storeIndex ? findStoreItem(this.storeIndex, item.id) : null;
+    if (remote && newerVersion(item.version, remote.item.version)) {
+      const update = el("button", "text-button", "Update");
+      update.type = "button";
+      update.addEventListener("click", () => void this.updateStoreItem(item.id));
+      row.append(update);
+    }
+    const remove = el("button", "text-button", "Uninstall");
+    remove.type = "button";
+    remove.addEventListener("click", () => void this.uninstallStoreItem(item.id));
+    row.append(remove);
+    return row;
+  }
+
+  private async refreshPluginsPane() {
+    if (this.storeRefreshing) return;
+    this.storeRefreshing = true;
+    const before = this.installed.map((item) => `${item.kind}:${item.id}:${item.version}`).join();
+    try {
+      await this.refreshStore();
+    } finally {
+      this.storeRefreshing = false;
+    }
+    const after = this.installed.map((item) => `${item.kind}:${item.id}:${item.version}`).join();
+    if (before !== after && this.settings && this.section === "plugins") this.renderSettings();
+  }
+
+  private async openStorePage() {
+    if (isTauri()) {
+      try {
+        await invoke("open_store_page");
+      } catch (err) {
+        this.toast("Store", commandError(err, "Couldn't open the store."));
+      }
+      return;
+    }
+    window.open(STORE_PAGE_URL, "_blank", "noopener");
+  }
+
+  private async refreshStore() {
+    if (isTauri()) {
+      try {
+        this.installed = await invoke<InstalledRecord[]>("installed_store");
+      } catch {
+        this.installed = [];
+      }
+      try {
+        const parsed = parseStoreIndex(await invoke<string>("store_index"));
+        if (parsed) this.storeIndex = parsed;
+      } catch {
+        /* Installed items still show when the store is offline. */
+      }
+    } else {
+      const local = readLocalStore(localStorage.getItem(STORE_LOCAL_KEY));
+      this.installed = [
+        ...Object.entries(local.plugins).map(([id, item]) => ({
+          id,
+          kind: "plugin" as const,
+          name: item.name,
+          description: item.description,
+          version: item.version,
+          sha256: item.sha256,
+        })),
+        ...Object.entries(local.themes).map(([id, item]) => ({
+          id,
+          kind: "theme" as const,
+          name: item.name,
+          description: item.description,
+          version: item.version,
+          sha256: item.sha256,
+        })),
+      ].sort((a, b) => a.id.localeCompare(b.id));
+      try {
+        const res = await fetch(STORE_INDEX_URL, { cache: "no-store" });
+        if (res.ok) {
+          const parsed = parseStoreIndex(await res.json());
+          if (parsed) this.storeIndex = parsed;
+        }
+      } catch {
+        /* The preview still shows what is already installed. */
+      }
+    }
+    this.catalog = this.installed
+      .filter((item) => item.kind === "plugin")
+      .map((item) => ({ id: item.id, name: item.name || item.id, description: item.description }));
+  }
+
+  private async installStoreItem(id: string): Promise<string | null> {
+    if (!validPluginId(id)) return null;
+    try {
+      if (isTauri()) {
+        const record = await invoke<InstalledRecord>("install_store_item", { id });
+        await this.refreshStore();
+        return record.name || id;
+      }
+      if (!this.storeIndex) {
+        const res = await fetch(STORE_INDEX_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error("The store could not be reached.");
+        this.storeIndex = parseStoreIndex(await res.json());
+      }
+      const found = this.storeIndex ? findStoreItem(this.storeIndex, id) : null;
+      if (!found) throw new Error(`"${id}" is not in the store.`);
+      if (!larkVersionOk(found.item.minLark, APP_VERSION)) throw new Error(`"${id}" needs Lark ${found.item.minLark} or newer.`);
+      const url = entryUrl(found.item);
+      if (!url) throw new Error("The store path was refused.");
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("The download failed.");
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const hash = await sha256Hex(bytes);
+      const problem = acceptBytes(found.item, bytes, hash);
+      if (problem) throw new Error(problem);
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const local = readLocalStore(localStorage.getItem(STORE_LOCAL_KEY));
+      if (found.kind === "theme") {
+        const issue = validateThemeCss(text);
+        if (issue) throw new Error(issue);
+        local.themes[id] = { version: found.item.version, sha256: hash, css: text, name: found.item.name, description: found.item.description };
+      } else {
+        local.plugins[id] = { version: found.item.version, sha256: hash, source: text, name: found.item.name, description: found.item.description };
+      }
+      localStorage.setItem(STORE_LOCAL_KEY, writeLocalStore(local));
+      await this.refreshStore();
+      return found.item.name;
+    } catch (err) {
+      this.toast("Store", err instanceof Error ? err.message : "Couldn't install that.");
+      return null;
+    }
+  }
+
+  private async updateStoreItem(id: string) {
+    const name = await this.installStoreItem(id);
+    if (!name) return;
+    this.loaded.delete(id);
+    this.themeCache.delete(id);
+    if (this.config.plugins.enabled.includes(id)) await this.ensurePlugin(id);
+    if (this.config.appearance.theme === id && !this.preferBuiltin) await this.applyTheme();
+    this.toast("Store", `${name} is up to date.`);
+    if (this.settings && this.section === "plugins") this.renderSettings();
+  }
+
+  private async uninstallStoreItem(id: string) {
+    try {
+      if (isTauri()) await invoke("uninstall_store_item", { id });
+      else {
+        const local = readLocalStore(localStorage.getItem(STORE_LOCAL_KEY));
+        delete local.plugins[id];
+        delete local.themes[id];
+        localStorage.setItem(STORE_LOCAL_KEY, writeLocalStore(local));
+      }
+    } catch (err) {
+      this.toast("Store", commandError(err, "Couldn't uninstall that."));
+      return;
+    }
+    this.loaded.delete(id);
+    this.themeCache.delete(id);
+    if (this.config.plugins.enabled.includes(id)) {
+      this.config.plugins.enabled = this.config.plugins.enabled.filter((item) => item !== id);
+      this.persist();
+    }
+    if (this.config.appearance.theme === id) {
+      this.preferBuiltin = true;
+      localStorage.setItem("lark.theme.builtin", "1");
+      await this.applyTheme();
+    }
+    await this.refreshStore();
+    this.msgSig = "";
+    if (this.settings) this.renderSettings();
+    else this.paint();
+  }
+
+  private setThemeEnabled(id: string, enabled: boolean) {
+    if (enabled) {
+      this.selectTheme(id);
+      return;
+    }
+    if (this.config.appearance.theme !== id) return;
+    this.preferBuiltin = true;
+    localStorage.setItem("lark.theme.builtin", "1");
+    void this.applyTheme();
+    if (this.settings && this.section === "appearance") this.paintThemeGallery();
+  }
+
+  private async installFromLink(id: string) {
+    const name = await this.installStoreItem(id);
+    this.section = "plugins";
+    this.openSettings();
+    if (name) this.toast("Store", `${name} is installed. Turn it on when you want it.`);
+  }
+
+  private async listenForStoreLinks() {
+    if (!isTauri() || this.storeListening) return;
+    this.storeListening = true;
+    try {
+      const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
+      const handle = (urls: string[]) => {
+        for (const url of urls) {
+          const id = parseInstallUrl(url);
+          if (id) void this.installFromLink(id);
+        }
+      };
+      const current = await getCurrent();
+      if (current?.length) handle(current);
+      await onOpenUrl(handle);
+    } catch {
+      /* The desktop scheme is unavailable in this session. */
+    }
   }
 
   private segmentRow(id: string, label: string, description: string, values: string[], labels: Record<string, string>, current: string, onPick: (value: string) => void): HTMLElement {
@@ -6541,19 +6812,13 @@ class LarkApp {
 
   private async loadPlugins() {
     try {
-      if (isTauri() && !import.meta.env.DEV) {
-        const files = await invoke<{ id: string; name: string; description: string }[]>("list_plugins");
-        this.catalog = files
-          .filter((file) => validPluginId(file.id))
-          .map((file) => ({ id: file.id, name: file.name || file.id, description: file.description || "" }));
-      } else {
-        const manifest = await fetch("/store/plugins/manifest/plugin.json", { cache: "no-store" }).then((res) => res.json());
-        this.catalog = parseCatalog(manifest);
-      }
+      await this.refreshStore();
     } catch {
       this.catalog = [];
+      this.installed = [];
     }
     await Promise.all(this.config.plugins.enabled.map((id) => this.ensurePlugin(id)));
+    if (isTauri()) void this.listenForStoreLinks();
   }
 
   private async ensurePlugin(id: string): Promise<boolean> {
@@ -6561,11 +6826,13 @@ class LarkApp {
     if (this.loaded.has(id)) return true;
     try {
       let source = "";
-      if (isTauri() && !import.meta.env.DEV) source = await invoke<string>("read_plugin", { id });
+      if (isTauri()) source = await invoke<string>("read_plugin", { id });
       else {
-        const res = await fetch(`/plugins/${id}.js`, { cache: "no-store" });
-        if (!res.ok) return false;
-        source = await res.text();
+        const saved = readLocalStore(localStorage.getItem(STORE_LOCAL_KEY)).plugins[id];
+        if (!saved) return false;
+        source = saved.source;
+        const hash = await sha256Hex(new TextEncoder().encode(source));
+        if (!hashMatches(hash, saved.sha256)) return false;
       }
       const plugin = describePlugin(source, id);
       this.loaded.set(id, plugin);

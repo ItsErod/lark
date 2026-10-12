@@ -595,7 +595,9 @@ html.is-panic body > * { visibility: hidden !important; }
 .settings-close span { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; }
 .settings-close:hover { color: var(--heading); }
 .setting-head h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; color: var(--heading); }
-.setting-head p { margin: 0 0 20px; color: var(--muted); line-height: 1.4; }
+.setting-head p { margin: 0 0 12px; color: var(--muted); line-height: 1.4; }
+.setting-head .text-button { margin: 0 0 16px; }
+.store-actions { display: flex; gap: 8px; margin: -6px 0 12px; }
 .settings-stack { display: flex; flex-direction: column; }
 .setting-card {
   background: var(--bg-1); border-radius: 8px; padding: 4px 16px 8px; margin: 0 0 16px;

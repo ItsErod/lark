@@ -91,6 +91,18 @@ fn note(phase: &str, detail: &str) -> serde_json::Value {
     })
 }
 
+/// Open the plugin store page and nothing else.
+pub fn open_exact_https(url: &str) -> Result<(), String> {
+    if url != "https://itserod.github.io/lark/store/" {
+        return Err("That page is not the Lark store.".into());
+    }
+    match system_browser(std::env::consts::OS) {
+        SystemBrowser::ShellExecute => shell_execute_https(url),
+        SystemBrowser::MacOpen => spawn_detached("open", url),
+        SystemBrowser::XdgOpen => spawn_detached("xdg-open", url),
+    }
+}
+
 /// Open a Discord settings page in the system browser. Never `cmd` or Explorer.
 pub fn open_discord_https(url: &str) -> Result<(), String> {
     if !lark_core::discord::rest::discord_settings_url_ok(url) {
