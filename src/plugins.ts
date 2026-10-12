@@ -90,6 +90,8 @@ export interface PluginHooks {
   replyChain: boolean;
   showConnections: boolean;
   localNicks: boolean;
+  folderStats: boolean;
+  betterFolders: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -163,6 +165,8 @@ export function emptyHooks(): PluginHooks {
     replyChain: false,
     showConnections: false,
     localNicks: false,
+    folderStats: false,
+    betterFolders: false,
   };
 }
 
@@ -385,6 +389,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.replyChain = record.replyChain === true;
   hooks.showConnections = record.showConnections === true;
   hooks.localNicks = record.localNicks === true;
+  hooks.folderStats = record.folderStats === true;
+  hooks.betterFolders = record.betterFolders === true;
   return hooks;
 }
 

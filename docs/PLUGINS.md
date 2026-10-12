@@ -291,3 +291,17 @@ Right-click a message and choose **Local nickname**.
 - The name is shown in messages and the member list on this device.
 - **Clear** removes it. Discord's nickname is unchanged.
 - The list stops at 100 names, and each name stops at 32 characters.
+
+## Server folder stats
+
+The folder tooltip, and the plugin’s settings, show how many servers, unreads, and mentions sit in that folder.
+
+- A muted server is left out of the unread and mention counts.
+- The numbers are computed from what Lark already has. Nothing is written back to Discord.
+
+## Better folders
+
+Hover a folder to see the server names inside it.
+
+- **Unread first** moves servers with an unread or a mention to the top of the folder on this screen.
+- Discord’s saved order is not changed.
