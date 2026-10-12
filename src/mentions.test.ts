@@ -31,6 +31,15 @@ describe("mention autocomplete", () => {
     expect(next.text).toBe("hey <@42>  there");
     expect(next.caret).toBe(10);
   });
+
+  it("autocompletes emoji shortcodes and slash commands", () => {
+    expect(mentionQuery("hey :smi", 8)).toEqual({ kind: ":", query: "smi", start: 4 });
+    const emoji = mentionHits({ kind: ":", query: "smile", start: 0 }, ctx);
+    expect(emoji[0]?.token).toBe("😄");
+    expect(mentionQuery("/gif cats", 9)).toEqual({ kind: "/", query: "gif cats", start: 0 });
+    const slash = mentionHits({ kind: "/", query: "gif", start: 0 }, ctx);
+    expect(slash.some((hit) => hit.label === "/gif")).toBe(true);
+  });
 });
 
 describe("plain preview", () => {

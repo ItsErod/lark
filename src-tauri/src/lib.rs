@@ -74,6 +74,35 @@ struct FileIn {
     bytes: Vec<u8>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ForwardIn {
+    message_id: String,
+    channel_id: String,
+    guild_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchIn {
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    author_ids: Vec<String>,
+    #[serde(default)]
+    mention_ids: Vec<String>,
+    #[serde(default)]
+    has: Vec<String>,
+    #[serde(default)]
+    before_id: Option<String>,
+    #[serde(default)]
+    after_id: Option<String>,
+    #[serde(default)]
+    channel_ids: Vec<String>,
+    #[serde(default)]
+    pinned: Option<bool>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     refresh::prepare_webview();
@@ -318,7 +347,14 @@ pub fn run() {
             forget_account,
             account_overview,
             remove_connection,
-            open_discord_link
+            open_discord_link,
+            search_filtered,
+            search_gifs,
+            fetch_stickers,
+            reaction_users,
+            search_app_commands,
+            invoke_command,
+            open_discord_page
         ])
         .run(tauri::generate_context!())
         .expect("lark failed to start");
@@ -773,6 +809,8 @@ async fn send_message(
     reply_to: Option<String>,
     nonce: Option<String>,
     files: Vec<FileIn>,
+    sticker_ids: Option<Vec<String>>,
+    forward: Option<ForwardIn>,
 ) -> Result<lark_core::discord::ClientMessage, String> {
     let files: Vec<lark_core::discord::rest::OutFile> = files
         .into_iter()
@@ -783,9 +821,23 @@ async fn send_message(
         })
         .collect();
     let limit = lark_core::clip_fit::upload_limit_bytes(state.premium_type.load(Ordering::Relaxed));
+    let forward = forward.map(|item| lark_core::discord::rest::ForwardRef {
+        message_id: item.message_id,
+        channel_id: item.channel_id,
+        guild_id: item.guild_id,
+    });
     rest(&state)
         .await?
-        .send_message(&channel_id, &content, reply_to.as_deref(), nonce.as_deref(), &files, limit)
+        .send_composed(
+            &channel_id,
+            &content,
+            reply_to.as_deref(),
+            nonce.as_deref(),
+            &files,
+            limit,
+            sticker_ids.as_deref().unwrap_or(&[]),
+            forward.as_ref(),
+        )
         .await
         .map_err(|err| err.to_string())
 }
@@ -2009,6 +2061,90 @@ async fn compress_clip(
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn search_filtered(
+    state: State<'_, Shared>,
+    guild_id: Option<String>,
+    channel_id: Option<String>,
+    search: SearchIn,
+) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    let query = lark_core::discord::rest::MessageSearch {
+        content: search.content,
+        author_ids: search.author_ids,
+        mention_ids: search.mention_ids,
+        has: search.has,
+        before_id: search.before_id,
+        after_id: search.after_id,
+        channel_ids: search.channel_ids,
+        pinned: search.pinned,
+    };
+    rest(&state)
+        .await?
+        .search_filtered(guild_id.as_deref(), channel_id.as_deref(), &query)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn search_gifs(state: State<'_, Shared>, query: String) -> Result<Vec<lark_core::discord::ClientGif>, String> {
+    rest(&state).await?.search_gifs(&query).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn fetch_stickers(state: State<'_, Shared>, guild_id: String) -> Result<Vec<lark_core::discord::ClientSticker>, String> {
+    rest(&state).await?.guild_stickers(&guild_id).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn reaction_users(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+    emoji: String,
+    emoji_id: Option<String>,
+) -> Result<Vec<lark_core::discord::ClientReactionUser>, String> {
+    rest(&state)
+        .await?
+        .reaction_users(&channel_id, &message_id, &emoji, emoji_id.as_deref())
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn search_app_commands(
+    state: State<'_, Shared>,
+    guild_id: Option<String>,
+    channel_id: String,
+    query: String,
+    kind: i32,
+) -> Result<Vec<lark_core::discord::ClientAppCommand>, String> {
+    rest(&state)
+        .await?
+        .search_commands(guild_id.as_deref(), &channel_id, &query, kind)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn invoke_command(state: State<'_, Shared>, payload: serde_json::Value) -> Result<(), String> {
+    rest(&state).await?.post_interaction(payload).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn open_discord_page(url: String) -> Result<(), String> {
+    if !lark_core::discord::rest::discord_page_ok(&url) {
+        return Err("Only discord.com pages can be opened from here.".into());
+    }
+    let spawned = if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&url).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(&url).spawn()
+    };
+    spawned.map(|_| ()).map_err(|err| err.to_string())
 }
 
 fn install_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {

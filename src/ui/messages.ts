@@ -3,6 +3,7 @@ import { formatFull, formatStamp, type HourCycle, type TimeMode } from "../pack/
 import type { ViewMessage } from "../render/message";
 import { emojiCdnUrl, formatBytes, mediaBox, type Block, type Inline, type MediaBox } from "../render/content";
 import { highlightCode, inlineLang } from "../syntax";
+import { messageMenuItems, reactorSummary, systemMessage, type SlashCommand } from "./composer-tools";
 import { colorFor, el, formatClock, formatDay, icon, initials, paths, portrait } from "./dom";
 
 export function renderMessage(
@@ -36,15 +37,50 @@ export function renderMessage(
     quiet?: boolean;
     log?: { deleted: boolean; history: string[] };
     clock?: { mode: TimeMode; hours: HourCycle };
+    authorColor?: string | null;
+    blocked?: boolean;
+    developerMode?: boolean;
+    pinned?: boolean;
+    showEmbeds?: boolean;
+    revealSpoilers?: boolean;
+    onForward?: () => void;
+    onCopyText?: () => void;
+    onCopyLink?: () => void;
+    onSpeak?: () => void;
+    onCopyId?: () => void;
+    onMarkUnread?: () => void;
+    onCreateThread?: () => void;
+    onShowPins?: () => void;
+    loadApps?: () => Promise<SlashCommand[]>;
+    onRunApp?: (command: SlashCommand) => void;
+    loadReactors?: (emoji: string, emojiId?: string | null) => Promise<{ id: string; name: string }[]>;
   },
 ): HTMLElement {
   const wrap = el("div", "message-wrap");
   if (options.showDay) wrap.append(el("div", "day-sep", formatDay(view.timestamp)));
   if (options.divider) wrap.append(el("div", "unread-sep", "New messages"));
-  if (view.kind === "join" || view.kind === "system") {
-    wrap.append(el("div", "system-line", view.raw || `${view.authorName} joined`));
+  const system = systemMessage({
+    id: view.id,
+    kind: view.kind,
+    messageType: view.messageType,
+    authorName: view.authorName,
+    content: view.raw,
+    timestamp: view.timestamp,
+    callEnded: view.callEnded,
+  });
+  if (view.kind === "join" || view.kind === "system" || system) {
+    const line = el("div", "system-line");
+    line.append(el("span", "", system?.text || view.raw || `${view.authorName} joined`));
+    if (system?.pins && options.onShowPins) {
+      const pins = el("button", "text-button", "See all the pins.");
+      pins.type = "button";
+      pins.addEventListener("click", () => options.onShowPins?.());
+      line.append(pins);
+    }
+    wrap.append(line);
     return wrap;
   }
+  const nameColor = options.authorColor || colorFor(view.authorId);
   const effects = new Set(view.effects ?? []);
   const article = el("article", `message${options.grouped ? " is-grouped" : ""}${view.highlights.length ? " is-highlight" : ""}${view.pending ? " is-pending" : ""}${options.jumped ? " is-jump" : ""}${effects.has("compact-media") ? " is-compact-media" : ""}${options.log?.deleted ? " is-deleted" : ""}`);
   article.dataset.id = view.id;
@@ -61,7 +97,7 @@ export function renderMessage(
   if (options.density === "cozy" && !options.grouped) {
     const head = el("header", "message-head");
     const name = el("span", "author", view.authorName);
-    name.style.color = colorFor(view.authorId);
+    name.style.color = nameColor;
     head.append(name);
     if (view.authorBot) head.append(el("span", "bot-tag", "Bot"));
     head.append(timeStamp(view, options, "stamp"));
@@ -76,11 +112,16 @@ export function renderMessage(
     reply.addEventListener("click", () => options.onJump?.());
     body.append(reply);
   }
+  if (view.forwarded) {
+    const card = el("div", "forwarded-card");
+    card.append(el("span", "reply-name", "Forwarded"), el("span", "reply-preview", `${view.forwarded.authorName}: ${view.forwarded.preview}`));
+    body.append(card);
+  }
   if (options.density === "irc") {
     const line = el("div", "irc-line");
     line.append(timeStamp(view, options, "gutter"));
     const name = el("span", "author", view.authorName);
-    name.style.color = colorFor(view.authorId);
+    name.style.color = nameColor;
     line.append(name);
     const text = el("div", "compact-text");
     renderBlocks(text, view.blocks, options.remoteEmoji, view.collapsed, effects.has("inline-code"));
@@ -90,7 +131,7 @@ export function renderMessage(
     const line = el("div", "compact-line");
     if (!options.grouped) {
       const name = el("span", "author", view.authorName);
-      name.style.color = colorFor(view.authorId);
+      name.style.color = nameColor;
       line.append(name);
     }
     const text = el("div", "compact-text");
@@ -115,8 +156,10 @@ export function renderMessage(
     for (const badge of view.badges) badges.append(el("span", "badge", badge));
     body.append(badges);
   }
-  for (const attachment of view.attachments) body.append(renderAttachment(attachment, options.onImage, Boolean(options.quiet)));
-  if (!effects.has("hide-previews")) {
+  for (const attachment of view.attachments) {
+    body.append(wrapSpoiler(renderAttachment(attachment, options.onImage, Boolean(options.quiet)), attachment.spoiler, Boolean(options.revealSpoilers)));
+  }
+  if (!effects.has("hide-previews") && options.showEmbeds !== false) {
     for (const embed of view.embeds) body.append(renderEmbed(embed, options.remoteEmoji, Boolean(options.quiet)));
   }
   for (const sticker of view.stickers) {
@@ -142,49 +185,173 @@ export function renderMessage(
   if (view.reactions.length) {
     const row = el("div", "reactions");
     for (const reaction of view.reactions) {
-      const button = el("button", `reaction${reaction.me ? " is-mine" : ""}`);
+      const group = el("span", `reaction${reaction.me ? " is-mine" : ""}`);
+      const button = el("button", "reaction-emoji");
       button.type = "button";
-      button.append(reactionFace(reaction, options.remoteEmoji), el("span", "reaction-count", String(reaction.count)));
+      button.append(reactionFace(reaction, options.remoteEmoji));
       button.addEventListener("click", () => options.onReact(reaction.emoji, reaction.emojiId));
-      row.append(button);
+      const count = el("button", "reaction-count", String(reaction.count));
+      count.type = "button";
+      count.title = "Who reacted";
+      count.setAttribute("aria-label", "Who reacted");
+      count.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void openReactors(group, reaction.emoji, reaction.emojiId, options.loadReactors);
+      });
+      group.append(button, count);
+      row.append(group);
     }
     body.append(row);
   }
   const actions = el("div", "message-actions");
-  if (effects.has("quick-react")) {
-    for (const emoji of options.quickReactions ?? []) {
-      const button = el("button", "icon-button react-quick", emoji);
-      button.type = "button";
-      button.title = `React with ${emoji}`;
-      button.setAttribute("aria-label", `React with ${emoji}`);
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        options.onReact(emoji);
-      });
-      actions.append(button);
-    }
+  for (const emoji of (options.quickReactions ?? []).slice(0, 3)) {
+    const button = el("button", "icon-button react-quick", emoji);
+    button.type = "button";
+    button.title = `React with ${emoji}`;
+    button.setAttribute("aria-label", `React with ${emoji}`);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      options.onReact(emoji);
+    });
+    actions.append(button);
   }
-  if (effects.has("translate") && options.onTranslate) {
-    actions.append(textAction(options.translated ? "Original" : "Translate", options.onTranslate));
-  }
-  if (options.onBookmark) {
-    actions.append(textAction(options.bookmarked ? "Saved" : "Save", options.onBookmark));
-  }
-  if (options.onRemind) {
-    actions.append(textAction(options.reminded ? "Reminded" : "Remind", options.onRemind));
-  }
-  if (options.onHideAuthor) actions.append(textAction("Hide", options.onHideAuthor));
-  actions.append(actionButton("Add reaction", paths.plus, () => options.onReact("picker")));
-  actions.append(actionButton("Reply", paths.reply, options.onReply));
-  if (options.onPin) actions.append(actionButton("Pin", paths.pin, options.onPin));
-  if (options.mine) {
-    actions.append(actionButton("Edit", paths.pencil, options.onEdit));
-    actions.append(actionButton("Delete", paths.trash, options.onDelete));
-  }
+  actions.append(actionButton("Add Reaction", paths.plus, () => options.onReact("picker")));
+  if (options.mine) actions.append(actionButton("Edit", paths.pencil, options.onEdit));
+  if (options.onForward) actions.append(actionButton("Forward", paths.reply, options.onForward));
+  const more = actionButton("More", paths.panels, () => openMessageMenu(more, view, options));
+  actions.append(more);
   body.append(actions);
   article.append(body);
+  article.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openMessageMenu(article, view, options, event.clientX, event.clientY);
+  });
+  if (options.blocked) {
+    const hidden = el("div", "blocked-message");
+    const show = el("button", "text-button", "Show message");
+    show.type = "button";
+    hidden.append("Blocked message. ", show);
+    article.hidden = true;
+    show.addEventListener("click", () => {
+      hidden.remove();
+      article.hidden = false;
+    });
+    wrap.append(hidden);
+  }
   wrap.append(article);
   return wrap;
+}
+
+function openMessageMenu(
+  anchor: HTMLElement,
+  view: ViewMessage,
+  options: Parameters<typeof renderMessage>[1],
+  x?: number,
+  y?: number,
+) {
+  document.querySelectorAll(".msg-menu").forEach((node) => node.remove());
+  const menu = el("div", "msg-menu");
+  menu.setAttribute("role", "menu");
+  const items = messageMenuItems({
+    mine: options.mine,
+    pinned: Boolean(options.pinned ?? view.pinned),
+    developerMode: Boolean(options.developerMode),
+    bookmarked: Boolean(options.bookmarked),
+    reminded: Boolean(options.reminded),
+    hasTranslate: Boolean(options.onTranslate),
+    translated: Boolean(options.translated),
+    hasHide: Boolean(options.onHideAuthor),
+  });
+  for (const item of items) {
+    const button = el("button", `msg-item${item.danger ? " is-danger" : ""}`, item.label);
+    button.type = "button";
+    button.setAttribute("role", "menuitem");
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (item.id === "apps") {
+        void fillApps(menu, options);
+        return;
+      }
+      menu.remove();
+      runMenuItem(item.id, options);
+    });
+    menu.append(button);
+  }
+  document.body.append(menu);
+  const rect = anchor.getBoundingClientRect();
+  const left = x ?? rect.right - 200;
+  const top = y ?? rect.bottom + 4;
+  menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - 220))}px`;
+  menu.style.top = `${Math.max(8, Math.min(top, window.innerHeight - 280))}px`;
+  const close = (event: Event) => {
+    if (event.target instanceof Node && menu.contains(event.target)) return;
+    menu.remove();
+    document.removeEventListener("pointerdown", close);
+  };
+  window.setTimeout(() => document.addEventListener("pointerdown", close), 0);
+}
+
+function runMenuItem(id: string, options: Parameters<typeof renderMessage>[1]) {
+  if (id === "react") options.onReact("picker");
+  else if (id === "edit") options.onEdit();
+  else if (id === "pin") options.onPin?.();
+  else if (id === "reply") options.onReply();
+  else if (id === "forward") options.onForward?.();
+  else if (id === "thread") options.onCreateThread?.();
+  else if (id === "copy") options.onCopyText?.();
+  else if (id === "bookmark") options.onBookmark?.();
+  else if (id === "remind") options.onRemind?.();
+  else if (id === "unread") options.onMarkUnread?.();
+  else if (id === "link") options.onCopyLink?.();
+  else if (id === "speak") options.onSpeak?.();
+  else if (id === "translate") options.onTranslate?.();
+  else if (id === "hide") options.onHideAuthor?.();
+  else if (id === "id") options.onCopyId?.();
+  else if (id === "delete") options.onDelete();
+}
+
+async function fillApps(menu: HTMLElement, options: Parameters<typeof renderMessage>[1]) {
+  let slot = menu.querySelector(".msg-apps");
+  if (!slot) {
+    slot = el("div", "msg-apps");
+    menu.append(slot);
+  }
+  slot.replaceChildren(el("p", "hint", "Loading apps…"));
+  const commands = options.loadApps ? await options.loadApps().catch(() => []) : [];
+  slot.replaceChildren();
+  if (!commands.length) {
+    slot.append(el("p", "hint", "No message apps in this channel."));
+    return;
+  }
+  for (const command of commands) {
+    const button = el("button", "msg-item", command.name);
+    button.type = "button";
+    button.title = command.description;
+    button.addEventListener("click", () => {
+      menu.remove();
+      options.onRunApp?.(command);
+    });
+    slot.append(button);
+  }
+}
+
+async function openReactors(
+  anchor: HTMLElement,
+  emoji: string,
+  emojiId: string | null | undefined,
+  load: ((emoji: string, emojiId?: string | null) => Promise<{ id: string; name: string }[]>) | undefined,
+) {
+  document.querySelectorAll(".reactor-pop").forEach((node) => node.remove());
+  const pop = el("div", "reactor-pop");
+  pop.append(el("strong", "", "Reactions"), el("p", "hint", "Loading…"));
+  anchor.append(pop);
+  const people = load ? await load(emoji, emojiId).catch(() => []) : [];
+  pop.replaceChildren(el("strong", "", "Reactions"), el("p", "", reactorSummary(people.map((person) => person.name))));
+  if (people.length) {
+    const list = el("div", "forward-list");
+    for (const person of people) list.append(el("div", "forward-hit", person.name));
+    pop.append(list);
+  }
 }
 
 function timeStamp(view: ViewMessage, options: { now?: number; clock?: { mode: TimeMode; hours: HourCycle } }, className: string): HTMLElement {
@@ -196,18 +363,6 @@ function timeStamp(view: ViewMessage, options: { now?: number; clock?: { mode: T
   node.dateTime = view.timestamp;
   node.title = clock ? formatFull(view.timestamp, clock.hours) : formatAbsolute(view.timestamp);
   return node;
-}
-
-function textAction(label: string, onClick: () => void): HTMLButtonElement {
-  const button = el("button", "icon-button text-action", label);
-  button.type = "button";
-  button.title = label;
-  button.setAttribute("aria-label", label);
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onClick();
-  });
-  return button;
 }
 
 function actionButton(label: string, path: string, onClick: () => void): HTMLButtonElement {
@@ -240,6 +395,17 @@ function reactionFace(reaction: ViewMessage["reactions"][number], remoteEmoji: b
   img.src = remote;
   img.addEventListener("error", () => img.replaceWith(el("span", "reaction-emoji", reaction.emoji || "emoji")));
   return img;
+}
+
+function wrapSpoiler(node: HTMLElement, spoiler: boolean, revealed: boolean): HTMLElement {
+  if (!spoiler) return node;
+  const cover = el("div", `spoiler-media${revealed ? " is-revealed" : ""}`);
+  const button = el("button", "spoiler-cover", "Spoiler");
+  button.type = "button";
+  button.setAttribute("aria-label", "Spoiler, activate to reveal");
+  button.addEventListener("click", () => cover.classList.add("is-revealed"));
+  cover.append(button, node);
+  return cover;
 }
 
 function renderAttachment(

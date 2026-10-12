@@ -44,6 +44,11 @@ export function reminderFor(list: readonly Reminder[], channelId: string, messag
   return list.find((item) => item.channelId === channelId && item.messageId === messageId);
 }
 
+/** Label for the message menu. The reminder list itself stays local. */
+export function reminderMenuLabel(reminded: boolean): string {
+  return reminded ? "Remove Reminder" : "Create Reminder";
+}
+
 /** Every reminder that is due, so a closed app can catch up without dropping one. */
 export function takeDueReminders(list: readonly Reminder[], now: number): { due: Reminder[]; pending: Reminder[] } {
   const due = list.filter((item) => item.remindAt <= now).sort((a, b) => a.remindAt - b.remindAt);

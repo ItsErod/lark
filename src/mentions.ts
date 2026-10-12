@@ -1,5 +1,8 @@
+import { emojiHits, requestEmojiCatalog } from "./emoji";
+import { dispatchSlashToken, scheduleSlash, slashSuggestions } from "./ui/composer-tools";
+
 export interface MentionQuery {
-  kind: "@" | "#";
+  kind: "@" | "#" | ":" | "/";
   query: string;
   start: number;
 }
@@ -18,12 +21,25 @@ export interface MentionContext {
 
 export function mentionQuery(text: string, caret: number): MentionQuery | null {
   const before = text.slice(0, Math.max(0, caret));
+  if (before.startsWith("/") && !before.includes("\n")) {
+    return { kind: "/", query: before.slice(1), start: 0 };
+  }
+  const emoji = /(^|[\s\n]):([a-zA-Z0-9_]{1,32})$/.exec(before);
+  if (emoji) return { kind: ":", query: emoji[2], start: caret - emoji[2].length - 1 };
   const match = /(^|[\s\n])([@#])([a-zA-Z0-9_.-]{0,32})$/.exec(before);
   if (!match) return null;
   return { kind: match[2] as "@" | "#", query: match[3], start: caret - match[3].length - 1 };
 }
 
 export function mentionHits(query: MentionQuery, ctx: MentionContext, limit = 8): MentionHit[] {
+  if (query.kind === "/") {
+    scheduleSlash(query.query);
+    return slashSuggestions(query.query);
+  }
+  if (query.kind === ":") {
+    requestEmojiCatalog();
+    return emojiHits(query.query, limit);
+  }
   const needle = query.query.toLowerCase();
   const hits: MentionHit[] = [];
   const take = (name: string) => !needle || name.toLowerCase().includes(needle);
@@ -55,6 +71,10 @@ export function mentionHits(query: MentionQuery, ctx: MentionContext, limit = 8)
 }
 
 export function applyMention(text: string, start: number, caret: number, token: string): { text: string; caret: number } {
+  if (dispatchSlashToken(token)) {
+    const next = `${text.slice(0, start)}${text.slice(caret)}`;
+    return { text: next, caret: start };
+  }
   const next = `${text.slice(0, start)}${token} ${text.slice(caret)}`;
   const pos = start + token.length + 1;
   return { text: next, caret: pos };

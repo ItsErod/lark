@@ -1924,3 +1924,474 @@ mod tests {
         assert!(rendered.contains("[redacted]"));
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct MessageSearch {
+    pub content: String,
+    pub author_ids: Vec<String>,
+    pub mention_ids: Vec<String>,
+    pub has: Vec<String>,
+    pub before_id: Option<String>,
+    pub after_id: Option<String>,
+    pub channel_ids: Vec<String>,
+    pub pinned: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForwardRef {
+    pub message_id: String,
+    pub channel_id: String,
+    pub guild_id: Option<String>,
+}
+
+const SEARCH_HAS: &[&str] = &["link", "embed", "file", "video", "image", "sound", "sticker", "poll", "snapshot"];
+
+pub fn message_search_query(search: &MessageSearch) -> String {
+    let mut parts = vec![
+        "include_nsfw=true".to_string(),
+        "sort_by=timestamp".to_string(),
+        "sort_order=desc".to_string(),
+    ];
+    let content = search.content.trim();
+    if !content.is_empty() {
+        parts.push(format!("content={}", urlencoding::encode(content)));
+    }
+    for id in search.author_ids.iter().filter(|id| snowflake_ok(id)) {
+        parts.push(format!("author_id={}", urlencoding::encode(id)));
+    }
+    for id in search.mention_ids.iter().filter(|id| snowflake_ok(id)) {
+        parts.push(format!("mentions={}", urlencoding::encode(id)));
+    }
+    for flag in &search.has {
+        let flag = flag.to_ascii_lowercase();
+        if SEARCH_HAS.contains(&flag.as_str()) {
+            parts.push(format!("has={}", urlencoding::encode(&flag)));
+        }
+    }
+    if let Some(id) = search.before_id.as_deref().filter(|id| snowflake_ok(id)) {
+        parts.push(format!("max_id={}", urlencoding::encode(id)));
+    }
+    if let Some(id) = search.after_id.as_deref().filter(|id| snowflake_ok(id)) {
+        parts.push(format!("min_id={}", urlencoding::encode(id)));
+    }
+    for id in search.channel_ids.iter().filter(|id| snowflake_ok(id)) {
+        parts.push(format!("channel_id={}", urlencoding::encode(id)));
+    }
+    if let Some(pinned) = search.pinned {
+        parts.push(format!("pinned={}", if pinned { "true" } else { "false" }));
+    }
+    parts.join("&")
+}
+
+pub fn message_search_path(guild_id: Option<&str>, channel_id: Option<&str>, query: &str) -> Result<String, String> {
+    if let Some(guild_id) = guild_id.filter(|id| snowflake_ok(id)) {
+        return Ok(format!("/guilds/{guild_id}/messages/search?{query}"));
+    }
+    if let Some(channel_id) = channel_id.filter(|id| snowflake_ok(id)) {
+        return Ok(format!("/channels/{channel_id}/messages/search?{query}"));
+    }
+    Err("Search needs a server or a conversation.".into())
+}
+
+pub fn composed_payload(
+    content: &str,
+    channel_id: &str,
+    reply_to: Option<&str>,
+    nonce: Option<&str>,
+    sticker_ids: &[&str],
+    forward: Option<&ForwardRef>,
+) -> Value {
+    let mut payload = outgoing_payload(
+        content,
+        channel_id,
+        if forward.is_some() { None } else { reply_to },
+        nonce,
+    );
+    let stickers: Vec<&str> = sticker_ids.iter().copied().filter(|id| snowflake_ok(id)).take(3).collect();
+    if !stickers.is_empty() {
+        payload["sticker_ids"] = json!(stickers);
+    }
+    if let Some(forward) = forward {
+        let mut reference = json!({
+            "type": 1,
+            "message_id": forward.message_id,
+            "channel_id": forward.channel_id,
+            "fail_if_not_exists": false
+        });
+        if let Some(guild_id) = forward.guild_id.as_deref().filter(|id| snowflake_ok(id)) {
+            reference["guild_id"] = json!(guild_id);
+        }
+        payload["message_reference"] = reference;
+    }
+    payload
+}
+
+pub fn gifs_from_value(value: &Value) -> Vec<super::types::ClientGif> {
+    let list = value
+        .get("gifs")
+        .and_then(|item| item.as_array())
+        .or_else(|| value.as_array());
+    let Some(list) = list else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in list {
+        let url = https_field(item, &["url", "gif_src", "src"]);
+        let Some(url) = url else { continue };
+        let preview = https_field(item, &["preview", "src"]).unwrap_or_else(|| url.clone());
+        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("").trim();
+        out.push(super::types::ClientGif {
+            id: item.get("id").and_then(|v| v.as_str()).unwrap_or("gif").to_string(),
+            title: if title.is_empty() { "GIF".into() } else { title.to_string() },
+            url,
+            preview,
+        });
+        if out.len() == 24 {
+            break;
+        }
+    }
+    out
+}
+
+fn https_field(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        let Some(text) = value.get(*key).and_then(|item| item.as_str()) else {
+            continue;
+        };
+        if let Ok(url) = reqwest::Url::parse(text) {
+            if url.scheme() == "https" && url.host_str().is_some() {
+                return Some(url.to_string());
+            }
+        }
+    }
+    None
+}
+
+pub fn app_commands_from_value(value: &Value) -> Vec<super::types::ClientAppCommand> {
+    let list = value
+        .get("application_commands")
+        .and_then(|item| item.as_array())
+        .or_else(|| value.as_array());
+    let Some(list) = list else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in list {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let application_id = item.get("application_id").and_then(|v| v.as_str()).unwrap_or("");
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        if !snowflake_ok(id) || !snowflake_ok(application_id) || name.is_empty() {
+            continue;
+        }
+        let options = item
+            .get("options")
+            .and_then(|v| v.as_array())
+            .map(|options| {
+                options
+                    .iter()
+                    .filter_map(|option| {
+                        let name = option.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        if name.is_empty() {
+                            return None;
+                        }
+                        Some(super::types::ClientAppOption {
+                            name: name.to_string(),
+                            description: option.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            type_id: option.get("type").and_then(|v| v.as_i64()).unwrap_or(3) as i32,
+                            required: option.get("required").and_then(|v| v.as_bool()).unwrap_or(false),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(super::types::ClientAppCommand {
+            id: id.to_string(),
+            application_id: application_id.to_string(),
+            name: name.to_string(),
+            description: item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            kind: item.get("type").and_then(|v| v.as_i64()).unwrap_or(1) as i32,
+            version: item.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            options,
+        });
+    }
+    out
+}
+
+pub fn discord_page_ok(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    parsed.scheme() == "https" && parsed.host_str() == Some("discord.com") && parsed.username().is_empty()
+}
+
+impl DiscordRest {
+    pub async fn search_filtered(
+        &self,
+        guild_id: Option<&str>,
+        channel_id: Option<&str>,
+        search: &MessageSearch,
+    ) -> Result<Vec<ClientMessage>, RestError> {
+        let query = message_search_query(search);
+        let path = message_search_path(guild_id, channel_id, &query).map_err(RestError::Message)?;
+        let major = guild_id.filter(|id| snowflake_ok(id)).unwrap_or(channel_id.unwrap_or("search"));
+        let route = if guild_id.filter(|id| snowflake_ok(id)).is_some() {
+            route_key("GET", "/guilds/{guild.id}/messages/search", major)
+        } else {
+            route_key("GET", "/channels/{channel.id}/messages/search", major)
+        };
+        let value = self.send_json(Method::GET, &route, major, &path, None).await?;
+        Ok(messages_from_search(&value))
+    }
+
+    pub async fn send_composed(
+        &self,
+        channel_id: &str,
+        content: &str,
+        reply_to: Option<&str>,
+        nonce: Option<&str>,
+        files: &[OutFile],
+        limit_bytes: u64,
+        sticker_ids: &[String],
+        forward: Option<&ForwardRef>,
+    ) -> Result<ClientMessage, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        if forward.is_none() {
+            if let Some(reply_to) = reply_to {
+                self.ensure_snowflake(reply_to)?;
+            }
+        }
+        if let Some(forward) = forward {
+            self.ensure_snowflake(&forward.message_id)?;
+            self.ensure_snowflake(&forward.channel_id)?;
+            if let Some(guild_id) = forward.guild_id.as_deref().filter(|id| !id.is_empty()) {
+                self.ensure_snowflake(guild_id)?;
+            }
+        }
+        let stickers: Vec<&str> = sticker_ids.iter().map(String::as_str).filter(|id| snowflake_ok(id)).take(3).collect();
+        let total: u64 = files.iter().map(|file| file.bytes.len() as u64).sum();
+        let extras = stickers.len() + usize::from(forward.is_some());
+        super::types::validate_composed(content, files.len(), total, limit_bytes, extras).map_err(RestError::Message)?;
+        let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
+        let path = format!("/channels/{channel_id}/messages");
+        let payload = composed_payload(content, channel_id, reply_to, nonce, &stickers, forward);
+        let response = self.send(Method::POST, &route, &path, Some(payload), files).await?;
+        let value = Self::json_body(response, &self.token).await?;
+        let message: DiscordMessage = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read the sent message".into()))?;
+        Ok(message_to_client(&message))
+    }
+
+    pub async fn search_gifs(&self, query: &str) -> Result<Vec<super::types::ClientGif>, RestError> {
+        let query = query.trim();
+        if query.len() > 80 {
+            return Err(RestError::Message("GIF search needs a short query.".into()));
+        }
+        let path = if query.is_empty() {
+            "/gifs/trending?provider=tenor&locale=en-US&media_format=gif".to_string()
+        } else {
+            format!(
+                "/gifs/search?provider=tenor&locale=en-US&media_format=gif&limit=24&q={}",
+                urlencoding::encode(query)
+            )
+        };
+        let route = route_key("GET", "/gifs/search", "gifs");
+        let value = self.send_json(Method::GET, &route, "gifs", &path, None).await?;
+        Ok(gifs_from_value(&value))
+    }
+
+    pub async fn guild_stickers(&self, guild_id: &str) -> Result<Vec<super::types::ClientSticker>, RestError> {
+        self.ensure_snowflake(guild_id)?;
+        let path = format!("/guilds/{guild_id}/stickers");
+        let route = route_key("GET", "/guilds/{guild.id}/stickers", guild_id);
+        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let stickers: Vec<WireSticker> = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read stickers".into()))?;
+        Ok(stickers
+            .into_iter()
+            .filter(|sticker| sticker.available.unwrap_or(true) && snowflake_ok(&sticker.id))
+            .map(|sticker| super::types::ClientSticker {
+                url: sticker_picker_url(&sticker.id, sticker.format_type),
+                id: sticker.id,
+                name: if sticker.name.is_empty() { "Sticker".into() } else { sticker.name },
+            })
+            .collect())
+    }
+
+    pub async fn reaction_users(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        emoji: &str,
+        emoji_id: Option<&str>,
+    ) -> Result<Vec<super::types::ClientReactionUser>, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        self.ensure_snowflake(message_id)?;
+        let encoded = reaction_emoji_path(emoji, emoji_id);
+        let path = format!("/channels/{channel_id}/messages/{message_id}/reactions/{encoded}?limit=25");
+        let route = route_key(
+            "GET",
+            "/channels/{channel.id}/messages/{message.id}/reactions/{emoji}",
+            channel_id,
+        );
+        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let users: Vec<DiscordUser> = serde_json::from_value(value)
+            .map_err(|_| RestError::Message("Could not read reactions".into()))?;
+        Ok(users
+            .iter()
+            .filter(|user| snowflake_ok(&user.id))
+            .map(|user| super::types::ClientReactionUser {
+                avatar_url: super::types::avatar_url(&user.id, &user.avatar),
+                name: {
+                    let name = user.display_name();
+                    if name.is_empty() { "Unknown".into() } else { name }
+                },
+                id: user.id.clone(),
+            })
+            .collect())
+    }
+
+    pub async fn search_commands(
+        &self,
+        guild_id: Option<&str>,
+        channel_id: &str,
+        query: &str,
+        kind: i32,
+    ) -> Result<Vec<super::types::ClientAppCommand>, RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let kind = if kind == 3 { 3 } else { 1 };
+        let query = query.trim();
+        if query.len() > 80 {
+            return Err(RestError::Message("Command search needs a short query.".into()));
+        }
+        let encoded = urlencoding::encode(query);
+        let (path, route, major) = if let Some(guild_id) = guild_id.filter(|id| snowflake_ok(id)) {
+            (
+                format!("/guilds/{guild_id}/application-commands/search?type={kind}&limit=8&include_applications=true&query={encoded}"),
+                route_key("GET", "/guilds/{guild.id}/application-commands/search", guild_id),
+                guild_id.to_string(),
+            )
+        } else {
+            (
+                format!("/channels/{channel_id}/application-commands/search?type={kind}&limit=8&include_applications=true&query={encoded}"),
+                route_key("GET", "/channels/{channel.id}/application-commands/search", channel_id),
+                channel_id.to_string(),
+            )
+        };
+        let value = self.send_json(Method::GET, &route, &major, &path, None).await?;
+        Ok(app_commands_from_value(&value))
+    }
+
+    pub async fn post_interaction(&self, mut payload: Value) -> Result<(), RestError> {
+        if payload.get("type").and_then(|v| v.as_i64()) != Some(2) {
+            return Err(RestError::Message("Only application commands can be sent from the composer.".into()));
+        }
+        let session = payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if session.is_empty() {
+            let known = super::gateway::gateway_session();
+            if known.is_empty() {
+                return Err(RestError::Message("Connect to Discord before using an app command.".into()));
+            }
+            payload["session_id"] = json!(known);
+        }
+        let route = route_key("POST", "/interactions", "interactions");
+        let response = self.send(Method::POST, &route, "/interactions", Some(payload), &[]).await?;
+        if response.status().is_success() || response.status().as_u16() == 204 {
+            return Ok(());
+        }
+        let _ = Self::json_body(response, &self.token).await?;
+        Ok(())
+    }
+}
+
+fn messages_from_search(value: &Value) -> Vec<ClientMessage> {
+    let mut out = Vec::new();
+    if let Some(groups) = value.get("messages").and_then(|v| v.as_array()) {
+        for group in groups {
+            let Some(first) = group.as_array().and_then(|items| items.first()) else {
+                continue;
+            };
+            if let Ok(message) = serde_json::from_value::<DiscordMessage>(first.clone()) {
+                out.push(message_to_client(&message));
+            }
+        }
+    }
+    out
+}
+
+#[derive(Debug, Deserialize)]
+struct WireSticker {
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    format_type: i32,
+    #[serde(default)]
+    available: Option<bool>,
+}
+
+fn sticker_picker_url(id: &str, format: i32) -> Option<String> {
+    if !snowflake_ok(id) {
+        return None;
+    }
+    let ext = match format {
+        4 => "gif",
+        1 | 2 => "png",
+        _ => "png",
+    };
+    Some(format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160"))
+}
+
+#[cfg(test)]
+mod messaging_search {
+    use super::*;
+
+    #[test]
+    fn search_query_carries_filters_and_forward_payload_is_a_forward() {
+        let query = message_search_query(&MessageSearch {
+            content: "hello there".into(),
+            author_ids: vec!["100000000000000001".into(), "nope".into()],
+            mention_ids: vec!["100000000000000002".into()],
+            has: vec!["image".into(), "nope".into()],
+            before_id: Some("100000000000000333".into()),
+            after_id: Some("100000000000000222".into()),
+            channel_ids: vec!["100000000000000022".into()],
+            pinned: Some(true),
+        });
+        assert!(query.contains("content=hello%20there"));
+        assert!(query.contains("author_id=100000000000000001"));
+        assert!(!query.contains("author_id=nope"));
+        assert!(query.contains("mentions=100000000000000002"));
+        assert!(query.contains("has=image"));
+        assert!(!query.contains("has=nope"));
+        assert!(query.contains("max_id=100000000000000333"));
+        assert!(query.contains("min_id=100000000000000222"));
+        assert!(query.contains("channel_id=100000000000000022"));
+        assert!(query.contains("pinned=true"));
+        assert!(message_search_path(Some("100000000000000010"), None, &query)
+            .unwrap()
+            .starts_with("/guilds/100000000000000010/messages/search?"));
+        assert!(message_search_path(None, Some("100000000000000022"), "content=a")
+            .unwrap()
+            .starts_with("/channels/100000000000000022/messages/search?"));
+
+        let payload = composed_payload(
+            "",
+            "100000000000000099",
+            None,
+            None,
+            &["100000000000000055"],
+            Some(&ForwardRef {
+                message_id: "100000000000000077".into(),
+                channel_id: "100000000000000022".into(),
+                guild_id: Some("100000000000000010".into()),
+            }),
+        );
+        assert_eq!(payload["message_reference"]["type"], 1);
+        assert_eq!(payload["sticker_ids"][0], "100000000000000055");
+        assert!(discord_page_ok("https://discord.com/nitro"));
+        assert!(!discord_page_ok("https://evil.example/nitro"));
+        let gifs = gifs_from_value(&json!({"gifs": [{"id": "1", "title": "wave", "url": "https://media.tenor.com/wave.gif", "preview": "https://media.tenor.com/tiny.gif"}, {"url": "http://evil.example/x.gif"}]}));
+        assert_eq!(gifs.len(), 1);
+        assert_eq!(gifs[0].title, "wave");
+    }
+}
