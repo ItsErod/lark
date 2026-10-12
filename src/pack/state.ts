@@ -37,6 +37,7 @@ export interface PackState {
   inlineLang: Lang;
   inlineSource: Lang;
   inlinePrefer: TranslatePrefer;
+  hiddenTopics: boolean;
 }
 
 export const PACK_IDS = [
@@ -58,6 +59,7 @@ export const PACK_IDS = [
   "better-timestamps",
   "typing-list",
   "inline-translate",
+  "show-hidden",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -91,6 +93,7 @@ export function defaultPack(): PackState {
     inlineLang: "es",
     inlineSource: "en",
     inlinePrefer: "remote",
+    hiddenTopics: true,
   };
 }
 
@@ -117,6 +120,7 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.inlineLang === "string" && LANGS.has(raw.inlineLang as Lang)) base.inlineLang = raw.inlineLang as Lang;
   if (typeof raw.inlineSource === "string" && LANGS.has(raw.inlineSource as Lang)) base.inlineSource = raw.inlineSource as Lang;
   if (raw.inlinePrefer === "remote" || raw.inlinePrefer === "local") base.inlinePrefer = raw.inlinePrefer;
+  if (typeof raw.hiddenTopics === "boolean") base.hiddenTopics = raw.hiddenTopics;
   base.messageLog = sanitizeLog(raw.messageLog);
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);

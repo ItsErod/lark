@@ -60,3 +60,11 @@ Right-click a message and choose **Translate**. The line is replaced in place. *
 - If that request fails, or the quota warning comes back, Lark uses the local phrase book (English, Spanish, French, German, Japanese) and any lines you saved on the message translator.
 - **Translate into**, **Source language**, and **Prefer** live in the plugin’s settings. Prefer can try the local book first.
 - A line that matches neither stays as it was, and Lark says so.
+
+## Show hidden channels
+
+Channels you cannot view stay in the channel list under **Hidden**, with a lock.
+
+- The topic is shown under the name when **Show topics** is on.
+- Clicking one does not open it and does not fetch its messages. Lark says you cannot view it.
+- Categories are left out. A channel you can already open is unchanged.
