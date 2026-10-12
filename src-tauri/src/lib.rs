@@ -2137,14 +2137,17 @@ fn open_discord_page(url: String) -> Result<(), String> {
     if !lark_core::discord::rest::discord_page_ok(&url) {
         return Err("Only discord.com pages can be opened from here.".into());
     }
-    let spawned = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
-    } else if cfg!(target_os = "macos") {
-        std::process::Command::new("open").arg(&url).spawn()
-    } else {
-        std::process::Command::new("xdg-open").arg(&url).spawn()
+    // Windows uses ShellExecute from the sign-in path, never `cmd` or Explorer.
+    // The composer falls back to the webview when this returns an error.
+    let browser = lark_core::discord::browser_handoff::system_browser(std::env::consts::OS);
+    let Some(program) = browser.child_program() else {
+        return Err("Open this Discord page from the app window.".into());
     };
-    spawned.map(|_| ()).map_err(|err| err.to_string())
+    std::process::Command::new(program)
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
 }
 
 fn install_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {
