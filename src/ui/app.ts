@@ -217,20 +217,6 @@ import {
   type UpdateState,
   type UpdateStep,
 } from "../updates";
-import {
-  INTERFACE_CHECK_MS,
-  applyInterfaceError,
-  applyInterfaceReport,
-  applyInterfaceSnapshot,
-  initialInterfaceUi,
-  interfaceBuildLabel,
-  interfaceToast,
-  setInterfaceCall,
-  type InterfaceChannel,
-  type InterfaceReport,
-  type InterfaceSnapshot,
-  type InterfaceUi,
-} from "../interface-update";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
 import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts, SoundClip } from "../types";
@@ -739,11 +725,8 @@ class LarkApp {
   private youtubeFloatEl!: HTMLElement;
   private toastWrap!: HTMLElement;
   private updateBannerEl!: HTMLElement;
-  private interfaceToastEl!: HTMLElement;
   private updates: UpdateState = initialUpdateState("3.0.0", true);
-  private interfaceUi: InterfaceUi = initialInterfaceUi();
   private updateTimer = 0;
-  private interfaceTimer = 0;
   private pendingUpdate: Update | null = null;
   private updateBusy = false;
   private installingUpdate = false;
@@ -1230,11 +1213,6 @@ class LarkApp {
     this.updateBannerEl.setAttribute("role", "status");
     this.updateBannerEl.setAttribute("aria-live", "polite");
     this.toastWrap.append(this.updateBannerEl);
-    this.interfaceToastEl = el("div", "interface-toast");
-    this.interfaceToastEl.hidden = true;
-    this.interfaceToastEl.setAttribute("role", "status");
-    this.interfaceToastEl.setAttribute("aria-live", "polite");
-    this.toastWrap.append(this.interfaceToastEl);
     this.inviteEl = el("div", "overlay");
     this.inviteEl.hidden = true;
     this.splashEl = el("section", "startup");
@@ -5361,7 +5339,7 @@ class LarkApp {
 
   private paneUpdates(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Updates", "Lark checks for an app update and an interface bundle on startup and every 30 minutes. A voice call finishes before either one reloads."));
+    wrap.append(settingHead("Updates", "Lark checks for a new version on startup and every 30 minutes. The download stays in the background. A voice call finishes before the app restarts."));
     const card = settingCard("This computer");
     card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.0")));
     card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
@@ -5383,30 +5361,6 @@ class LarkApp {
       card.append(el("p", "setting-help", notes.length > 1200 ? `${notes.slice(0, 1199).trimEnd()}…` : notes));
     }
     wrap.append(card);
-    const uiCard = settingCard("Interface");
-    uiCard.append(settingRow("updates.ui", "Interface build", "The interface loaded in this window. Built-in is the one packaged with the app.", el("span", "hint", interfaceBuildLabel(this.interfaceUi.snapshot))));
-    uiCard.append(settingRow(
-      "updates.channel",
-      "Interface channel",
-      "Stable or Canary. Canary gets each interface build. Stable gets a promoted build.",
-      segmentControl(["stable", "canary"], this.interfaceUi.snapshot.channel, (value) => {
-        void this.setInterfaceChannel(value === "canary" ? "canary" : "stable");
-      }, { stable: "Stable", canary: "Canary" }),
-      true,
-    ));
-    const checkUi = el("button", "text-button", this.interfaceUi.checking ? "Checking…" : "Check now");
-    checkUi.type = "button";
-    checkUi.disabled = this.interfaceUi.checking;
-    checkUi.addEventListener("click", () => void this.checkInterface(true));
-    uiCard.append(settingRow("updates.interface", "Check now", "Look for an interface bundle now.", checkUi));
-    const resetUi = el("button", "text-button", "Reset to built-in UI");
-    resetUi.type = "button";
-    resetUi.addEventListener("click", () => void this.resetInterface());
-    uiCard.append(settingRow("updates.reset", "Reset to built-in UI", "Drop the downloaded interface and load the one packaged with Lark.", resetUi));
-    if (this.interfaceUi.error) uiCard.append(el("p", "setting-help", this.interfaceUi.error));
-    else if (this.interfaceUi.note) uiCard.append(el("p", "setting-help", this.interfaceUi.note));
-    if (!isTauri()) uiCard.append(el("p", "setting-help", "Interface updates install from the macOS and Windows apps."));
-    wrap.append(uiCard);
     return wrap;
   }
 
@@ -6768,7 +6722,6 @@ class LarkApp {
     this.updates = initialUpdateState(this.updates.currentVersion || "3.0.0", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
     if (!isTauri()) return;
     void this.watchForUpdates();
-    void this.watchInterface();
   }
 
   private async watchForUpdates() {
@@ -6883,113 +6836,8 @@ class LarkApp {
 
   private noteCallForUpdates() {
     const step = setInCall(this.updates, Boolean(this.voice));
-    const interfaceUi = setInterfaceCall(this.interfaceUi, Boolean(this.voice));
-    if (interfaceUi !== this.interfaceUi) {
-      this.interfaceUi = interfaceUi;
-      this.refreshInterfaceUi();
-    }
     if (step.state === this.updates && step.effect === "none") return;
     this.applyUpdateStep(step);
-  }
-
-  private async watchInterface() {
-    try {
-      const status = await invoke<InterfaceSnapshot>("interface_status");
-      this.interfaceUi = applyInterfaceSnapshot({ ...this.interfaceUi, inCall: Boolean(this.voice) }, status);
-    } catch {
-      this.interfaceUi = { ...this.interfaceUi, inCall: Boolean(this.voice) };
-    }
-    this.refreshInterfaceUi();
-    void this.checkInterface(false);
-    window.clearInterval(this.interfaceTimer);
-    this.interfaceTimer = window.setInterval(() => void this.checkInterface(false), INTERFACE_CHECK_MS);
-  }
-
-  private async checkInterface(manual: boolean) {
-    if (!isTauri()) {
-      if (!manual) return;
-      this.interfaceUi = applyInterfaceError(this.interfaceUi, "Interface updates install from the macOS and Windows apps.", true);
-      this.refreshInterfaceUi();
-      return;
-    }
-    if (this.interfaceUi.checking) return;
-    this.interfaceUi = { ...this.interfaceUi, checking: true, error: "" };
-    this.refreshInterfaceUi();
-    try {
-      const report = await invoke<InterfaceReport>("interface_check", { manual });
-      if (!this.interfaceUi.checking) return;
-      this.interfaceUi = applyInterfaceReport({ ...this.interfaceUi, inCall: Boolean(this.voice) }, report, manual);
-    } catch (err) {
-      this.interfaceUi = applyInterfaceError({ ...this.interfaceUi, inCall: Boolean(this.voice) }, updateErrorMessage(err), manual);
-    }
-    this.refreshInterfaceUi();
-  }
-
-  private async setInterfaceChannel(channel: InterfaceChannel) {
-    if (!isTauri()) {
-      this.interfaceUi = applyInterfaceSnapshot(this.interfaceUi, { ...this.interfaceUi.snapshot, channel });
-      this.refreshInterfaceUi();
-      return;
-    }
-    try {
-      const status = await invoke<InterfaceSnapshot>("interface_set_channel", { channel });
-      this.interfaceUi = applyInterfaceSnapshot({ ...this.interfaceUi, inCall: Boolean(this.voice) }, status);
-      this.refreshInterfaceUi();
-      void this.checkInterface(true);
-    } catch (err) {
-      this.interfaceUi = applyInterfaceError(this.interfaceUi, updateErrorMessage(err), true);
-      this.refreshInterfaceUi();
-    }
-  }
-
-  private async resetInterface() {
-    if (!isTauri()) {
-      this.interfaceUi = applyInterfaceError(this.interfaceUi, "Interface updates install from the macOS and Windows apps.", true);
-      this.refreshInterfaceUi();
-      return;
-    }
-    try {
-      const status = await invoke<InterfaceSnapshot>("interface_reset");
-      this.interfaceUi = applyInterfaceSnapshot({ ...this.interfaceUi, inCall: Boolean(this.voice) }, status);
-      this.refreshInterfaceUi();
-      if (!this.voice && status.reloadReady) await this.reloadInterface();
-    } catch (err) {
-      this.interfaceUi = applyInterfaceError(this.interfaceUi, updateErrorMessage(err), true);
-      this.refreshInterfaceUi();
-    }
-  }
-
-  private async reloadInterface() {
-    if (this.voice) {
-      this.interfaceUi = setInterfaceCall(this.interfaceUi, true);
-      this.refreshInterfaceUi();
-      return;
-    }
-    try {
-      await invoke("interface_reload");
-    } catch (err) {
-      this.interfaceUi = applyInterfaceError(this.interfaceUi, updateErrorMessage(err), true);
-      this.refreshInterfaceUi();
-    }
-  }
-
-  private refreshInterfaceUi() {
-    this.paintInterfaceToast();
-    if (this.settings && this.section === "updates") this.renderSettings();
-  }
-
-  private paintInterfaceToast() {
-    const toast = interfaceToast(this.interfaceUi);
-    clear(this.interfaceToastEl);
-    if (!toast) {
-      this.interfaceToastEl.hidden = true;
-      return;
-    }
-    this.interfaceToastEl.hidden = false;
-    const reload = el("button", "primary", toast.action);
-    reload.type = "button";
-    reload.addEventListener("click", () => void this.reloadInterface());
-    this.interfaceToastEl.append(el("span", "", toast.text), reload);
   }
 
   private refreshUpdateUi() {
