@@ -114,6 +114,11 @@
       "id": "typing-list",
       "name": "Typing indicators",
       "description": "Show who is typing on the channel row and the direct message row."
+    },
+    {
+      "id": "inline-translate",
+      "name": "Translate",
+      "description": "Right-click a message to translate it in place. Uses a free endpoint, then a local phrase book. No key."
     }
   ]
 }
