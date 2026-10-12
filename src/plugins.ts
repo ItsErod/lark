@@ -61,6 +61,8 @@ export interface PluginHooks {
   volumeBoost: boolean;
   patternNotify: boolean;
   pinDms: boolean;
+  panicKey: boolean;
+  incognito: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -102,6 +104,8 @@ export function emptyHooks(): PluginHooks {
     volumeBoost: false,
     patternNotify: false,
     pinDms: false,
+    panicKey: false,
+    incognito: false,
   };
 }
 
@@ -289,6 +293,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.volumeBoost = record.volumeBoost === true;
   hooks.patternNotify = record.patternNotify === true;
   hooks.pinDms = record.pinDms === true;
+  hooks.panicKey = record.panicKey === true;
+  hooks.incognito = record.incognito === true;
   return hooks;
 }
 

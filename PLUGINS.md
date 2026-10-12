@@ -65,6 +65,14 @@ While this is on, the composer does not send a typing indicator. Incoming typing
 
 Chat plugins added after the pack are written up in [docs/PLUGINS.md](docs/PLUGINS.md). Keyword highlights and Pin DMs are the first of that set. Both start off.
 
+## Panic Key
+
+Off until you turn it on. The hotkey is **Ctrl+Shift+H** (Command+Shift+H on macOS). Press it and Lark hides, or minimizes if you pick that option, and mutes and deafens a live call. The chat is covered immediately, before the window animation finishes. Press the same hotkey after Lark is back to show the chat again. A bare letter is not accepted, so typing in the composer cannot fire it. Change the key, the window action, and mute under the plugin.
+
+## Incognito Mode
+
+Off until you turn it on. Lark does not mark a channel read when you open it or when you sit at the bottom. The unread badge stays. **Mark read** in the header, or Esc with nothing else open, is the choice that sends the read receipt. **Hide activity on this device** keeps the account chip on “Incognito”, drops your custom status and activity line locally, and does not send a typing indicator or an automatic status. A status you set yourself still publishes.
+
 ## Samples that were already here
 
 | Plugin | Default | What it does |

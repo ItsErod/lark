@@ -11,6 +11,7 @@ import type { TranslatePrefer } from "./inline-translate";
 import { cleanWords } from "./keywords";
 import { cleanPinnedDms } from "./pin-dms";
 import { cleanPatterns, patternsFor } from "./patterns";
+import { defaultPrivacy, sanitizePrivacy, type PrivacyOptions } from "./privacy";
 
 export interface PackState {
   translateLang: Lang;
@@ -46,6 +47,7 @@ export interface PackState {
   highlightGuilds: Record<string, string[]>;
   highlightNotify: boolean;
   pinnedDms: string[];
+  privacy: PrivacyOptions;
 }
 
 export const PACK_IDS = [
@@ -71,6 +73,8 @@ export const PACK_IDS = [
   "spotify-controls",
   "keyword-highlights",
   "pin-dms",
+  "panic-key",
+  "incognito",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -111,6 +115,7 @@ export function defaultPack(): PackState {
     highlightGuilds: {},
     highlightNotify: true,
     pinnedDms: [],
+    privacy: defaultPrivacy(),
   };
 }
 
@@ -153,6 +158,7 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.highlightNotify === "boolean") base.highlightNotify = raw.highlightNotify;
   base.highlightGuilds = sanitizeHighlightGuilds(raw.highlightGuilds);
   base.pinnedDms = cleanPinnedDms(raw.pinnedDms);
+  base.privacy = sanitizePrivacy(raw.privacy);
   return base;
 }
 
