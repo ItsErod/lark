@@ -169,8 +169,10 @@ pub enum ChannelList {
     Hidden,
 }
 
+/// Keybinds. Unknown fields are ignored so a newer client can still save, and
+/// a missing field keeps the default from this build.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Shortcuts {
     pub quick_switcher: String,
     pub open_settings: String,
@@ -190,6 +192,8 @@ pub struct Shortcuts {
     #[serde(default = "default_toggle_game_mode")]
     pub toggle_game_mode: String,
     pub save_clip: String,
+    #[serde(default = "default_toggle_call")]
+    pub toggle_call: String,
 }
 
 impl Default for Shortcuts {
@@ -211,12 +215,13 @@ impl Default for Shortcuts {
             toggle_perf_overlay: default_toggle_perf_overlay(),
             toggle_game_mode: default_toggle_game_mode(),
             save_clip: "mod+shift+c".into(),
+            toggle_call: default_toggle_call(),
         }
     }
 }
 
 impl Shortcuts {
-    pub fn entries(&self) -> [(&str, &str); 16] {
+    pub fn entries(&self) -> [(&str, &str); 17] {
         [
             ("quick_switcher", self.quick_switcher.as_str()),
             ("open_settings", self.open_settings.as_str()),
@@ -234,6 +239,7 @@ impl Shortcuts {
             ("toggle_perf_overlay", self.toggle_perf_overlay.as_str()),
             ("toggle_game_mode", self.toggle_game_mode.as_str()),
             ("save_clip", self.save_clip.as_str()),
+            ("toggle_call", self.toggle_call.as_str()),
         ]
     }
 }
@@ -244,6 +250,10 @@ fn default_toggle_perf_overlay() -> String {
 
 fn default_toggle_game_mode() -> String {
     "mod+shift+g".into()
+}
+
+fn default_toggle_call() -> String {
+    "mod+shift+v".into()
 }
 
 fn default_ptt_key() -> String {
@@ -678,6 +688,12 @@ fn normalize_speak_color(value: &str) -> String {
     } else {
         "#23a559".to_string()
     }
+}
+
+/// The normalize step inside `save_config`, before the file is written.
+pub fn prepare_saved_config(config: Config) -> Result<Config, String> {
+    let text = toml::to_string(&config).map_err(|err| err.to_string())?;
+    parse_config(&text).map_err(|err| err.to_string())
 }
 
 pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
@@ -1182,6 +1198,7 @@ mod tests {
         assert!(!cfg.desktop.game_mode);
         assert_eq!(cfg.shortcuts.toggle_perf_overlay, "mod+shift+p");
         assert_eq!(cfg.shortcuts.toggle_game_mode, "mod+shift+g");
+        assert_eq!(cfg.shortcuts.toggle_call, "mod+shift+v");
         assert!(cfg.games.is_empty());
         assert_eq!(cfg.shortcuts.save_clip, "mod+shift+c");
         assert!(!cfg.clips.game_capture);
@@ -1321,6 +1338,37 @@ mod tests {
         assert_eq!(cfg.shortcuts.toggle_perf_overlay, "mod+shift+p");
         assert_eq!(cfg.shortcuts.toggle_game_mode, "mod+shift+g");
         assert_eq!(cfg.shortcuts.toggle_voice_overlay, "mod+shift+o");
+        assert_eq!(cfg.shortcuts.toggle_call, "mod+shift+v");
+    }
+
+    #[test]
+    fn shortcut_table_accepts_unknown_and_missing_fields() {
+        let newer = parse_config("[shortcuts]\ntoggle_call = \"mod+shift+v\"\ntoggle_future = \"mod+shift+9\"\n").unwrap();
+        assert_eq!(newer.shortcuts.toggle_call, "mod+shift+v");
+        assert_eq!(newer.shortcuts.quick_switcher, "mod+k");
+
+        let partial: Config = serde_json::from_value(serde_json::json!({
+            "shortcuts": { "toggle_future": "mod+shift+9" }
+        }))
+        .unwrap();
+        assert_eq!(partial.shortcuts.toggle_call, "mod+shift+v");
+        let saved = prepare_saved_config(partial).unwrap();
+        assert_eq!(saved.shortcuts.toggle_call, "mod+shift+v");
+        assert_eq!(saved.shortcuts.save_clip, "mod+shift+c");
+    }
+
+    /// `src/config.ts` `defaultConfig()` is the payload Settings sends to `save_config`.
+    /// The frontend test locks this file to that object.
+    #[test]
+    fn frontend_default_config_round_trips_through_save_config() {
+        let raw = include_str!("../tests/frontend-default-config.json");
+        let frontend: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let config: Config = serde_json::from_str(raw).expect("save_config args");
+        let saved = prepare_saved_config(config).unwrap();
+        assert_eq!(saved.shortcuts.toggle_call, "mod+shift+v");
+        let again = prepare_saved_config(saved.clone()).unwrap();
+        assert_eq!(again, saved);
+        assert_frontend_fields(&frontend, &serde_json::to_value(&saved).unwrap(), "");
     }
 
     #[test]
@@ -1441,6 +1489,30 @@ hotkey = "!!!"
         assert!(validate_theme_css(heavy).is_err());
         let legacy = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 24px 60px rgba(0, 0, 0, 0.38); }";
         assert!(validate_theme_css(legacy).is_ok());
+    }
+
+    fn assert_frontend_fields(frontend: &serde_json::Value, saved: &serde_json::Value, path: &str) {
+        match (frontend, saved) {
+            (serde_json::Value::Object(front), serde_json::Value::Object(back)) => {
+                for (key, value) in front {
+                    let next = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+                    let Some(got) = back.get(key) else {
+                        panic!("save_config dropped {next}");
+                    };
+                    assert_frontend_fields(value, got, &next);
+                }
+            }
+            (serde_json::Value::Array(front), serde_json::Value::Array(back)) => {
+                assert_eq!(front.len(), back.len(), "{path}");
+                for (index, (value, got)) in front.iter().zip(back).enumerate() {
+                    assert_frontend_fields(value, got, &format!("{path}[{index}]"));
+                }
+            }
+            (serde_json::Value::Number(front), serde_json::Value::Number(back)) => {
+                assert_eq!(front.as_f64(), back.as_f64(), "{path}");
+            }
+            _ => assert_eq!(frontend, saved, "{path}"),
+        }
     }
 
     #[test]

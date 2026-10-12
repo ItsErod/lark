@@ -5137,7 +5137,12 @@ class LarkApp {
   private persist(): Promise<void> {
     localStorage.setItem("lark.config.v1", JSON.stringify(this.config));
     if (!isTauri()) return Promise.resolve();
-    return invoke("save_config", { config: this.config }).then(() => undefined);
+    return invoke("save_config", { config: this.config }).then(
+      () => undefined,
+      (err: unknown) => {
+        this.toast("Settings", commandError(err, "Couldn't save settings."));
+      },
+    );
   }
 
   private clipStatusLine(): string {
@@ -9713,7 +9718,7 @@ class LarkApp {
     this.hardwareChecking = true;
     if (this.settings && this.section === "gaming") this.renderSettings();
     try {
-      if (force) await invoke("save_config", { config: this.config });
+      if (force) await this.persist();
       if (!this.config.desktop.hardware_status) return;
       const snap = await invoke<{ line?: string | null }>("hardware_snapshot");
       if (!this.config.desktop.hardware_status) return;

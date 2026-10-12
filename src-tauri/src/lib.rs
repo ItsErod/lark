@@ -18,6 +18,7 @@ use lark_core::credential_not_saved_message;
 use lark_core::discord::{ClientEvent, DiscordRest};
 use lark_core::normalize_user_token;
 use lark_core::parse_config;
+use lark_core::prepare_saved_config;
 use lark_core::Config;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -323,8 +324,7 @@ async fn get_config(app: AppHandle, state: State<'_, Shared>) -> Result<Config, 
 
 #[tauri::command]
 async fn save_config(app: AppHandle, state: State<'_, Shared>, config: Config) -> Result<Config, String> {
-    let normalized = parse_config(&toml::to_string(&config).map_err(|err| err.to_string())?)
-        .map_err(|err| err.to_string())?;
+    let normalized = prepare_saved_config(config)?;
     let pretty = toml::to_string_pretty(&normalized).map_err(|err| err.to_string())?;
     fs::write(&state.paths.config_file, pretty).map_err(|err| err.to_string())?;
     *state.config.lock().await = normalized.clone();
