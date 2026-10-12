@@ -264,7 +264,7 @@ export const MEMBER_LIST_SORTS: { id: MemberListSort; label: string }[] = [
 
 /** Status keeps role groups. Name and activity flatten the list. */
 export function applyMemberListSort(rows: PaintedRow[], sort: MemberListSort): PaintedRow[] {
-  if (sort === "status") return rows;
+  if (sort === "status") return rows.slice();
   const members = rows.filter((row): row is Extract<PaintedRow, { type: "member" }> => row.type === "member");
   return [...members].sort((a, b) => {
     if (sort === "activity") {

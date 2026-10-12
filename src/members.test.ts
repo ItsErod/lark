@@ -124,8 +124,15 @@ describe("role groups", () => {
       { type: "member" as const, person: person({ id: "1", name: "Zoe", activity: "Queue" }), color: null },
       { type: "member" as const, person: person({ id: "2", name: "Amy" }), color: null },
     ];
-    expect(applyMemberListSort(rows, "status")).toHaveLength(3);
-    expect(applyMemberListSort(rows, "name").map((row) => row.type === "member" ? row.person.name : "")).toEqual(["Amy", "Zoe"]);
-    expect(applyMemberListSort(rows, "activity").map((row) => row.type === "member" ? row.person.name : "")).toEqual(["Zoe", "Amy"]);
+    const status = applyMemberListSort(rows, "status");
+    rows.length = 0;
+    expect(status).toHaveLength(3);
+    const named = [
+      { type: "group" as const, id: "online", label: "Online", count: 2, color: null },
+      { type: "member" as const, person: person({ id: "1", name: "Zoe", activity: "Queue" }), color: null },
+      { type: "member" as const, person: person({ id: "2", name: "Amy" }), color: null },
+    ];
+    expect(applyMemberListSort(named, "name").map((row) => row.type === "member" ? row.person.name : "")).toEqual(["Amy", "Zoe"]);
+    expect(applyMemberListSort(named, "activity").map((row) => row.type === "member" ? row.person.name : "")).toEqual(["Zoe", "Amy"]);
   });
 });
