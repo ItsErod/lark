@@ -58,8 +58,10 @@ export function applyReleaseVersion(version) {
   replaceJsonVersions("src-tauri/tauri.conf.json", 1, version);
   replaceCargoVersion("src-tauri/Cargo.toml", version);
   replaceCargoVersion("crates/lark-core/Cargo.toml", version);
+  replaceCargoVersion("crates/lark-clip-hw/Cargo.toml", version);
   replaceLockPackage("lark", version);
   replaceLockPackage("lark-core", version);
+  replaceLockPackage("lark-clip-hw", version);
 }
 
 const isDirect = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

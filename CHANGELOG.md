@@ -4,6 +4,41 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.0](https://github.com/ItsErod/lark/releases/tag/v3.0.0) — 2026-10-12
+
+Lark 3.0 is the Discord parity release: servers and settings, your account, chat, people, calls, and threads, forums, polls, events, and the inbox.
+
+### ✨ Added
+
+- Servers and settings cover the Discord server surface: server and channel menus, invites, and create flows; channel overview, permissions, invites, and webhooks; Server Settings for the profile, expressions, members, roles, invites, moderation, and community; member-list sort; and stage and media channels (kinds 13 and 16). ([#61](https://github.com/ItsErod/lark/pull/61), [#62](https://github.com/ItsErod/lark/pull/62), [#66](https://github.com/ItsErod/lark/pull/66), [#67](https://github.com/ItsErod/lark/pull/67), [#59](https://github.com/ItsErod/lark/pull/59))
+- User settings add the Discord account pages, account switching, and keybinds, plus Developer Mode, embed, and spoiler display flags. ([#72](https://github.com/ItsErod/lark/pull/72), [#60](https://github.com/ItsErod/lark/pull/60))
+- Messaging and the composer add Discord-style message tools and search filters, and the composer can open a thread or a poll. ([#73](https://github.com/ItsErod/lark/pull/73))
+- Direct messages, friends, and profiles add Discord actions for the people you talk to. ([#65](https://github.com/ItsErod/lark/pull/65))
+- Voice, video, and stage add desk controls, call chrome, stage chat, camera video on the voice socket, and stage commands. ([#75](https://github.com/ItsErod/lark/pull/75), [#76](https://github.com/ItsErod/lark/pull/76))
+- Threads, forums, polls, events, and the inbox are in the client, with the routes that open them. ([#64](https://github.com/ItsErod/lark/pull/64), [#63](https://github.com/ItsErod/lark/pull/63))
+- Plugins merged so far stay off until Settings → Plugins. This release adds Message logger, Call Timer, Volume Booster, Keyword highlights, Pin DMs, Panic Key, Incognito Mode, Streamer Safe, Clean Links, Better timestamps, Typing indicators, Translate, Show hidden channels, Spotify controls, Spoiler Everything, Hide Blocked Messages, Quick replies, Copy message markdown, Image zoom, Read all, User whois, Emote cloner, Message scheduler, Reverse image search, and Bigger emoji. The earlier pack is still there: message translator, inline syntax, quiet media, send later, quick reactions, keyword ping, auto away, now playing, bookmarks, hide muted people, relative time, and silent typing. ([#68](https://github.com/ItsErod/lark/pull/68), [#71](https://github.com/ItsErod/lark/pull/71), [#69](https://github.com/ItsErod/lark/pull/69), [#70](https://github.com/ItsErod/lark/pull/70), [#77](https://github.com/ItsErod/lark/pull/77), [#79](https://github.com/ItsErod/lark/pull/79), [#82](https://github.com/ItsErod/lark/pull/82), [#85](https://github.com/ItsErod/lark/pull/85), [#87](https://github.com/ItsErod/lark/pull/87), [#89](https://github.com/ItsErod/lark/pull/89), [#86](https://github.com/ItsErod/lark/pull/86), [#90](https://github.com/ItsErod/lark/pull/90), [#92](https://github.com/ItsErod/lark/pull/92), [#95](https://github.com/ItsErod/lark/pull/95), [#96](https://github.com/ItsErod/lark/pull/96))
+
+### 🔧 Changed
+
+- The repository is cleaned up for a public release. `.gitignore` covers installers, local config, and secrets. The README and MIT license describe the project. Actions keeps contents write on the installer job only. ([#55](https://github.com/ItsErod/lark/pull/55))
+
+### 🐛 Fixed
+
+- Settings can save. `save_config` rejected the call-view keybind (`toggle_call`), so opening Settings hit the fatal error screen. That keybind is accepted, unknown keybinds are ignored, and a failed save shows as a toast. ([#54](https://github.com/ItsErod/lark/pull/54))
+
+### 🗑️ Removed
+
+- The agent screenshot and perf scripts (`shots.mjs`, `signin-shots.mjs`, `theme-shots.mjs`, `plugin-shots.mjs`, and `perf.mjs`) are gone. Layout tests still cover the UI. ([#55](https://github.com/ItsErod/lark/pull/55))
+
+### Known limitations
+
+- Remote camera video isn't drawn.
+- The guild soundboard plays a local chime.
+- There is no Krisp noise suppression.
+- There is no embedded activity runtime.
+- DM pins are local only.
+- Friend-request rows in the inbox are display-only.
+
 ## [2.4.5](https://github.com/ItsErod/lark/releases/tag/v2.4.5) — 2026-10-12
 
 Opening Lark no longer stops on a blank window after the startup splash.

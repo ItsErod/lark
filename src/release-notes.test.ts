@@ -184,7 +184,11 @@ describe("changelog and release workflow", () => {
     for (const section of sections) {
       const headers = [...section.matchAll(/^### (.+)$/gm)].map((match) => match[1]);
       expect(headers.length).toBeGreaterThan(0);
-      const indexes = headers.map((header) => SECTION_ORDER.indexOf(header));
+      const standard = headers.filter((header) => header !== "Known limitations");
+      if (headers.includes("Known limitations")) {
+        expect(headers.at(-1)).toBe("Known limitations");
+      }
+      const indexes = standard.map((header) => SECTION_ORDER.indexOf(header));
       expect(indexes.every((index) => index >= 0)).toBe(true);
       expect([...indexes].sort((a, b) => a - b)).toEqual(indexes);
       expect(section).toMatch(/^- .+\(\[.+\]\(https:\/\/github.com\/ItsErod\/lark\/.+\).*\)$/m);
