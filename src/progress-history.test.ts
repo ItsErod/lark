@@ -35,9 +35,10 @@ const api = new Function(
 const { RELEASES_REFRESH_MS, formatDuration, buildVersionHistory, inProgressName } = api;
 
 describe("version history", () => {
-  it("keeps the release list on a 10 minute cache so the page stays under 60 requests an hour", () => {
+  it("refreshes visible pull requests once a minute and keeps the release list on a 10 minute cache", () => {
     expect(RELEASES_REFRESH_MS).toBe(10 * 60 * 1000);
-    expect(html).toContain('const REFRESH_MS = 120000');
+    expect(html).toContain('const REFRESH_MS = 60000');
+    expect(html).toContain("if (document.hidden && !manual) return;");
     expect(html).toContain("lark30-version-history-v1");
     expect(html).toContain("(Date.now() - savedReleases.fetchedAt) < RELEASES_REFRESH_MS");
     expect(html).toContain("https://api.github.com/repos/ItsErod/lark/releases?per_page=100");
