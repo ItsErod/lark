@@ -49,6 +49,9 @@ import { isJumbo } from "../pack/jumbo";
 import { atOrBefore, noteSeen } from "../pack/receipts";
 import { digestRows, digestTotal } from "../pack/digest";
 import { composerCount } from "../pack/words";
+import { replyChain } from "../pack/chain";
+import { connectionLabel, connectionLines, type ConnectionLine } from "../pack/connections";
+import { displayName, setLocalNick } from "../pack/nicks";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
 import { formatRelative } from "../pack/relative";
@@ -813,6 +816,8 @@ class LarkApp {
   private pinsOpen = false;
   private digestOpen = false;
   private receiptNote = false;
+  private nickTarget: { id: string; name: string } | null = null;
+  private connectionCache = new Map<string, { lines: ConnectionLine[]; at: number }>();
   private themeOpen = false;
   private themeFilter = "";
   private extraThemeIds: string[] = [];
@@ -4364,7 +4369,8 @@ class LarkApp {
     const wrap = el("div", "avatar-wrap");
     wrap.append(portrait(person.name, person.id, person.avatarUrl, true), el("i", `status ${person.status ?? "offline"}`));
     const copy = el("div", "member-copy");
-    const name = el("strong", "", person.name);
+    const shownName = this.hookOn("localNicks") ? displayName(this.pack.localNicks, person.id, person.name) : person.name;
+    const name = el("strong", "", this.maskText(shownName));
     if (color) name.style.color = color;
     const title = el("div", "member-name");
     title.append(name);
@@ -4420,6 +4426,8 @@ class LarkApp {
       this.composerBanner.append(cancel);
     } else if (this.reminding) {
       this.paintReminderBanner();
+    } else if (this.nickTarget) {
+      this.paintNickBanner();
     } else if (this.reply) {
       this.composerBanner.hidden = false;
       const preview = this.maskText(plainPreview(this.reply.content, this.renderContext(), 80));
@@ -8504,11 +8512,14 @@ class LarkApp {
   }
 
   private presentView(view: ViewMessage): ViewMessage {
-    if (!this.streamerOn() && !this.streamerSafeOn()) return view;
+    const named = this.hookOn("localNicks")
+      ? { ...view, authorName: displayName(this.pack.localNicks, view.authorId, view.authorName) }
+      : view;
+    if (!this.streamerOn() && !this.streamerSafeOn()) return named;
     const text = (value: string) => this.scrubText(value);
     return {
-      ...view,
-      authorName: text(view.authorName),
+      ...named,
+      authorName: text(named.authorName),
       blocks: redactBlocks(view.blocks, text),
       raw: text(view.raw),
       reply: view.reply
@@ -11490,6 +11501,113 @@ class LarkApp {
     return filterLoadedMessages(pools, resolved);
   }
 
+  private paintNickBanner() {
+    const target = this.nickTarget;
+    if (!target) return;
+    this.composerBanner.hidden = false;
+    const field = el("input");
+    field.value = this.pack.localNicks[target.id] ?? "";
+    field.placeholder = "Nickname";
+    field.maxLength = 32;
+    field.setAttribute("aria-label", `Local nickname for ${target.name}`);
+    const save = el("button", "primary", "Save");
+    save.type = "button";
+    save.addEventListener("click", () => {
+      this.pack.localNicks = setLocalNick(this.pack.localNicks, target.id, field.value);
+      this.savePack();
+      this.nickTarget = null;
+      this.msgSig = "";
+      this.paint();
+    });
+    const clearNick = el("button", "ghost", "Clear");
+    clearNick.type = "button";
+    clearNick.addEventListener("click", () => {
+      this.pack.localNicks = setLocalNick(this.pack.localNicks, target.id, "");
+      this.savePack();
+      this.nickTarget = null;
+      this.msgSig = "";
+      this.paint();
+    });
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      this.nickTarget = null;
+      this.paintComposer();
+    });
+    this.composerBanner.append(el("span", "", `Nickname for ${this.maskText(target.name)}`), field, save, clearNick, cancel);
+  }
+
+  private openReplyChain(message: RawMessage) {
+    const loaded = (this.pages[message.channelId] ?? []).map((item) => ({
+      id: item.id,
+      authorName: item.authorName,
+      content: item.content,
+      replyId: item.reply?.id ?? null,
+    }));
+    const chain = replyChain(loaded, message.id);
+    let panel = document.getElementById("lark-chain");
+    if (!panel) {
+      panel = el("aside", "pins");
+      panel.id = "lark-chain";
+      this.stage.append(panel);
+    }
+    clear(panel);
+    panel.append(el("h2", "", "Reply chain"));
+    if (!chain.steps.length) panel.append(el("p", "empty", "That message isn't loaded."));
+    for (const step of chain.steps) {
+      const button = el("button", "bookmark-row");
+      button.type = "button";
+      button.append(el("strong", "", this.maskText(step.authorName)), el("span", "", this.maskText(step.preview)));
+      button.addEventListener("click", () => {
+        panel?.remove();
+        void this.jumpToMessage(message.channelId, step.id);
+      });
+      panel.append(button);
+    }
+    const note = chain.stopped === "missing"
+      ? "An earlier message isn't loaded. Lark did not fetch it."
+      : chain.stopped === "cap"
+        ? "Showing the newest 12. Lark did not fetch older ones."
+        : chain.stopped === "loop"
+          ? "The chain repeats, so it stops."
+          : "Built from messages already loaded.";
+    const close = el("button", "text-button", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => panel?.remove());
+    panel.append(el("p", "hint", note), close);
+  }
+
+  private async openConnections(message: RawMessage) {
+    const cached = this.connectionCache.get(message.authorId);
+    const fresh = cached && Date.now() - cached.at < 5 * 60_000 ? cached.lines : null;
+    let lines = fresh;
+    if (!lines && !this.demo && isTauri()) {
+      try {
+        const profile = await invoke<WireProfile>("fetch_profile", { userId: message.authorId, guildId: this.guildId ?? "" });
+        lines = connectionLines(profile?.widgets);
+        this.connectionCache.set(message.authorId, { lines, at: Date.now() });
+      } catch {
+        this.toast("Connections", "Couldn't load that profile.");
+        return;
+      }
+    }
+    lines = lines ?? [];
+    let card = document.getElementById("lark-connections");
+    if (!card) {
+      card = el("aside", "pins");
+      card.id = "lark-connections";
+      this.stage.append(card);
+    }
+    clear(card);
+    card.append(el("h2", "", "Connections"));
+    if (!lines.length) card.append(el("p", "empty", "No linked accounts on that profile."));
+    for (const line of lines) card.append(el("p", "", this.maskText(connectionLabel(line))));
+    const close = el("button", "text-button", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => card?.remove());
+    card.append(el("p", "hint", "One profile, because you asked. Nobody else is looked up."), close);
+  }
+
   private messageSeen(channelId: string, messageId: string): boolean {
     if (!this.hookOn("readReceipts") || !this.pack.showReceipts) return false;
     return atOrBefore(this.pack.seenCursors[channelId] ?? "", messageId);
@@ -12012,6 +12130,9 @@ class LarkApp {
     const items: MenuEntry[] = [];
     if (this.hookOn("inlineTranslate")) items.push({ id: "translate", label: this.translated[message.id] ? "Show original" : "Translate" });
     if (this.hookOn("copyMarkdown")) items.push({ id: "copy-md", label: "Copy Markdown" });
+    if (this.hookOn("replyChain") && message.reply) items.push({ id: "reply-chain", label: "Reply chain" });
+    if (this.hookOn("showConnections")) items.push({ id: "connections", label: "Connections" });
+    if (this.hookOn("localNicks")) items.push({ id: "local-nick", label: "Local nickname" });
     return items;
   }
 
@@ -12029,6 +12150,12 @@ class LarkApp {
   private async onMessageMenu(message: RawMessage, id: string) {
     if (id === "translate") await this.onInlineTranslate(message);
     if (id === "copy-md") await this.copyMessageMarkdown(message);
+    if (id === "reply-chain") this.openReplyChain(message);
+    if (id === "connections") await this.openConnections(message);
+    if (id === "local-nick") {
+      this.nickTarget = { id: message.authorId, name: message.authorName };
+      this.paintComposer();
+    }
   }
 
   private repliesButton(): HTMLButtonElement {
@@ -12475,6 +12602,33 @@ class LarkApp {
         this.paintMessages();
       }, { "0": "Off", "40": "40 words", "100": "100 words", "280": "280 words" }));
       card.append(el("p", "hint", "The composer always shows the word count while this is on. A badge appears only at the size you pick."));
+      wrap.append(card);
+    } else if (id === "reply-chain") {
+      const card = el("div", "plugin-card");
+      card.append(el("p", "hint", "Right-click a reply. The chain is built from messages already loaded. A missing parent is not fetched."));
+      wrap.append(card);
+    } else if (id === "show-connections") {
+      const card = el("div", "plugin-card");
+      card.append(el("p", "hint", "Right-click a message and choose Connections. Lark loads that one profile. It does not scan the member list."));
+      wrap.append(card);
+    } else if (id === "local-nicknames") {
+      const card = el("div", "plugin-card");
+      const ids = Object.keys(this.pack.localNicks);
+      if (!ids.length) card.append(el("p", "hint", "Right-click a message and choose Local nickname. Discord is not updated."));
+      for (const userId of ids) {
+        const row = el("div", "shortcut-row");
+        row.append(el("span", "", this.pack.localNicks[userId]));
+        const clearNick = el("button", "text-button", "Clear");
+        clearNick.type = "button";
+        clearNick.addEventListener("click", () => {
+          this.pack.localNicks = setLocalNick(this.pack.localNicks, userId, "");
+          this.savePack();
+          this.msgSig = "";
+          this.paint();
+        });
+        row.append(clearNick);
+        card.append(row);
+      }
       wrap.append(card);
     }
     this.appendChatPluginPanel(wrap, id);

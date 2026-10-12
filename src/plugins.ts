@@ -87,6 +87,9 @@ export interface PluginHooks {
   readReceipts: boolean;
   mentionDigest: boolean;
   wordCount: boolean;
+  replyChain: boolean;
+  showConnections: boolean;
+  localNicks: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -157,6 +160,9 @@ export function emptyHooks(): PluginHooks {
     readReceipts: false,
     mentionDigest: false,
     wordCount: false,
+    replyChain: false,
+    showConnections: false,
+    localNicks: false,
   };
 }
 
@@ -376,6 +382,9 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.readReceipts = record.readReceipts === true;
   hooks.mentionDigest = record.mentionDigest === true;
   hooks.wordCount = record.wordCount === true;
+  hooks.replyChain = record.replyChain === true;
+  hooks.showConnections = record.showConnections === true;
+  hooks.localNicks = record.localNicks === true;
   return hooks;
 }
 

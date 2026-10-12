@@ -17,6 +17,7 @@ import { cleanPatterns, patternsFor } from "./patterns";
 import { defaultPrivacy, sanitizePrivacy, spoilerMode, type PrivacyOptions } from "./privacy";
 import { sanitizeCursors } from "./receipts";
 import { wordMin, type WordMin } from "./words";
+import { sanitizeNicks } from "./nicks";
 
 export interface PackState {
   translateLang: Lang;
@@ -79,6 +80,7 @@ export interface PackState {
   showReceipts: boolean;
   digestDms: boolean;
   wordMin: WordMin;
+  localNicks: Record<string, string>;
 }
 
 export const PACK_IDS = [
@@ -128,6 +130,9 @@ export const PACK_IDS = [
   "read-receipts",
   "mention-digest",
   "word-counter",
+  "reply-chain",
+  "show-connections",
+  "local-nicknames",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -195,6 +200,7 @@ export function defaultPack(): PackState {
     showReceipts: true,
     digestDms: true,
     wordMin: 0,
+    localNicks: {},
   };
 }
 
@@ -264,6 +270,7 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.showReceipts === "boolean") base.showReceipts = raw.showReceipts;
   if (typeof raw.digestDms === "boolean") base.digestDms = raw.digestDms;
   if (raw.wordMin !== undefined) base.wordMin = wordMin(raw.wordMin);
+  base.localNicks = sanitizeNicks(raw.localNicks);
   return base;
 }
 
