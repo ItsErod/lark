@@ -124,6 +124,11 @@
       "id": "show-hidden",
       "name": "Show hidden channels",
       "description": "List channels you cannot view, with a lock and the topic. Opening one is refused."
+    },
+    {
+      "id": "spotify-controls",
+      "name": "Spotify controls",
+      "description": "A mini player in the user panel from the listening line and Spotify links. No login and no key."
     }
   ]
 }
