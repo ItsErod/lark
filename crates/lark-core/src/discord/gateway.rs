@@ -958,6 +958,7 @@ fn handle_dispatch(
         "READY" => {
             if let Ok(ready) = serde_json::from_value::<Ready>(data.clone()) {
                 let user_id = ready.user.id.clone();
+                note_gateway_session(&ready.session_id);
                 *session = Some(Session {
                     id: ready.session_id,
                     seq,
@@ -2125,4 +2126,20 @@ mod tests {
             _ => panic!("expected reaction"),
         }
     }
+}
+
+/// Gateway READY session, kept for interaction payloads. The voice slot's session id is a different value.
+static GATEWAY_SESSION: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+pub fn note_gateway_session(id: &str) {
+    if id.is_empty() {
+        return;
+    }
+    if let Ok(mut slot) = GATEWAY_SESSION.lock() {
+        *slot = id.to_string();
+    }
+}
+
+pub fn gateway_session() -> String {
+    GATEWAY_SESSION.lock().map(|slot| slot.clone()).unwrap_or_default()
 }
