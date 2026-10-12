@@ -70,8 +70,9 @@ describe("theme pack", () => {
     expect(warm.vars["--bg-0"]).toBe("#12110f");
     expect(warm.vars["--accent"]).toBe("#e2a15a");
     const fallback = readFileSync("src/styles.css", "utf8");
-    expect(fallback).toContain("--bg-0: #1e1f22");
-    expect(fallback).toContain("--accent: #5865f2");
+    expect(fallback).toContain("--bg-0: #09090b");
+    expect(fallback).toContain("--accent: #fafafa");
+    expect(fallback).toContain("--shadow: none");
     expect(fallback).toContain("border-radius: 50%");
   });
 

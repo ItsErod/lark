@@ -48,8 +48,10 @@ describe("design tokens", () => {
   it("defines spacing, radii, elevation, type, icons, and motion", () => {
     for (const token of TOKENS) expect(css).toContain(`${token}:`);
     expect(css).toContain("--space-2: 8px");
-    expect(css).toContain("--motion-fast: 120ms");
-    expect(css).toContain("--motion-slow: 200ms");
+    expect(css).toContain("--radius-sm: 4px");
+    expect(css).toContain("--elev-1: none");
+    expect(css).toContain("--motion-fast: 80ms");
+    expect(css).toContain("--motion-slow: 120ms");
   });
 
   it("drops motion when the user prefers reduced motion", () => {

@@ -5658,7 +5658,7 @@ class LarkApp {
   private accentRow(): HTMLElement {
     const guild = this.guilds().find((item) => item.id === this.guildId);
     const stored = guild ? (this.config.accents[guild.id] ?? "") : "";
-    const shown = normalizeHex(stored) || rgbToHex(getComputedStyle(this.root).getPropertyValue("--accent")) || "#5865f2";
+    const shown = normalizeHex(stored) || rgbToHex(getComputedStyle(this.root).getPropertyValue("--accent")) || "#fafafa";
     const control = colorControl(shown, "Server accent", (hex) => {
       if (!this.guildId) return;
       this.config.accents[this.guildId] = hex;
