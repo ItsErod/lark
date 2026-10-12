@@ -197,6 +197,13 @@ export function activityInviteBody(applicationId: string): { max_age: number; ma
   return { max_age: 86400, max_uses: 0, target_type: 2, target_application_id: activity.id };
 }
 
+/** The composer Apps button starts an activity with the same invite the call panel uses. */
+export function activityLaunchTarget(applicationId: string, voiceChannelId: string | null | undefined): { channelId: string; applicationId: string } | null {
+  const body = activityInviteBody(applicationId);
+  if (!body || !voiceChannelId || !/^\d{5,22}$/.test(voiceChannelId)) return null;
+  return { channelId: voiceChannelId, applicationId: body.target_application_id };
+}
+
 /** YouTube and youtu.be links Watch Together can open. */
 export function watchVideoId(url: string): string | null {
   const text = url.trim();

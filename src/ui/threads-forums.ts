@@ -65,6 +65,7 @@ import {
   registerPollOpener,
   registerThreadOpener,
 } from "../threads";
+import "./apps-launcher";
 
 const sortChoice = new Map<string, ForumSort>();
 const tagChoice = new Map<string, string | null>();
