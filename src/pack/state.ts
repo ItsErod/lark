@@ -64,6 +64,8 @@ export interface PackState {
   imageTineye: boolean;
   imageYandex: boolean;
   jumboSize: 32 | 48 | 64 | 96;
+  voiceDownloadScope: "voice" | "all";
+  originalImageAction: "both" | "open" | "download";
 }
 
 export const PACK_IDS = [
@@ -104,6 +106,8 @@ export const PACK_IDS = [
   "message-scheduler",
   "reverse-image",
   "bigger-emoji",
+  "voice-download",
+  "original-image",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -159,6 +163,8 @@ export function defaultPack(): PackState {
     imageTineye: true,
     imageYandex: true,
     jumboSize: 48,
+    voiceDownloadScope: "voice",
+    originalImageAction: "both",
   };
 }
 
@@ -192,6 +198,8 @@ export function sanitizePack(input: unknown): PackState {
   if (raw.zoomMax === 2 || raw.zoomMax === 3 || raw.zoomMax === 4) base.zoomMax = raw.zoomMax;
   base.templates = sanitizeTemplates(raw.templates);
   base.messageLog = sanitizeLog(raw.messageLog);
+  if (raw.voiceDownloadScope === "voice" || raw.voiceDownloadScope === "all") base.voiceDownloadScope = raw.voiceDownloadScope;
+  if (raw.originalImageAction === "both" || raw.originalImageAction === "open" || raw.originalImageAction === "download") base.originalImageAction = raw.originalImageAction;
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
   base.schedule = sanitizeSchedule(raw.schedule);
@@ -231,6 +239,8 @@ export function settingsFor(pack: PackState, pluginId: string, channelId: string
   if (pluginId === "keyword-highlights") {
     return { patterns: patternsFor(pack.highlightPatterns, pack.highlightGuilds, guildId).join("\n") };
   }
+  if (pluginId === "voice-download") return { scope: pack.voiceDownloadScope };
+  if (pluginId === "original-image") return { action: pack.originalImageAction };
   return {};
 }
 

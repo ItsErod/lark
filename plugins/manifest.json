@@ -214,6 +214,16 @@
       "id": "bigger-emoji",
       "name": "Bigger emoji",
       "description": "Make a message that is only emoji larger."
+    },
+    {
+      "id": "voice-download",
+      "name": "Voice Message Downloader",
+      "description": "A download button on voice messages and, if you want, every attachment."
+    },
+    {
+      "id": "original-image",
+      "name": "View Original Image",
+      "description": "Open the full image and download it in one click."
     }
   ]
 }

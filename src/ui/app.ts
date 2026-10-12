@@ -52,9 +52,11 @@ import { formatRelative } from "../pack/relative";
 import { backoff, cancelSend, queueSend, takeDue, type ScheduledSend } from "../pack/schedule";
 import { defaultPack, PACK_IDS, sanitizePack, settingsFor, type PackState } from "../pack/state";
 import { callTimerLabel } from "../media/call-timer";
+import { downloadName, originalImageUrl } from "../media/files";
 import { boostedPlayback, volumeCeiling } from "../media/volume";
 import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
+import "../media/files-panel";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
 import { holdRead as privacyHoldRead, obsDetected, panicPlan, publishActivity, redactStreamerText, streamerSafeActive, visibleStatus } from "../pack/privacy";
 import { stripTrackingText, stripTrackingUrl } from "../pack/links";
@@ -2908,6 +2910,10 @@ class LarkApp {
       savePack: () => this.savePack(),
       choice: (values, current, onPick, labels) => this.choice(values, current, onPick, labels),
       resendVoiceMix: () => this.resendVoiceMix(),
+      refreshMessages: () => {
+        this.msgSig = "";
+        this.paintMessages();
+      },
     };
   }
 
@@ -3853,7 +3859,7 @@ class LarkApp {
     let list = id ? this.pages[id] ?? [] : [];
     if (id && list.length) list = this.windowMessages(id, list);
     if (id && this.hookOn("messageLog") && this.pack.logDeleted) list = overlayDeletes(list, this.pack.messageLog, id);
-    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.blockedIds.size}:${this.pack.privacy.spoilerDefault}:${this.channelId ? this.pack.privacy.spoilerChannels[this.channelId] ?? "" : ""}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.relativeClock() ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.pack.timeMode}:${this.pack.timeHours}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
+    const pluginStamp = `${this.pack.bookmarks.length}:${this.reminders.length}:${this.streamerOn() ? 1 : 0}:${this.streamerSafeOn() ? 1 : 0}:${this.blockedIds.size}:${this.pack.privacy.spoilerDefault}:${this.channelId ? this.pack.privacy.spoilerChannels[this.channelId] ?? "" : ""}:${this.pack.hiddenAuthors.length}:${Object.keys(this.translated).length}:${this.relativeClock() ? Math.floor(this.clock / 30_000) : 0}:${this.pack.mediaCompact}:${this.pack.mediaPreviews}:${this.pack.timeMode}:${this.pack.timeHours}:${this.pack.voiceDownloadScope}:${this.pack.originalImageAction}:${this.config.plugins.enabled.join(",")}:${this.logStamp()}`;
     const shownError = this.error && !list.length ? this.error : "";
     const threadSig = id ? this.threadsFor(id).map((thread) => thread.id).join(",") : "";
     const structural = `${id}|${this.loading}|${shownError}|${this.pickerFor}|${this.jumpId}|${threadSig}|${this.config.appearance.density}|${pluginStamp}`;
@@ -11386,6 +11392,43 @@ class LarkApp {
     return settings;
   }
 
+  private async saveRemote(url: string, name: string) {
+    const filename = downloadName(name, "download");
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("status");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    } catch {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      link.click();
+    }
+  }
+
+  private viewOriginal(url: string, name: string) {
+    const original = originalImageUrl(url);
+    if (!original) {
+      this.toast("Image", "That image doesn't have a full-size link.");
+      return;
+    }
+    if (this.pack.originalImageAction !== "download") {
+      this.lightbox = original;
+      this.paintLightbox();
+    }
+    if (this.pack.originalImageAction !== "open") void this.saveRemote(original, name);
+  }
+
   private messageChrome(message: RawMessage, view: ViewMessage) {
     const roles = this.guildId ? this.rolesByGuild[this.guildId] ?? [] : [];
     const member = [this.me, ...this.liveMembers].find((person) => person.id === message.authorId);
@@ -11415,6 +11458,10 @@ class LarkApp {
       onRemind: () => this.beginReminder(message),
       onTranslate: view.effects.includes("translate") ? () => void this.onTranslate(message) : undefined,
       onHideAuthor: this.hookOn("hideUsers") ? () => this.onHideAuthor(message) : undefined,
+      downloadScope: view.effects.includes("voice-download") ? this.pack.voiceDownloadScope : undefined,
+      onDownload: view.effects.includes("voice-download") ? (url: string, name: string) => void this.saveRemote(url, name) : undefined,
+      originalAction: view.effects.includes("original-image") ? this.pack.originalImageAction : undefined,
+      onOriginal: view.effects.includes("original-image") ? (url: string, name: string) => this.viewOriginal(url, name) : undefined,
       onForward: () => {
         armForward({
           messageId: message.id,

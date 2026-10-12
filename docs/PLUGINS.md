@@ -76,6 +76,7 @@ A small player sits above your name in the user panel.
 - It reads the listening line already on a profile (`Listening to …`). It does not sign in to Spotify and it does not store a key.
 - A Spotify track, album, or playlist link in the open channel fills in an **Open** link. Without a link, **Open** searches Spotify for the title.
 - **Listening status** and **Spotify links** can be turned off on their own.
+
 ## Keyword highlights
 
 Highlight a word or a small regular expression in every server, and optionally notify.
@@ -153,6 +154,7 @@ Right-click a message and choose **Copy Markdown**. The message text is copied. 
 ## Image zoom
 
 Open an image, then click it to zoom in or scroll to zoom in and out. **Largest zoom** is 2×, 3×, or 4×. Clicking the dim area around the image still closes it.
+
 ## Read all
 
 **Read all** in the channel header, or **Mark every server read** in the plugin’s settings, clears unread badges in every server.
@@ -191,3 +193,19 @@ Right-click an image in a message and choose **Google Lens**, **TinEye**, or **Y
 ## Bigger emoji
 
 A message that is only emoji, up to 27 of them, grows to the size you pick: **32px**, **48px**, **64px**, or **96px**. A message with any other text stays the normal size. Custom emoji and ordinary emoji both count.
+
+## Voice Message Downloader
+
+A **Download** button sits on a voice message. **Every attachment** adds that button to images, video, and other files too.
+
+The file is saved from the link Discord already sent. Nothing else is requested.
+
+## View Original Image
+
+**Original** on an image opens the full-size picture and downloads it.
+
+- **Open and download** does both.
+- **Open full size** only opens it.
+- **Download** only saves it.
+
+The preview's width and height are dropped. A signed Discord link keeps its expiry. The same button is on images inside embeds.

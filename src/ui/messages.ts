@@ -4,6 +4,7 @@ import type { ViewMessage } from "../render/message";
 import { emojiCdnUrl, formatBytes, mediaBox, type Block, type Inline, type MediaBox } from "../render/content";
 import { highlightCode, inlineLang } from "../syntax";
 import { messageMenuItems, reactorSummary, systemMessage, type SlashCommand } from "./composer-tools";
+import { downloadName, offerDownload, originalImageUrl, originalLabel, type DownloadScope, type OriginalAction } from "../media/files";
 import { colorFor, el, formatClock, formatDay, icon, initials, paths, portrait } from "./dom";
 
 export function renderMessage(
@@ -33,6 +34,10 @@ export function renderMessage(
     onRemind?: () => void;
     onTranslate?: () => void;
     onHideAuthor?: () => void;
+    downloadScope?: DownloadScope;
+    onDownload?: (url: string, name: string) => void;
+    originalAction?: OriginalAction;
+    onOriginal?: (url: string, name: string) => void;
     /** Game Mode: skip media preload and autoplay. */
     quiet?: boolean;
     log?: { deleted: boolean; history: string[] };
@@ -169,10 +174,10 @@ export function renderMessage(
     body.append(badges);
   }
   for (const attachment of view.attachments) {
-    body.append(wrapSpoiler(renderAttachment(attachment, options.onImage, Boolean(options.quiet)), attachment.spoiler, Boolean(options.revealSpoilers)));
+    body.append(wrapSpoiler(renderAttachment(attachment, options.onImage, Boolean(options.quiet), options), attachment.spoiler, Boolean(options.revealSpoilers)));
   }
   if (!effects.has("hide-previews") && options.showEmbeds !== false) {
-    for (const embed of view.embeds) body.append(renderEmbed(embed, options.remoteEmoji, Boolean(options.quiet)));
+    for (const embed of view.embeds) body.append(renderEmbed(embed, options.remoteEmoji, Boolean(options.quiet), options));
   }
   for (const sticker of view.stickers) {
     const chip = el("div", "sticker");
@@ -420,10 +425,51 @@ function wrapSpoiler(node: HTMLElement, spoiler: boolean, revealed: boolean): HT
   return cover;
 }
 
+interface MediaActions {
+  downloadScope?: DownloadScope;
+  onDownload?: (url: string, name: string) => void;
+  originalAction?: OriginalAction;
+  onOriginal?: (url: string, name: string) => void;
+}
+
+function stackMedia(node: HTMLElement, extras: HTMLElement[]): HTMLElement {
+  if (!extras.length) return node;
+  const row = el("div", "media-file");
+  row.append(node, ...extras);
+  return row;
+}
+
+function mediaButtons(url: string, name: string, kind: string, media?: MediaActions): HTMLElement[] {
+  const extras: HTMLElement[] = [];
+  if (media?.onDownload && media.downloadScope && offerDownload(kind, name, media.downloadScope)) {
+    extras.push(fileButton("Download", () => media.onDownload!(url, downloadName(name, "attachment"))));
+  }
+  const original = originalControl(url, name, media, kind === "image");
+  if (original) extras.push(original);
+  return extras;
+}
+
+function originalControl(url: string, name: string, media?: MediaActions, image = true): HTMLButtonElement | null {
+  if (!image || !media?.onOriginal || !originalImageUrl(url)) return null;
+  const label = originalLabel(media.originalAction ?? "both");
+  return fileButton(label, () => media.onOriginal!(url, downloadName(name, "image")));
+}
+
+function fileButton(label: string, onClick: () => void): HTMLButtonElement {
+  const button = el("button", "text-button", label);
+  button.type = "button";
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onClick();
+  });
+  return button;
+}
+
 function renderAttachment(
   attachment: ViewMessage["attachments"][number],
   onImage: (url: string) => void,
   quiet: boolean,
+  media?: MediaActions,
 ): HTMLElement {
   if (attachment.kind === "image" && attachment.url) {
     const button = el("button", "image-frame");
@@ -442,17 +488,17 @@ function renderAttachment(
     });
     button.append(img);
     button.addEventListener("click", () => onImage(attachment.url!));
-    return button;
+    return stackMedia(button, mediaButtons(attachment.url, attachment.name, attachment.kind, media));
   }
   if ((attachment.kind === "video" || attachment.kind === "audio") && attachment.url) {
-    const media = el(attachment.kind === "video" ? "video" : "audio", attachment.kind === "video" ? "attachment-video" : "attachment-audio");
-    media.controls = true;
-    media.preload = "none";
-    if (quiet) media.dataset.quiet = "1";
-    if (attachment.kind === "video") applyMediaBox(media, mediaBox(attachment.width, attachment.height));
-    media.dataset.lazySrc = attachment.url;
-    if (attachment.kind === "audio") media.setAttribute("aria-label", attachment.name);
-    return media;
+    const node = el(attachment.kind === "video" ? "video" : "audio", attachment.kind === "video" ? "attachment-video" : "attachment-audio");
+    node.controls = true;
+    node.preload = "none";
+    if (quiet) node.dataset.quiet = "1";
+    if (attachment.kind === "video") applyMediaBox(node, mediaBox(attachment.width, attachment.height));
+    node.dataset.lazySrc = attachment.url;
+    if (attachment.kind === "audio") node.setAttribute("aria-label", attachment.name);
+    return stackMedia(node, mediaButtons(attachment.url, attachment.name, attachment.kind, media));
   }
   if (attachment.url) {
     const link = el("a", "file-chip");
@@ -460,14 +506,14 @@ function renderAttachment(
     link.target = "_blank";
     link.rel = "noreferrer noopener";
     link.append(el("strong", "", attachment.name), el("span", "", formatBytes(attachment.bytes)));
-    return link;
+    return stackMedia(link, mediaButtons(attachment.url, attachment.name, attachment.kind, media));
   }
   const row = el("div", "file-chip");
   row.append(el("strong", "", attachment.name), el("span", "", formatBytes(attachment.bytes)));
   return row;
 }
 
-function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean, quiet: boolean): HTMLElement {
+function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean, quiet: boolean, media?: MediaActions): HTMLElement {
   const card = el("article", "embed");
   if (embed.color) card.style.borderColor = embed.color;
   if (embed.author) card.append(el("div", "embed-author", embed.author));
@@ -518,6 +564,8 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
     applyMediaBox(img, mediaBox(width, height));
     img.dataset.lazySrc = embed.image || embed.thumbnail || "";
     card.append(img);
+    const full = originalControl(embed.image || embed.thumbnail || "", embed.title || "image", media);
+    if (full) card.append(full);
   }
   if (embed.provider) card.append(el("div", "embed-footer", embed.provider));
   if (embed.footer) card.append(el("div", "embed-footer", embed.footer));
