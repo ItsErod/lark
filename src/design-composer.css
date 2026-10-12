@@ -1,0 +1,173 @@
+/* Composer. Hooks stay on .composer, .composer-wrap, .composer-banner, .suggest, .composer-tools. */
+
+#app .composer-wrap {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+#app .composer {
+  position: relative;
+  background: color-mix(in srgb, var(--color-bg) 42%, var(--color-bg-muted));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  box-shadow: var(--elev-1);
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+
+#app .composer:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
+  box-shadow: var(--focus-ring);
+}
+
+#app .composer textarea {
+  min-height: 24px;
+  padding: var(--space-1) 0 var(--space-2);
+  line-height: var(--leading-snug);
+  font-size: var(--text-lg);
+}
+
+#app .composer textarea:focus-visible {
+  outline: none;
+}
+
+#app .composer-banner {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+  color: var(--color-fg);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+#app .composer-banner .ghost,
+#app .composer-banner .primary {
+  margin-left: auto;
+  border-radius: var(--radius-md);
+  min-height: 28px;
+}
+
+#app .suggest {
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: calc(100% + var(--space-2));
+  z-index: 8;
+  margin: 0;
+  padding: var(--space-1);
+  max-height: 280px;
+  overflow: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-2);
+}
+
+#app .suggest button {
+  min-height: 32px;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-base);
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+#app .suggest button.is-active,
+#app .suggest button:hover {
+  background: var(--color-bg-hover);
+}
+
+#app .composer-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: var(--space-2);
+  min-height: 36px;
+}
+
+#app .composer-tools,
+#app .composer-accessories {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+#app .composer .icon-button,
+#app .composer-accessories .icon-button,
+#app .composer-tools .text-button {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  color: var(--color-fg-muted);
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+#app .composer-tools .text-button,
+#app .composer .gif-button {
+  width: auto;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+#app .composer .icon-button svg {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
+#app .composer .icon-button:hover,
+#app .composer-tools .text-button:hover {
+  background: color-mix(in srgb, var(--color-fg) 8%, transparent);
+  color: var(--color-fg);
+}
+
+#app .composer .icon-button.is-on,
+#app .composer-tools .text-button.is-on {
+  background: var(--color-accent-soft);
+  color: var(--color-fg);
+}
+
+#app .composer-tools .file-chip {
+  order: -1;
+  flex: 1 0 100%;
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
+#app .composer .hint,
+#app .composer .count {
+  font-size: var(--text-xs);
+  color: var(--color-fg-faint);
+  line-height: 32px;
+}
+
+#app .composer-wrap.is-drop .composer {
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+
+#app .plus-menu,
+#app .picker,
+#app .gif-picker,
+#app .sticker-picker,
+#app .forward-picker {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--elev-2);
+}
+
+#app .plus-item,
+#app .forward-hit {
+  border-radius: var(--radius-sm);
+  min-height: 32px;
+}
