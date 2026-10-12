@@ -366,6 +366,7 @@ import {
 import { installShareSettings } from "../share-settings";
 import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKeyFor, type ShareSource } from "../share";
 import { renderVoiceHud } from "./hud";
+import { attachCameraTiles, cameraFrameBytes, clearCameraFrames, pushCameraFrame } from "../camera-view";
 import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
 import { appendCallControls, renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
 import { renderStageBoard, renderVoiceChat } from "./stage-view";
@@ -8601,6 +8602,11 @@ class LarkApp {
       this.onScreenShare(event as { state?: string; note?: string; detail?: string; fps?: number; height?: number });
     } else if (event.kind === "streamFrame") {
       this.onStreamFrame(event as { annexB?: string; streamKey?: string; preview?: boolean });
+    } else if (event.kind === "cameraFrame") {
+      const frame = event as { annexB?: string; userId?: string; epoch?: number };
+      const epoch = Number(frame.epoch ?? 0);
+      if (epoch && epoch !== this.voiceEpoch) return;
+      this.onCameraFrame(String(frame.userId ?? ""), String(frame.annexB ?? ""));
     } else if (event.kind === "voiceStates" && event.guildId) {
       const states = ((event as { states?: VoiceStateInput[] }).states ?? []).map((state) => this.hydrateVoice(state, event.guildId ?? ""));
       replaceGuildVoice(this.voiceRoster, event.guildId, states);
@@ -9369,6 +9375,8 @@ class LarkApp {
     this.pipUser = "";
     this.shareNote = "";
     clearStreamFrames();
+    clearCameraFrames();
+    this.callBus?.postMessage({ type: "camera-clear" });
     this.cameraOn = false;
     this.stopCameraSend();
     this.callSurface = dismissCallSurface();
@@ -10091,6 +10099,7 @@ class LarkApp {
     }
     this.paintPip(chrome.pip ? media : null);
     this.mountShareSurfaces();
+    attachCameraTiles(this.root);
     this.paintShareDialog();
     this.paintVoiceFloats();
     this.publishVoiceHud();
@@ -11140,6 +11149,14 @@ class LarkApp {
     for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
     const userId = event.preview || !event.streamKey ? this.meId() : event.streamKey.split(":").at(-1) || "";
     if (userId) pushStreamFrame(userId, bytes);
+  }
+
+  private onCameraFrame(userId: string, annexB: string) {
+    const bytes = cameraFrameBytes(annexB);
+    if (!userId || !bytes) return;
+    pushCameraFrame(userId, bytes);
+    attachCameraTiles(this.root);
+    this.callBus?.postMessage({ type: "camera", userId, annexB });
   }
 
   private openVoiceMenu(userId: string, x: number, y: number) {

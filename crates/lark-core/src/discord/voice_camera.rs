@@ -3,14 +3,14 @@
 //! Frames are H.264 access units. They are packetized and sealed with the voice
 //! transport cipher (`encrypt_voice`). Opus and DAVE `seal_opus` are not used.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tokio::sync::Notify;
 
-use super::stream::{packetize_h264, video_attributes, VideoSpan};
-use super::voice::{encrypt_voice, CipherMode};
+use super::stream::{packetize_h264, video_attributes, H264Assembler, VideoSpan};
+use super::voice::{decrypt_voice, encrypt_voice, CipherMode};
 
 pub const CAMERA_WIDTH: u32 = 320;
 pub const CAMERA_HEIGHT: u32 = 176;
@@ -122,6 +122,78 @@ pub fn seal_camera_access(
 
 pub fn camera_timestamp_step() -> u32 {
     VIDEO_CLOCK / u32::from(CAMERA_FPS.max(1))
+}
+
+/// True when the cleartext RTP header is a camera access-unit packet.
+/// Opus uses payload type 120. Camera uses 101. The header is outside the cipher.
+pub fn is_camera_rtp(packet: &[u8]) -> bool {
+    packet.len() >= 12 && packet[0] >> 6 == 2 && packet[1] & 0x7f == PAYLOAD_TYPE
+}
+
+pub struct CameraPicture {
+    pub user_id: String,
+    pub annex_b: Vec<u8>,
+}
+
+/// Reassembles remote camera video from the voice UDP socket.
+///
+/// Packets are transport-encrypted with the voice key. DAVE `open_opus` is not
+/// applied: camera video is not an Opus frame.
+pub struct CameraReceiver {
+    assemblers: HashMap<u32, H264Assembler>,
+}
+
+impl CameraReceiver {
+    pub fn new() -> Self {
+        Self { assemblers: HashMap::new() }
+    }
+
+    /// Decrypt one datagram. `local_audio_ssrc` drops this client's own camera.
+    /// The video SSRC is the speaker's audio SSRC plus one.
+    pub fn push(
+        &mut self,
+        packet: &[u8],
+        mode: CipherMode,
+        key: &[u8; 32],
+        local_audio_ssrc: u32,
+        users: &HashMap<u32, String>,
+    ) -> Option<CameraPicture> {
+        if !is_camera_rtp(packet) {
+            return None;
+        }
+        let ssrc = packet_ssrc(packet)?;
+        if ssrc == 0 || ssrc == local_audio_ssrc || ssrc == local_audio_ssrc.wrapping_add(1) {
+            return None;
+        }
+        let payload = decrypt_voice(mode, key, packet).ok()?;
+        if payload.is_empty() {
+            return None;
+        }
+        if !self.assemblers.contains_key(&ssrc) && self.assemblers.len() >= 32 {
+            return None;
+        }
+        let marker = packet[1] & 0x80 != 0;
+        let unit = self.assemblers.entry(ssrc).or_default().push(&payload, marker)?;
+        let user_id = users
+            .get(&ssrc)
+            .cloned()
+            .or_else(|| users.get(&ssrc.wrapping_sub(1)).cloned())
+            .filter(|id| !id.is_empty())?;
+        Some(CameraPicture { user_id, annex_b: unit })
+    }
+}
+
+impl Default for CameraReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn packet_ssrc(packet: &[u8]) -> Option<u32> {
+    if packet.len() < 12 || packet[0] >> 6 != 2 {
+        return None;
+    }
+    Some(u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]))
 }
 
 pub struct CameraSender {
@@ -295,6 +367,8 @@ unsafe extern "C" {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::discord::voice::{decrypt_voice, CipherMode};
 
@@ -341,6 +415,38 @@ mod tests {
         let opened = decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packets[0]).unwrap();
         assert!(!opened.is_empty());
         assert_ne!(&opened[..opened.len().min(3)], &[0xF8, 0xFF, 0xFE][..opened.len().min(3)]);
+    }
+
+    #[test]
+    fn remote_camera_decrypts_and_reassembles_without_dave() {
+        let mut nal = vec![0x65u8, 0x88];
+        nal.extend(std::iter::repeat(0x3c).take(1_500));
+        let mut access = vec![0, 0, 0, 1];
+        access.extend_from_slice(&nal);
+        let mut sequence = 1u16;
+        let mut nonce = 9u32;
+        let packets = seal_camera_access(&access, CipherMode::Aes256GcmRtpSize, &key(), 50, &mut sequence, 0, &mut nonce);
+        assert!(packets.len() > 1, "a large access unit has to fragment");
+        let mut users = HashMap::new();
+        users.insert(50, "222".to_string());
+        let mut receiver = CameraReceiver::new();
+        let mut picture = None;
+        for packet in &packets {
+            assert!(is_camera_rtp(packet));
+            if let Some(next) = receiver.push(packet, CipherMode::Aes256GcmRtpSize, &key(), 7, &users) {
+                picture = Some(next);
+            }
+        }
+        let picture = picture.expect("the marker packet rebuilds the access unit");
+        assert_eq!(picture.user_id, "222");
+        assert!(picture.annex_b.windows(nal.len()).any(|win| win == nal.as_slice()));
+        let opus = crate::discord::voice::rtp_header(1, 960, 99);
+        assert!(!is_camera_rtp(&opus));
+        assert!(receiver.push(&opus, CipherMode::Aes256GcmRtpSize, &key(), 7, &users).is_none());
+        let mut wrong = key();
+        wrong[0] ^= 0xff;
+        assert!(CameraReceiver::new().push(&packets[0], CipherMode::Aes256GcmRtpSize, &wrong, 7, &users).is_none());
+        assert!(CameraReceiver::new().push(&packets[0], CipherMode::Aes256GcmRtpSize, &key(), 50, &users).is_none());
     }
 
     #[test]

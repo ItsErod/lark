@@ -22,7 +22,7 @@ use super::voice::{
 };
 use crate::soundboard::SoundMix;
 
-use super::voice_camera::{CameraInbox, CameraSender};
+use super::voice_camera::{is_camera_rtp, CameraInbox, CameraReceiver, CameraSender};
 use super::voice_dave::{DaveCall, DaveWire};
 use super::voice_log::{log_step, VoiceLog};
 use super::voice_media::{start_media, VoiceAudio, VoiceWire};
@@ -43,6 +43,8 @@ pub enum VoiceLinkEvent {
     Status { state: String, detail: String, epoch: u64 },
     Speaking { user_id: String, speaking: bool, epoch: u64 },
     Ping { ping_ms: u64, endpoint: String, epoch: u64 },
+    /// One decrypted H.264 access unit from the voice UDP socket. Not DAVE.
+    Camera { user_id: String, annex_b: Vec<u8>, epoch: u64 },
 }
 
 fn watched(rx: &watch::Receiver<bool>) -> bool {
@@ -240,6 +242,7 @@ where
     let udp = Arc::new(udp);
     let mut packet = [0u8; 4096];
     let mut camera_tx = CameraSender::default();
+    let mut camera_rx = CameraReceiver::new();
 
     loop {
         if watched(cancel) {
@@ -330,9 +333,19 @@ where
                     if let Ok(mut guard) = log.lock() {
                         guard.udp_in = guard.udp_in.saturating_add(1);
                     }
-                    if size > 12 {
+                    let datagram = &packet[..size];
+                    if is_camera_rtp(datagram) {
+                        let users = ssrc_users.lock().map(|guard| guard.clone()).unwrap_or_default();
+                        if let Some(picture) = camera_rx.push(datagram, mode, &key, ssrc, &users) {
+                            emit(VoiceLinkEvent::Camera {
+                                user_id: picture.user_id,
+                                annex_b: picture.annex_b,
+                                epoch: hello.epoch,
+                            });
+                        }
+                    } else if size > 12 {
                         if let Some(inbound) = inbound_tx.as_ref() {
-                            let _ = inbound.try_send(packet[..size].to_vec());
+                            let _ = inbound.try_send(datagram.to_vec());
                         }
                     }
                 }

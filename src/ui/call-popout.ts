@@ -1,3 +1,4 @@
+import { attachCameraTiles, cameraFrameBytes, clearCameraFrames, pushCameraFrame } from "../camera-view";
 import type { CallCommand, CallFrame } from "../call-window";
 import { callBus } from "../call-window";
 import { el, icon, paths } from "./dom";
@@ -59,6 +60,7 @@ export function mountCallPopout(root: HTMLElement): void {
       onPlay: (id) => send({ type: "play", id }),
       onMenu: () => undefined,
     });
+    attachCameraTiles(stage);
   };
 
   if (!bus) return;
@@ -66,6 +68,14 @@ export function mountCallPopout(root: HTMLElement): void {
     const data = event.data;
     if (!data || typeof data !== "object") return;
     if (data.type === "frame") paint(data.frame as CallFrame);
+    if (data.type === "camera" && typeof data.userId === "string" && typeof data.annexB === "string") {
+      const bytes = cameraFrameBytes(data.annexB);
+      if (bytes) {
+        pushCameraFrame(data.userId, bytes);
+        attachCameraTiles(stage);
+      }
+    }
+    if (data.type === "camera-clear") clearCameraFrames();
     if (data.type === "bye") window.close();
   };
   bus.postMessage({ type: "hello" });
