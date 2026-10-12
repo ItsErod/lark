@@ -1,0 +1,1606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Live progress for the Lark 3.0 build. Percentages are estimates from public GitHub pull requests.">
+  <meta name="theme-color" content="#1e1f22">
+  <title>Lark 3.0 build progress</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="preconnect" href="https://api.github.com">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1e1f22;
+      --bg-deep: #111214;
+      --panel: #2b2d31;
+      --card: #313338;
+      --raised: #383a40;
+      --line: rgba(255, 255, 255, 0.08);
+      --text: #f2f3f5;
+      --secondary: #c7ccd1;
+      --muted: #b5bac1;
+      --blurple: #5865f2;
+      --amber: #e2a15a;
+      --amber-2: #f0c27a;
+      --green: #23a55a;
+      --yellow: #f0b232;
+      --shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+      --font: "Inter", "Segoe UI", system-ui, sans-serif;
+      --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.5;
+      color: var(--text);
+      background:
+        radial-gradient(1000px 480px at -10% -10%, rgba(88, 101, 242, 0.22), transparent 55%),
+        radial-gradient(900px 420px at 110% -20%, rgba(226, 161, 90, 0.16), transparent 50%),
+        var(--bg);
+    }
+    img { max-width: 100%; }
+    a { color: #dee0fc; }
+    a:hover { color: #fff; }
+    button, summary { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus { outline: none; }
+    :focus-visible {
+      outline: 2px solid var(--amber-2);
+      outline-offset: 3px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .skip {
+      position: absolute;
+      left: 12px;
+      top: -48px;
+      z-index: 40;
+      background: var(--amber);
+      color: #1a140d;
+      font-weight: 700;
+      text-decoration: none;
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+    .skip:focus { top: 12px; }
+
+    .top {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(30, 31, 34, 0.88);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--line);
+      padding-top: env(safe-area-inset-top);
+    }
+    .top::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #5865f2, #e2a15a 60%, #f0c27a);
+    }
+    .top-inner, main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      min-width: 0;
+    }
+    .top-inner {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      color: inherit;
+      text-decoration: none;
+    }
+    .brand img {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+    .brand-name {
+      font-weight: 750;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+    .brand-sub {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(35, 165, 90, 0.7);
+      animation: pulse 1.8s ease-out infinite;
+      display: inline-block;
+    }
+    .top-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .clock, .updated {
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+      color: var(--secondary);
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .refresh {
+      border: 0;
+      background: var(--raised);
+      color: var(--text);
+      border-radius: 999px;
+      min-height: 36px;
+      padding: 6px 14px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .refresh:hover { background: #4e5058; }
+    .refresh:disabled { opacity: 0.55; cursor: wait; }
+
+    main {
+      display: grid;
+      gap: 28px;
+      padding: 28px 0 72px;
+    }
+    main > * { min-width: 0; }
+
+    .notice {
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(240, 178, 50, 0.12);
+      border: 1px solid rgba(240, 178, 50, 0.38);
+      color: #f8e7c4;
+      font-size: 14.5px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 28px;
+      align-items: center;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 40%), var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+    }
+    .ring-wrap {
+      position: relative;
+      width: 220px;
+      height: 220px;
+      margin: 0 auto;
+    }
+    .ring-wrap::before {
+      content: "";
+      position: absolute;
+      inset: 18%;
+      background: radial-gradient(circle, rgba(226, 161, 90, 0.28), transparent 68%);
+      filter: blur(6px);
+    }
+    .ring { width: 100%; height: 100%; display: block; }
+    .ring-track { fill: none; stroke: rgba(255, 255, 255, 0.08); stroke-width: 14; }
+    .ring-value {
+      fill: none;
+      stroke: url(#ringGrad);
+      stroke-width: 14;
+      stroke-linecap: round;
+      transform: rotate(-90deg);
+      transform-origin: 100px 100px;
+      transition: stroke-dashoffset 0.9s cubic-bezier(.2, .8, .2, 1);
+    }
+    .ring-center {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-content: center;
+      text-align: center;
+    }
+    .ring-pct {
+      font-size: 56px;
+      font-weight: 760;
+      letter-spacing: -0.04em;
+      line-height: 0.95;
+      font-variant-numeric: tabular-nums;
+    }
+    .ring-est, .est {
+      color: var(--amber-2);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--amber-2);
+      font-size: 13px;
+      font-weight: 750;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1, h2 { margin: 0; letter-spacing: -0.03em; line-height: 1.15; }
+    h1 { font-size: clamp(32px, 4vw, 48px); }
+    h2 { font-size: 22px; }
+    .lead { margin: 10px 0 0; color: var(--secondary); max-width: 62ch; }
+    .meter {
+      margin-top: 18px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.35);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+    .meter > span, .bar > span {
+      display: block;
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      position: relative;
+      background-image: linear-gradient(100deg, #4752c4, #5865f2 28%, #e2a15a 72%, #f0c27a);
+      background-size: 220% 100%;
+      animation: flow 3.4s linear infinite;
+      transition: width 0.8s cubic-bezier(.2, .8, .2, 1);
+    }
+    .meter > span::after, .bar > span::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.5) 50%, transparent 75%);
+      transform: translateX(-130%);
+      animation: shimmer 2.6s ease-in-out infinite;
+    }
+    .meter.is-idle > span, .bar.is-idle > span,
+    .meter.is-idle > span::after, .bar.is-idle > span::after { animation: none; }
+    .meter.is-done > span, .bar.is-done > span {
+      background-image: linear-gradient(100deg, #1e8f4e, #23a55a 40%, #e2a15a 78%, #f0c27a);
+    }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .stats li {
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 13px;
+      color: var(--secondary);
+    }
+    .stats strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .section-head p { margin: 6px 0 0; color: var(--muted); }
+
+    .stages {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .stage {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px;
+      min-width: 0;
+    }
+    .stage-k {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .stage-name {
+      display: block;
+      margin-top: 4px;
+      font-weight: 700;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stage .bar { margin-top: 8px; height: 6px; }
+    .stage.is-release { outline: 1px dashed rgba(226, 161, 90, 0.45); }
+    .stage.is-ready { outline: 1px solid rgba(226, 161, 90, 0.8); background: #3a3228; }
+
+    .streams {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .card, .skel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      min-width: 0;
+    }
+    .card {
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+      animation: rise 0.45s ease both;
+    }
+    .card:hover { border-color: rgba(226, 161, 90, 0.38); }
+    .card-top { display: flex; gap: 12px; align-items: flex-start; }
+    .card-titles { flex: 1; min-width: 0; }
+    .ico {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      background: color-mix(in srgb, var(--accent, var(--blurple)) 22%, #1e1f22);
+      color: var(--accent, var(--text));
+    }
+    .ico svg { width: 22px; height: 22px; display: block; }
+    .card[data-status="coding"] { --accent: #e2a15a; }
+    .card[data-status="review"] { --accent: #8ea1ff; }
+    .card[data-status="merged"] { --accent: #3ecf78; }
+    .card[data-status="done"] { --accent: #f0c27a; }
+    .card.just-done { animation: glow 1.2s ease; }
+    .kicker {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card h3 { margin: 2px 0 0; font-size: 17px; letter-spacing: -0.02em; line-height: 1.25; }
+    .card-side { margin-left: auto; text-align: right; }
+    .pct {
+      display: block;
+      font-size: 28px;
+      font-weight: 760;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      border-radius: 999px;
+      padding: 4px 10px 4px 8px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+    .pill[data-status="coding"] { background: var(--yellow); color: #1e1604; }
+    .pill[data-status="review"] { background: var(--blurple); color: #fff; }
+    .pill[data-status="merged"] { background: var(--green); color: #04150c; }
+    .pill[data-status="done"] { background: linear-gradient(90deg, #e2a15a, #f0c27a); color: #1e1604; }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 0 currentColor;
+      animation: pulse 1.6s ease-out infinite;
+    }
+    .pill[data-status="done"] .dot { animation: none; }
+    .bar {
+      margin-top: 14px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+    .meta { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+    .prs { margin-top: 8px; }
+    .prs summary {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      list-style: none;
+      color: var(--secondary);
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .prs summary::-webkit-details-marker { display: none; }
+    .prs summary::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      margin-left: 4px;
+    }
+    .prs[open] summary::before { transform: rotate(45deg) translateY(-2px); }
+    .pr-list { list-style: none; margin: 0; padding: 0 0 4px; }
+    .pr { padding: 10px 0; border-top: 1px solid var(--line); }
+    .pr-top { display: flex; gap: 8px; align-items: flex-start; }
+    .pr a { font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+    .pr a:hover { text-decoration: underline; }
+    .pr-meta { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .badge {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+    .badge.open { background: var(--blurple); color: #fff; }
+    .badge.merged { background: var(--green); color: #04150c; }
+    .badge.draft { background: var(--yellow); color: #1e1604; }
+    .badge.closed { background: #4e5058; color: #f2f3f5; }
+    .empty-note { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+
+    .skel {
+      min-height: 168px;
+      background: linear-gradient(90deg, #2b2d31 25%, #3a3c43 37%, #2b2d31 63%);
+      background-size: 400% 100%;
+      animation: flow 1.4s ease infinite;
+    }
+
+    .release {
+      display: grid;
+      gap: 8px;
+      background:
+        radial-gradient(600px 180px at 100% 0%, rgba(226, 161, 90, 0.16), transparent 50%),
+        var(--panel);
+      border: 1px dashed rgba(226, 161, 90, 0.45);
+      border-radius: 20px;
+      padding: 22px;
+    }
+    .release.is-ready {
+      border-style: solid;
+      border-color: rgba(226, 161, 90, 0.75);
+      box-shadow: 0 0 0 1px rgba(226, 161, 90, 0.2), var(--shadow);
+    }
+    .release p { margin: 8px 0 0; color: var(--secondary); }
+    .release-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .dl {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      min-height: 92px;
+      padding: 16px 18px;
+      border-radius: 16px;
+      text-decoration: none;
+      color: #fff;
+      background: var(--blurple);
+      box-shadow: 0 10px 24px rgba(88, 101, 242, 0.28);
+    }
+    .dl:hover { color: #fff; transform: translateY(-2px); }
+    .dl.mac {
+      background: linear-gradient(180deg, #3d342c, #2a241f);
+      border: 1px solid rgba(226, 161, 90, 0.45);
+      box-shadow: var(--shadow);
+    }
+    .dl-kicker { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
+    .dl-title { font-size: 20px; font-weight: 760; letter-spacing: -0.02em; }
+    .dl-file { font-family: var(--mono); font-size: 12px; opacity: 0.85; }
+    .soon { font-size: 14px; }
+
+    .timeline { list-style: none; margin: 14px 0 0; padding: 0; }
+    .event {
+      position: relative;
+      display: grid;
+      grid-template-columns: 16px 1fr auto;
+      gap: 12px;
+      padding: 0 0 16px;
+    }
+    .event::before {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 14px;
+      bottom: 0;
+      width: 2px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .event:last-child::before { display: none; }
+    .event-dot {
+      width: 12px;
+      height: 12px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(35, 165, 90, 0.18);
+    }
+    .event a { font-weight: 700; text-decoration: none; }
+    .event a:hover { text-decoration: underline; }
+    .event time { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .chip {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(88, 101, 242, 0.18);
+      color: #dee0fc;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .how {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 8px 16px 12px;
+      overflow-x: auto;
+    }
+    .how summary { min-height: 44px; cursor: pointer; font-weight: 750; }
+    .how p, .how li { color: var(--secondary); }
+    .how table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .how th, .how td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    .how code { font-family: var(--mono); color: var(--amber-2); }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 28px 0 calc(28px + env(safe-area-inset-bottom));
+      color: var(--muted);
+    }
+    .foot {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .foot p { margin: 0; max-width: 68ch; }
+    .foot nav { display: flex; gap: 14px; align-items: center; }
+    #confetti {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 50;
+    }
+
+    @keyframes flow { to { background-position: 220% 50%; } }
+    @keyframes shimmer { to { transform: translateX(130%); } }
+    @keyframes pulse {
+      70% { box-shadow: 0 0 0 7px transparent; }
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes glow {
+      0% { box-shadow: 0 0 0 0 rgba(240, 194, 122, 0.55); }
+      100% { box-shadow: 0 0 0 12px transparent; }
+    }
+
+    @media (max-width: 980px) {
+      .streams { grid-template-columns: 1fr 1fr; }
+      .stages { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+      .stage { min-width: 148px; scroll-snap-align: start; }
+    }
+    @media (max-width: 760px) {
+      .top-inner, main, .foot { width: min(1120px, calc(100% - 24px)); }
+      .top-inner { flex-wrap: wrap; }
+      .top-meta { width: 100%; justify-content: flex-start; }
+      .hero { grid-template-columns: 1fr; padding: 20px; text-align: center; }
+      .hero .lead { margin-left: auto; margin-right: auto; }
+      .stats { justify-content: center; }
+      .streams, .release-actions { grid-template-columns: 1fr; }
+      .ring-wrap { width: 200px; height: 200px; }
+      .ring-pct { font-size: 48px; }
+      .top-inner { align-items: flex-start; }
+      .event { grid-template-columns: 16px 1fr; }
+      .event time { grid-column: 2; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+      .card:hover, .dl:hover { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to progress</a>
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="https://github.com/ItsErod/lark">
+        <img src="icon.png" width="36" height="36" alt="">
+        <span>
+          <span class="brand-name">Lark <span class="live-dot" aria-hidden="true"></span></span>
+          <span class="brand-sub">3.0 build progress</span>
+        </span>
+      </a>
+      <div class="top-meta">
+        <span class="updated" id="updated">Waiting for GitHub…</span>
+        <span class="clock" id="countdown">Refresh in 2:00</span>
+        <button class="refresh" id="refresh" type="button">Refresh</button>
+      </div>
+    </div>
+  </header>
+  <p id="live" class="sr-only" aria-live="polite"></p>
+  <main id="content">
+    <p id="notice" class="notice" hidden></p>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
+          <defs>
+            <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#5865f2"/>
+              <stop offset="55%" stop-color="#e2a15a"/>
+              <stop offset="100%" stop-color="#f0c27a"/>
+            </linearGradient>
+          </defs>
+          <circle class="ring-track" cx="100" cy="100" r="84"></circle>
+          <circle id="ring-value" class="ring-value" cx="100" cy="100" r="84"></circle>
+        </svg>
+        <div class="ring-center">
+          <span id="overall-pct" class="ring-pct">–</span>
+          <span class="ring-est">estimate</span>
+        </div>
+      </div>
+      <div>
+        <p class="eyebrow">Six workstreams</p>
+        <h1 id="page-title">Lark 3.0</h1>
+        <p id="hero-lead" class="lead">Loading public pull requests…</p>
+        <div class="meter is-idle" id="overall-meter" aria-hidden="true"><span id="overall-fill"></span></div>
+        <ul id="hero-stats" class="stats"></ul>
+      </div>
+    </section>
+
+    <section aria-labelledby="stages-title">
+      <div class="section-head">
+        <h2 id="stages-title">Stage estimates</h2>
+        <p>Each percentage is an estimate. Release 3.0 finishes when GitHub publishes v3.0.0.</p>
+      </div>
+      <ol class="stages" id="stages"></ol>
+    </section>
+
+    <section aria-labelledby="streams-title">
+      <div class="section-head">
+        <h2 id="streams-title">Workstreams</h2>
+        <p>A pull request belongs to a stream when its head branch ends with that stream’s suffix.</p>
+      </div>
+      <div id="streams" class="streams">
+        <div class="skel"></div>
+        <div class="skel"></div>
+        <div class="skel"></div>
+        <div class="skel"></div>
+        <div class="skel"></div>
+        <div class="skel"></div>
+      </div>
+    </section>
+
+    <section class="release" id="release" aria-labelledby="release-title">
+      <div>
+        <p class="eyebrow">Final stage</p>
+        <h2 id="release-title">Release 3.0</h2>
+        <p id="release-status">Checking the latest GitHub release…</p>
+        <p id="release-latest"></p>
+      </div>
+      <div class="meter is-idle" id="release-meter" aria-hidden="true"><span id="release-fill"></span></div>
+      <p class="soon" id="release-soon">Windows and Mac installers appear here after v3.0.0 is published: Lark_3.0.0_x64-setup.exe and Lark_3.0.0_universal.dmg.</p>
+      <div id="release-actions" class="release-actions" hidden></div>
+    </section>
+
+    <section aria-labelledby="activity-title">
+      <div class="section-head">
+        <h2 id="activity-title">Recent merges</h2>
+        <p>The latest merged pull requests across the six workstreams.</p>
+      </div>
+      <ol id="activity-list" class="timeline"></ol>
+    </section>
+
+    <details class="how">
+      <summary>How these estimates are calculated</summary>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. The page refreshes every 2 minutes. GitHub allows 60 unauthenticated requests an hour, so a full hour of refreshes would spend the budget; the page saves a snapshot in this browser and waits out the limit.</p>
+      <table>
+        <caption>Workstream plan</caption>
+        <thead>
+          <tr><th scope="col">Stream</th><th scope="col">Branch ends with</th><th scope="col">Planned pull requests</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>A · Messages &amp; composer</td><td><code>290f</code></td><td>2</td></tr>
+          <tr><td>B · Servers, channels &amp; server settings</td><td><code>dbd3</code></td><td>5</td></tr>
+          <tr><td>C · DMs, friends &amp; profiles</td><td><code>5585</code></td><td>2</td></tr>
+          <tr><td>D · User settings</td><td><code>60fa</code></td><td>3</td></tr>
+          <tr><td>E · Voice, video &amp; stage</td><td><code>24f9</code></td><td>4</td></tr>
+          <tr><td>F · Threads, forums, polls, events &amp; inbox</td><td><code>96c</code></td><td>4</td></tr>
+        </tbody>
+      </table>
+    </details>
+  </main>
+  <footer>
+    <div class="foot">
+      <p>Lark is an unofficial desktop client for one Discord account. It is not affiliated with, endorsed by, or supported by Discord. Percentages on this page are estimates from public pull requests, not a promise of what ships. The page talks to GitHub from your browser and stores a snapshot locally. No token is required.</p>
+      <nav aria-label="Footer">
+        <a href="https://github.com/ItsErod/lark">Repository</a>
+        <a href="https://github.com/ItsErod/lark/releases">Releases</a>
+        <a href="https://github.com/ItsErod/lark/blob/main/LICENSE">MIT</a>
+      </nav>
+    </div>
+  </footer>
+  <canvas id="confetti" aria-hidden="true"></canvas>
+  <script>
+    const STREAMS = [
+      { id: "A", suffix: "290f", estimate: 2, name: "Messages & composer", short: "Messages", blurb: "Chat, the composer, and message actions." },
+      { id: "B", suffix: "dbd3", estimate: 5, name: "Servers, channels & server settings", short: "Servers", blurb: "Server list, channels, and server settings." },
+      { id: "C", suffix: "5585", estimate: 2, name: "DMs, friends & profiles", short: "DMs", blurb: "Direct messages, friends, and profiles." },
+      { id: "D", suffix: "60fa", estimate: 3, name: "User settings", short: "Settings", blurb: "Account, app, and appearance settings." },
+      { id: "E", suffix: "24f9", estimate: 4, name: "Voice, video & stage", short: "Voice", blurb: "Voice, video, and stage channels." },
+      { id: "F", suffix: "96c", estimate: 4, name: "Threads, forums, polls, events & inbox", short: "Threads", blurb: "Threads, forums, polls, events, and inbox." }
+    ];
+
+    const ICONS = {
+      A: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 6.2A3.2 3.2 0 0 1 8.2 3h7.6A3.2 3.2 0 0 1 19 6.2v6.2a3.2 3.2 0 0 1-3.2 3.2H12l-3.4 2.6c-.7.5-1.6 0-1.6-.9v-1.7A3.2 3.2 0 0 1 5 12.4V6.2Zm3.2 2.1a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Zm3.8 0a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Zm3.8 0a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z"/></svg>',
+      B: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5a2.5 2.5 0 0 1 2.5-2.5h11A2.5 2.5 0 0 1 20 5v2.2a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 7.2V5Zm0 8.3a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V18a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18v-4.7ZM7.2 5.6a1.15 1.15 0 1 0 0 2.3 1.15 1.15 0 0 0 0-2.3Zm0 8.3a1.15 1.15 0 1 0 0 2.3 1.15 1.15 0 0 0 0-2.3Z"/></svg>',
+      C: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 11.2a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm6.5.4a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4ZM3.2 18.6C3.2 15.8 5.8 14 9 14s5.8 1.8 5.8 4.6V20H3.2v-1.4Zm8.7-4.3c.5-.1 1-.2 1.6-.2 2.8 0 5.3 1.6 5.3 4.1V20h-4.2v-1.4c0-1.5-.8-2.8-2.1-3.8-.2-.2-.4-.3-.6-.5Z"/></svg>',
+      D: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 7.2h8.6a2.4 2.4 0 0 0 4.7 0H20a1 1 0 1 0 0-2h-2.7a2.4 2.4 0 0 0-4.7 0H4a1 1 0 0 0 0 2Zm5.2 5.8H20a1 1 0 1 0 0-2H9.2a2.4 2.4 0 0 0-4.7 0H4a1 1 0 0 0 0 2h.5a2.4 2.4 0 0 0 4.7 0ZM4 18.8a1 1 0 1 0 0 2h8.1a2.4 2.4 0 0 0 4.7 0H20a1 1 0 1 0 0-2h-3.2a2.4 2.4 0 0 0-4.7 0H4Z"/></svg>',
+      E: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 3.2a1.1 1.1 0 0 1 1.1 1.1v15.4a1.1 1.1 0 1 1-2.2 0V4.3A1.1 1.1 0 0 1 11 3.2Zm-4.2 3.6A1.1 1.1 0 0 1 8 7.9v8.2a1.1 1.1 0 1 1-2.2 0V7.9a1.1 1.1 0 0 1 1-1.1Zm8.4.8a1.1 1.1 0 0 1 1.1 1.1v6.6a1.1 1.1 0 1 1-2.2 0V8.7a1.1 1.1 0 0 1 1.1-1.1ZM4.6 10a1.1 1.1 0 0 1 1.1 1.1v1.8a1.1 1.1 0 1 1-2.2 0v-1.8A1.1 1.1 0 0 1 4.6 10Zm14.8 0a1.1 1.1 0 0 1 1.1 1.1v1.8a1.1 1.1 0 1 1-2.2 0v-1.8a1.1 1.1 0 0 1 1.1-1.1Z"/></svg>',
+      F: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.5 3h11A3.5 3.5 0 0 1 21 6.5v6.2a3.5 3.5 0 0 1-3.5 3.5H13l-3.2 2.5c-.8.6-1.8-.1-1.8-1V16.2A3.5 3.5 0 0 1 6.5 12.7V6.5A3.5 3.5 0 0 1 6.5 3Zm1.6 4.4a1 1 0 0 0 0 2h8.8a1 1 0 1 0 0-2H8.1Zm0 3.8a1 1 0 0 0 0 2h5.4a1 1 0 1 0 0-2H8.1Z"/></svg>'
+    };
+
+    const PULLS_URL = "https://api.github.com/repos/ItsErod/lark/pulls?state=all&per_page=100";
+    const RELEASE_URL = "https://api.github.com/repos/ItsErod/lark/releases/latest";
+    const REFRESH_MS = 120000;
+    const CACHE_KEY = "lark30-progress-v1";
+    const SEEN_KEY = "lark30-progress-seen-v1";
+    const LIMIT_KEY = "lark30-progress-limit-v1";
+    const EXE_NAME = "Lark_3.0.0_x64-setup.exe";
+    const DMG_NAME = "Lark_3.0.0_universal.dmg";
+    const STATUS_LABEL = { coding: "Coding", review: "In review", merged: "Merged", done: "Done" };
+
+    function computeStream(stream, pulls) {
+      const list = (pulls || []).filter((pr) => {
+        const ref = pr && pr.head && pr.head.ref ? String(pr.head.ref) : "";
+        return ref.toLowerCase().endsWith(stream.suffix);
+      });
+      const mergedPrs = list.filter((pr) => pr.merged_at);
+      const openPrs = list.filter((pr) => !pr.merged_at && pr.state === "open");
+      const closedPrs = list.filter((pr) => !pr.merged_at && pr.state !== "open");
+      const merged = mergedPrs.length;
+      const open = openPrs.length;
+      const actual = merged + open;
+      const expected = Math.max(stream.estimate, actual);
+      let ratio;
+      let status;
+      if (actual === 0) {
+        ratio = 0.05;
+        status = "coding";
+      } else {
+        const done = open === 0 && merged >= stream.estimate;
+        if (done) {
+          ratio = 1;
+          status = "done";
+        } else {
+          ratio = Math.min(0.95, (merged + 0.5 * open) / expected);
+          status = open > 0 ? "review" : "merged";
+        }
+      }
+      return {
+        id: stream.id,
+        name: stream.name,
+        short: stream.short,
+        blurb: stream.blurb,
+        suffix: stream.suffix,
+        estimate: stream.estimate,
+        merged,
+        open,
+        expected,
+        ratio,
+        percent: Math.round(ratio * 100),
+        status,
+        active: status !== "done",
+        mergedPrs,
+        openPrs,
+        closedPrs,
+        all: list
+      };
+    }
+
+    function overallFrom(results) {
+      if (!results.length) return { ratio: 0, percent: 0 };
+      const ratio = results.reduce((sum, item) => sum + item.ratio, 0) / results.length;
+      return { ratio, percent: Math.round(ratio * 100) };
+    }
+
+    function isReleaseReady(release) {
+      return !!(release && release.tag_name === "v3.0.0");
+    }
+
+    function formatAgo(epoch, now = Date.now()) {
+      const sec = Math.floor((now - epoch) / 1000);
+      if (!Number.isFinite(sec) || sec < 60) return "just now";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return min === 1 ? "1 min ago" : min + " min ago";
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return hr === 1 ? "1 hour ago" : hr + " hours ago";
+      const day = Math.floor(hr / 24);
+      if (day < 30) return day === 1 ? "1 day ago" : day + " days ago";
+      const month = Math.floor(day / 30);
+      if (month < 12) return month === 1 ? "1 month ago" : month + " months ago";
+      const year = Math.floor(day / 365);
+      return year === 1 ? "1 year ago" : year + " years ago";
+    }
+
+    function formatClock(ms) {
+      const total = Math.max(0, Math.ceil(ms / 1000));
+      const m = Math.floor(total / 60);
+      const s = total % 60;
+      return m + ":" + String(s).padStart(2, "0");
+    }
+
+    function storageGet(key) {
+      try { return localStorage.getItem(key); } catch (err) { return null; }
+    }
+    function storageSet(key, value) {
+      try { localStorage.setItem(key, value); } catch (err) { /* private mode or quota */ }
+    }
+    function readJson(key) {
+      try {
+        const raw = storageGet(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function safeGithubUrl(url, fallback) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === "https:" && parsed.hostname === "github.com" && parsed.pathname.indexOf("/ItsErod/lark/") === 0) {
+          return parsed.href;
+        }
+      } catch (err) { /* ignore malformed urls */ }
+      return fallback;
+    }
+
+    function slimPull(pr) {
+      const number = pr.number;
+      return {
+        number,
+        title: String(pr.title || "Pull request"),
+        state: pr.state || "closed",
+        draft: !!pr.draft,
+        merged_at: pr.merged_at || null,
+        created_at: pr.created_at || null,
+        updated_at: pr.updated_at || null,
+        closed_at: pr.closed_at || null,
+        html_url: safeGithubUrl(pr.html_url, "https://github.com/ItsErod/lark/pull/" + number),
+        user: pr.user && pr.user.login ? { login: String(pr.user.login) } : null,
+        head: { ref: pr.head && pr.head.ref ? String(pr.head.ref) : "" }
+      };
+    }
+
+    function slimRelease(release) {
+      if (!release || typeof release !== "object") return null;
+      const assets = Array.isArray(release.assets) ? release.assets.map((asset) => ({
+        name: asset && asset.name ? String(asset.name) : "",
+        browser_download_url: asset && asset.browser_download_url ? String(asset.browser_download_url) : ""
+      })) : [];
+      return {
+        tag_name: release.tag_name ? String(release.tag_name) : "",
+        html_url: safeGithubUrl(release.html_url, "https://github.com/ItsErod/lark/releases"),
+        assets
+      };
+    }
+
+    function downloadUrl(release, name) {
+      const assets = release && Array.isArray(release.assets) ? release.assets : [];
+      const match = assets.find((asset) => asset.name === name);
+      if (match && match.browser_download_url) {
+        return safeGithubUrl(match.browser_download_url, "https://github.com/ItsErod/lark/releases/download/v3.0.0/" + name);
+      }
+      return "https://github.com/ItsErod/lark/releases/download/v3.0.0/" + name;
+    }
+
+    globalThis.LarkProgress = {
+      STREAMS,
+      computeStream,
+      overallFrom,
+      isReleaseReady,
+      formatAgo,
+      formatClock,
+      slimPull,
+      REFRESH_MS
+    };
+
+    function boot() {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const shown = {};
+      let inflight = false;
+      let nextAt = Date.now() + REFRESH_MS;
+      let current = null;
+      let signature = "";
+      let sawPayload = false;
+      const ringLength = 2 * Math.PI * 84;
+      const ring = document.getElementById("ring-value");
+      ring.style.strokeDasharray = String(ringLength);
+      ring.style.strokeDashoffset = String(ringLength);
+
+      const stages = document.getElementById("stages");
+      STREAMS.forEach((stream) => stages.append(stageNode(stream)));
+      stages.append(stageNode({ id: "R", short: "Release", release: true }));
+
+      document.getElementById("refresh").addEventListener("click", () => { refresh(true); });
+
+      const cached = readJson(CACHE_KEY);
+      if (cached && Array.isArray(cached.pulls)) applyPayload(cached, { fromCache: true, quiet: true });
+
+      refresh(false);
+      window.setInterval(tick, 1000);
+      tick();
+
+      function stageNode(stream) {
+        const li = document.createElement("li");
+        li.className = "stage" + (stream.release ? " is-release" : "");
+        li.id = "stage-" + stream.id;
+        const k = document.createElement("div");
+        k.className = "stage-k";
+        const id = document.createElement("span");
+        id.textContent = stream.release ? "Ship" : stream.id;
+        const pct = document.createElement("span");
+        pct.id = "stage-pct-" + stream.id;
+        pct.textContent = stream.release ? "Waiting" : "–";
+        k.append(id, pct);
+        const name = document.createElement("span");
+        name.className = "stage-name";
+        name.textContent = stream.short;
+        const bar = document.createElement("div");
+        bar.className = "bar is-idle";
+        bar.id = "stage-bar-" + stream.id;
+        const fill = document.createElement("span");
+        fill.id = "stage-fill-" + stream.id;
+        bar.append(fill);
+        li.append(k, name, bar);
+        return li;
+      }
+
+      function tick() {
+        const clock = document.getElementById("countdown");
+        if (inflight) {
+          clock.textContent = "Refreshing…";
+        } else {
+          const remain = Math.max(0, nextAt - Date.now());
+          const paused = remain > REFRESH_MS + 5000;
+          clock.textContent = (paused ? "Retry in " : "Refresh in ") + formatClock(remain);
+        }
+        if (current && current.fetchedAt) {
+          const label = "Updated " + formatAgo(current.fetchedAt) + (current.fromCache ? " · saved copy" : "");
+          document.getElementById("updated").textContent = label;
+        }
+        document.querySelectorAll("[data-epoch]").forEach((node) => {
+          const epoch = Number(node.dataset.epoch);
+          if (epoch) node.textContent = formatAgo(epoch);
+        });
+        if (!inflight && Date.now() >= nextAt) {
+          nextAt = Date.now() + REFRESH_MS;
+          refresh(false);
+        }
+      }
+
+      function limitBlock() {
+        const saved = readJson(LIMIT_KEY);
+        if (!saved || saved.remaining == null || saved.remaining >= 2) return null;
+        if (saved.resetMs > Date.now()) return saved;
+        return null;
+      }
+
+      async function refresh(manual) {
+        if (inflight) return;
+        const blocked = limitBlock();
+        if (blocked) {
+          nextAt = blocked.resetMs;
+          showLimitNotice(blocked.resetMs, false);
+          document.getElementById("refresh").disabled = true;
+          if (!current) {
+            const saved = readJson(CACHE_KEY);
+            if (saved && Array.isArray(saved.pulls)) applyPayload(saved, { fromCache: true, quiet: true });
+          }
+          return;
+        }
+        inflight = true;
+        document.getElementById("refresh").disabled = true;
+        tick();
+        try {
+          const [pullsRes, releaseRes] = await Promise.all([fetch(PULLS_URL), fetch(RELEASE_URL)]);
+          const pullsInfo = await readResponse(pullsRes);
+          const releaseInfo = await readResponse(releaseRes);
+          const remaining = Math.min(pullsInfo.remaining ?? 99, releaseInfo.remaining ?? 99);
+          const resetMs = Math.max(pullsInfo.resetMs || 0, releaseInfo.resetMs || 0);
+          storageSet(LIMIT_KEY, JSON.stringify({ remaining, resetMs }));
+
+          const pullsLimited = isRateLimited(pullsRes.status, pullsInfo);
+          const releaseLimited = isRateLimited(releaseRes.status, releaseInfo);
+          const cachedNow = readJson(CACHE_KEY);
+          let pulls = null;
+          let release = null;
+          let releaseKnown = false;
+
+          if (!pullsLimited && pullsRes.ok && Array.isArray(pullsInfo.json)) {
+            pulls = pullsInfo.json.map(slimPull);
+          }
+          if (!releaseLimited && releaseRes.status === 404) {
+            release = null;
+            releaseKnown = true;
+          } else if (!releaseLimited && releaseRes.ok && releaseInfo.json && typeof releaseInfo.json === "object" && !releaseInfo.json.message) {
+            release = slimRelease(releaseInfo.json);
+            releaseKnown = true;
+          }
+
+          if (!pulls && (pullsLimited || releaseLimited)) {
+            showLimitNotice(resetMs, false);
+            nextAt = resetMs || Date.now() + REFRESH_MS;
+            if (!current && cachedNow && Array.isArray(cachedNow.pulls)) {
+              applyPayload(cachedNow, { fromCache: true, quiet: false });
+            }
+            return;
+          }
+          if (!pulls) throw new Error("pulls");
+
+          const payload = {
+            fetchedAt: Date.now(),
+            pulls,
+            release: releaseKnown ? release : (cachedNow ? cachedNow.release : null)
+          };
+          storageSet(CACHE_KEY, JSON.stringify(payload));
+          applyPayload(payload, { fromCache: false, quiet: false });
+          if (remaining < 4) {
+            showLimitNotice(resetMs, true);
+            nextAt = resetMs || Date.now() + REFRESH_MS;
+          } else {
+            clearNotice();
+            nextAt = Date.now() + REFRESH_MS;
+          }
+        } catch (err) {
+          const saved = readJson(CACHE_KEY);
+          if (saved && Array.isArray(saved.pulls)) {
+            setNotice("GitHub didn't respond. Showing the last saved snapshot from this browser.");
+            applyPayload(saved, { fromCache: true, quiet: false });
+          } else if (!current) {
+            setNotice("Couldn't reach GitHub just now. This page will try again shortly.");
+            document.getElementById("hero-lead").textContent = "Public pull requests couldn't be loaded yet.";
+            document.getElementById("streams").textContent = "";
+            const note = document.createElement("p");
+            note.className = "empty-note";
+            note.textContent = "The workstreams will fill in on the next successful refresh.";
+            document.getElementById("streams").append(note);
+          } else {
+            setNotice("Couldn't reach GitHub. Still showing the last snapshot from this browser.");
+          }
+          nextAt = Date.now() + REFRESH_MS;
+        } finally {
+          inflight = false;
+          document.getElementById("refresh").disabled = !!limitBlock();
+          tick();
+        }
+      }
+
+      function readResponse(res) {
+        const remaining = Number(res.headers.get("x-ratelimit-remaining"));
+        const resetSec = Number(res.headers.get("x-ratelimit-reset"));
+        return res.text().then((text) => {
+          let json = null;
+          try { json = JSON.parse(text); } catch (err) { json = null; }
+          return {
+            json,
+            text,
+            remaining: Number.isFinite(remaining) ? remaining : null,
+            resetMs: Number.isFinite(resetSec) ? resetSec * 1000 : 0
+          };
+        });
+      }
+
+      function isRateLimited(status, info) {
+        if (status === 429) return true;
+        if (status !== 403) return false;
+        if (info.remaining === 0) return true;
+        return /rate limit/i.test(info.text || "");
+      }
+
+      function showLimitNotice(resetMs, fresh) {
+        const when = resetMs ? new Date(resetMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "the limit resets";
+        const lead = fresh
+          ? "This snapshot is current. "
+          : "Showing the saved snapshot. ";
+        setNotice(lead + "GitHub allows 60 unauthenticated requests an hour. Further refreshes wait until " + when + ".");
+      }
+
+      function setNotice(message) {
+        const node = document.getElementById("notice");
+        node.hidden = false;
+        node.textContent = message;
+      }
+      function clearNotice() {
+        const node = document.getElementById("notice");
+        node.hidden = true;
+        node.textContent = "";
+      }
+
+      function applyPayload(payload, opts) {
+        const results = STREAMS.map((stream) => computeStream(stream, payload.pulls));
+        const overall = overallFrom(results);
+        const ready = isReleaseReady(payload.release);
+        current = {
+          fetchedAt: payload.fetchedAt || Date.now(),
+          fromCache: !!opts.fromCache,
+          release: payload.release || null
+        };
+        const nextSignature = JSON.stringify({
+          pulls: payload.pulls.map((pr) => [pr.number, pr.state, pr.merged_at, pr.title, pr.head && pr.head.ref, pr.draft]),
+          tag: payload.release && payload.release.tag_name
+        });
+        const changed = nextSignature !== signature;
+        signature = nextSignature;
+
+        paintHero(results, overall);
+        paintStages(results, ready);
+        if (changed || !sawPayload) {
+          paintStreams(results);
+          paintActivity(results);
+        }
+        paintRelease(payload.release, ready);
+        sawPayload = true;
+        document.title = "Lark 3.0 · " + overall.percent + "% estimate";
+        const celebrate = markSeen(results, ready);
+        if (!opts.quiet && celebrate.fire && !reduceMotion) burst();
+        if (!opts.quiet) {
+          const review = results.filter((item) => item.status === "review").length;
+          const done = results.filter((item) => item.status === "done").length;
+          document.getElementById("live").textContent =
+            "Progress updated. Overall estimate " + overall.percent + " percent. " +
+            review + " in review, " + done + " done." +
+            (ready ? " Release 3.0 is available." : "");
+        }
+        tick();
+      }
+
+      function markSeen(results, ready) {
+        const seen = readJson(SEEN_KEY) || {};
+        let fire = false;
+        const doneIds = [];
+        results.forEach((item) => {
+          if (item.status === "done" && !seen[item.id]) {
+            if (seen.ready) {
+              fire = true;
+              doneIds.push(item.id);
+            }
+            seen[item.id] = true;
+          }
+        });
+        if (ready && !seen.release) {
+          if (seen.ready) fire = true;
+          seen.release = true;
+        }
+        seen.ready = true;
+        storageSet(SEEN_KEY, JSON.stringify(seen));
+        return { fire, doneIds };
+      }
+
+      function paintHero(results, overall) {
+        countUp(document.getElementById("overall-pct"), "overall", overall.percent);
+        const fill = document.getElementById("overall-fill");
+        const meter = document.getElementById("overall-meter");
+        fill.style.width = overall.percent + "%";
+        meter.classList.toggle("is-idle", overall.percent === 0);
+        meter.classList.toggle("is-done", overall.percent === 100);
+        setRing(overall.percent);
+        const review = results.filter((item) => item.status === "review").length;
+        const coding = results.filter((item) => item.status === "coding").length;
+        const merged = results.filter((item) => item.status === "merged").length;
+        const done = results.filter((item) => item.status === "done").length;
+        const openCount = results.reduce((sum, item) => sum + item.open, 0);
+        const mergedCount = results.reduce((sum, item) => sum + item.merged, 0);
+        document.getElementById("hero-lead").textContent =
+          "Live estimate from public pull requests. " +
+          mergedCount + " merged and " + openCount + " in review across the workstreams.";
+        const stats = document.getElementById("hero-stats");
+        stats.textContent = "";
+        [
+          [coding, "coding"],
+          [review, "in review"],
+          [merged, "merged"],
+          [done, "done"]
+        ].forEach((pair) => {
+          const li = document.createElement("li");
+          const strong = document.createElement("strong");
+          strong.textContent = String(pair[0]);
+          li.append(strong, document.createTextNode(" " + pair[1]));
+          stats.append(li);
+        });
+      }
+
+      function setRing(percent) {
+        const target = ringLength * (1 - percent / 100);
+        if (!ring.dataset.ready) {
+          ring.dataset.ready = "1";
+          if (reduceMotion) {
+            ring.style.strokeDashoffset = String(target);
+            return;
+          }
+          requestAnimationFrame(() => { ring.style.strokeDashoffset = String(target); });
+          return;
+        }
+        ring.style.strokeDashoffset = String(target);
+      }
+
+      function paintStages(results, ready) {
+        results.forEach((item) => {
+          document.getElementById("stage-pct-" + item.id).textContent = item.percent + "%";
+          const bar = document.getElementById("stage-bar-" + item.id);
+          bar.classList.toggle("is-idle", item.percent === 0);
+          bar.classList.toggle("is-done", item.status === "done");
+          document.getElementById("stage-fill-" + item.id).style.width = item.percent + "%";
+        });
+        const pct = document.getElementById("stage-pct-R");
+        const bar = document.getElementById("stage-bar-R");
+        const stage = document.getElementById("stage-R");
+        pct.textContent = ready ? "100%" : "Waiting";
+        bar.classList.toggle("is-idle", !ready);
+        bar.classList.toggle("is-done", ready);
+        document.getElementById("stage-fill-R").style.width = ready ? "100%" : "0%";
+        stage.classList.toggle("is-ready", ready);
+      }
+
+      function paintStreams(results) {
+        const opened = new Set(
+          [...document.querySelectorAll("details[data-stream][open]")].map((node) => node.dataset.stream)
+        );
+        const focusHost = document.activeElement && document.activeElement.closest
+          ? document.activeElement.closest("[data-key]")
+          : null;
+        const focusKey = focusHost ? focusHost.dataset.key : "";
+        const root = document.getElementById("streams");
+        root.textContent = "";
+        const seen = readJson(SEEN_KEY) || {};
+        results.forEach((item, index) => {
+          root.append(streamCard(item, index, opened.has(item.id), seen));
+        });
+        if (focusKey) {
+          const next = document.querySelector('[data-key="' + CSS.escape(focusKey) + '"]');
+          if (next) next.focus();
+        }
+      }
+
+      function streamCard(item, index, open, seen) {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.dataset.status = item.status;
+        card.style.animationDelay = (index * 40) + "ms";
+        if (item.status === "done" && seen.ready && !seen[item.id]) card.classList.add("just-done");
+
+        const top = document.createElement("div");
+        top.className = "card-top";
+        const icon = document.createElement("span");
+        icon.className = "ico";
+        icon.innerHTML = ICONS[item.id];
+        const titles = document.createElement("div");
+        titles.className = "card-titles";
+        const kicker = document.createElement("p");
+        kicker.className = "kicker";
+        kicker.textContent = "Workstream " + item.id;
+        const heading = document.createElement("h3");
+        heading.textContent = item.name;
+        titles.append(kicker, heading);
+        const side = document.createElement("div");
+        side.className = "card-side";
+        const pct = document.createElement("span");
+        pct.className = "pct";
+        countUp(pct, "stream-" + item.id, item.percent);
+        const est = document.createElement("span");
+        est.className = "est";
+        est.textContent = "estimate";
+        side.append(pct, est);
+        top.append(icon, titles, side);
+
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.dataset.status = item.status;
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.setAttribute("aria-hidden", "true");
+        pill.append(dot, document.createTextNode(STATUS_LABEL[item.status]));
+
+        const bar = document.createElement("div");
+        bar.className = "bar" + (item.status === "done" ? " is-done" : "");
+        const fill = document.createElement("span");
+        fill.style.width = item.percent + "%";
+        bar.append(fill);
+
+        const bits = [];
+        if (item.merged) bits.push(item.merged + " merged");
+        if (item.open) bits.push(item.open + " in review");
+        bits.push(item.expected + " expected");
+        const meta = document.createElement("p");
+        meta.className = "meta";
+        meta.textContent = bits.join(" · ");
+
+        card.append(top, pill, bar, meta);
+
+        const prs = item.all.slice().sort(comparePrs);
+        if (!prs.length) {
+          const note = document.createElement("p");
+          note.className = "empty-note";
+          note.textContent = "No pull requests yet. This stays near 5% while the code is being written.";
+          card.append(note);
+          return card;
+        }
+
+        const details = document.createElement("details");
+        details.className = "prs";
+        details.dataset.stream = item.id;
+        if (open) details.open = true;
+        const summary = document.createElement("summary");
+        summary.dataset.key = "stream-" + item.id;
+        const count = prs.length;
+        summary.textContent = count === 1 ? "1 pull request" : count + " pull requests";
+        const list = document.createElement("ul");
+        list.className = "pr-list";
+        prs.forEach((pr) => list.append(prRow(pr)));
+        details.append(summary, list);
+        card.append(details);
+        return card;
+      }
+
+      function prRow(pr) {
+        const li = document.createElement("li");
+        li.className = "pr";
+        const top = document.createElement("div");
+        top.className = "pr-top";
+        const badge = document.createElement("span");
+        const kind = pr.merged_at ? "merged" : (pr.state === "open" ? (pr.draft ? "draft" : "open") : "closed");
+        badge.className = "badge " + kind;
+        badge.textContent = kind === "merged" ? "Merged" : kind === "draft" ? "Draft" : kind === "open" ? "Open" : "Closed";
+        const link = document.createElement("a");
+        link.href = pr.html_url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.dataset.key = "pr-" + pr.number;
+        link.textContent = "#" + pr.number + " " + pr.title;
+        top.append(badge, link);
+        const meta = document.createElement("p");
+        meta.className = "pr-meta";
+        const when = pr.merged_at || pr.updated_at || pr.closed_at || pr.created_at;
+        const verb = pr.merged_at ? "merged " : pr.state === "open" ? "updated " : "closed ";
+        meta.append(document.createTextNode((pr.user && pr.user.login ? pr.user.login + " · " : "") + verb));
+        if (when) meta.append(timeNode(when));
+        li.append(top, meta);
+        return li;
+      }
+
+      function timeNode(iso) {
+        const time = document.createElement("time");
+        time.dateTime = iso;
+        const epoch = new Date(iso).getTime();
+        time.dataset.epoch = String(epoch);
+        time.textContent = formatAgo(epoch);
+        return time;
+      }
+
+      function comparePrs(a, b) {
+        const rank = (pr) => pr.merged_at ? 1 : pr.state === "open" ? 0 : 2;
+        const byRank = rank(a) - rank(b);
+        if (byRank) return byRank;
+        const stamp = (pr) => new Date(pr.merged_at || pr.updated_at || 0).getTime();
+        return stamp(b) - stamp(a);
+      }
+
+      function paintActivity(results) {
+        const list = document.getElementById("activity-list");
+        list.textContent = "";
+        const merges = [];
+        results.forEach((item) => {
+          item.mergedPrs.forEach((pr) => merges.push({ pr, stream: item }));
+        });
+        merges.sort((a, b) => new Date(b.pr.merged_at) - new Date(a.pr.merged_at));
+        if (!merges.length) {
+          const li = document.createElement("li");
+          li.className = "empty-note";
+          li.textContent = "No workstream merges yet. They will show up here as reviews land.";
+          list.append(li);
+          return;
+        }
+        merges.slice(0, 8).forEach((entry) => {
+          const li = document.createElement("li");
+          li.className = "event";
+          const dot = document.createElement("span");
+          dot.className = "event-dot";
+          dot.setAttribute("aria-hidden", "true");
+          const body = document.createElement("div");
+          const link = document.createElement("a");
+          link.href = entry.pr.html_url;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.dataset.key = "activity-" + entry.pr.number;
+          link.textContent = "#" + entry.pr.number + " " + entry.pr.title;
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = entry.stream.id + " · " + entry.stream.short;
+          body.append(link, document.createElement("br"), chip);
+          li.append(dot, body, timeNode(entry.pr.merged_at));
+          list.append(li);
+        });
+      }
+
+      function paintRelease(release, ready) {
+        const section = document.getElementById("release");
+        section.classList.toggle("is-ready", ready);
+        const status = document.getElementById("release-status");
+        const latest = document.getElementById("release-latest");
+        const soon = document.getElementById("release-soon");
+        const actions = document.getElementById("release-actions");
+        const meter = document.getElementById("release-meter");
+        const fill = document.getElementById("release-fill");
+        latest.textContent = "";
+        if (release && release.tag_name) {
+          const link = document.createElement("a");
+          link.href = release.html_url || "https://github.com/ItsErod/lark/releases/latest";
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = release.tag_name;
+          latest.append(document.createTextNode("Latest GitHub release is "), link, document.createTextNode("."));
+        }
+        if (ready) {
+          status.textContent = "v3.0.0 is published. Downloads for Windows and Mac are below.";
+          soon.hidden = true;
+          actions.hidden = false;
+          meter.classList.remove("is-idle");
+          meter.classList.add("is-done");
+          fill.style.width = "100%";
+          if (!actions.childElementCount) {
+            actions.append(
+              downloadLink("Windows", "Download setup", EXE_NAME, downloadUrl(release, EXE_NAME), false),
+              downloadLink("macOS", "Download disk image", DMG_NAME, downloadUrl(release, DMG_NAME), true)
+            );
+          }
+        } else {
+          status.textContent = "This stage completes when a v3.0.0 GitHub release exists.";
+          soon.hidden = false;
+          actions.hidden = true;
+          meter.classList.add("is-idle");
+          meter.classList.remove("is-done");
+          fill.style.width = "0%";
+        }
+      }
+
+      function downloadLink(kicker, title, file, href, mac) {
+        const link = document.createElement("a");
+        link.className = "dl" + (mac ? " mac" : "");
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        const k = document.createElement("span");
+        k.className = "dl-kicker";
+        k.textContent = kicker;
+        const t = document.createElement("span");
+        t.className = "dl-title";
+        t.textContent = title;
+        const f = document.createElement("span");
+        f.className = "dl-file";
+        f.textContent = file;
+        link.append(k, t, f);
+        return link;
+      }
+
+      function countUp(node, key, to) {
+        const from = Object.prototype.hasOwnProperty.call(shown, key) ? shown[key] : 0;
+        shown[key] = to;
+        if (reduceMotion || from === to) {
+          node.textContent = to + "%";
+          return;
+        }
+        const gen = (Number(node.dataset.gen) || 0) + 1;
+        node.dataset.gen = String(gen);
+        const t0 = performance.now();
+        const dur = 700;
+        function frame(now) {
+          if (Number(node.dataset.gen) !== gen) return;
+          const p = Math.min(1, (now - t0) / dur);
+          const eased = 1 - Math.pow(1 - p, 3);
+          node.textContent = Math.round(from + (to - from) * eased) + "%";
+          if (p < 1) requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+
+      function burst() {
+        const canvas = document.getElementById("confetti");
+        const ctx = canvas.getContext("2d");
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        const colors = ["#5865f2", "#e2a15a", "#f0c27a", "#23a55a", "#f2f3f5", "#dee0fc"];
+        const pieces = Array.from({ length: 140 }, () => ({
+          x: Math.random() * width,
+          y: -20 - Math.random() * height * 0.35,
+          vx: -1.6 + Math.random() * 3.2,
+          vy: 2.2 + Math.random() * 3.4,
+          rot: Math.random() * Math.PI,
+          vr: -0.18 + Math.random() * 0.36,
+          w: 6 + Math.random() * 7,
+          h: 4 + Math.random() * 5,
+          color: colors[Math.floor(Math.random() * colors.length)]
+        }));
+        const start = performance.now();
+        function frame(now) {
+          ctx.clearRect(0, 0, width, height);
+          pieces.forEach((piece) => {
+            piece.x += piece.vx;
+            piece.y += piece.vy;
+            piece.vy += 0.045;
+            piece.rot += piece.vr;
+            ctx.save();
+            ctx.translate(piece.x, piece.y);
+            ctx.rotate(piece.rot);
+            ctx.fillStyle = piece.color;
+            ctx.fillRect(-piece.w / 2, -piece.h / 2, piece.w, piece.h);
+            ctx.restore();
+          });
+          if (now - start < 2800) requestAnimationFrame(frame);
+          else ctx.clearRect(0, 0, width, height);
+        }
+        requestAnimationFrame(frame);
+      }
+    }
+
+    if (typeof document !== "undefined") boot();
+  </script>
+</body>
+</html>
