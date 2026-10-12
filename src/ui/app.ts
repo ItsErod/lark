@@ -1787,7 +1787,7 @@ class LarkApp {
     this.root.style.setProperty("--ui-size", `${appearance.font_size}px`);
     if (appearance.font_family === "inter") this.root.style.removeProperty("font-family");
     else this.root.style.fontFamily = fontStack(appearance.font_family);
-    const rail = appearance.show_server_rail ? "72px" : "0px";
+    const rail = appearance.show_server_rail ? "56px" : "0px";
     const channelW = appearance.channel_list === "hidden" ? "0px" : "240px";
     const dmSidebar = !this.guildId && !this.friendsOpen && this.currentChannelIsDm();
     const members = appearance.show_member_list && !this.narrow && (this.guildId || dmSidebar) ? "240px" : "0px";
