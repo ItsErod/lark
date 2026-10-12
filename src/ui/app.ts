@@ -53,10 +53,12 @@ import { backoff, cancelSend, queueSend, takeDue, type ScheduledSend } from "../
 import { defaultPack, PACK_IDS, sanitizePack, settingsFor, type PackState } from "../pack/state";
 import { callTimerLabel } from "../media/call-timer";
 import { downloadName, originalImageUrl } from "../media/files";
+import { newestClip, pipBox, youtubeId, youtubePlayerUrl } from "../media/watch";
 import { boostedPlayback, volumeCeiling } from "../media/volume";
 import { renderMediaPanel, type MediaHost } from "../media/registry";
 import "../media/call-volume";
 import "../media/files-panel";
+import "../media/watch-panel";
 import { findLog, logView, overlayDeletes, recordDelete, recordEdit } from "../pack/logger";
 import { holdRead as privacyHoldRead, obsDetected, panicPlan, publishActivity, redactStreamerText, streamerSafeActive, visibleStatus } from "../pack/privacy";
 import { stripTrackingText, stripTrackingUrl } from "../pack/links";
@@ -495,6 +497,8 @@ class LarkApp {
   private drawer = false;
   private lightbox: string | null = null;
   private lightboxZoom = 1;
+  private youtubeFloat: string | null = null;
+  private youtubeFloatStamp = "";
   private catalog: PluginCatalogItem[] = [];
   private loaded = new Map<string, PluginSource>();
   private pack: PackState = defaultPack();
@@ -656,6 +660,7 @@ class LarkApp {
   private switcherEl!: HTMLElement;
   private settingsEl!: HTMLElement;
   private lightboxEl!: HTMLElement;
+  private youtubeFloatEl!: HTMLElement;
   private toastWrap!: HTMLElement;
   private stage!: HTMLElement;
   private splitPane!: HTMLElement;
@@ -1114,6 +1119,10 @@ class LarkApp {
       this.lightbox = null;
       this.paintLightbox();
     });
+    this.youtubeFloatEl = el("div", "yt-pip");
+    this.youtubeFloatEl.hidden = true;
+    this.youtubeFloatEl.setAttribute("role", "dialog");
+    this.youtubeFloatEl.setAttribute("aria-label", "YouTube");
     this.hudEl = el("div", "voice-hud-host");
     this.hudEl.hidden = true;
     this.voiceMenuEl = el("div", "voice-menu");
@@ -1140,7 +1149,7 @@ class LarkApp {
     this.splashTrack.append(this.splashBar);
     splashCard.append(el("div", "mark", "L"), el("h1", "", "Lark"), this.splashStatus, this.splashTrack);
     this.splashEl.append(splashCard);
-    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.inviteEl, this.hudEl, this.callPip, this.shareLayer, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
+    this.root.append(this.gate, this.shell, this.switcherEl, this.settingsEl, this.clipDialog, this.lightboxEl, this.youtubeFloatEl, this.inviteEl, this.hudEl, this.callPip, this.shareLayer, this.voiceMenuEl, this.voiceGearEl, this.toastWrap, this.splashEl);
     this.bindCallChrome();
     document.addEventListener("visibilitychange", () => this.noteShareVisibility(document.hidden));
     this.root.addEventListener("pointerdown", (event) => this.dismissVoiceFloats(event));
@@ -1638,6 +1647,7 @@ class LarkApp {
     }
     this.paintClipDialog();
     this.paintLightbox();
+    this.paintYoutubeFloat();
     this.paintBookmarks();
     this.paintInvite();
     this.publishVoiceHud();
@@ -6221,6 +6231,65 @@ class LarkApp {
     this.lightboxEl.append(img);
   }
 
+  private openYoutube(url: string) {
+    const id = youtubeId(url);
+    if (!id) {
+      this.toast("YouTube", "That embed doesn't have a video id.");
+      return;
+    }
+    this.youtubeFloat = id;
+    this.paintYoutubeFloat();
+  }
+
+  private paintYoutubeFloat() {
+    if (!this.youtubeFloat || !this.hookOn("youtubePip")) {
+      this.youtubeFloatEl.hidden = true;
+      clear(this.youtubeFloatEl);
+      this.youtubeFloatStamp = "";
+      if (!this.hookOn("youtubePip")) this.youtubeFloat = null;
+      return;
+    }
+    const box = pipBox(this.pack.youtubePipSize);
+    const muted = this.pack.youtubePipStart !== "sound";
+    const stamp = `${this.youtubeFloat}:${box.width}:${muted ? 1 : 0}`;
+    this.youtubeFloatEl.hidden = false;
+    this.youtubeFloatEl.style.width = `${box.width}px`;
+    this.youtubeFloatEl.style.height = `${box.height + 36}px`;
+    if (stamp === this.youtubeFloatStamp && this.youtubeFloatEl.querySelector("iframe")) return;
+    this.youtubeFloatStamp = stamp;
+    clear(this.youtubeFloatEl);
+    const bar = el("div", "yt-pip-bar");
+    const close = el("button", "text-button", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => {
+      this.youtubeFloat = null;
+      this.paintYoutubeFloat();
+    });
+    bar.append(el("strong", "", "YouTube"), close);
+    const frame = document.createElement("iframe");
+    frame.title = "YouTube";
+    frame.src = youtubePlayerUrl(this.youtubeFloat, muted) ?? "";
+    frame.allow = "autoplay; picture-in-picture";
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    this.youtubeFloatEl.append(bar, frame);
+  }
+
+  private async shareLatestClip() {
+    if (!this.clipItems.length) await this.loadClips();
+    const clip = newestClip(this.clipItems);
+    if (!clip) {
+      this.toast("Clip", "No saved clip to send.");
+      return;
+    }
+    const current = this.currentChannel();
+    const sendable = current && current.kind !== "voice" && current.kind !== "category" ? current : undefined;
+    if (!sendable) {
+      this.toast("Clip", "Open a channel first.");
+      return;
+    }
+    await this.deliverClip(clip.name, sendable.id);
+  }
+
   private toast(title: string, body: string) {
     const toast = el("div", "toast");
     toast.append(el("strong", "", title), el("span", "", body));
@@ -6316,6 +6385,9 @@ class LarkApp {
       else if (this.lightbox) {
         this.lightbox = null;
         this.paintLightbox();
+      } else if (this.youtubeFloat) {
+        this.youtubeFloat = null;
+        this.paintYoutubeFloat();
       } else if (this.invite) {
         this.invite = null;
         this.paintInvite();
@@ -6404,6 +6476,9 @@ class LarkApp {
     } else if (matchShortcut(event, shortcuts.save_clip, os)) {
       event.preventDefault();
       void this.saveClip();
+    } else if (this.hookOn("clipShare") && matchShortcut(event, this.pack.clipShareKey, os)) {
+      event.preventDefault();
+      void this.shareLatestClip();
     } else if (this.voice && this.voiceMode() === "ptt" && matchShortcut(event, this.pttShortcut(), os)) {
       event.preventDefault();
       this.pttHeld = true;
@@ -11462,6 +11537,7 @@ class LarkApp {
       onDownload: view.effects.includes("voice-download") ? (url: string, name: string) => void this.saveRemote(url, name) : undefined,
       originalAction: view.effects.includes("original-image") ? this.pack.originalImageAction : undefined,
       onOriginal: view.effects.includes("original-image") ? (url: string, name: string) => this.viewOriginal(url, name) : undefined,
+      onYoutube: view.effects.includes("youtube-pip") ? (url: string) => this.openYoutube(url) : undefined,
       onForward: () => {
         armForward({
           messageId: message.id,

@@ -209,3 +209,20 @@ The file is saved from the link Discord already sent. Nothing else is requested.
 - **Download** only saves it.
 
 The preview's width and height are dropped. A signed Discord link keeps its expiry. The same button is on images inside embeds.
+
+## YouTube Picture-in-Picture
+
+**Pop out** on a YouTube embed opens a floating player.
+
+- **Small** is 320×180. **Medium** is 480×270.
+- **Muted** starts the player silent. **With sound** does not.
+- The player address is built when you click Pop out. A message that merely contains a YouTube link does not load it.
+- Close dismisses the player. Escape does the same.
+
+## Quick Clip Share
+
+One hotkey sends the newest clip in the clips folder to the channel you have open.
+
+- **Ctrl/Cmd Shift X** is the default. **Ctrl/Cmd Shift K** and **Ctrl/Cmd Alt X** are the other choices. Save clip stays on Ctrl/Cmd Shift C.
+- The newest clip is the one with the latest modified time.
+- If the file is over the upload limit, Lark uses the existing Clips compression setting: send, compress, ask, or block.

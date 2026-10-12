@@ -5,6 +5,7 @@ import { emojiCdnUrl, formatBytes, mediaBox, type Block, type Inline, type Media
 import { highlightCode, inlineLang } from "../syntax";
 import { messageMenuItems, reactorSummary, systemMessage, type SlashCommand } from "./composer-tools";
 import { downloadName, offerDownload, originalImageUrl, originalLabel, type DownloadScope, type OriginalAction } from "../media/files";
+import { youtubeFromEmbed } from "../media/watch";
 import { colorFor, el, formatClock, formatDay, icon, initials, paths, portrait } from "./dom";
 
 export function renderMessage(
@@ -38,6 +39,7 @@ export function renderMessage(
     onDownload?: (url: string, name: string) => void;
     originalAction?: OriginalAction;
     onOriginal?: (url: string, name: string) => void;
+    onYoutube?: (url: string) => void;
     /** Game Mode: skip media preload and autoplay. */
     quiet?: boolean;
     log?: { deleted: boolean; history: string[] };
@@ -430,6 +432,7 @@ interface MediaActions {
   onDownload?: (url: string, name: string) => void;
   originalAction?: OriginalAction;
   onOriginal?: (url: string, name: string) => void;
+  onYoutube?: (url: string) => void;
 }
 
 function stackMedia(node: HTMLElement, extras: HTMLElement[]): HTMLElement {
@@ -566,6 +569,10 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
     card.append(img);
     const full = originalControl(embed.image || embed.thumbnail || "", embed.title || "image", media);
     if (full) card.append(full);
+  }
+  const videoId = youtubeFromEmbed(embed);
+  if (videoId && media?.onYoutube) {
+    card.append(fileButton("Pop out", () => media.onYoutube!(embed.url || embed.video || `https://youtu.be/${videoId}`)));
   }
   if (embed.provider) card.append(el("div", "embed-footer", embed.provider));
   if (embed.footer) card.append(el("div", "embed-footer", embed.footer));

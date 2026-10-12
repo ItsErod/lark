@@ -10,6 +10,7 @@ import type { HourCycle, TimeMode } from "./time";
 import type { TranslatePrefer } from "./inline-translate";
 import type { ReplyTemplate } from "./replies";
 import { sanitizeTemplates } from "./replies";
+import type { ClipShareKey } from "../media/watch";
 import { cleanWords } from "./keywords";
 import { cleanPinnedDms } from "./pin-dms";
 import { cleanPatterns, patternsFor } from "./patterns";
@@ -66,6 +67,9 @@ export interface PackState {
   jumboSize: 32 | 48 | 64 | 96;
   voiceDownloadScope: "voice" | "all";
   originalImageAction: "both" | "open" | "download";
+  youtubePipSize: "small" | "medium";
+  youtubePipStart: "muted" | "sound";
+  clipShareKey: ClipShareKey;
 }
 
 export const PACK_IDS = [
@@ -108,6 +112,8 @@ export const PACK_IDS = [
   "bigger-emoji",
   "voice-download",
   "original-image",
+  "youtube-pip",
+  "clip-share",
 ] as const;
 
 const LANGS = new Set<Lang>(["en", "es", "fr", "de", "ja"]);
@@ -165,6 +171,9 @@ export function defaultPack(): PackState {
     jumboSize: 48,
     voiceDownloadScope: "voice",
     originalImageAction: "both",
+    youtubePipSize: "small",
+    youtubePipStart: "muted",
+    clipShareKey: "mod+shift+x",
   };
 }
 
@@ -200,6 +209,9 @@ export function sanitizePack(input: unknown): PackState {
   base.messageLog = sanitizeLog(raw.messageLog);
   if (raw.voiceDownloadScope === "voice" || raw.voiceDownloadScope === "all") base.voiceDownloadScope = raw.voiceDownloadScope;
   if (raw.originalImageAction === "both" || raw.originalImageAction === "open" || raw.originalImageAction === "download") base.originalImageAction = raw.originalImageAction;
+  if (raw.youtubePipSize === "small" || raw.youtubePipSize === "medium") base.youtubePipSize = raw.youtubePipSize;
+  if (raw.youtubePipStart === "muted" || raw.youtubePipStart === "sound") base.youtubePipStart = raw.youtubePipStart;
+  if (raw.clipShareKey === "mod+shift+x" || raw.clipShareKey === "mod+shift+k" || raw.clipShareKey === "mod+alt+x") base.clipShareKey = raw.clipShareKey;
   if (Array.isArray(raw.keywordGlobal)) base.keywordGlobal = cleanWords(raw.keywordGlobal.filter((word) => typeof word === "string").join(", "));
   base.glossary = sanitizeGlossary(raw.glossary);
   base.schedule = sanitizeSchedule(raw.schedule);
@@ -241,6 +253,8 @@ export function settingsFor(pack: PackState, pluginId: string, channelId: string
   }
   if (pluginId === "voice-download") return { scope: pack.voiceDownloadScope };
   if (pluginId === "original-image") return { action: pack.originalImageAction };
+  if (pluginId === "youtube-pip") return { size: pack.youtubePipSize, start: pack.youtubePipStart };
+  if (pluginId === "clip-share") return { hotkey: pack.clipShareKey };
   return {};
 }
 

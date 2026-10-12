@@ -80,6 +80,8 @@ export interface PluginHooks {
   jumboEmoji: boolean;
   voiceDownload: boolean;
   originalImage: boolean;
+  youtubePip: boolean;
+  clipShare: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -95,6 +97,7 @@ export const EFFECTS = [
   "spoiler-media",
   "voice-download",
   "original-image",
+  "youtube-pip",
 ] as const;
 
 const EFFECT_SET = new Set<string>(EFFECTS);
@@ -142,6 +145,8 @@ export function emptyHooks(): PluginHooks {
     jumboEmoji: false,
     voiceDownload: false,
     originalImage: false,
+    youtubePip: false,
+    clipShare: false,
   };
 }
 
@@ -354,6 +359,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.jumboEmoji = record.jumboEmoji === true;
   hooks.voiceDownload = record.voiceDownload === true;
   hooks.originalImage = record.originalImage === true;
+  hooks.youtubePip = record.youtubePip === true;
+  hooks.clipShare = record.clipShare === true;
   return hooks;
 }
 

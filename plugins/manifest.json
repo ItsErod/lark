@@ -224,6 +224,16 @@
       "id": "original-image",
       "name": "View Original Image",
       "description": "Open the full image and download it in one click."
+    },
+    {
+      "id": "youtube-pip",
+      "name": "YouTube Picture-in-Picture",
+      "description": "Pop a YouTube embed into a floating mini player."
+    },
+    {
+      "id": "clip-share",
+      "name": "Quick Clip Share",
+      "description": "Send the last saved clip to the current channel with one hotkey."
     }
   ]
 }
