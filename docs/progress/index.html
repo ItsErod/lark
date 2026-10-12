@@ -398,6 +398,8 @@
       text-transform: uppercase;
     }
     .card h3 { margin: 2px 0 0; font-size: 17px; letter-spacing: -0.02em; line-height: 1.25; }
+    .card h3 a { color: inherit; text-decoration: none; }
+    .card h3 a:hover { text-decoration: underline; }
     .card-side { margin-left: auto; text-align: right; }
     .pct {
       display: block;
@@ -646,6 +648,25 @@
       font-variant-numeric: tabular-nums;
     }
     .history-total-note { margin: 8px 0 0; color: var(--secondary); }
+    .overall-eta {
+      margin: 14px 0 0;
+      font-size: clamp(20px, 3vw, 28px);
+      font-weight: 760;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+      color: var(--amber-2);
+    }
+    .overall-eta.is-done { color: #3ecf78; }
+    .eta {
+      margin: 10px 0 0;
+      font-size: 15px;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+      color: var(--amber-2);
+    }
+    .eta.is-done { color: #3ecf78; }
     .version-body { min-width: 0; }
     .version-name {
       font-size: 18px;
@@ -743,6 +764,7 @@
         <p class="eyebrow">Six workstreams</p>
         <h1 id="page-title">Lark 3.0</h1>
         <p id="hero-lead" class="lead">Loading public pull requests…</p>
+        <p id="overall-eta" class="overall-eta">3.0 ETA —</p>
         <div class="meter is-idle" id="overall-meter" aria-hidden="true"><span id="overall-fill"></span></div>
         <ul id="hero-stats" class="stats"></ul>
       </div>
@@ -765,6 +787,18 @@
         <div class="skel"></div>
         <div class="skel"></div>
         <div class="skel"></div>
+        <div class="skel"></div>
+        <div class="skel"></div>
+        <div class="skel"></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="plugins-title">
+      <div class="section-head">
+        <h2 id="plugins-title">Plugin agents</h2>
+        <p>Each plugin agent is a pull request whose branch ends with -plug. The ETA uses that agent’s progress so far.</p>
+      </div>
+      <div id="plugins" class="streams">
         <div class="skel"></div>
         <div class="skel"></div>
         <div class="skel"></div>
@@ -806,7 +840,7 @@
 
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Pull requests refresh every 2 minutes. Published releases refresh at most every 10 minutes, so the two together stay under GitHub’s 60 unauthenticated requests an hour. The page saves a snapshot in this browser and waits out the limit. A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% until nothing is open and at least the planned number are merged, and then it reads 100%. Closed pull requests that were not merged stay in the list and do not move the percentage. Pull requests refresh every 2 minutes. Published releases refresh at most every 10 minutes, so the two together stay under GitHub’s 60 unauthenticated requests an hour. The page saves a snapshot in this browser and waits out the limit. A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-agent estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -852,6 +886,7 @@
       E: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 3.2a1.1 1.1 0 0 1 1.1 1.1v15.4a1.1 1.1 0 1 1-2.2 0V4.3A1.1 1.1 0 0 1 11 3.2Zm-4.2 3.6A1.1 1.1 0 0 1 8 7.9v8.2a1.1 1.1 0 1 1-2.2 0V7.9a1.1 1.1 0 0 1 1-1.1Zm8.4.8a1.1 1.1 0 0 1 1.1 1.1v6.6a1.1 1.1 0 1 1-2.2 0V8.7a1.1 1.1 0 0 1 1.1-1.1ZM4.6 10a1.1 1.1 0 0 1 1.1 1.1v1.8a1.1 1.1 0 1 1-2.2 0v-1.8A1.1 1.1 0 0 1 4.6 10Zm14.8 0a1.1 1.1 0 0 1 1.1 1.1v1.8a1.1 1.1 0 1 1-2.2 0v-1.8a1.1 1.1 0 0 1 1.1-1.1Z"/></svg>',
       F: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.5 3h11A3.5 3.5 0 0 1 21 6.5v6.2a3.5 3.5 0 0 1-3.5 3.5H13l-3.2 2.5c-.8.6-1.8-.1-1.8-1V16.2A3.5 3.5 0 0 1 6.5 12.7V6.5A3.5 3.5 0 0 1 6.5 3Zm1.6 4.4a1 1 0 0 0 0 2h8.8a1 1 0 1 0 0-2H8.1Zm0 3.8a1 1 0 0 0 0 2h5.4a1 1 0 1 0 0-2H8.1Z"/></svg>'
     };
+    const PLUG_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.2 3.1a2.15 2.15 0 0 1 1.9 1.15h2.2A2.15 2.15 0 1 1 14.6 6.4h2.1a2 2 0 0 1 2 2v1.7a2.15 2.15 0 1 1 0 3.8v1.8a2 2 0 0 1-2 2h-1.8a2.15 2.15 0 1 1-3.8 0H8.7a2.2 2.2 0 0 1-2.2-2.2v-1.5a2.15 2.15 0 1 0 0-3.6V7.3A2.2 2.2 0 0 1 8.7 5.1h.6A2.15 2.15 0 0 1 8.2 3.1Z"/></svg>';
 
     const PULLS_URL = "https://api.github.com/repos/ItsErod/lark/pulls?state=all&per_page=100";
     const RELEASE_URL = "https://api.github.com/repos/ItsErod/lark/releases/latest";
@@ -1097,6 +1132,107 @@
     }
     /* version-history-api-end */
 
+    /* eta-api */
+    function isPluginBranch(ref) {
+      const name = String(ref || "").toLowerCase();
+      if (!name.endsWith("-plug")) return false;
+      const streams = typeof STREAMS === "undefined" ? [] : STREAMS;
+      return !streams.some((stream) => name.endsWith(stream.suffix));
+    }
+
+    function earliestStamp(prs, field) {
+      let best = null;
+      (prs || []).forEach((pr) => {
+        const stamp = Date.parse(pr && pr[field]);
+        if (!Number.isFinite(stamp)) return;
+        if (best == null || stamp < best) best = stamp;
+      });
+      return best;
+    }
+
+    function latestStamp(prs, field) {
+      let best = null;
+      (prs || []).forEach((pr) => {
+        const stamp = Date.parse(pr && pr[field]);
+        if (!Number.isFinite(stamp)) return;
+        if (best == null || stamp > best) best = stamp;
+      });
+      return best;
+    }
+
+    function agentEta(startMs, fraction, now, finishedAt) {
+      const nowMs = Number.isFinite(now) ? now : Date.now();
+      if (!(fraction > 0)) return { state: "unknown" };
+      if (fraction >= 1) {
+        const doneAt = Number.isFinite(finishedAt) ? finishedAt : nowMs;
+        return { state: "done", finishedAt: doneAt };
+      }
+      if (!Number.isFinite(startMs)) return { state: "unknown" };
+      const elapsed = Math.max(0, nowMs - startMs);
+      if (elapsed <= 0) return { state: "unknown" };
+      const remainingMs = elapsed * (1 - fraction) / fraction;
+      return { state: "eta", remainingMs, finishAt: nowMs + remainingMs, startMs, fraction };
+    }
+
+    function workEta(prs, fraction, now) {
+      const active = (prs || []).filter((pr) => pr && (pr.merged_at || pr.state === "open"));
+      const startMs = earliestStamp(active, "created_at");
+      const finishedAt = latestStamp(active, "merged_at");
+      return agentEta(startMs, fraction, now, finishedAt);
+    }
+
+    function pluginAgentsFrom(pulls) {
+      return (pulls || []).filter((pr) => {
+        const ref = pr && pr.head && pr.head.ref;
+        if (!isPluginBranch(ref)) return false;
+        return !!(pr && (pr.merged_at || pr.state === "open"));
+      }).map((pr) => {
+        const done = !!pr.merged_at;
+        return {
+          id: "plug-" + pr.number,
+          number: pr.number,
+          name: String(pr.title || "Plugin"),
+          url: pr.html_url || "",
+          status: done ? "done" : "review",
+          ratio: done ? 1 : 0.5,
+          percent: done ? 100 : 50,
+          created_at: pr.created_at || null,
+          merged_at: pr.merged_at || null,
+          state: pr.state || (done ? "closed" : "open"),
+          user: pr.user || null
+        };
+      });
+    }
+
+    function overallAgentEta(etas, now) {
+      const known = (etas || []).filter((eta) => eta && eta.state !== "unknown");
+      if (!known.length) return { state: "unknown" };
+      const pending = known.filter((eta) => eta.state === "eta" && Number.isFinite(eta.finishAt));
+      if (!pending.length) {
+        const finishedAt = Math.max.apply(null, known.map((eta) => eta.finishedAt || 0));
+        return { state: "done", finishedAt };
+      }
+      const finishAt = Math.max.apply(null, pending.map((eta) => eta.finishAt));
+      const nowMs = Number.isFinite(now) ? now : Date.now();
+      return { state: "eta", finishAt, remainingMs: Math.max(0, finishAt - nowMs) };
+    }
+
+    function formatEta(remainingMs) {
+      if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "ETA ~any moment";
+      const total = Math.ceil(remainingMs / 1000);
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const mins = Math.floor((total % 3600) / 60);
+      const secs = total % 60;
+      const parts = [];
+      if (days) parts.push(days + "d");
+      if (hours || days) parts.push(hours + "h");
+      if (mins || hours || days) parts.push(mins + "m");
+      if (!days) parts.push(String(secs).padStart(2, "0") + "s");
+      return "ETA ~" + parts.join(" ");
+    }
+    /* eta-api-end */
+
     function downloadUrl(release, name) {
       const assets = release && Array.isArray(release.assets) ? release.assets : [];
       const match = assets.find((asset) => asset.name === name);
@@ -1118,7 +1254,12 @@
       RELEASES_REFRESH_MS,
       formatDuration,
       buildVersionHistory,
-      inProgressName
+      inProgressName,
+      agentEta,
+      workEta,
+      pluginAgentsFrom,
+      overallAgentEta,
+      formatEta
     };
 
     function boot() {
@@ -1194,6 +1335,7 @@
           if (epoch) node.textContent = formatAgo(epoch);
         });
         paintHistoryClock();
+        tickEtas();
         if (!inflight && Date.now() >= nextAt) {
           nextAt = Date.now() + REFRESH_MS;
           refresh(false);
@@ -1550,10 +1692,13 @@
 
         paintHero(results, overall);
         paintStages(results, ready);
+        const plugins = pluginAgentsFrom(payload.pulls);
         if (changed || !sawPayload) {
           paintStreams(results);
+          paintPlugins(plugins);
           paintActivity(results);
         }
+        refreshEtas(results, plugins);
         paintRelease(payload.release, ready);
         paintHistoryFromCache();
         sawPayload = true;
@@ -1731,7 +1876,12 @@
         meta.className = "meta";
         meta.textContent = bits.join(" · ");
 
-        card.append(top, pill, bar, meta);
+        const eta = document.createElement("p");
+        eta.className = "eta";
+        eta.dataset.etaFor = item.id;
+        eta.textContent = "ETA —";
+
+        card.append(top, pill, bar, meta, eta);
 
         const prs = item.all.slice().sort(comparePrs);
         if (!prs.length) {
@@ -1799,6 +1949,130 @@
         if (byRank) return byRank;
         const stamp = (pr) => new Date(pr.merged_at || pr.updated_at || 0).getTime();
         return stamp(b) - stamp(a);
+      }
+
+      function tickEtas() {
+        document.querySelectorAll("[data-eta-finish]").forEach((node) => {
+          const finish = Number(node.dataset.etaFinish);
+          if (!Number.isFinite(finish)) return;
+          const prefix = node.dataset.etaPrefix || "";
+          node.textContent = prefix + formatEta(finish - Date.now());
+        });
+      }
+
+      function renderEta(node, eta, prefix) {
+        if (!node) return;
+        const lead = prefix || "";
+        node.dataset.etaPrefix = lead;
+        node.classList.toggle("is-done", !!(eta && eta.state === "done"));
+        if (eta && eta.state === "done" && Number.isFinite(eta.finishedAt)) {
+          node.removeAttribute("data-eta-finish");
+          node.textContent = lead + "Done · " + formatStamp(eta.finishedAt);
+          return;
+        }
+        if (!eta || eta.state !== "eta" || !Number.isFinite(eta.finishAt)) {
+          node.removeAttribute("data-eta-finish");
+          node.textContent = lead + "ETA —";
+          return;
+        }
+        node.dataset.etaFinish = String(Math.round(eta.finishAt));
+        node.textContent = lead + formatEta(eta.finishAt - Date.now());
+      }
+
+      function refreshEtas(results, plugins) {
+        const now = Date.now();
+        const etas = [];
+        (results || []).forEach((item) => {
+          const eta = workEta((item.mergedPrs || []).concat(item.openPrs || []), item.ratio, now);
+          etas.push(eta);
+          renderEta(document.querySelector('[data-eta-for="' + item.id + '"]'), eta, "");
+        });
+        (plugins || []).forEach((item) => {
+          const eta = workEta([{
+            created_at: item.created_at,
+            merged_at: item.merged_at,
+            state: item.merged_at ? "closed" : "open"
+          }], item.ratio, now);
+          etas.push(eta);
+          renderEta(document.querySelector('[data-eta-for="' + item.id + '"]'), eta, "");
+        });
+        renderEta(document.getElementById("overall-eta"), overallAgentEta(etas, now), "3.0 ");
+      }
+
+      function paintPlugins(plugins) {
+        const root = document.getElementById("plugins");
+        if (!root) return;
+        root.textContent = "";
+        if (!plugins.length) {
+          const note = document.createElement("p");
+          note.className = "empty-note";
+          note.textContent = "No plugin agents yet. A pull request whose branch ends with -plug will show up here.";
+          root.append(note);
+          return;
+        }
+        const ordered = plugins.slice().sort((a, b) => {
+          if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
+          const stamp = (item) => Date.parse(item.merged_at || item.created_at || 0);
+          return stamp(b) - stamp(a);
+        });
+        ordered.forEach((item, index) => root.append(pluginCard(item, index)));
+      }
+
+      function pluginCard(item, index) {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.dataset.status = item.status;
+        card.style.animationDelay = (index * 40) + "ms";
+        const top = document.createElement("div");
+        top.className = "card-top";
+        const icon = document.createElement("span");
+        icon.className = "ico";
+        icon.innerHTML = PLUG_ICON;
+        const titles = document.createElement("div");
+        titles.className = "card-titles";
+        const kicker = document.createElement("p");
+        kicker.className = "kicker";
+        kicker.textContent = "Plugin agent";
+        const heading = document.createElement("h3");
+        const link = document.createElement("a");
+        link.href = safeGithubUrl(item.url, "https://github.com/ItsErod/lark/pull/" + item.number);
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.dataset.key = "plug-" + item.number;
+        link.textContent = item.name;
+        heading.append(link);
+        titles.append(kicker, heading);
+        const side = document.createElement("div");
+        side.className = "card-side";
+        const pct = document.createElement("span");
+        pct.className = "pct";
+        pct.textContent = item.percent + "%";
+        const est = document.createElement("span");
+        est.className = "est";
+        est.textContent = "estimate";
+        side.append(pct, est);
+        top.append(icon, titles, side);
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.dataset.status = item.status === "done" ? "done" : "review";
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.setAttribute("aria-hidden", "true");
+        pill.append(dot, document.createTextNode(item.status === "done" ? "Done" : "In review"));
+        const bar = document.createElement("div");
+        bar.className = "bar" + (item.status === "done" ? " is-done" : "");
+        const fill = document.createElement("span");
+        fill.style.width = item.percent + "%";
+        bar.append(fill);
+        const meta = document.createElement("p");
+        meta.className = "meta";
+        meta.textContent = "#" + item.number + (item.user && item.user.login ? " · " + item.user.login : "");
+        const eta = document.createElement("p");
+        eta.className = "eta";
+        eta.dataset.etaFor = item.id;
+        eta.textContent = "ETA —";
+        card.append(top, pill, bar, meta, eta);
+        return card;
       }
 
       function paintActivity(results) {
