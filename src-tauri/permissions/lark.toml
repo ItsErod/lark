@@ -367,3 +367,13 @@ commands.allow = ["installed_store"]
 identifier = "allow-open-store-page"
 description = "Open the Lark store page in the system browser."
 commands.allow = ["open_store_page"]
+
+[[permission]]
+identifier = "allow-voice-diagnostics"
+description = "Copy the voice handshake log from Settings and the voice panel."
+commands.allow = ["voice_diagnostics"]
+
+[[permission]]
+identifier = "allow-list-audio-devices"
+description = "List microphone and speaker names from the desktop audio host."
+commands.allow = ["list_audio_devices"]

@@ -314,8 +314,9 @@ import {
 } from "../threads";
 import { isHeldRequest } from "../message-requests";
 import { loadThreadsUi, threadsNow } from "./lazy-threads";
+import { writeClipboard } from "../clipboard";
 import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
-import { applyMoreAction, applyUserMix, applyVoiceState, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
@@ -3116,7 +3117,7 @@ class LarkApp {
     const panel = el("section", session ? "voice-panel" : "voice-panel is-resting");
     if (!session) {
       panel.setAttribute("aria-label", "Mute and deafen");
-      panel.append(this.userAudioRow());
+      panel.append(this.userAudioRow(), this.diagnosticsButton());
       return panel;
     }
     const status = session.status ?? "connecting";
@@ -3167,7 +3168,7 @@ class LarkApp {
       el("span", "spacer"),
       strip,
     );
-    panel.append(line, details, actions);
+    panel.append(line, details, actions, this.diagnosticsButton());
     if (this.deviceMenu) panel.append(this.deviceMenuPop());
     return panel;
   }
@@ -5826,7 +5827,7 @@ class LarkApp {
       this.setPerfOverlay(value, false);
     }));
     const devices = settingCard("Devices");
-    devices.append(el("p", "setting-help", "Lark stores the device you pick. Voice uses these ids when it opens the microphone."));
+    devices.append(el("p", "setting-help", "Lark stores the device you pick. Voice matches that name on the desktop device. An unknown id uses the communications device."));
     devices.append(this.deviceRow("voice.input", "Input", "Microphone Lark stores for the call.", this.config.voice.input_device, this.captureDevices(), (value) => {
       this.config.voice.input_device = value;
       this.persist();
@@ -5844,9 +5845,7 @@ class LarkApp {
     const listDevices = el("button", "text-button", "List microphones and cameras");
     listDevices.type = "button";
     listDevices.addEventListener("click", () => void this.listDevices());
-    const copyDiag = el("button", "text-button", "Copy voice diagnostics");
-    copyDiag.type = "button";
-    copyDiag.addEventListener("click", () => void this.copyVoiceDiagnostics());
+    const copyDiag = this.diagnosticsButton();
     const deviceActions = el("div", "settings-actions");
     deviceActions.append(listDevices, copyDiag);
     devices.append(deviceActions);
@@ -10743,7 +10742,7 @@ class LarkApp {
     this.stopMicLevel();
     if (!navigator.mediaDevices?.getUserMedia) return;
     void navigator.mediaDevices.getUserMedia({
-      audio: this.config.voice.input_device ? { deviceId: { exact: this.config.voice.input_device } } : true,
+      audio: browserMicConstraint(this.config.voice.input_device, this.audioInputs.map((device) => device.id)),
       video: false,
     }).then((stream) => {
       this.micPreview = stream;
@@ -14556,13 +14555,27 @@ class LarkApp {
     if (this.settings && this.section === "voice") this.renderSettings();
   }
 
+  private diagnosticsButton(): HTMLButtonElement {
+    const button = el("button", "text-button", "Copy voice diagnostics");
+    button.type = "button";
+    button.addEventListener("click", () => void this.copyVoiceDiagnostics());
+    return button;
+  }
+
   private async copyVoiceDiagnostics() {
-    try {
-      const text = await invoke<string>("voice_diagnostics");
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* The diagnostics stay on the voice log if the clipboard is unavailable. */
+    if (!isTauri()) {
+      this.toast("Voice", "Voice diagnostics are available in the desktop app.");
+      return;
     }
+    let text = "";
+    try {
+      text = await invoke<string>("voice_diagnostics");
+    } catch (err) {
+      this.toast("Voice", err instanceof Error ? err.message : "Couldn't read voice diagnostics.");
+      return;
+    }
+    if (await writeClipboard(text)) this.toast("Copied", "Voice diagnostics are on the clipboard.");
+    else this.toast("Voice", "Couldn't copy voice diagnostics.");
   }
 
   private railIcon(label: string, path: string, onClick: () => void): HTMLButtonElement {
