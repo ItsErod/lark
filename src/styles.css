@@ -403,6 +403,14 @@ html.is-panic body > * { visibility: hidden !important; }
 .message.is-compact-media .image-preview,
 .message.is-compact-media .embed-image { max-height: 72px; min-height: 0; width: auto; object-fit: cover; }
 .message.is-compact-media .sticker img { max-height: 48px; width: auto; }
+.message.is-spoiler-media:not(.is-revealed) .image-frame,
+.message.is-spoiler-media:not(.is-revealed) .embed,
+.message.is-spoiler-media:not(.is-revealed) .sticker,
+.message.is-spoiler-media:not(.is-revealed) .attachment-video,
+.message.is-spoiler-media:not(.is-revealed) .attachment-audio {
+  filter: blur(18px);
+  cursor: pointer;
+}
 .plugin-card {
   display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg-1);

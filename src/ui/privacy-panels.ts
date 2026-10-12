@@ -10,11 +10,14 @@ export function mountPrivacyPanel(
     formatKey: (shortcut: string) => string;
     captureKey: (event: KeyboardEvent) => string | null;
   },
+  channel?: { id: string; name: string } | null,
 ): HTMLElement | null {
   if (id === "panic-key") return panicPanel(privacy, handlers);
   if (id === "incognito") return incognitoPanel(privacy, handlers);
   if (id === "streamer-safe") return streamerPanel(privacy, handlers);
   if (id === "clean-links") return linksPanel(privacy, handlers);
+  if (id === "spoiler-everything") return spoilerPanel(privacy, handlers, channel);
+  if (id === "hide-blocked") return blockedPanel();
   return null;
 }
 
@@ -75,6 +78,36 @@ function linksPanel(privacy: PrivacyOptions, handlers: { save: (patch: Partial<P
   card.append(check("Clean links you send", privacy.cleanOnSend, (value) => handlers.save({ cleanOnSend: value })));
   card.append(check("Clean links you open", privacy.cleanOnClick, (value) => handlers.save({ cleanOnClick: value })));
   card.append(el("p", "hint", "utm_*, fbclid, gclid, si, and the other common click ids are removed. The rest of the link stays."));
+  return card;
+}
+
+function spoilerPanel(
+  privacy: PrivacyOptions,
+  handlers: { save: (patch: Partial<PrivacyOptions>) => void },
+  channel?: { id: string; name: string } | null,
+): HTMLElement {
+  const card = el("div", "plugin-card");
+  card.append(el("div", "hint", "Every channel"));
+  card.append(segmentControl(["on", "off"], privacy.spoilerDefault, (value) => {
+    handlers.save({ spoilerDefault: value as PrivacyOptions["spoilerDefault"] });
+  }, { on: "Blur", off: "Show" }));
+  if (channel) {
+    const current = privacy.spoilerChannels[channel.id] ?? "default";
+    card.append(el("div", "hint", channel.name));
+    card.append(segmentControl(["default", "on", "off"], current, (value) => {
+      const next = { ...privacy.spoilerChannels };
+      if (value === "default") delete next[channel.id];
+      else next[channel.id] = value as "on" | "off";
+      handlers.save({ spoilerChannels: next });
+    }, { default: "Use default", on: "Blur", off: "Show" }));
+  }
+  card.append(el("p", "hint", "Images, videos, and embeds stay blurred until you click them. A channel can blur or show even when the default is the other way."));
+  return card;
+}
+
+function blockedPanel(): HTMLElement {
+  const card = el("div", "plugin-card");
+  card.append(el("p", "hint", "People you have blocked disappear from the message list. With this off, Lark leaves a Blocked message row instead. This does not change the block on Discord."));
   return card;
 }
 

@@ -1412,6 +1412,32 @@ pub fn friends_from_relationships(
         .collect()
 }
 
+/// Relationship type 2 is a block. Friends (type 1) are left to [`friends_from_relationships`].
+pub fn blocked_user_ids(relationships: &serde_json::Value) -> Vec<String> {
+    let Some(list) = relationships.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for value in list {
+        if value.get("type").and_then(|kind| kind.as_i64()) != Some(2) {
+            continue;
+        }
+        let id = value
+            .get("user")
+            .and_then(|user| user.get("id"))
+            .and_then(|item| item.as_str())
+            .or_else(|| value.get("id").and_then(|item| item.as_str()))
+            .unwrap_or("");
+        if snowflake_ok(id) && !out.iter().any(|seen| seen == id) {
+            out.push(id.to_string());
+        }
+        if out.len() >= 500 {
+            break;
+        }
+    }
+    out
+}
+
 pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
     let user = value.get("user")?;
     let id = user.get("id").and_then(|item| item.as_str()).unwrap_or("");
@@ -2164,6 +2190,20 @@ mod tests {
         assert!(url.contains(".gif"));
         assert!(avatar_url("100000000000000001", &Some("../x".into())).is_none());
         assert!(guild_icon_url("nope", &Some("abc".into())).is_none());
+    }
+
+    #[test]
+    fn blocked_relationships_keep_type_two_only() {
+        let list = serde_json::json!([
+            {"id": "100000000000000002", "type": 1, "user": {"id": "100000000000000002"}},
+            {"id": "100000000000000003", "type": 2, "user": {"id": "100000000000000003", "username": "blocked"}},
+            {"type": 2, "user": {"id": "not-an-id"}},
+            {"type": 2, "id": "100000000000000004"}
+        ]);
+        assert_eq!(
+            blocked_user_ids(&list),
+            vec!["100000000000000003".to_string(), "100000000000000004".to_string()]
+        );
     }
 
     #[test]

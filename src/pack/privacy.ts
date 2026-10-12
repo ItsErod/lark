@@ -14,6 +14,8 @@ export interface PrivacyOptions {
   streamerDms: boolean;
   cleanOnSend: boolean;
   cleanOnClick: boolean;
+  spoilerDefault: "on" | "off";
+  spoilerChannels: Record<string, "on" | "off">;
 }
 
 const DEFAULT_PANIC_KEY = "mod+shift+h";
@@ -34,6 +36,8 @@ export function defaultPrivacy(): PrivacyOptions {
     streamerDms: true,
     cleanOnSend: true,
     cleanOnClick: true,
+    spoilerDefault: "on",
+    spoilerChannels: {},
   };
 }
 
@@ -55,7 +59,25 @@ export function sanitizePrivacy(input: unknown): PrivacyOptions {
   if (typeof raw.streamerDms === "boolean") base.streamerDms = raw.streamerDms;
   if (typeof raw.cleanOnSend === "boolean") base.cleanOnSend = raw.cleanOnSend;
   if (typeof raw.cleanOnClick === "boolean") base.cleanOnClick = raw.cleanOnClick;
+  if (raw.spoilerDefault === "on" || raw.spoilerDefault === "off") base.spoilerDefault = raw.spoilerDefault;
+  base.spoilerChannels = sanitizeSpoilerChannels(raw.spoilerChannels);
   return base;
+}
+
+function sanitizeSpoilerChannels(value: unknown): Record<string, "on" | "off"> {
+  if (!value || typeof value !== "object") return {};
+  const out: Record<string, "on" | "off"> = {};
+  for (const [id, mode] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) continue;
+    if (mode !== "on" && mode !== "off") continue;
+    out[id] = mode;
+    if (Object.keys(out).length >= 100) break;
+  }
+  return out;
+}
+
+export function spoilerMode(privacy: PrivacyOptions, channelId: string): "on" | "off" {
+  return privacy.spoilerChannels[channelId] ?? privacy.spoilerDefault;
 }
 
 /** A panic shortcut needs a modifier so a letter typed in the composer cannot fire it. */

@@ -27,11 +27,13 @@ export interface PluginSource {
 export interface PluginContext {
   settings: Record<string, string>;
   hiddenAuthors: ReadonlySet<string>;
+  blockedAuthors?: ReadonlySet<string>;
 }
 
 export interface PluginApplyContext {
   settings?: Record<string, Record<string, string>>;
   hiddenAuthors?: ReadonlySet<string>;
+  blockedAuthors?: ReadonlySet<string>;
 }
 
 export interface PluginCatalogItem {
@@ -65,6 +67,8 @@ export interface PluginHooks {
   incognito: boolean;
   streamerSafe: boolean;
   cleanLinks: boolean;
+  spoilerMedia: boolean;
+  hideBlocked: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -77,12 +81,14 @@ export const EFFECTS = [
   "quick-react",
   "bookmark",
   "translate",
+  "spoiler-media",
 ] as const;
 
 const EFFECT_SET = new Set<string>(EFFECTS);
 
 const EMPTY_SETTINGS: Record<string, string> = {};
 const EMPTY_HIDDEN: ReadonlySet<string> = new Set();
+const EMPTY_BLOCKED: ReadonlySet<string> = new Set();
 
 export function emptyHooks(): PluginHooks {
   return {
@@ -110,6 +116,8 @@ export function emptyHooks(): PluginHooks {
     incognito: false,
     streamerSafe: false,
     cleanLinks: false,
+    spoilerMedia: false,
+    hideBlocked: false,
   };
 }
 
@@ -171,7 +179,7 @@ export function compilePlugin(source: string): { hooks: PluginHooks; run: Plugin
         try {
           const draft = cloneMessage(message);
           const snapshot = cloneMessage(message);
-          const api = makeApi(ctx);
+          const api = makeApi({ ...ctx, blockedAuthors: ctx.blockedAuthors ?? EMPTY_BLOCKED });
           return sanitizeResult(snapshot, runBody(draft, api));
         } catch {
           return message;
@@ -192,7 +200,11 @@ export function applyPlugins(
   for (const plugin of plugins) {
     if (!current) return null;
     const settings = ctx.settings?.[plugin.id] ?? EMPTY_SETTINGS;
-    current = plugin.run(current, { settings, hiddenAuthors: ctx.hiddenAuthors ?? EMPTY_HIDDEN });
+    current = plugin.run(current, {
+      settings,
+      hiddenAuthors: ctx.hiddenAuthors ?? EMPTY_HIDDEN,
+      blockedAuthors: ctx.blockedAuthors ?? EMPTY_BLOCKED,
+    });
   }
   return current;
 }
@@ -222,6 +234,7 @@ interface PluginApi {
   effect(message: PluginMessage, kind: string): void;
   setting(key: string): string;
   hidden(authorId: string): boolean;
+  blocked(authorId: string): boolean;
 }
 
 function makeApi(ctx: PluginContext): PluginApi {
@@ -245,6 +258,9 @@ function makeApi(ctx: PluginContext): PluginApi {
     },
     hidden(authorId) {
       return typeof authorId === "string" && ctx.hiddenAuthors.has(authorId);
+    },
+    blocked(authorId) {
+      return typeof authorId === "string" && (ctx.blockedAuthors ?? EMPTY_BLOCKED).has(authorId);
     },
   };
 }
@@ -301,6 +317,8 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.incognito = record.incognito === true;
   hooks.streamerSafe = record.streamerSafe === true;
   hooks.cleanLinks = record.cleanLinks === true;
+  hooks.spoilerMedia = record.spoilerMedia === true;
+  hooks.hideBlocked = record.hideBlocked === true;
   return hooks;
 }
 
