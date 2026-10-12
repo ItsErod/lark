@@ -2,7 +2,7 @@
 
 Analysis only. This document compares Lark at `2a5ea2f` (2.4.5 plus the first parity note) with the Discord web client inventory captured on 12 Oct 2026. It does not add features.
 
-The first pass reconstructed a client from public patch notes because `discord-audit.md` never landed. This revision audits the condensed inventory below. Surfaces that inventory only names as an entry point (stage, forums, polls, events, inbox, server-settings pages, search filters) stay in a later section so the original brief is still covered.
+The first pass reconstructed a client from public patch notes because `discord-audit.md` never landed. The condensed inventory (Home, DMs, servers, composer, settings) is the next section. A later section is the server-settings and voice deep-dive. Stage, forums, polls, and search filters stay in the entry-point section so the original brief is still covered.
 
 Status values:
 
@@ -188,6 +188,94 @@ Discord’s pages, in the inventory’s order. Lark’s settings catalog is `SET
 | Developer Mode | Missing | |
 | Log Out | Partial | Forget token deletes the local session (`clear_token`). It is not labeled Log Out and it does not switch accounts. |
 
+## Server settings
+
+Lark has no server-settings sidebar. `src/ui/settings.ts` is account and app pages only. Emoji names are fetched for the picker (`emojis` in `rest.rs`) and never managed. Boost rows are read-only: show the level and perks, and link to Discord to buy a boost. Do not build a checkout.
+
+| Discord feature | Lark status | Notes and file pointers |
+| --- | --- | --- |
+| Server Profile: name, icon, banner, icon color presets, traits, description, games, private profile, live preview | Missing | |
+| Server Tag: 4-character tag, badge, colors, preview | Missing | Friend rows also lack a server tag. |
+| Engagement: system message toggles and channel, activity feed, default notifications, inactive channel, timeout, widget | Missing | System join lines render as plain text. There is no toggle for them. |
+| Boost Perks: progress bar, banner and invite backgrounds, custom invite link | Missing | Read-only perk display plus a link. No boost purchase. The custom invite field is the vanity URL, which is also missing. |
+| Emoji: 50 slots, upload, bulk | Partial | `fetch_emojis` fills the picker. No slot count, upload, or bulk add. |
+| Stickers: slots, upload | Missing | Incoming stickers render. No server sticker table. |
+| Soundboard: upload, slots, table | Missing | Guild sounds are not fetched. Local WAV clips stay in Voice & Video. |
+| Members: table with Member Since, Joined Discord, Join Method, Roles, Signals | Missing | The sidebar list is not this table. |
+| Members: add roles, mod view, prune, sort | Missing | |
+| Roles: @everyone default, create, reorder | Missing | Roles are read for colors and for `can_view_channel`. |
+| Roles editor tabs: Display, Permissions, Links, Manage Members | Missing | |
+| Permission list: General, Membership, Text, Voice, Apps, Events, Advanced, Administrator | Missing | |
+| Invites: list, pause, create | Missing | Preview and accept exist (`invite_preview`, `accept_invite`). |
+| Access: Invite Only, Apply to Join, Discoverable, age-restricted, rules editor | Missing | |
+| Integrations: webhooks, followed channels, bots | Missing | |
+| Safety Setup: verification level, 2FA for mods, prune restriction, content filter | Missing | |
+| Audit Log: filter by user and action | Missing | |
+| Bans | Missing | |
+| AutoMod: mention spam, spam content, flagged words, custom words, with actions | Missing | |
+| Enable Community | Missing | |
+| Server Template | Missing | |
+| Delete Server | Missing | |
+| Boosts page with levels and perks | Missing | Read-only. Link out to buy. |
+
+## Edit channel, create channel, and the invite modal
+
+| Discord feature | Lark status | Notes and file pointers |
+| --- | --- | --- |
+| Edit Channel overview: name, topic, slowmode, spoiler, age-restricted, hide after inactivity | Missing | Topic is shown in `paintHeader`. Nothing edits it. No `rate_limit_per_user` on the channel. |
+| Voice overview: bitrate 8–96 kbps, video quality, user limit, region | Missing | Kind `2` joins a call. No channel editor. |
+| Edit Channel permissions: sync with category, private, advanced overwrites | Missing | `can_view_channel` in `shell.rs` enforces overwrites. There is no editor. |
+| Edit Channel invites | Missing | |
+| Edit Channel integrations: webhooks | Missing | |
+| Create Channel modal: Text, Voice, or Forum, plus private | Missing | |
+| Invite modal: friend search, copy link, expiry, max uses, roles, temporary membership | Missing | The join card (`openInvite`) is the reverse direction. |
+
+## Events, member menu, and inbox
+
+| Discord feature | Lark status | Notes and file pointers |
+| --- | --- | --- |
+| Events popout | Missing | No scheduled-event payload. |
+| Events wizard: location (voice or elsewhere), topic, date, time, frequency, description, cover | Missing | |
+| Member right-click: Profile, Mention, Per-server Profile, Apps, Roles, Mod View, Copy ID | Missing | `memberButton` opens the profile on click. No `contextmenu`. |
+| Profile popout: pronouns, bio, roles | Done | `renderProfileCard` in `src/ui/profile.ts`. |
+| Profile popout: server tag, badges, widgets | Missing | |
+| Inbox: Unreads | Missing | |
+| Inbox: Mentions | Missing | Rail badges are not an inbox. |
+| Inbox: Bookmarks | Partial | Saved messages are a local list (`src/pack/bookmarks.ts`), opened from the header, not an inbox tab. |
+| Inbox: Reminders | Partial | `src/reminders.ts` is a local list, not an inbox tab. |
+| Inbox: Mark All Read | Missing | |
+| Inbox: friend requests | Missing | Pending friends are not loaded. |
+
+## Voice channel, voice panel, and call view
+
+The sidebar voice panel is `voicePanel` in `src/ui/app.ts`. The call grid is `renderCallStage` in `src/ui/voice-view.ts`. Participant volume is `paintVoiceMenu`.
+
+| Discord feature | Lark status | Notes and file pointers |
+| --- | --- | --- |
+| Voice channel right-click: Join Without Entrance Sound, Open Chat, Hide Names, Invite, Edit, Duplicate, Copy Link, Mute, Set channel status | Missing | A left click joins. Rows have no context menu. |
+| Voice panel: ping and voice details | Partial | `signalMeter` shows connecting / connected / reconnecting bars. No millisecond ping and no voice-server details. |
+| Voice panel: Krisp | Missing | RNNoise is a settings switch, not a Krisp control on this panel. |
+| Voice panel: disconnect | Done | Hangup in `voicePanel`. |
+| Voice panel: camera | Missing | Camera is on the call bar, and it only flips a flag. |
+| Voice panel: screen share | Done | Share button in `voicePanel`. Go Live is real (`golive.rs`). |
+| Voice panel: activity | Missing | |
+| Voice panel: soundboard | Missing | The call bar opens local WAV clips. This panel does not. |
+| Call view: show chat | Partial | `callChrome` keeps the current text channel on screen. There is no Show Chat toggle, and the chat is not the voice channel’s own chat. |
+| Call view: invite | Missing | |
+| Call view: mute | Done | Call bar mute. |
+| Call view: mic options menu (devices, input profile, volumes, level meter) | Partial | `paintGear` has input, output, camera, sensitivity, and VAD or push to talk. No input profile, no separate volume sliders, no input level meter. |
+| Call view: camera | Partial | Button only. No video is sent. |
+| Call view: share screen | Done | |
+| Call view: activity | Missing | The activity button opens the local soundboard. |
+| Call view: soundboard | Partial | Local WAV clips (`soundboardPop`). Not guild sounds. |
+| Call view: disconnect | Done | |
+| Call view: More (grid view, show non-video participants, message previews, settings) | Missing | The grid is the split surface. There is no More menu. |
+| Call view: pop out | Done | `popCallOut`. |
+| Call view: full screen | Missing | |
+| Participant right-click: per-user volume, local mute | Done | `paintVoiceMenu`. Local mute is not sent to Discord. |
+| Participant right-click: profile, server mute, server deafen, pop out user, mod view, move to, disconnect | Missing | The menu is volume and “Mute for you” only. |
+| Voice text chat side panel | Missing | `src/call-layout.ts` leaves the composer on the text channel you had open. |
+
 ## Entry points the inventory names, and the rest of that surface
 
 These are the deeper gaps behind Threads, Polls, Events, Inbox, Search, Server Settings, and the voice grid. They were part of the original brief.
@@ -197,17 +285,12 @@ These are the deeper gaps behind Threads, Polls, Events, Inbox, Search, Server S
 | Voice grid, speaking rings, per-person volume, local mute | Done | `src/ui/voice-view.ts`, `src/voice.ts`, `src/call-layout.ts`. |
 | Join, leave, Opus, DAVE, mic send, remote playback | Done | `voice_media.rs`, `voice_dave.rs`, `voice_link.rs`. |
 | Go Live and watch a stream | Done | `src-tauri/src/golive.rs`, `crates/lark-core/src/discord/stream.rs`. |
-| Text chat inside the voice channel | Missing | The composer stays on the text channel (`src/call-layout.ts`). |
 | Stage channels | Partial | Kind `13` is stored as `"voice"` in `channel_kind_name` (`types.rs`). No audience, speakers, or raise hand. |
 | Forum board, tags, create post, split view | Partial | Kind `15` opens `forumBoard`, a list of active thread names. |
 | Media channels | Missing | Kind `16` falls through to `"text"`. |
 | Thread create, archive, public vs private, member list | Missing | List and open work (`active_threads` in `rest.rs`). Kinds `10`, `11`, and `12` are all `"thread"`. |
 | Poll create, vote, end, voters | Missing | |
-| Scheduled events: list, create, RSVP, start | Missing | |
-| Server settings pages (overview, roles, members, emoji admin, stickers, soundboard, safety, AutoMod, audit log, bans, community, onboarding) | Missing | Emoji fetch exists for the picker only. |
-| Role editor, permission overwrites, timeout, kick, ban | Missing | View checks exist. |
-| Create invite, vanity URL | Missing | Preview and accept exist. |
-| Guild soundboard | Missing | Local WAV mix is `crates/lark-core/src/soundboard.rs`. |
+| Scheduled events: list, create, RSVP, start | Missing | The wizard and popout are in the events section above. |
 | Unpin, spoiler uploads, who reacted, system-message templates, role color on authors | Missing or partial | Role color is used in the member list (`src/members.ts`) and not on message authors (`colorFor` in `src/ui/dom.ts`). System lines are plain (`kind_name` in `types.rs`). |
 
 ## Lark-only extras
@@ -321,7 +404,36 @@ Features (table rows):
 - Create channel, create category, create invite, vanity URL
 - Hide muted channels
 - Role editor, permission overwrites, timeout, kick, ban, plus view as role
-- Server settings pages: overview, members, roles, emoji admin, stickers, guild soundboard, widget, template, integrations, safety, AutoMod, audit log, bans, community, onboarding
+- Server Profile: name, icon, banner, icon color presets, traits, description, games, private profile, live preview
+- Server Tag: 4-character tag, badge, colors, preview
+- Engagement: system message toggles and channel, activity feed, default notifications, inactive channel, timeout, widget
+- Boost Perks: progress bar, banner and invite backgrounds, custom invite link (read-only perks; link out to buy a boost)
+- Emoji: 50 slots, upload, bulk (the picker fetch stays)
+- Stickers: slots, upload
+- Soundboard: upload, slots, table (guild sounds; the local WAV board stays with E)
+- Members: table with Member Since, Joined Discord, Join Method, Roles, Signals
+- Members: add roles, mod view, prune, sort
+- Roles: @everyone default, create, reorder
+- Roles editor tabs: Display, Permissions, Links, Manage Members
+- Permission list: General, Membership, Text, Voice, Apps, Events, Advanced, Administrator
+- Invites: list, pause, create
+- Access: Invite Only, Apply to Join, Discoverable, age-restricted, rules editor
+- Integrations: webhooks, followed channels, bots
+- Safety Setup: verification level, 2FA for mods, prune restriction, content filter
+- Audit Log: filter by user and action
+- Bans
+- AutoMod: mention spam, spam content, flagged words, custom words, with actions
+- Enable Community
+- Server Template
+- Delete Server
+- Boosts page with levels and perks (read-only; link out to buy)
+- Edit Channel overview: name, topic, slowmode, spoiler, age-restricted, hide after inactivity
+- Voice overview: bitrate 8–96 kbps, video quality, user limit, region
+- Edit Channel permissions: sync with category, private, advanced overwrites
+- Edit Channel invites
+- Edit Channel integrations: webhooks
+- Create Channel modal: Text, Voice, or Forum, plus private
+- Invite modal: friend search, copy link, expiry, max uses, roles, temporary membership
 - Map kind `13` to `"stage"` and kind `16` to `"media"`, then stop. E builds stage. F builds the media gallery.
 - Quick switcher: people search, and paste an invite into the existing accept path
 - Nitro Home page, Shop page, and Quests page as rail buttons (link-out only; D owns the settings rows)
@@ -334,7 +446,7 @@ Main files:
 - `crates/lark-core/src/discord/shell.rs`
 - `crates/lark-core/src/discord/types.rs` (`channel_kind_name` only)
 
-New file this stream may add: `src/ui/guild-settings.ts`.
+New files this stream may add: `src/ui/guild-settings.ts` and `src/ui/channel-settings.ts`.
 
 Shared files to coordinate:
 
@@ -369,6 +481,8 @@ Features (table rows):
 - Note and Friend Nickname on that menu (the note field already syncs; add the nickname editor)
 - Remove Friend, Ignore, Block, and expose the blocked-id set for A
 - Custom status text, plus emoji and clear-after, on the status popout (the four presence dots already work)
+- Member right-click: Profile, Mention, Per-server Profile, Apps, Roles, Mod View, Copy ID
+- Profile popout: server tag, badges, widgets (pronouns, bio, and roles already render)
 - Optional `ProfileActions` slots so B can attach moderation later without rewriting the card
 
 Main files:
@@ -387,6 +501,7 @@ Shared files to coordinate:
 - Presence payload in `gateway.rs`: extend it, do not replace `set_presence`.
 - Favorites data is B’s list. This stream only adds “Add to Favorites” on the DM menu and calls B’s helper.
 - Call buttons call E’s join helper. Copy ID reads D’s Developer Mode flag.
+- Mod View is B’s screen. This stream only adds the menu item that opens it.
 
 ### D. User settings parity
 
@@ -456,6 +571,22 @@ Features (table rows):
 - Apps launcher activities and Watch Together
 - Stage channels, after B maps kind `13` to `"stage"`: audience, speakers, request to speak, raise hand, stage topic, start stage, stage text
 - Guild soundboard, disabled while deafened. Keep the local WAV mixer.
+- Voice channel right-click: Join Without Entrance Sound, Open Chat, Hide Names, Invite, Edit, Duplicate, Copy Link, Mute, Set channel status
+- Voice panel: ping and voice details (the connection bars stay; add latency and server details)
+- Voice panel: Krisp (do not add Krisp; a panel shortcut may toggle the existing RNNoise switch)
+- Voice panel: camera
+- Voice panel: activity
+- Voice panel: soundboard (guild sounds; local clips stay on the call bar)
+- Call view: show chat (a toggle; the voice channel’s own chat is the side panel below)
+- Call view: invite
+- Call view: mic options menu (devices, input profile, volumes, level meter)
+- Call view: camera (send video; the button already exists)
+- Call view: activity
+- Call view: soundboard (guild sounds in the call bar; local WAV popover stays)
+- Call view: More (grid view, show non-video participants, message previews, settings)
+- Call view: full screen
+- Participant right-click: profile, server mute, server deafen, pop out user, mod view, move to, disconnect (volume and local mute already work)
+- Voice text chat side panel
 
 Main files:
 
@@ -491,8 +622,15 @@ Features (table rows):
 - Thread create, archive, public vs private, member list
 - Poll create, vote, end, voters, from the composer hook A adds
 - Scheduled events: list, create, RSVP, start
+- Events popout
+- Events wizard: location (voice or elsewhere), topic, date, time, frequency, description, cover
 - Create Event on B’s server menu calls this stream
-- Inbox: Mentions, Unreads, and For You
+- Inbox: Mentions
+- Inbox: Unreads
+- Inbox: Bookmarks (read A’s saved-message list; do not rebuild it)
+- Inbox: Reminders (read A’s reminder list; do not rebuild it)
+- Inbox: Mark All Read
+- Inbox: friend requests (read C’s pending count)
 - Friend-request badge on the inbox, read from C’s pending count
 - Inbox button in `paintHeader`
 

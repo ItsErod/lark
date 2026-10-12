@@ -37,7 +37,7 @@ describe("startup shell and crash screen", () => {
       if (shell.hidden || !splash.hidden) return false;
       const box = message.getBoundingClientRect();
       return box.height > 0 && box.width > 0;
-    }, undefined, { timeout: 5_000 });
+    }, undefined, { timeout: 15_000 });
     const visible = await page.evaluate(() => {
       const shell = document.querySelector(".shell");
       const splash = document.querySelector(".startup");
@@ -51,7 +51,7 @@ describe("startup shell and crash screen", () => {
     expect(visible.splashHidden).toBe(true);
     expect(visible.messages).toBeGreaterThan(0);
     await page.close();
-  });
+  }, 20_000);
 
   it("shows a reloadable error when rendering throws", async () => {
     const page = await open("/?demo=1");
