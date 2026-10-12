@@ -733,6 +733,8 @@ kbd, .kbd { font-family: var(--mono); background: var(--bg-0); border-radius: 6p
 @media (prefers-reduced-motion: reduce) {
   .startup { transition: none; }
 }
+.crash-card h1 { letter-spacing: -0.03em; }
+.crash-error { user-select: text; }
 html.is-game-mode *,
 html.is-game-mode *::before,
 html.is-game-mode *::after {
