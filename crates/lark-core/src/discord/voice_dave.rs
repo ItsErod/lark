@@ -6,7 +6,7 @@
 //! so the gateway does not drop the call.
 
 use std::collections::HashSet;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dave::{
     MediaFrame, MediaType, Opus, PassthroughMode, ProcessProposalsError, ProposalsOperation, Session, SessionConfig,
@@ -37,9 +37,11 @@ pub struct DaveCall {
     welcome: Option<(u16, Vec<u8>)>,
     commit: Option<(u16, Vec<u8>)>,
     outbound: Vec<DaveWire>,
-    /// Send-side transport-only. Receive passthrough is the session's own mode:
-    /// it turns on for a downgrade and for the ten seconds after an execute.
+    /// Send-side transport-only. Receive passthrough is separate: a downgrade
+    /// opens it immediately, and an execute keeps it for ten seconds.
     passthrough: bool,
+    receive_on: bool,
+    receive_until: Option<Instant>,
     pending_version: u16,
     executed: Option<u16>,
     readied: HashSet<u16>,
@@ -74,6 +76,8 @@ impl DaveCall {
             commit: None,
             outbound: Vec::new(),
             passthrough: false,
+            receive_on: false,
+            receive_until: None,
             pending_version: protocol_version,
             executed: None,
             readied: HashSet::new(),
@@ -138,9 +142,24 @@ impl DaveCall {
         match self.session.decrypt(user_id, MediaType::Audio, frame) {
             Ok(plain) if !plain.is_empty() => Ok(plain),
             Ok(_) => Err(()),
-            Err(_) if self.passthrough && !frame_has_dave_marker(frame) => Ok(frame.to_vec()),
+            Err(_) if self.receive_allows() && !frame_has_dave_marker(frame) => Ok(frame.to_vec()),
             Err(_) => Err(()),
         }
+    }
+
+    /// A frame that arrived before opcode 5 named its SSRC. Plaintext is
+    /// playable during the receive window. A DAVE frame waits for the user id.
+    pub fn open_unmapped(&mut self, frame: &[u8]) -> Result<Vec<u8>, ()> {
+        if frame == OPUS_SILENCE_FRAME || (self.receive_allows() && !frame_has_dave_marker(frame)) {
+            return Ok(frame.to_vec());
+        }
+        Err(())
+    }
+
+    fn receive_allows(&self) -> bool {
+        self.receive_on
+            || self.passthrough
+            || self.receive_until.is_some_and(|until| Instant::now() < until)
     }
 
     pub fn note_users(&mut self, ids: impl IntoIterator<Item = u64>) {
@@ -192,6 +211,7 @@ impl DaveCall {
             // keep the old ratchet until execute, except transition 0 which
             // the gateway never follows with opcode 22.
             self.session.set_passthrough_mode(PassthroughMode::Enabled);
+            self.receive_on = true;
             if transition_id == 0 {
                 self.passthrough = true;
                 self.executed = Some(0);
@@ -212,9 +232,13 @@ impl DaveCall {
         let activated = self.session.activate_staged_sender();
         if self.pending_version == 0 {
             self.passthrough = true;
+            self.receive_on = true;
+            self.receive_until = None;
             self.session.set_passthrough_mode(PassthroughMode::Enabled);
         } else {
             self.passthrough = false;
+            self.receive_on = false;
+            self.receive_until = Some(Instant::now() + Duration::from_secs(10));
             self.session
                 .set_passthrough_mode(PassthroughMode::DisabledAfter(Duration::from_secs(10)));
         }
@@ -249,6 +273,8 @@ impl DaveCall {
         .map_err(|err| format!("fatal:DAVE session failed to restart ({err})"))?;
         self.executed = None;
         self.readied.clear();
+        self.receive_on = false;
+        self.receive_until = None;
         Ok(())
     }
 
@@ -458,6 +484,10 @@ mod tests {
             DaveWire::Binary(_) => panic!("transition ready is json"),
         }
         assert!(session.seal_opus(&[0x11, 0x22, 0x33, 0x44]).is_err());
+        assert_eq!(session.open_unmapped(&[0x11, 0x22, 0x33]).unwrap(), vec![0x11, 0x22, 0x33]);
+        assert!(session.open_unmapped(&[0x11, 0xFA, 0xFA]).is_err());
+        assert_eq!(session.open_opus(222, &[0x11, 0x22, 0x33]).unwrap(), vec![0x11, 0x22, 0x33]);
+        assert!(session.open_opus(222, &[0x11, 0xFA, 0xFA]).is_err());
     }
 
     #[test]

@@ -132,9 +132,10 @@ impl VoiceLog {
         if let (Some(ssrc), Some(seq)) = (ssrc, seq) {
             if let Some(prev) = self.last_seq.get(&ssrc).copied() {
                 let gap = seq.wrapping_sub(prev);
-                // A backward jump is reordering. Each SSRC has its own cursor so
-                // another speaker's sequence cannot invent millions of lost packets.
-                if gap > 1 && gap < 0x8000 {
+                // One step backward is a gap of 65535. Counting that twice was
+                // the loss figure 131070. A jump past one second is a new
+                // cursor, not thousands of missing packets.
+                if (2..=50).contains(&gap) {
                     self.packets_lost = self.packets_lost.saturating_add(u64::from(gap - 1));
                 }
             }
@@ -298,5 +299,12 @@ mod tests {
         assert!(text.contains("ping_ms: 28"));
         assert_eq!(rtp_seq(&[0x80, 0x00, 0x01, 0x02, 0, 0, 0, 0, 0, 0, 0, 1]), Some(258));
         assert!(rtp_stream(&[0x80, 200, 0, 6, 0, 0, 0, 1, 9, 9, 9, 9]).is_none());
+        let mut wrapped = VoiceLog::default();
+        wrapped.note_udp_in(10, Some(1), Some(10));
+        wrapped.note_udp_in(10, Some(1), Some(9));
+        wrapped.note_udp_in(10, Some(1), Some(8));
+        wrapped.note_udp_in(10, Some(2), Some(100));
+        wrapped.note_udp_in(10, Some(2), Some(40_000));
+        assert_eq!(wrapped.packets_lost, 0, "a sequence wrap is not packet loss");
     }
 }

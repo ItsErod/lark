@@ -211,7 +211,7 @@ pub fn apply_agc(frame: &mut [f32], state: &mut AgcState) {
     }
     let energy: f32 = frame.iter().map(|sample| sample * sample).sum();
     let rms = (energy / frame.len() as f32).sqrt();
-    if rms < 0.0008 {
+    if rms < 0.0004 {
         return;
     }
     let desired = (0.10 / rms).clamp(0.25, 8.0);
@@ -513,6 +513,7 @@ fn run_media(args: MediaArgs) {
     let mut pcm = [0i16; FRAME_SAMPLES * 2];
     let mut opus_buf = [0u8; 1_500];
     let mut last_sweep = Instant::now();
+    let mut pending: HashMap<u32, VecDeque<Vec<u8>>> = HashMap::new();
     let mut denoiser = NoiseSuppressor::new();
     let mut spectral = SpectralSuppressor::new();
     let mut aec = AecState::default();
@@ -538,13 +539,14 @@ fn run_media(args: MediaArgs) {
         drain_heard(&args.board, &args.playback);
         let wait = next_frame.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
         match args.inbound.recv_timeout(wait) {
-            Ok(packet) => handle_packet(&args, &mut decoders, &mut scratch, packet),
+            Ok(packet) => handle_packet(&args, &mut decoders, &mut scratch, packet, &mut pending),
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         while let Ok(packet) = args.inbound.try_recv() {
-            handle_packet(&args, &mut decoders, &mut scratch, packet);
+            handle_packet(&args, &mut decoders, &mut scratch, packet, &mut pending);
         }
+        flush_pending(&args, &mut decoders, &mut scratch, &mut pending);
         if Instant::now() >= next_frame {
             produce_frame(
                 &args,
@@ -631,6 +633,13 @@ fn produce_frame(
             apply_aec(&mut owned, &reference[..FRAME_SAMPLES], aec);
         }
     }
+    if controls.agc && have_audio {
+        apply_agc(&mut owned, agc);
+    }
+    let transmit = *args.transmit.borrow();
+    // Activity is measured before suppression. RNNoise can pull a quiet voice
+    // under the gate, which left speaking at 0 and sent no RTP.
+    let active = voice_active(&owned, controls.sensitivity);
     if controls.noise_suppression && have_audio {
         if high {
             spectral.process(&mut owned);
@@ -638,11 +647,6 @@ fn produce_frame(
             denoiser.process(&mut owned);
         }
     }
-    if controls.agc && have_audio {
-        apply_agc(&mut owned, agc);
-    }
-    let transmit = *args.transmit.borrow();
-    let active = voice_active(&owned, controls.sensitivity);
     let board = args.board.lock().ok().map(|mut mix| mix.mix_into(&mut owned)).unwrap_or(false);
     let talking = encoder.is_some() && (board || (transmit && have_audio && (!controls.vad || active)));
     if !talking && have_audio && transmit && controls.vad && !active && encoder.is_some() {
@@ -756,7 +760,37 @@ fn note_drop(log: &Mutex<VoiceLog>, slot: fn(&mut VoiceLog) -> &mut u64) {
     }
 }
 
-fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratch: &mut [i16], packet: Vec<u8>) {
+fn ssrc_user(args: &MediaArgs, ssrc: u32) -> u64 {
+    args.ssrc_users
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&ssrc).cloned())
+        .and_then(|id| id.parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
+fn flush_pending(
+    args: &MediaArgs,
+    decoders: &mut HashMap<u32, Incoming>,
+    scratch: &mut [i16],
+    pending: &mut HashMap<u32, VecDeque<Vec<u8>>>,
+) {
+    let ready: Vec<u32> = pending.keys().copied().filter(|ssrc| ssrc_user(args, *ssrc) != 0).collect();
+    for ssrc in ready {
+        let Some(queued) = pending.remove(&ssrc) else { continue };
+        for packet in queued {
+            handle_packet(args, decoders, scratch, packet, pending);
+        }
+    }
+}
+
+fn handle_packet(
+    args: &MediaArgs,
+    decoders: &mut HashMap<u32, Incoming>,
+    scratch: &mut [i16],
+    packet: Vec<u8>,
+    pending: &mut HashMap<u32, VecDeque<Vec<u8>>>,
+) {
     let Some(ssrc) = rtp_ssrc(&packet) else {
         note_drop(&args.log, |log| &mut log.not_rtp);
         return;
@@ -778,24 +812,34 @@ fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratc
             if transport.as_slice() == OPUS_SILENCE {
                 transport
             } else {
-                let user_id = args
-                    .ssrc_users
-                    .lock()
-                    .ok()
-                    .and_then(|map| map.get(&ssrc).cloned())
-                    .and_then(|id| id.parse::<u64>().ok())
-                    .unwrap_or(0);
+                let user_id = ssrc_user(args, ssrc);
                 if user_id == 0 {
-                    note_drop(&args.log, |log| &mut log.dave_no_user);
-                    return;
-                }
-                let Ok(mut call) = dave.lock() else { return };
-                match call.open_opus(user_id, &transport) {
-                    Ok(plain) => plain,
-                    Err(()) => {
-                        drop(call);
-                        note_drop(&args.log, |log| &mut log.dave_open_fail);
+                    let opened = dave.lock().ok().and_then(|mut call| call.open_unmapped(&transport).ok());
+                    if let Some(plain) = opened {
+                        plain
+                    } else {
+                        let queue = pending.entry(ssrc).or_default();
+                        if queue.len() == 32 {
+                            queue.pop_front();
+                        }
+                        queue.push_back(packet);
+                        note_drop(&args.log, |log| &mut log.dave_no_user);
                         return;
+                    }
+                } else {
+                    if let Some(queued) = pending.remove(&ssrc) {
+                        for old in queued {
+                            handle_packet(args, decoders, scratch, old, pending);
+                        }
+                    }
+                    let Ok(mut call) = dave.lock() else { return };
+                    match call.open_opus(user_id, &transport) {
+                        Ok(plain) => plain,
+                        Err(()) => {
+                            drop(call);
+                            note_drop(&args.log, |log| &mut log.dave_open_fail);
+                            return;
+                        }
                     }
                 }
             }
