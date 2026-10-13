@@ -101,8 +101,11 @@ pub fn decrypt_voice(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<
         return Err(());
     }
     let (body, suffix) = packet.split_at(packet.len() - suffix_len);
-    let header_len = if mode == CipherMode::XSalsa20Poly1305 {
-        rtp_header_len(packet).ok_or(())?
+    // RTP-size AEAD authenticates the fixed header, CSRCs, and the 4-byte
+    // extension preamble. Extension elements ride inside the ciphertext.
+    let aead = matches!(mode, CipherMode::Aes256GcmRtpSize | CipherMode::XChaCha20Poly1305RtpSize);
+    let header_len = if aead {
+        aead_aad_len(body).ok_or(())?
     } else {
         rtp_header_len(body).ok_or(())?
     };
@@ -119,7 +122,61 @@ pub fn decrypt_voice(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<
         CipherMode::XSalsa20Poly1305 => {}
         _ => counter.copy_from_slice(suffix),
     }
-    open(mode, key, header, cipher_text, &counter, &suffix24)
+    let mut plain = open(mode, key, header, cipher_text, &counter, &suffix24)?;
+    if aead {
+        strip_rtp_padding(body[0], &mut plain)?;
+        let ext = extension_payload_len(body);
+        if plain.len() < ext {
+            return Err(());
+        }
+        plain.drain(..ext);
+    }
+    Ok(plain)
+}
+
+/// Clear AEAD additional data: 12-byte header, CSRCs, and the extension preamble.
+pub fn aead_aad_len(packet: &[u8]) -> Option<usize> {
+    if packet.len() < 12 || packet[0] >> 6 != 2 {
+        return None;
+    }
+    let cc = (packet[0] & 0x0f) as usize;
+    let mut len = 12 + cc * 4;
+    if packet[0] & 0x10 != 0 {
+        if packet.len() < len + 4 {
+            return None;
+        }
+        len += 4;
+    }
+    Some(len)
+}
+
+/// Extension element bytes that follow the preamble inside an AEAD plaintext.
+pub fn extension_payload_len(packet: &[u8]) -> usize {
+    if packet.len() < 12 || packet[0] >> 6 != 2 || packet[0] & 0x10 == 0 {
+        return 0;
+    }
+    let start = 12 + (packet[0] & 0x0f) as usize * 4;
+    if packet.len() < start + 4 {
+        return 0;
+    }
+    u16::from_be_bytes([packet[start + 2], packet[start + 3]]) as usize * 4
+}
+
+fn strip_rtp_padding(flags: u8, plain: &mut Vec<u8>) -> Result<(), ()> {
+    if flags & 0x20 == 0 {
+        return Ok(());
+    }
+    let pad = plain.last().copied().ok_or(())? as usize;
+    if pad == 0 || pad > plain.len() {
+        return Err(());
+    }
+    plain.truncate(plain.len() - pad);
+    Ok(())
+}
+
+/// RTCP packet types live in 192..=223. They share the RTP version bits.
+pub fn is_rtcp(packet: &[u8]) -> bool {
+    packet.len() >= 8 && packet[0] >> 6 == 2 && (192..=223).contains(&packet[1])
 }
 
 fn suffix_bytes<'a>(mode: CipherMode, counter: &'a [u8; 4], suffix24: &'a [u8; 24]) -> &'a [u8] {
@@ -580,6 +637,34 @@ mod tests {
             let plain = decrypt_voice(mode, &key(), &packet).unwrap();
             assert_eq!(plain, opus);
         }
+    }
+
+    #[test]
+    fn aead_rtpsize_encrypts_extension_elements_and_returns_only_opus() {
+        let mut header = rtp_header(4, 960, 99);
+        header[0] |= 0x10;
+        header[0] |= 0x01;
+        let mut aad = header.to_vec();
+        aad.extend_from_slice(&77u32.to_be_bytes());
+        aad.extend_from_slice(&[0xBE, 0xDE, 0x00, 0x01]);
+        let ext = [0x10u8, 0x80, 0x90, 0x02];
+        let opus = b"opus-after-the-extension";
+        let mut plain = ext.to_vec();
+        plain.extend_from_slice(opus);
+        for mode in [CipherMode::Aes256GcmRtpSize, CipherMode::XChaCha20Poly1305RtpSize] {
+            let packet = encrypt_voice(mode, &key(), &aad, &plain, 7).unwrap();
+            assert_eq!(aead_aad_len(&packet).unwrap(), aad.len());
+            assert_eq!(extension_payload_len(&packet), 4);
+            assert_eq!(decrypt_voice(mode, &key(), &packet).unwrap(), opus);
+        }
+        let mut padded = plain.clone();
+        padded.extend_from_slice(&[0, 0, 3]);
+        let mut padded_header = aad.clone();
+        padded_header[0] |= 0x20;
+        let packet = encrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &padded_header, &padded, 8).unwrap();
+        assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(), opus);
+        assert!(is_rtcp(&[0x80, 200, 0, 1, 0, 0, 0, 1]));
+        assert!(!is_rtcp(&header));
     }
 
     #[test]

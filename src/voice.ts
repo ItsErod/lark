@@ -56,6 +56,36 @@ function keepName(incoming: string | undefined, previous: string | undefined): s
   return next || previous || "Someone";
 }
 
+/** Discord's default picture for an id. A custom avatar replaces it. */
+export function defaultAvatarUrl(userId: string): string | null {
+  if (!/^\d{5,22}$/.test(userId)) return null;
+  try {
+    const index = Number((BigInt(userId) >> 22n) % 6n);
+    return `https://cdn.discordapp.com/embed/avatars/${index}.png`;
+  } catch {
+    return null;
+  }
+}
+
+export function isDefaultAvatar(url: string | null | undefined): boolean {
+  const text = url?.trim() ?? "";
+  return !text || text.includes("/embed/avatars/");
+}
+
+/** A real picture wins. A default or an empty value keeps the one already known. */
+export function keepAvatar(incoming: string | null | undefined, previous: string | null | undefined): string | null {
+  const next = incoming?.trim() ?? "";
+  const prior = previous?.trim() ?? "";
+  if (next && !isDefaultAvatar(next)) return next;
+  if (prior && !isDefaultAvatar(prior)) return prior;
+  return next || prior || null;
+}
+
+/** User or guild picture, then Discord's default for the id. */
+export function preferAvatar(incoming: string | null | undefined, known: string | null | undefined, userId: string): string | null {
+  return keepAvatar(incoming, known) || defaultAvatarUrl(userId);
+}
+
 export function applyVoiceState(roster: VoiceRoster, state: VoiceStateInput): VoiceParticipant | null {
   if (!state.userId) return null;
   const guildId = state.guildId || "";
@@ -70,7 +100,7 @@ export function applyVoiceState(roster: VoiceRoster, state: VoiceStateInput): Vo
     channelId: state.channelId,
     userId: state.userId,
     name: keepName(state.name, previous?.name),
-    avatarUrl: state.avatarUrl || previous?.avatarUrl || null,
+    avatarUrl: keepAvatar(state.avatarUrl, previous?.avatarUrl) || defaultAvatarUrl(state.userId),
     selfMute: Boolean(state.selfMute),
     selfDeaf: Boolean(state.selfDeaf),
     serverMute: Boolean(state.serverMute),
@@ -116,7 +146,7 @@ export function replaceGuildVoice(roster: VoiceRoster, guildId: string, states: 
       participant.volume = prior.volume;
       participant.localMuted = prior.localMuted;
       if (!state.name || state.name === "Someone") participant.name = prior.name;
-      if (!state.avatarUrl) participant.avatarUrl = prior.avatarUrl;
+      participant.avatarUrl = keepAvatar(participant.avatarUrl, prior.avatarUrl) || defaultAvatarUrl(state.userId);
       if (state.video === undefined) participant.video = prior.video;
       if (state.sharing === undefined && state.selfStream === undefined) participant.sharing = prior.sharing;
       if (state.streamLabel === undefined) participant.streamLabel = prior.streamLabel;
