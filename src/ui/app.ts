@@ -512,6 +512,7 @@ import { renderCallRing } from "./call-ring-view";
 import { nextMutedTalk, type MutedTalkState } from "../muted-talk";
 import { createMutedProbe, type MutedProbe } from "../muted-probe";
 import { renderMutedTalk } from "./muted-talk-view";
+import { takeAudioHotkey } from "../audio-hotkey";
 import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
@@ -872,6 +873,8 @@ class LarkApp {
   private callActionsBound = false;
   private mutedTalk: MutedTalkState = { show: false, heldMs: 0 };
   private mutedProbe: MutedProbe | null = null;
+  private muteHotkeyAt = 0;
+  private deafenHotkeyAt = 0;
   private netPanel: { close: () => void } | null = null;
   private netVoiceTimer = 0;
   private netTicket = 0;
@@ -1207,6 +1210,12 @@ class LarkApp {
       await listen("voice-overlay-hotkey", () => this.toggleVoiceOverlay());
       await listen("perf-overlay-hotkey", () => this.togglePerfOverlay());
       await listen("game-mode-hotkey", () => this.toggleGameMode());
+      await listen("voice-mute-hotkey", () => {
+        if (this.acceptAudioHotkey("mute")) this.toggleMute();
+      });
+      await listen("voice-deafen-hotkey", () => {
+        if (this.acceptAudioHotkey("deafen")) this.toggleDeafen();
+      });
       await listen("voice-overlay-dismissed", () => this.setVoiceOverlay(false, true));
       await listen<{ ok?: boolean; name?: string; path?: string; bytes?: number; spanMs?: number; error?: string }>("clip-ready", (event) => {
         this.onClipReady(event.payload);
@@ -8092,10 +8101,10 @@ class LarkApp {
     else if (matchShortcut(event, shortcuts.next_unread, os)) this.nextUnread();
     else if (matchShortcut(event, shortcuts.toggle_mute, os)) {
       event.preventDefault();
-      this.toggleMute();
+      if (this.acceptAudioHotkey("mute")) this.toggleMute();
     } else if (matchShortcut(event, shortcuts.toggle_deafen, os)) {
       event.preventDefault();
-      this.toggleDeafen();
+      if (this.acceptAudioHotkey("deafen")) this.toggleDeafen();
     } else if (matchShortcut(event, shortcuts.toggle_voice_overlay, os)) {
       event.preventDefault();
       this.toggleVoiceOverlay();
@@ -10628,6 +10637,14 @@ class LarkApp {
     if (!this.demo) void invoke("leave_voice").catch(() => undefined);
     this.paintVoice();
     this.paintChannels();
+  }
+
+  private acceptAudioHotkey(kind: "mute" | "deafen"): boolean {
+    const last = kind === "mute" ? this.muteHotkeyAt : this.deafenHotkeyAt;
+    const next = takeAudioHotkey(last, performance.now());
+    if (kind === "mute") this.muteHotkeyAt = next.at;
+    else this.deafenHotkeyAt = next.at;
+    return next.allow;
   }
 
   private toggleMute() {

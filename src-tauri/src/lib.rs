@@ -126,6 +126,8 @@ pub fn run() {
                         Some(overlay::OverlayHotkey::Voice) => "voice-overlay-hotkey",
                         Some(overlay::OverlayHotkey::Perf) => "perf-overlay-hotkey",
                         Some(overlay::OverlayHotkey::Game) => "game-mode-hotkey",
+                        Some(overlay::OverlayHotkey::Mute) => "voice-mute-hotkey",
+                        Some(overlay::OverlayHotkey::Deafen) => "voice-deafen-hotkey",
                         None => return,
                     };
                     let _ = app.emit(event_name, ());
@@ -153,6 +155,8 @@ pub fn run() {
             let overlay_voice = config.shortcuts.toggle_voice_overlay.clone();
             let overlay_perf = config.shortcuts.toggle_perf_overlay.clone();
             let overlay_game = config.shortcuts.toggle_game_mode.clone();
+            let overlay_mute = config.shortcuts.toggle_mute.clone();
+            let overlay_deafen = config.shortcuts.toggle_deafen.clone();
             let (speaking, _) = watch::channel(false);
             let (voice_audio, _) = watch::channel(lark_core::discord::voice_media::VoiceAudio::default());
             let shared = Shared {
@@ -211,6 +215,8 @@ pub fn run() {
             let voice_shortcut = overlay_voice.clone();
             let perf_shortcut = overlay_perf.clone();
             let game_shortcut = overlay_game.clone();
+            let mute_shortcut = overlay_mute.clone();
+            let deafen_shortcut = overlay_deafen.clone();
             tauri::async_runtime::spawn(async move {
                 let shell = deferred.clone();
                 let _ = deferred.run_on_main_thread(move || {
@@ -221,7 +227,14 @@ pub fn run() {
                             log::warn!("store link: {err}");
                         }
                     }
-                    overlay::sync_hotkeys(&shell, &voice_shortcut, &perf_shortcut, &game_shortcut);
+                    overlay::sync_hotkeys(
+                        &shell,
+                        &voice_shortcut,
+                        &perf_shortcut,
+                        &game_shortcut,
+                        &mute_shortcut,
+                        &deafen_shortcut,
+                    );
                     if let Err(err) = install_clip_hotkey(&shell, &clip_shortcut) {
                         log::warn!("clip hotkey: {err}");
                     }
@@ -1832,6 +1845,8 @@ fn sync_overlay_hotkeys(app: &AppHandle, config: &Config) {
         &config.shortcuts.toggle_voice_overlay,
         &config.shortcuts.toggle_perf_overlay,
         &config.shortcuts.toggle_game_mode,
+        &config.shortcuts.toggle_mute,
+        &config.shortcuts.toggle_deafen,
     );
 }
 
