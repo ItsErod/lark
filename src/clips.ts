@@ -204,6 +204,27 @@ export function clipDisplayTitle(name: string): string {
   return `${title}${copy}`;
 }
 
+/** Game group for the gallery filter: the detected game title, or "Other". */
+export function clipGame(name: string): string {
+  const title = clipDisplayTitle(name).replace(/ (?:trim|fit)$/, "");
+  return title === "Saved clip" ? "Other" : title;
+}
+
+/** Distinct games in gallery order, most clips first, "Other" last. */
+export function clipGames(names: string[]): { game: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const name of names) {
+    const game = clipGame(name);
+    counts.set(game, (counts.get(game) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([game, count]) => ({ game, count }))
+    .sort(
+      (a, b) =>
+        Number(a.game === "Other") - Number(b.game === "Other") || b.count - a.count || a.game.localeCompare(b.game),
+    );
+}
+
 export interface TrimPreset {
   label: string;
   startSec: number;
