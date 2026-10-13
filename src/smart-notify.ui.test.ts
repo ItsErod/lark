@@ -1,17 +1,18 @@
-import { createServer, type ViteDevServer } from "vite";
+import type { ViteDevServer } from "vite";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
-const port = 47326;
+import { listenDevServer } from "./dev-listen";
 
 describe("smarter notifications settings", () => {
   let server: ViteDevServer;
   let browser: Browser;
   let page: Page;
+  let port = 0;
 
   beforeAll(async () => {
-    server = await createServer({ server: { host: "127.0.0.1", port, strictPort: true } });
-    await server.listen();
+    const dev = await listenDevServer();
+    server = dev.server;
+    port = dev.port;
     browser = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch());
     page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(`http://127.0.0.1:${port}/?demo`, { waitUntil: "networkidle" });
