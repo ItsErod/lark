@@ -1,6 +1,5 @@
 import { el } from "./dom";
 import {
-  DISCORD_LINKS,
   SERVER_TEMPLATES,
   guildCreateBody,
   type MenuEntry,
@@ -46,6 +45,7 @@ export interface AddServerHost {
   invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
   toast(title: string, detail: string): void;
   openInvite(code: string): void;
+  openDiscover(): void;
   onCreated(guildId: string): void;
 }
 
@@ -77,7 +77,8 @@ export function mountAddServer(host: AddServerHost): HTMLElement {
       const discover = el("button", "ghost", "Discover");
       discover.type = "button";
       discover.addEventListener("click", () => {
-        window.open(DISCORD_LINKS.discovery, "_blank", "noopener");
+        layer.remove();
+        host.openDiscover();
       });
       const row = el("div", "choice-row");
       row.append(create, join, discover);

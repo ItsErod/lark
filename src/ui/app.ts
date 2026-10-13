@@ -2497,7 +2497,7 @@ class LarkApp {
     settings.append(settingsFace, el("span", "pip"));
     settings.addEventListener("click", () => this.openSettings());
     const add = this.railIcon("Add a Server", paths.plus, () => this.openAddServer());
-    const discover = this.railGlyph("Discover", "D", () => externalLink(DISCORD_LINKS.discovery));
+    const discover = this.railGlyph("Discover", "D", () => this.openDiscover());
     const nitro = this.railGlyph("Nitro", "N", () => externalLink(DISCORD_LINKS.nitro));
     const shop = this.railGlyph("Shop", "S", () => externalLink(DISCORD_LINKS.shop));
     const quests = this.railGlyph("Quests", "Q", () => externalLink(DISCORD_LINKS.quests));
@@ -16787,11 +16787,26 @@ class LarkApp {
     this.openEvents(this.guildId);
   }
 
+  private openDiscover() {
+    void import("./discover-view").then(({ openDiscover }) => {
+      openDiscover({
+        invoke: (command, args) => invoke(command, args),
+        toast: (title, detail) => this.toast(title, detail),
+        onJoined: (guildId) => {
+          this.guildId = guildId;
+          void this.ensureGuild(guildId);
+          this.paint();
+        },
+      });
+    });
+  }
+
   private openAddServer() {
     mountAddServer({
       invoke: (command, args) => invoke(command, args),
       toast: (title, detail) => this.toast(title, detail),
       openInvite: (code) => this.openInvite(code),
+      openDiscover: () => this.openDiscover(),
       onCreated: (guildId) => {
         this.guildId = guildId;
         void this.ensureGuild(guildId);
