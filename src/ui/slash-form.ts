@@ -15,6 +15,7 @@ import {
   type FormCommand,
   type FormOption,
   type FormValues,
+  type UploadedFile,
 } from "../slash-options";
 import { el } from "./dom";
 
@@ -68,6 +69,7 @@ function ensureStyle() {
       background: #18181b; border: 1px solid #27272a; border-radius: 4px; font: inherit; transition: border-color 120ms ease; }
     #lark-slash-form input:focus, #lark-slash-form select:focus { outline: none; border-color: #fafafa; }
     #lark-slash-form input[type="checkbox"] { width: auto; }
+    #lark-slash-form input[type="file"]::file-selector-button { margin-right: 8px; padding: 4px 10px; border: 1px solid #27272a; border-radius: 4px; background: #09090b; color: #fafafa; cursor: pointer; }
     #lark-slash-form .sf-problem { color: #f87171; font-size: 11px; min-height: 0; }
     #lark-slash-form .sf-choices { display: grid; gap: 2px; }
     #lark-slash-form .sf-choices button { text-align: left; padding: 4px 8px; border: 0; border-radius: 4px; background: #18181b; color: #fafafa; cursor: pointer; }
@@ -104,6 +106,7 @@ export function openSlashForm(command: FormCommand, channelId?: string | null) {
   const paths = subcommandPaths(command);
   let path = paths[0] ?? [];
   const values: FormValues = {};
+  const files = new Map<string, File>();
   const body = el("div");
   const send = el("button", "sf-send", "Send");
   send.type = "submit";
@@ -123,6 +126,7 @@ export function openSlashForm(command: FormCommand, channelId?: string | null) {
     pick.addEventListener("change", () => {
       path = pick.value.split(" ");
       for (const key of Object.keys(values)) delete values[key];
+      files.clear();
       paint();
     });
     const wrap = el("div", "sf-field");
@@ -178,7 +182,16 @@ export function openSlashForm(command: FormCommand, channelId?: string | null) {
       else values[field.name] = value;
       refresh(field.name);
     };
-    const control = controlFor(field, ctx, set, (input, list) => autocomplete(field, input, list));
+    const pickFile = (file: File | null) => {
+      if (file && file.size > 25 * 1024 * 1024) {
+        ctx.toast("Apps", "That file is over 25 MB.");
+        file = null;
+      }
+      if (file) files.set(field.name, file);
+      else files.delete(field.name);
+      set(file ? String([...files.keys()].indexOf(field.name)) : "");
+    };
+    const control = field.type === OPTION.ATTACHMENT ? filePicker(pickFile) : controlFor(field, ctx, set, (input, list) => autocomplete(field, input, list));
     const focusable = control.matches("input, select") ? control : control.querySelector("input, select");
     if (focusable) focusable.id = id;
     row.append(control, problem);
@@ -222,23 +235,55 @@ export function openSlashForm(command: FormCommand, channelId?: string | null) {
     event.preventDefault();
     for (const node of problems.values()) node.dataset.shown = "1";
     refresh();
-    const payload = formInteractionBody(command, path, values, target);
-    if (!payload) return;
+    if (Object.keys(formProblems(fieldsFor(command, path), values)).length) return;
     if (ctx.demo) {
       ctx.toast("Apps", "Demo mode doesn't run Discord apps.");
       return;
     }
     send.disabled = true;
-    void ctx.invoke("invoke_command", { payload }).then(() => {
+    const label = send.textContent;
+    if (files.size) send.textContent = "Uploading…";
+    void uploadAll(ctx, target.channelId, files, values).then((uploads) => {
+      const payload = formInteractionBody(command, path, values, target, uploads);
+      if (!payload) throw new Error("Check the form and try again.");
+      send.textContent = label;
+      return ctx.invoke("invoke_command", { payload });
+    }).then(() => {
       ctx.toast("Apps", `/${[command.name, ...path].join(" ")} sent.`);
       closeSlashForm();
     }).catch((error) => {
       send.disabled = false;
+      send.textContent = label;
       ctx.toast("Apps", error instanceof Error ? error.message : "Discord refused the command.");
     });
   });
   document.body.append(panel);
   paint();
+}
+
+/** Upload each picked file to Discord and point its field at the upload slot. */
+async function uploadAll(ctx: SlashFormContext, channelId: string, files: Map<string, File>, values: FormValues): Promise<UploadedFile[]> {
+  const uploads: UploadedFile[] = [];
+  let index = 0;
+  for (const [field, file] of files) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const uploadedFilename = await ctx.invoke<string>("upload_interaction_file", {
+      channelId,
+      file: { name: file.name, mime: file.type || "application/octet-stream", bytes: Array.from(bytes) },
+    });
+    const id = String(index);
+    uploads.push({ id, filename: file.name, uploadedFilename });
+    values[field] = id;
+    index += 1;
+  }
+  return uploads;
+}
+
+function filePicker(pick: (file: File | null) => void): HTMLElement {
+  const input = el("input");
+  input.type = "file";
+  input.addEventListener("change", () => pick(input.files?.[0] ?? null));
+  return input;
 }
 
 function findSub(command: FormCommand, path: string[]): FormOption | null {
@@ -298,10 +343,6 @@ function controlFor(
         return type !== undefined && allowed.includes(type);
       });
       return selectOf(list.map((c) => ({ value: c.id, label: `#${c.name}` })), set, field.required);
-    }
-    case OPTION.ATTACHMENT: {
-      const note = el("p", "sf-opt", "Attachments aren't supported in Lark yet. Run this command in Discord to attach a file.");
-      return note;
     }
     default: {
       const wrap = el("div");

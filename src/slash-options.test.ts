@@ -73,10 +73,15 @@ describe("slash options form model", () => {
     expect((group!.data as { options: unknown }).options).toEqual([{ type: 2, name: "admin", options: [{ type: 1, name: "reset", options: [] }] }]);
   });
 
-  it("refuses required attachments with a clear reason", () => {
-    const cmd: FormCommand = { ...base, options: parseFormOptions([{ type: 11, name: "file", required: true }]) };
-    expect(fieldProblem(cmd.options[0], undefined)).toContain("Attachments");
+  it("references uploaded attachments by slot", () => {
+    const cmd: FormCommand = { ...base, options: parseFormOptions([{ type: 11, name: "file", required: true }, { type: 3, name: "note" }]) };
+    expect(fieldProblem(cmd.options[0], undefined)).toBe("Choose a file");
     expect(formInteractionBody(cmd, [], {}, target)).toBeNull();
+    expect(formInteractionBody(cmd, [], { file: "0" }, target)).toBeNull();
+    const body = formInteractionBody(cmd, [], { file: "0", note: "hi" }, target, [{ id: "0", filename: "clip.mp4", uploadedFilename: "abc/clip.mp4" }]);
+    const data = body!.data as { options: unknown; attachments: unknown };
+    expect(data.options).toEqual([{ type: 11, name: "file", value: "0" }, { type: 3, name: "note", value: "hi" }]);
+    expect(data.attachments).toEqual([{ id: "0", filename: "clip.mp4", uploaded_filename: "abc/clip.mp4" }]);
   });
 
   it("builds autocomplete payloads with the focused field", () => {
