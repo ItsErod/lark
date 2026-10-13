@@ -1,4 +1,4 @@
-import { registerSettingEntries, type SettingEntry } from "./ui/settings";
+import type { SettingEntry } from "./ui/settings";
 
 export const SHARE_SETTING_ENTRIES: readonly SettingEntry[] = [
   {
@@ -26,9 +26,10 @@ export const SHARE_SETTING_ENTRIES: readonly SettingEntry[] = [
 
 let installed = false;
 
-export function installShareSettings(): void {
+export async function installShareSettings(): Promise<void> {
   if (installed) return;
   installed = true;
+  const { registerSettingEntries } = await import("./ui/settings");
   registerSettingEntries(SHARE_SETTING_ENTRIES);
 }
 

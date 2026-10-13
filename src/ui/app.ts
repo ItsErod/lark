@@ -61,7 +61,7 @@ import { ListSync, applyRemoteLists, flattenFavoriteIds, mapToPins, readIdList, 
 import { noteActivity, stepAway, type AwayClock } from "../pack/away";
 import { isBookmarked, toggleBookmark, type Bookmark } from "../pack/bookmarks";
 import { mergeSaved, rowsFromPayload } from "../saved-sync";
-import { localizeTree, setLocale } from "../i18n";
+import { ensurePhrases, localizeTree, setLocale } from "../i18n";
 import { hiddenIds, toggleHidden } from "../pack/hidden";
 import { allowKeywordNotify, cleanWords, firstHit, shouldKeywordNotify, wordsFor } from "../pack/keywords";
 import { orderDms } from "../pack/pin-dms";
@@ -79,25 +79,7 @@ import { connectionLabel, connectionLines, type ConnectionLine } from "../pack/c
 import { displayName, setLocalNick } from "../pack/nicks";
 import { folderTitle, orderUnreadFirst, peekNames, summarizeFolder, type FolderServer } from "../pack/folder-extra";
 import { awayReplyDecision, cleanAwayText } from "../pack/away-reply";
-import {
-  activeStatKind,
-  buildText,
-  canReplaceSession,
-  crewText,
-  deskActions,
-  displayName as deskName,
-  emptyDesk,
-  lfgText,
-  parseSteamProfile,
-  profileTarget,
-  readCatalog,
-  sessionClock,
-  sessionStatusLine,
-  setSession,
-  statsCard,
-  type GameCatalog,
-} from "../pack/game-desk";
-import { mountGameDesk } from "./game-desk-panel";
+import type { GameCatalog } from "../pack/game-desk";
 import { themeAttributeLines, themeAttributeText } from "../pack/theme-attrs";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
@@ -166,7 +148,7 @@ import {
 import { emptyPerfSample, fpsWatch, type PerfSample } from "../perf";
 import { CHANNEL_GATEWAY_GRACE_MS, channelRestDelay } from "../guilds";
 import { prefetchChannelIds } from "../cache";
-import { HISTORY_PAGE, initialHistory, reconcileHistory } from "../history";
+import { HISTORY_PAGE, droppedMessageIds, initialHistory, reconcileHistory } from "../history";
 import {
   PLACE_KEY,
   SLOW_CONNECT_MS,
@@ -379,7 +361,7 @@ import { acceptHeardSound, clipForHotkey, hearSoundKey, parseSoundEffect, playab
 import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, isDefaultAvatar, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, placeMenu, preferAvatar, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
-import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
+import { MESSAGE_OVERSCAN, rowEstimate, rowReuseOps, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import { mountPrivacyPanel } from "./privacy-panels";
 import {
@@ -411,34 +393,10 @@ import { renderWhois } from "./whois-card";
 import { externalLink, mountAddServer, mountMenu } from "./guild-settings";
 import { loadSettingsPages, peekSettingsPages, type SettingsPages } from "./lazy-chrome";
 import { httpStatus, noteGateway, noteRest, noteVoice, noteVoiceDiagnostics, setTrafficArmed, trafficArmed } from "../net/traffic";
-import {
-  colorControl,
-  groupedSections,
-  normalizeHex,
-  searchSettings,
-  sectionsForQuery,
-  segmentControl,
-  selectControl,
-  settingCard,
-  settingEntries,
-  settingHead,
-  settingRow,
-  settingsCloseButton,
-  settingsPane,
-  registerSettingEntries,
-  settingsSections,
-  SHORTCUT_COPY,
-  sliderControl,
-  switchControl,
-  type SettingEntry,
-} from "./settings";
-import { installShareSettings } from "../share-settings";
+import type { SettingEntry } from "./settings";
 import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKeyFor, type ShareSource } from "../share";
 import { renderVoiceHud } from "./hud";
-import { attachCameraTiles, cameraFrameBytes, clearCameraFrames, pushCameraFrame } from "../camera-view";
-import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
-import { appendCallControls, renderCallStage, renderCallStrip, renderFocusStage, renderPipTile, signalMeter, speakWrap } from "./voice-view";
-import { renderStageBoard, renderVoiceChat } from "./stage-view";
+import { liveBadge, signalMeter, speakWrap } from "./voice-bits";
 import { bindLazyMedia, renderBlockedMessage, renderMessage } from "./messages";
 import {
   APP_DIRECTORY_URL,
@@ -492,9 +450,7 @@ import {
   toggleComposerPanel,
   type SlashCommand,
 } from "./composer-tools";
-import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type FriendRowModel, type PendingRowModel } from "./friends";
-import { toggleInbox } from "./inbox";
-import { installModView } from "./mod-view";
+import type { ActiveCardModel, FriendRowModel, PendingRowModel } from "./friends";
 import { callKeyAction } from "../keybind-actions";
 import {
   applyCall,
@@ -513,7 +469,7 @@ import { nextMutedTalk, type MutedTalkState } from "../muted-talk";
 import { createMutedProbe, type MutedProbe } from "../muted-probe";
 import { renderMutedTalk } from "./muted-talk-view";
 import { takeAudioHotkey } from "../audio-hotkey";
-import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
+import type { ProfileActionSlot, ProfileRole, WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
   applyUserChrome,
@@ -773,6 +729,9 @@ class LarkApp {
   private dashboardVis = false;
   private dashboardLoading: Promise<typeof import("./dashboard")> | null = null;
   private dashboardMod: typeof import("./dashboard") | null = null;
+  private late: typeof import("./late") | null = null;
+  private lateTask: Promise<typeof import("./late")> | null = null;
+  private modReady = false;
   private statusEmoji = "";
   private statusClearAt: number | null = null;
   private directory: Record<string, Person> = {};
@@ -1038,7 +997,6 @@ class LarkApp {
     (globalThis as { larkCreateEvent?: (guildId: string) => void }).larkCreateEvent = (guildId) => {
       this.onCreateEvent(guildId);
     };
-    installShareSettings();
     this.narrow = this.root.clientWidth < 880;
     const saved = localStorage.getItem("lark.config.v1");
     if (saved) {
@@ -1165,6 +1123,7 @@ class LarkApp {
         this.paint();
       }
     }).observe(this.root);
+    this.scheduleLate();
   }
 
   private seedUnreads() {
@@ -1907,7 +1866,13 @@ class LarkApp {
   }
 
   private applyAppearance() {
-    setLocale(this.config.preferences.language || "en");
+    const language = this.config.preferences.language || "en";
+    setLocale(language);
+    if (language !== "en" && language !== "en-GB") {
+      void ensurePhrases().then(() => {
+        if ((this.config.preferences.language || "en") === language) localizeTree(this.root);
+      });
+    }
     const appearance = this.config.appearance;
     document.documentElement.classList.toggle("is-game-mode", this.gameMode);
     document.documentElement.style.setProperty("--speak", speakColor(this.config.voice.speak_color));
@@ -3585,12 +3550,14 @@ class LarkApp {
       perf.switchAt = performance.now();
     }
     const started = performance.now();
+    const leaving = this.channelId;
     this.channelId = id;
     const missed = dropChannel(this.missed, id);
     if (missed.length !== this.missed.length) {
       this.missed = missed;
       this.saveMissed();
     }
+    if (leaving && leaving !== id) this.shrinkChannel(leaving);
     this.error = null;
     this.reply = null;
     this.editing = null;
@@ -3606,6 +3573,7 @@ class LarkApp {
     if (cached?.length) {
       const visible = initialHistory(cached, this.historyLimit());
       if (visible.length !== cached.length) {
+        this.forgetHeights(droppedMessageIds(cached, visible));
         this.pages[id] = visible;
         this.more[id] = true;
       } else if (this.more[id] === undefined) {
@@ -3988,6 +3956,7 @@ class LarkApp {
   private windowMessages(id: string, list: RawMessage[]): RawMessage[] {
     const capped = capMessages(list, this.pinnedToBottom);
     if (!capped.trimmed) return list;
+    this.forgetHeights(droppedMessageIds(list, capped.items));
     this.pages[id] = capped.items;
     if (!this.pinnedToBottom && this.scroll === "none") this.scroll = "preserve";
     console.info(`[lark] trimmed channel ${id} to ${capped.items.length} messages`);
@@ -3995,13 +3964,24 @@ class LarkApp {
   }
 
   private layoutObserver: ResizeObserver | null = null;
+  private layoutColumn: HTMLElement | null = null;
 
   /** Images and embeds change height after decode. Re-pin or hold the line without another render. */
   private watchMessageLayout() {
-    this.layoutObserver?.disconnect();
     const scroller = this.messagesEl;
     const column = scroller.querySelector(":scope > .message-column");
-    if (!(column instanceof HTMLElement)) return;
+    if (!(column instanceof HTMLElement)) {
+      this.layoutObserver?.disconnect();
+      this.layoutObserver = null;
+      this.layoutColumn = null;
+      return;
+    }
+    if (this.layoutObserver && this.layoutColumn === column && !column.querySelector("img, [data-lazy-src]")) {
+      this.followPinned();
+      return;
+    }
+    this.layoutColumn = column;
+    this.layoutObserver?.disconnect();
     const heights = new Map<Element, number>();
     const nodes = [column, ...column.querySelectorAll("img")].filter((node): node is HTMLElement => node instanceof HTMLElement);
     bindLazyMedia(scroller);
@@ -4120,7 +4100,7 @@ class LarkApp {
       scrollTop,
       this.messagesEl.clientHeight || 640,
       rowEstimate(this.config.appearance.density),
-      6,
+      MESSAGE_OVERSCAN,
       pinned,
       focus,
     );
@@ -4152,6 +4132,78 @@ class LarkApp {
     }
   }
 
+  /** A pinned tail does not move when the top spacer is corrected, so measure on the next frame. */
+  private measurePinnedLater(host: HTMLElement, column: HTMLElement, list: RawMessage[]) {
+    const id = this.channelId;
+    const start = this.msgStart;
+    const end = this.msgEnd;
+    requestAnimationFrame(() => {
+      if (!host.isConnected || this.channelId !== id || this.msgStart !== start || this.msgEnd !== end) return;
+      this.measureHost(host);
+      this.applySpacers(column, this.spacerBox(list, start, end));
+      this.stickIfPinned();
+    });
+  }
+
+  private forgetHeights(ids: readonly string[]) {
+    for (const id of ids) this.messageHeights.delete(id);
+  }
+
+  /** Keep the newest page of a channel we just left, and drop height cache for the rest. */
+  private shrinkChannel(id: string) {
+    const list = this.pages[id];
+    if (!list) return;
+    const next = initialHistory(list, this.historyLimit());
+    if (next.length === list.length) return;
+    this.forgetHeights(droppedMessageIds(list, next));
+    this.pages[id] = next;
+    this.more[id] = true;
+  }
+
+  private fillWindow(host: HTMLElement, list: RawMessage[], start: number, end: number, channelId: string) {
+    if (end <= start) {
+      clear(host);
+      return;
+    }
+    const next: string[] = [];
+    for (let index = start; index < end; index += 1) next.push(list[index].id);
+    const mounted: string[] = [];
+    for (const node of host.querySelectorAll<HTMLElement>(":scope > .message-wrap")) {
+      const mid = node.dataset.mid;
+      if (mid) mounted.push(mid);
+    }
+    const ops = rowReuseOps(mounted, next);
+    if (ops.length === 1 && ops[0].t === "make") {
+      clear(host);
+      this.appendMessages(host, list, start, channelId, end);
+      return;
+    }
+    const have = new Map<string, HTMLElement>();
+    const keep = new Set(next);
+    for (const node of [...host.children]) {
+      if (!(node instanceof HTMLElement) || !node.classList.contains("message-wrap")) {
+        node.remove();
+        continue;
+      }
+      const mid = node.dataset.mid ?? "";
+      if (!mid || !keep.has(mid) || have.has(mid)) node.remove();
+      else have.set(mid, node);
+    }
+    let cursor: ChildNode | null = host.firstChild;
+    for (const op of ops) {
+      if (op.t === "keep") {
+        const node = have.get(op.id);
+        if (!node) continue;
+        if (node !== cursor) host.insertBefore(node, cursor);
+        else cursor = cursor.nextSibling;
+        continue;
+      }
+      const bucket = document.createElement("div");
+      this.appendMessages(bucket, list, start + op.from, channelId, start + op.to);
+      while (bucket.firstChild) host.insertBefore(bucket.firstChild, cursor);
+    }
+  }
+
   private syncMessageWindow() {
     if (this.scrollLock > 0) return;
     const id = this.channelId;
@@ -4167,16 +4219,19 @@ class LarkApp {
     const before = anchor ? anchor.getBoundingClientRect().top : 0;
     const prevTop = Number.parseFloat((column.querySelector(":scope > .virtual-spacer") as HTMLElement | null)?.style.height || "0") || 0;
     this.lockScroll(() => {
-      clear(host);
-      this.appendMessages(host, list, span.start, id, span.end);
+      this.fillWindow(host, list, span.start, span.end, id);
       this.msgStart = span.start;
       this.msgEnd = span.end;
+      if (this.pinnedToBottom) {
+        this.measurePinnedLater(host, column, list);
+        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+        return;
+      }
       this.measureHost(host);
       const box = this.spacerBox(list, span.start, span.end);
       this.applySpacers(column, box);
       const next = anchorId ? host.querySelector<HTMLElement>(`[data-mid="${anchorId}"]`) : null;
-      if (this.pinnedToBottom) this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
-      else if (next) this.messagesEl.scrollTop += next.getBoundingClientRect().top - before;
+      if (next) this.messagesEl.scrollTop += next.getBoundingClientRect().top - before;
       else this.messagesEl.scrollTop += box.top - prevTop;
     });
     this.watchMessageLayout();
@@ -4197,7 +4252,9 @@ class LarkApp {
     for (let index = from; index < to; index += 1) {
       const message = list[index];
       if (this.blockedIds.has(message.authorId) && !this.hookOn("hideBlocked")) {
-        parent.append(renderBlockedMessage());
+        const blocked = renderBlockedMessage();
+        blocked.dataset.mid = message.id;
+        parent.append(blocked);
         lastDay = new Date(message.timestamp).toDateString();
         previous = { authorId: message.authorId, timestamp: message.timestamp, kind: message.kind };
         continue;
@@ -4343,21 +4400,23 @@ class LarkApp {
     this.scroll = "none";
     const metrics = this.captureScroll();
     const column = this.messagesEl.querySelector(":scope > .message-column");
-    const previousBody = list.length > 1 ? this.messageBody(list.slice(0, -1)) : "";
+    const previousBody = this.msgSig && list.length > 1 ? this.messageBody(list.slice(0, -1)) : "";
     const plan = messageListPlan(this.msgSig, structural, previousBody, column instanceof HTMLElement);
     const host = column?.querySelector(":scope > .virtual-host");
     if (plan === "append" && column instanceof HTMLElement && host instanceof HTMLElement && id && list.length) {
       this.noteMessagePaint("append");
       this.lockScroll(() => {
         const span = this.messageSpan(list, metrics.top, intent === "bottom" || metrics.near);
-        if (span.start !== this.msgStart || span.end !== this.msgEnd) {
-          clear(host);
-          this.appendMessages(host, list, span.start, id, span.end);
+        const pinnedTail = intent === "bottom" || metrics.near;
+        const moved = span.start !== this.msgStart || span.end !== this.msgEnd;
+        if (moved) {
+          this.fillWindow(host, list, span.start, span.end, id);
           this.msgStart = span.start;
           this.msgEnd = span.end;
-          this.measureHost(host);
         }
+        if (!pinnedTail && moved) this.measureHost(host);
         this.applySpacers(column, this.spacerBox(list, this.msgStart, this.msgEnd));
+        if (pinnedTail && moved) this.measurePinnedLater(host, column, list);
         this.placeScroll(metrics, intent);
       });
       this.watchMessageLayout();
@@ -4427,10 +4486,13 @@ class LarkApp {
           this.messagesEl.append(next);
           this.msgStart = span.start;
           this.msgEnd = span.end;
-          this.measureHost(body);
-          const box = this.spacerBox(list, span.start, span.end);
-          top.style.height = `${box.top}px`;
-          bottom.style.height = `${box.bottom}px`;
+          if (pinned) this.measurePinnedLater(body, next, list);
+          else {
+            this.measureHost(body);
+            const box = this.spacerBox(list, span.start, span.end);
+            top.style.height = `${box.top}px`;
+            bottom.style.height = `${box.bottom}px`;
+          }
         }
       }
       this.placeScroll(metrics, intent);
@@ -4607,6 +4669,12 @@ class LarkApp {
 
   private paintFriends() {
     if (this.dashboardOpen && !this.guildId) return;
+    if (!this.late) {
+      void this.ensureLate().then(() => {
+        if (this.friendsOpen && !this.dashboardOpen) this.paintFriends();
+      });
+      return;
+    }
     this.loadRelationships();
     const noteSig = Object.entries(this.notes).map(([id, note]) => `${id}:${note}`).join(",");
     const relSig = this.relationships.map((row) => `${row.id}:${row.kind}:${row.nickname}`).join(",");
@@ -4658,7 +4726,7 @@ class LarkApp {
       incoming,
       avatarUrl: row.avatarUrl,
     });
-    renderFriendsBoard(this.messagesEl, {
+    this.late!.renderFriendsBoard(this.messagesEl, {
       tab: this.friendTab,
       pending: pendingFriendCount(),
       groups: groups.map(([label, people]) => ({ label, people: people.map(rowFor) })),
@@ -5584,7 +5652,7 @@ class LarkApp {
   }
 
   private settingsIndex(): SettingEntry[] {
-    return settingEntries(this.catalog.map((plugin) => ({
+    return this.late!.settingEntries(this.catalog.map((plugin) => ({
       id: `plugin.${plugin.id}`,
       section: "plugins",
       label: plugin.name,
@@ -5608,9 +5676,13 @@ class LarkApp {
   }
 
   private renderSettings() {
+    if (!this.late) {
+      void this.ensureLate().then(() => this.renderSettings());
+      return;
+    }
     const query = this.settingsQuery;
     const index = this.settingsIndex();
-    const visible = sectionsForQuery(query, settingsSections(), index);
+    const visible = this.late!.sectionsForQuery(query, this.late!.settingsSections(), index);
     if (query.trim() && visible.length && !visible.some((item) => item.id === this.section)) {
       this.section = visible[0].id;
     }
@@ -5641,7 +5713,7 @@ class LarkApp {
     });
     search.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
-      const hit = searchSettings(this.settingsQuery, settingsSections(), this.settingsIndex())[0];
+      const hit = this.late!.searchSettings(this.settingsQuery, this.late!.settingsSections(), this.settingsIndex())[0];
       if (!hit) return;
       event.preventDefault();
       const before = this.section;
@@ -5657,12 +5729,12 @@ class LarkApp {
     const nav = el("nav", "settings-nav");
     nav.setAttribute("aria-label", "Settings categories");
     if (query.trim()) {
-      const hits = searchSettings(query, settingsSections(), index);
+      const hits = this.late!.searchSettings(query, this.late!.settingsSections(), index);
       if (!hits.length) nav.append(el("p", "settings-empty", "No settings match that."));
       for (const hit of hits) {
         const button = el("button", "settings-hit");
         button.type = "button";
-        const section = settingsSections().find((item) => item.id === hit.section);
+        const section = this.late!.settingsSections().find((item) => item.id === hit.section);
         button.append(el("strong", "", hit.label));
         button.append(el("span", "", hit.kind === "section" ? "Category" : (section?.label ?? "")));
         button.addEventListener("click", () => {
@@ -5675,7 +5747,7 @@ class LarkApp {
         nav.append(button);
       }
     } else {
-      for (const group of groupedSections(visible)) {
+      for (const group of this.late!.groupedSections(visible)) {
         const block = el("div", "settings-group");
         block.append(el("h2", "settings-group-label", group.label));
         for (const item of group.sections) {
@@ -5709,7 +5781,7 @@ class LarkApp {
     this.markSettingHits(content);
     body.append(content);
     const closeWrap = el("div", "settings-close-wrap");
-    closeWrap.append(settingsCloseButton(() => this.closeSettings()));
+    closeWrap.append(this.late!.settingsCloseButton(() => this.closeSettings()));
     stage.append(body, closeWrap);
     this.settingsEl.append(sidebar, stage);
     if (anchor) {
@@ -5728,7 +5800,7 @@ class LarkApp {
     const query = this.settingsQuery.trim();
     if (!query) return;
     const ids = new Set(
-      searchSettings(query, settingsSections(), this.settingsIndex())
+      this.late!.searchSettings(query, this.late!.settingsSections(), this.settingsIndex())
         .filter((hit) => hit.kind === "setting")
         .map((hit) => hit.id),
     );
@@ -5783,11 +5855,11 @@ class LarkApp {
       case "lark":
         return this.panePlugins();
       default: {
-        const extra = settingsPane(this.section);
+        const extra = this.late!.settingsPane(this.section);
         if (extra) return extra();
-        const known = settingsSections().find((item) => item.id === this.section);
+        const known = this.late!.settingsSections().find((item) => item.id === this.section);
         const wrap = el("div", "settings-stack");
-        wrap.append(settingHead(known?.label ?? "Settings", known?.description ?? "This page has no controls yet."));
+        wrap.append(this.late!.settingHead(known?.label ?? "Settings", known?.description ?? "This page has no controls yet."));
         return wrap;
       }
     }
@@ -5795,9 +5867,9 @@ class LarkApp {
 
   private paneUpdates(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Updates", "Lark checks for an app update and an interface bundle on startup and every 30 minutes. A voice call finishes before either one reloads."));
-    const card = settingCard("This computer");
-    card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.3")));
+    wrap.append(this.late!.settingHead("Updates", "Lark checks for an app update and an interface bundle on startup and every 30 minutes. A voice call finishes before either one reloads."));
+    const card = this.late!.settingCard("This computer");
+    card.append(this.late!.settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.3")));
     card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
       const step = setAutoInstall(this.updates, value);
       this.updates = step.state;
@@ -5809,7 +5881,7 @@ class LarkApp {
     check.type = "button";
     check.disabled = this.updates.phase === "checking" || this.updates.phase === "downloading" || this.updates.phase === "installing";
     check.addEventListener("click", () => void this.checkForUpdates(true));
-    card.append(settingRow("updates.check", "Check for updates", "Look for a Lark update now.", check));
+    card.append(this.late!.settingRow("updates.check", "Check for updates", "Look for a Lark update now.", check));
     card.append(el("p", "setting-help", updatesStatus(this.updates)));
     if (!isTauri()) card.append(el("p", "setting-help", "Updates install from the macOS and Windows apps."));
     const notes = this.updates.offer?.notes.trim();
@@ -5817,13 +5889,13 @@ class LarkApp {
       card.append(el("p", "setting-help", notes.length > 1200 ? `${notes.slice(0, 1199).trimEnd()}…` : notes));
     }
     wrap.append(card);
-    const uiCard = settingCard("Interface");
-    uiCard.append(settingRow("updates.ui", "Interface build", "The interface loaded in this window. Built-in is the one packaged with the app.", el("span", "hint", interfaceBuildLabel(this.interfaceUi.snapshot))));
-    uiCard.append(settingRow(
+    const uiCard = this.late!.settingCard("Interface");
+    uiCard.append(this.late!.settingRow("updates.ui", "Interface build", "The interface loaded in this window. Built-in is the one packaged with the app.", el("span", "hint", interfaceBuildLabel(this.interfaceUi.snapshot))));
+    uiCard.append(this.late!.settingRow(
       "updates.channel",
       "Interface channel",
       "Stable or Canary. Canary gets each interface build. Stable gets a promoted build.",
-      segmentControl(["stable", "canary"], this.interfaceUi.snapshot.channel, (value) => {
+      this.late!.segmentControl(["stable", "canary"], this.interfaceUi.snapshot.channel, (value) => {
         void this.setInterfaceChannel(value === "canary" ? "canary" : "stable");
       }, { stable: "Stable", canary: "Canary" }),
       true,
@@ -5832,11 +5904,11 @@ class LarkApp {
     checkUi.type = "button";
     checkUi.disabled = this.interfaceUi.checking;
     checkUi.addEventListener("click", () => void this.checkInterface(true));
-    uiCard.append(settingRow("updates.interface", "Check now", "Look for an interface bundle now.", checkUi));
+    uiCard.append(this.late!.settingRow("updates.interface", "Check now", "Look for an interface bundle now.", checkUi));
     const resetUi = el("button", "text-button", "Reset to built-in UI");
     resetUi.type = "button";
     resetUi.addEventListener("click", () => void this.resetInterface());
-    uiCard.append(settingRow("updates.reset", "Reset to built-in UI", "Drop the downloaded interface and load the one packaged with Lark.", resetUi));
+    uiCard.append(this.late!.settingRow("updates.reset", "Reset to built-in UI", "Drop the downloaded interface and load the one packaged with Lark.", resetUi));
     if (this.interfaceUi.error) uiCard.append(el("p", "setting-help", this.interfaceUi.error));
     else if (this.interfaceUi.note) uiCard.append(el("p", "setting-help", this.interfaceUi.note));
     if (!isTauri()) uiCard.append(el("p", "setting-help", "Interface updates install from the macOS and Windows apps."));
@@ -5847,8 +5919,8 @@ class LarkApp {
   private paneAccount(): HTMLElement {
     const me = this.demo ? people[0] : this.me;
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("My Account", "Name, avatar, and id come from Discord. Lark does not edit them. The token never goes in the config file, logs, or a plugin."));
-    const who = settingCard();
+    wrap.append(this.late!.settingHead("My Account", "Name, avatar, and id come from Discord. Lark does not edit them. The token never goes in the config file, logs, or a plugin."));
+    const who = this.late!.settingCard();
     who.append(el("div", "account-banner"));
     const body = el("div", "account-body");
     body.append(portrait(me.name, me.id, me.avatarUrl));
@@ -5858,7 +5930,7 @@ class LarkApp {
     copy.append(el("div", "hint", personalLine(me.id, this.streamerOn())));
     body.append(copy);
     who.append(body);
-    const session = settingCard("Session");
+    const session = this.late!.settingCard("Session");
     session.dataset.setting = "account.session";
     const grid = el("div", "platform-grid");
     grid.append(this.platformCard("macOS", "macOS Keychain", "~/Library/Application Support/dev.lark.desktop"));
@@ -5949,10 +6021,10 @@ class LarkApp {
 
   private paneAppearance(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Appearance", "Each card is that theme's own colours. One click applies it."));
+    wrap.append(this.late!.settingHead("Appearance", "Each card is that theme's own colours. One click applies it."));
     const appearancePages = this.settingsNow();
     if (appearancePages) wrap.append(appearancePages.colorModeCard(this.settingsHost()));
-    const themes = settingCard("Themes");
+    const themes = this.late!.settingCard("Themes");
     themes.dataset.setting = "appearance.theme";
     const filter = el("input", "theme-filter");
     filter.type = "search";
@@ -5987,7 +6059,7 @@ class LarkApp {
     actions.append(exportCss, exportJson, importBtn, file);
     themes.append(filter, grid, actions);
     themes.append(el("p", "setting-help", "CSS and JSON carry the same colours. Frosted uses the system material on macOS and Windows, and stays opaque elsewhere. Themes do not blur or animate the message list."));
-    const text = settingCard("Text");
+    const text = this.late!.settingCard("Text");
     text.append(this.segmentRow(
       "appearance.font",
       "Font",
@@ -6006,7 +6078,7 @@ class LarkApp {
       this.persist();
       this.applyAppearance();
     }));
-    const display = settingCard("Display");
+    const display = this.late!.settingCard("Display");
     display.append(this.segmentRow(
       "appearance.density",
       "Density",
@@ -6054,8 +6126,8 @@ class LarkApp {
   private accentRow(): HTMLElement {
     const guild = this.guilds().find((item) => item.id === this.guildId);
     const stored = guild ? (this.config.accents[guild.id] ?? "") : "";
-    const shown = normalizeHex(stored) || rgbToHex(getComputedStyle(this.root).getPropertyValue("--accent")) || "#fafafa";
-    const control = colorControl(shown, "Server accent", (hex) => {
+    const shown = this.late!.normalizeHex(stored) || rgbToHex(getComputedStyle(this.root).getPropertyValue("--accent")) || "#fafafa";
+    const control = this.late!.colorControl(shown, "Server accent", (hex) => {
       if (!this.guildId) return;
       this.config.accents[this.guildId] = hex;
       this.persist();
@@ -6075,13 +6147,13 @@ class LarkApp {
     const description = guild
       ? `Colour for ${guild.name}. Reset follows the theme.`
       : "Open a server to set its accent. Direct messages use the theme colour.";
-    return settingRow("appearance.accent", "Server accent", description, control, true);
+    return this.late!.settingRow("appearance.accent", "Server accent", description, control, true);
   }
 
   private paneNotifications(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Notifications", this.platform.notificationNote));
-    const card = settingCard("Alerts");
+    wrap.append(this.late!.settingHead("Notifications", this.platform.notificationNote));
+    const card = this.late!.settingCard("Alerts");
     card.append(this.segmentRow(
       "notifications.level",
       "Notify me when",
@@ -6097,7 +6169,7 @@ class LarkApp {
     const test = el("button", "primary", "Send a test notification");
     test.type = "button";
     test.addEventListener("click", () => void this.notify("Lark", "Notifications are on. Mute still wins."));
-    card.append(settingRow("notifications.test", "Test notification", "Send a sample so you can see where it lands.", test));
+    card.append(this.late!.settingRow("notifications.test", "Test notification", "Send a sample so you can see where it lands.", test));
     const words = el("input");
     words.value = this.config.notifications.keywords.join(", ");
     words.setAttribute("aria-label", "Highlight keywords");
@@ -6106,7 +6178,7 @@ class LarkApp {
       this.persist();
       this.msgSig = "";
     });
-    card.append(settingRow("notifications.keywords", "Highlight keywords", "Messages that contain these words get a highlight. Separate words with commas.", words, true));
+    card.append(this.late!.settingRow("notifications.keywords", "Highlight keywords", "Messages that contain these words get a highlight. Separate words with commas.", words, true));
     const grid = el("div", "platform-grid");
     grid.append(this.platformCard("macOS", "Banners and Notification Center", "⌘"));
     grid.append(this.platformCard("Windows", "Toasts in Action Center", "Ctrl"));
@@ -6119,7 +6191,7 @@ class LarkApp {
 
   private quietCard(): HTMLElement {
     const quiet = this.config.notifications.quiet;
-    const card = settingCard("Quiet hours");
+    const card = this.late!.settingCard("Quiet hours");
     card.append(this.switchRow(
       "notifications.quiet",
       "Quiet hours",
@@ -6155,7 +6227,7 @@ class LarkApp {
   }
 
   private alertCard(): HTMLElement {
-    const card = settingCard("Alerts");
+    const card = this.late!.settingCard("Alerts");
     card.append(el("p", "setting-help", "A match notifies you even when the channel is muted. Add the word, the person, or the channel id to Blocked to stop that."));
     card.append(this.commaRow(
       "notifications.alerts",
@@ -6188,7 +6260,7 @@ class LarkApp {
   }
 
   private missedCard(): HTMLElement {
-    const card = settingCard("Missed");
+    const card = this.late!.settingCard("Missed");
     card.dataset.setting = "notifications.missed";
     const lines = digestLines(this.missed);
     if (!lines.length) {
@@ -6231,7 +6303,7 @@ class LarkApp {
       onChange(input.value);
       this.quietOn = inQuietHours(this.config.notifications.quiet, new Date());
     });
-    return settingRow(id, label, description, input);
+    return this.late!.settingRow(id, label, description, input);
   }
 
   private commaRow(id: string, label: string, description: string, current: readonly string[], apply: (next: string[]) => void): HTMLElement {
@@ -6244,7 +6316,7 @@ class LarkApp {
       this.persist();
       if (this.settings) this.renderSettings();
     });
-    return settingRow(id, label, description, input, true);
+    return this.late!.settingRow(id, label, description, input, true);
   }
 
   private openMissed(channelId: string) {
@@ -6262,20 +6334,20 @@ class LarkApp {
 
   private paneShortcuts(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Keybinds", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys. Save clip is global on macOS and Windows, so it still works while a game is in front."));
-    const card = settingCard("Shortcuts");
-    card.append(settingRow("shortcut.mark_read", "Mark read", "Esc closes whatever is open first. With nothing open, it marks the channel read.", el("span", "kbd", "Esc")));
+    wrap.append(this.late!.settingHead("Keybinds", "mod is ⌘ on macOS and Ctrl on Windows. Click a shortcut, then press the new keys. Save clip is global on macOS and Windows, so it still works while a game is in front."));
+    const card = this.late!.settingCard("Shortcuts");
+    card.append(this.late!.settingRow("shortcut.mark_read", "Mark read", "Esc closes whatever is open first. With nothing open, it marks the channel read.", el("span", "kbd", "Esc")));
     const conflicts = shortcutConflicts(this.config.shortcuts);
     if (conflicts.length) card.append(el("div", "warning", conflicts.join(" ")));
     for (const [action, shortcut] of Object.entries(this.config.shortcuts) as [keyof Shortcuts, string][]) {
-      const copy = SHORTCUT_COPY[action] ?? { label: action.replaceAll("_", " "), description: "" };
+      const copy = this.late!.SHORTCUT_COPY[action] ?? { label: action.replaceAll("_", " "), description: "" };
       const button = el("button", "kbd", this.rebinding === action ? "Press keys" : formatShortcut(shortcut, this.platform.os));
       button.type = "button";
       button.addEventListener("click", () => {
         this.rebinding = action;
         this.renderSettings();
       });
-      card.append(settingRow(`shortcut.${action}`, copy.label, copy.description, button));
+      card.append(this.late!.settingRow(`shortcut.${action}`, copy.label, copy.description, button));
     }
     const shortcutPages = this.settingsNow();
     wrap.append(card);
@@ -6285,8 +6357,8 @@ class LarkApp {
 
   private paneWindow(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Window", "Tray, login, and how fast the window paints."));
-    const card = settingCard("Desktop");
+    wrap.append(this.late!.settingHead("Window", "Tray, login, and how fast the window paints."));
+    const card = this.late!.settingCard("Desktop");
     card.append(this.switchRow("window.tray", "Minimise to tray", "Closing the window leaves Lark in the menu bar or system tray.", this.config.desktop.minimize_to_tray, (value) => {
       this.config.desktop.minimize_to_tray = value;
       this.persist();
@@ -6321,9 +6393,9 @@ class LarkApp {
   private paneVoice(): HTMLElement {
     this.ensureVoicePrefs();
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Voice & Video", "Push to talk, voice activity, and Lark noise suppression (RNNoise) on the microphone."));
+    wrap.append(this.late!.settingHead("Voice & Video", "Push to talk, voice activity, and Lark noise suppression (RNNoise) on the microphone."));
     void this.loadAudioDevices();
-    const input = settingCard("Input");
+    const input = this.late!.settingCard("Input");
     input.append(this.segmentRow(
       "voice.mode",
       "Input mode",
@@ -6351,7 +6423,7 @@ class LarkApp {
     }));
     const hudKey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
     const perfKey = formatShortcut(this.config.shortcuts.toggle_perf_overlay, this.platform.os);
-    const hud = settingCard("In-game voice HUD");
+    const hud = this.late!.settingCard("In-game voice HUD");
     hud.append(el("p", "setting-help", "A small always-on-top window on macOS and Windows. It uses the same voice roster as the channel list. It stays off until you turn it on."));
     hud.append(this.switchRow("voice.hud", "Show voice HUD", `${hudKey} shows and hides it, including while a game is focused.`, this.overlayOn(), (value) => {
       this.setVoiceOverlay(value, false);
@@ -6369,7 +6441,7 @@ class LarkApp {
     hud.append(this.switchRow("voice.perf", "Show performance", `${perfKey} adds RAM, CPU, and FPS to the same window.`, this.perfOn(), (value) => {
       this.setPerfOverlay(value, false);
     }));
-    const devices = settingCard("Devices");
+    const devices = this.late!.settingCard("Devices");
     devices.append(el("p", "setting-help", "Lark stores the device you pick. Voice matches that name on the desktop device. An unknown id uses the communications device."));
     devices.append(this.deviceRow("voice.input", "Input", "Microphone Lark stores for the call.", this.config.voice.input_device, this.captureDevices(), (value) => {
       this.config.voice.input_device = value;
@@ -6392,9 +6464,9 @@ class LarkApp {
     const deviceActions = el("div", "settings-actions");
     deviceActions.append(listDevices, copyDiag);
     devices.append(deviceActions);
-    const ring = settingCard("Speaking ring");
+    const ring = this.late!.settingCard("Speaking ring");
     ring.append(this.speakRingRow());
-    const share = settingCard("Screen share");
+    const share = this.late!.settingCard("Screen share");
     share.append(el("p", "setting-help", "Go Live uses these defaults. The picker in a call can still change them, and every resolution is available."));
     share.append(this.segmentRow(
       "voice.share.quality",
@@ -6444,7 +6516,7 @@ class LarkApp {
 
   private speakRingRow(): HTMLElement {
     const current = speakColor(this.config.voice.speak_color);
-    const control = colorControl(current, "Speaking ring color", (hex) => {
+    const control = this.late!.colorControl(current, "Speaking ring color", (hex) => {
       this.config.voice.speak_color = speakColor(hex);
       document.documentElement.style.setProperty("--speak", this.config.voice.speak_color);
       this.persist();
@@ -6454,7 +6526,7 @@ class LarkApp {
       this.persist();
       if (this.settings) this.renderSettings();
     });
-    return settingRow(
+    return this.late!.settingRow(
       "voice.speak",
       "Speaking ring",
       "The ring sweeps around an avatar while someone is speaking. It stays a solid ring when reduced motion is on, and while Game Mode is on. Discord green is the default.",
@@ -6503,7 +6575,7 @@ class LarkApp {
   }
 
   private appendVoiceLab(wrap: HTMLElement) {
-    registerSettingEntries([
+    this.late!.registerSettingEntries([
       { id: "voice.mic-test", section: "voice", label: "Mic test", description: "Watch the microphone level.", keywords: "meter input" },
       { id: "voice.profiles", section: "voice", label: "Input profiles", description: "Saved microphone, input mode, and sensitivity.", keywords: "profile" },
       { id: "voice.echo", section: "voice", label: "Echo cancellation", description: "Subtract playback from the microphone.", keywords: "aec echo" },
@@ -6513,7 +6585,7 @@ class LarkApp {
       { id: "voice.stream-preview", section: "voice", label: "Stream preview", description: "The current Go Live picture.", keywords: "share screen" },
       { id: "voice.sound-toggles", section: "voice", label: "Sound toggles", description: "Turn individual sounds on or off.", keywords: "soundboard" },
     ]);
-    const test = settingCard("Mic test");
+    const test = this.late!.settingCard("Mic test");
     test.dataset.setting = "voice.mic-test";
     const meter = el("div", "mic-meter");
     meter.append(el("span", "mic-meter-fill"));
@@ -6526,7 +6598,7 @@ class LarkApp {
       if (this.settings) this.renderSettings();
     });
     test.append(el("p", "setting-help", "The meter moves while the test or the microphone menu is open."), meter, probe);
-    const profiles = settingCard("Input profiles");
+    const profiles = this.late!.settingCard("Input profiles");
     profiles.dataset.setting = "voice.profiles";
     profiles.append(el("p", "setting-help", "A profile stores the microphone, voice activity or push to talk, and the sensitivity."));
     const name = el("input");
@@ -6572,7 +6644,7 @@ class LarkApp {
       row.append(use, drop);
       profiles.append(row);
     }
-    const process = settingCard("Processing");
+    const process = this.late!.settingCard("Processing");
     process.append(this.switchRow("voice.echo", "Echo cancellation", "Subtracts the call playback from the microphone before noise suppression.", this.echoCancellation, (value) => {
       this.echoCancellation = value;
       this.storeVoicePrefs();
@@ -6588,7 +6660,7 @@ class LarkApp {
       this.storeVoicePrefs();
       this.pushVoiceProcessing();
     }));
-    const camera = settingCard("Camera test");
+    const camera = this.late!.settingCard("Camera test");
     camera.dataset.setting = "voice.camera-test";
     const slot = el("div", "camera-preview-slot");
     slot.dataset.cameraTest = "";
@@ -6596,7 +6668,7 @@ class LarkApp {
     open.type = "button";
     open.addEventListener("click", () => this.toggleCamera());
     camera.append(el("p", "setting-help", "The preview uses the camera above. In a voice channel the same frames are sent on the voice connection."), slot, open);
-    const stream = settingCard("Stream preview");
+    const stream = this.late!.settingCard("Stream preview");
     stream.dataset.setting = "voice.stream-preview";
     const preview = el("div", "stream-preview");
     const live = document.querySelector("[data-stream-slot] video");
@@ -6619,16 +6691,16 @@ class LarkApp {
 
   private paneMessages(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Messages", "Saved messages, reminders, and scheduled sends stay on this device. Discord pins are unchanged."));
-    const saved = settingCard("Saved");
+    wrap.append(this.late!.settingHead("Messages", "Saved messages, reminders, and scheduled sends stay on this device. Discord pins are unchanged."));
+    const saved = this.late!.settingCard("Saved");
     saved.dataset.setting = "messages.saved";
     if (!this.pack.bookmarks.length) saved.append(el("p", "setting-help", "Save on a message keeps it here. Saved in the header opens the same list."));
     for (const bookmark of this.pack.bookmarks) saved.append(this.savedRow(bookmark));
-    const reminders = settingCard("Reminders");
+    const reminders = this.late!.settingCard("Reminders");
     reminders.dataset.setting = "messages.reminders";
     if (!this.reminders.length) reminders.append(el("p", "setting-help", "Remind on a message. Lark notifies you once, at the time you picked."));
     for (const reminder of this.reminders) reminders.append(this.reminderRow(reminder));
-    const scheduled = settingCard("Scheduled");
+    const scheduled = this.late!.settingCard("Scheduled");
     scheduled.dataset.setting = "messages.scheduled";
     if (!this.pack.schedule.length) scheduled.append(el("p", "setting-help", "Later in the composer queues a send. The soonest time is 15 seconds from now, and one message goes out at a time."));
     for (const item of this.pack.schedule) scheduled.append(this.scheduledRow(item));
@@ -6638,8 +6710,8 @@ class LarkApp {
 
   private panePrivacy(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Privacy", "Streamer mode hides emails, tokens, DM previews, and personal info on this screen. Discord still has the real messages."));
-    const card = settingCard("Streamer mode");
+    wrap.append(this.late!.settingHead("Privacy", "Streamer mode hides emails, tokens, DM previews, and personal info on this screen. Discord still has the real messages."));
+    const card = this.late!.settingCard("Streamer mode");
     card.append(this.switchRow("privacy.streamer", "Streamer mode", "Hide emails, tokens, DM previews, and your account id on this screen.", this.config.privacy.streamer, (value) => {
       this.config.privacy.streamer = value;
       this.persist();
@@ -6661,8 +6733,8 @@ class LarkApp {
 
   private paneClips(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Clips", clipBehaviorNote(this.platform.os)));
-    const card = settingCard("Buffer");
+    wrap.append(this.late!.settingHead("Clips", clipBehaviorNote(this.platform.os)));
+    const card = this.late!.settingCard("Buffer");
     card.dataset.setting = "clips.folder";
     card.append(el("p", "setting-help", this.clipStatusLine()));
     card.append(this.segmentRow(
@@ -6718,7 +6790,7 @@ class LarkApp {
       actions.append(openClips);
       card.append(actions);
     }
-    const upload = settingCard("Upload");
+    const upload = this.late!.settingCard("Upload");
     upload.append(el("p", "setting-help", limitSentence(this.platform.os, this.premiumType)));
     upload.append(this.segmentRow(
       "clips.compress",
@@ -6737,8 +6809,8 @@ class LarkApp {
     browse.addEventListener("click", () => this.openClips());
     const uploadActions = el("div", "settings-actions");
     uploadActions.append(browse);
-    upload.append(settingRow("clips.library", "Clip library", "Play, trim, and share clips saved on this computer.", uploadActions));
-    const library = settingCard("Saved on this computer");
+    upload.append(this.late!.settingRow("clips.library", "Clip library", "Play, trim, and share clips saved on this computer.", uploadActions));
+    const library = this.late!.settingCard("Saved on this computer");
     this.appendClipLibrary(library);
     wrap.append(card, upload, library);
     return wrap;
@@ -6746,8 +6818,8 @@ class LarkApp {
 
   private paneGaming(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(settingHead("Gaming", "Game Mode eases resource use while a game is in front. Each game can keep its own voice and overlay defaults."));
-    const mode = settingCard("Game Mode");
+    wrap.append(this.late!.settingHead("Gaming", "Game Mode eases resource use while a game is in front. Each game can keep its own voice and overlay defaults."));
+    const mode = this.late!.settingCard("Game Mode");
     const gameKey = formatShortcut(this.config.shortcuts.toggle_game_mode, this.platform.os);
     mode.append(this.switchRow("gaming.mode", "Game Mode", `${gameKey} toggles it, including while a game is focused. Animations pause, channels you have not opened are not prefetched, and the existing polls slow down.`, this.gameMode, (value) => {
       this.setGameMode(value, false);
@@ -6761,7 +6833,7 @@ class LarkApp {
     mode.append(el("p", "setting-help", this.detectedGame
       ? `Detected: ${this.detectedGame}. A detected game turns Game Mode on unless that game's profile says otherwise.`
       : "No game detected."));
-    const status = settingCard("Status");
+    const status = this.late!.settingCard("Status");
     status.append(this.switchRow("gaming.hardware", "Hardware in status", "Off until you turn this on. Lark then reads this computer's GPU name, CPU temperature on macOS when a sensor answers, and the current game. Windows leaves temperature blank. That line becomes your Discord custom status, kept to 128 characters, and it refreshes about once a minute. macOS and Windows only.", this.config.desktop.hardware_status, (value) => {
       this.config.desktop.hardware_status = value;
       this.hardware = setHardwareEnabled(this.hardware, value, this.me.custom ?? "");
@@ -6789,7 +6861,7 @@ class LarkApp {
     } else if (!isTauri()) {
       status.append(el("p", "setting-help", "The desktop app reads the machine. This preview does not."));
     }
-    const profiles = settingCard("Game profiles");
+    const profiles = this.late!.settingCard("Game profiles");
     profiles.dataset.setting = "gaming.profiles";
     this.appendGameProfiles(profiles);
     wrap.append(mode, status, profiles);
@@ -6798,13 +6870,13 @@ class LarkApp {
 
   private panePlugins(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    const head = settingHead("Plugins and Themes", "Install from the store list, then turn an item on. Lark still runs with none installed.");
+    const head = this.late!.settingHead("Plugins and Themes", "Install from the store list, then turn an item on. Lark still runs with none installed.");
     const browse = el("button", "text-button", "Browse");
     browse.type = "button";
     browse.addEventListener("click", () => void this.openStorePage());
     head.append(browse);
     wrap.append(head);
-    const card = settingCard("Plugins");
+    const card = this.late!.settingCard("Plugins");
     card.dataset.setting = "plugins.list";
     card.append(el("p", "setting-help", "Reading tools stay on this device. They never receive the token."));
     const pack = new Set<string>(PACK_IDS);
@@ -6822,7 +6894,7 @@ class LarkApp {
     if (packed.length) card.append(el("h3", "", "Pack"));
     for (const item of packed) paintPlugin(item);
     if (!plugins.length) card.append(el("p", "setting-help", "No plugins installed. Browse the store to add one."));
-    const themeCard = settingCard("Themes");
+    const themeCard = this.late!.settingCard("Themes");
     themeCard.append(el("p", "setting-help", "One theme can be on. Turning it off keeps the built-in colours."));
     for (const item of themes) {
       const on = !this.preferBuiltin && this.config.appearance.theme === item.id;
@@ -6835,7 +6907,7 @@ class LarkApp {
   }
 
   private storeCatalogCard(): HTMLElement {
-    const card = settingCard("Store");
+    const card = this.late!.settingCard("Store");
     card.dataset.setting = "plugins.store";
     if (!this.storeIndex) {
       card.append(el("p", "setting-help", this.storeIndexTried ? "The store could not be reached." : "Loading the store…"));
@@ -6899,7 +6971,7 @@ class LarkApp {
         install.addEventListener("click", () => void this.installFromCatalog(item.id));
         const needs = larkVersionOk(item.minLark, APP_VERSION) ? "" : ` · Needs Lark ${item.minLark}`;
         const note = item.changelog ? ` · ${item.changelog}` : "";
-        results.append(settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, install));
+        results.append(this.late!.settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, install));
       };
       if (browsed.plugins.length) results.append(el("h3", "", "Plugins"));
       for (const item of browsed.plugins) paintItem(item);
@@ -7147,19 +7219,19 @@ class LarkApp {
   }
 
   private segmentRow(id: string, label: string, description: string, values: string[], labels: Record<string, string>, current: string, onPick: (value: string) => void): HTMLElement {
-    const control = segmentControl(values, current, (value) => {
+    const control = this.late!.segmentControl(values, current, (value) => {
       onPick(value);
       if (this.settings) this.renderSettings();
     }, labels);
-    return settingRow(id, label, description, control, true);
+    return this.late!.settingRow(id, label, description, control, true);
   }
 
   private sliderRow(id: string, label: string, description: string, value: number, min: number, max: number, onInput: (value: number) => void): HTMLElement {
-    return settingRow(id, label, description, sliderControl(value, min, max, label, onInput), true);
+    return this.late!.settingRow(id, label, description, this.late!.sliderControl(value, min, max, label, onInput), true);
   }
 
   private switchRow(id: string, label: string, description: string, on: boolean, change: (value: boolean) => void | Promise<void>): HTMLElement {
-    const button = switchControl(on, label);
+    const button = this.late!.switchControl(on, label);
     button.addEventListener("click", () => {
       const result = change(!on) as void | Promise<void>;
       if (result && typeof (result as Promise<void>).then === "function") {
@@ -7170,16 +7242,16 @@ class LarkApp {
       }
       if (this.settings) this.renderSettings();
     });
-    return settingRow(id, label, description, button);
+    return this.late!.settingRow(id, label, description, button);
   }
 
   private deviceRow(id: string, label: string, description: string, current: string, options: { id: string; label: string }[], onChange: (value: string) => void): HTMLElement {
-    return settingRow(id, label, description, selectControl(label, current, options, onChange), true);
+    return this.late!.settingRow(id, label, description, this.late!.selectControl(label, current, options, onChange), true);
   }
 
   private devicePicker(label: string, current: string, options: { id: string; label: string }[], onChange: (value: string) => void): HTMLElement {
     const wrap = el("label", "device", label);
-    wrap.append(selectControl(label, current, options, onChange));
+    wrap.append(this.late!.selectControl(label, current, options, onChange));
     return wrap;
   }
 
@@ -7191,7 +7263,7 @@ class LarkApp {
   }
 
   private choice(values: string[], current: string, onPick: (value: string) => void, labels?: Record<string, string>): HTMLElement {
-    return segmentControl(values, current, (value) => {
+    return this.late!.segmentControl(values, current, (value) => {
       onPick(value);
       if (this.settings) this.renderSettings();
     }, labels);
@@ -7259,7 +7331,7 @@ class LarkApp {
       return true;
     }
     if (id === "toggle_inbox") {
-      toggleInbox();
+      void this.ensureLate().then((mod) => mod.toggleInbox());
       return true;
     }
     if (id === "toggle_gif_picker") {
@@ -10292,7 +10364,9 @@ class LarkApp {
     const keys = Object.keys(this.pages);
     if (keys.length <= 12) return;
     for (const key of keys) {
-      if (!keep.has(key)) delete this.pages[key];
+      if (keep.has(key)) continue;
+      this.forgetHeights((this.pages[key] ?? []).map((message) => message.id));
+      delete this.pages[key];
     }
     if (this.warm.size > 4) {
       const extra = [...this.warm].filter((key) => key !== this.channelId && key !== this.splitId && !this.recent.includes(key));
@@ -10623,8 +10697,8 @@ class LarkApp {
     this.shareWatching = "";
     this.pipUser = "";
     this.shareNote = "";
-    clearStreamFrames();
-    clearCameraFrames();
+    this.late?.clearStreamFrames();
+    this.late?.clearCameraFrames();
     this.callBus?.postMessage({ type: "camera-clear" });
     this.cameraOn = false;
     this.stopCameraSend();
@@ -11371,6 +11445,15 @@ class LarkApp {
     this.syncMutedTalk();
     const dock = this.voiceDock;
     if (!dock || !this.callStrip || !this.callSplit) return;
+    const liveCall = Boolean(this.voice) || this.shareOn || this.cameraOn || this.callSurface !== "chat";
+    if (!liveCall) {
+      this.parkCallChrome();
+      return;
+    }
+    if (!this.late) {
+      void this.ensureLate().then(() => this.paintVoice());
+      return;
+    }
     const textChat = Boolean(this.voice) && !this.clipsOpen && !(this.friendsOpen && !this.guildId);
     const tiles = textChat ? visibleCallTiles(stageTiles(this.stageMembers()), this.callView.showNonVideo) : [];
     const media = leadMedia(tiles);
@@ -11398,7 +11481,7 @@ class LarkApp {
         speaking: voiceBadges(member).speaking,
         self: member.self,
       })));
-      renderCallStrip(this.callStrip, stripWindow(people), this.ringMotion(), {
+      this.late!.renderCallStrip(this.callStrip, stripWindow(people), this.ringMotion(), {
         onOpen: () => this.openCallSplit(),
         onHide: () => this.setStripOpen(false),
       });
@@ -11430,7 +11513,7 @@ class LarkApp {
       if (stageChannel) {
         clear(dock);
         dock.className = "voice-stage";
-        renderStageBoard(dock, stageGroups(this.stagePeople()), {
+        this.late!.renderStageBoard(dock, stageGroups(this.stagePeople()), {
           topic: this.stageTopic,
           raised: this.stageRaised,
           selfSpeaker: this.stageSpeaker,
@@ -11440,21 +11523,21 @@ class LarkApp {
           onMoveAudience: (userId) => void this.setStageAudience(userId, true),
         });
         if (chat) dock.append(chat);
-        appendCallControls(dock, this.callStageHandlers());
+        this.late!.appendCallControls(dock, this.callStageHandlers());
       } else {
         if (focusLayoutOn) {
           const members = this.callView.showNonVideo
             ? this.stageMembers()
             : this.stageMembers().filter((member) => member.self || member.video || member.sharing);
-          renderFocusStage(dock, members, this.ringMotion(), this.callStageHandlers());
+          this.late!.renderFocusStage(dock, members, this.ringMotion(), this.callStageHandlers());
         } else {
-          renderCallStage(dock, this.decorateTiles(tiles), this.ringMotion(), this.callStageHandlers(), chat);
+          this.late!.renderCallStage(dock, this.decorateTiles(tiles), this.ringMotion(), this.callStageHandlers(), chat);
         }
       }
     }
     this.paintPip(chrome.pip ? media : null);
     this.mountShareSurfaces();
-    attachCameraTiles(this.root);
+    this.late!.attachCameraTiles(this.root);
     this.paintShareDialog();
     this.paintVoiceFloats();
     this.publishVoiceHud();
@@ -11661,7 +11744,7 @@ class LarkApp {
       return;
     }
     this.callPip.hidden = false;
-    renderPipTile(this.callPip, tile, this.ringMotion());
+    this.late!.renderPipTile(this.callPip, tile, this.ringMotion());
   }
 
   private callAvailable(): number {
@@ -12112,7 +12195,7 @@ class LarkApp {
     const sig = `${this.watchVideo}:${this.voiceChatLines.map((line) => line.id + line.text).join("\n")}`;
     if (panel.dataset.sig !== sig) {
       panel.dataset.sig = sig;
-      renderVoiceChat(panel, this.voiceChatLines, (value) => void this.sendVoiceChat(value));
+      this.late!.renderVoiceChat(panel, this.voiceChatLines, (value) => void this.sendVoiceChat(value));
       if (this.watchVideo) {
         const frame = el("iframe", "watch-frame");
         frame.src = watchEmbedUrl(this.watchVideo);
@@ -12442,7 +12525,7 @@ class LarkApp {
 
   private mountShareSurfaces() {
     if (!this.callPip) return;
-    mountStreamTiles(this.root, this.streamModels(), this.streamHandlers(), this.pipUser);
+    this.late!.mountStreamTiles(this.root, this.streamModels(), this.streamHandlers(), this.pipUser);
   }
 
   private streamModels() {
@@ -12473,7 +12556,7 @@ class LarkApp {
       return;
     }
     this.shareLayer.hidden = false;
-    this.shareLayer.append(shareDialog({
+    this.shareLayer.append(this.late!.shareDialog({
       sources: this.shareSources.length ? this.shareSources : demoShareSources(),
       selectedId: this.sharePick,
       resolution: this.config.voice.share_resolution,
@@ -12518,19 +12601,20 @@ class LarkApp {
   }
 
   private onStreamFrame(event: { annexB?: string; streamKey?: string; preview?: boolean }) {
-    if (!event.annexB) return;
+    if (!this.late || !event.annexB) return;
     const raw = atob(event.annexB);
     const bytes = new Uint8Array(raw.length);
     for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
     const userId = event.preview || !event.streamKey ? this.meId() : event.streamKey.split(":").at(-1) || "";
-    if (userId) pushStreamFrame(userId, bytes);
+    if (userId) this.late!.pushStreamFrame(userId, bytes);
   }
 
   private onCameraFrame(userId: string, annexB: string) {
-    const bytes = cameraFrameBytes(annexB);
+    if (!this.late) return;
+    const bytes = this.late.cameraFrameBytes(annexB);
     if (!userId || !bytes) return;
-    pushCameraFrame(userId, bytes);
-    attachCameraTiles(this.root);
+    this.late!.pushCameraFrame(userId, bytes);
+    this.late!.attachCameraTiles(this.root);
     this.callBus?.postMessage({ type: "camera", userId, annexB });
   }
 
@@ -12582,7 +12666,9 @@ class LarkApp {
     }
     if (action === "mod-view") {
       const guildId = person.guildId || this.guildId;
-      if (requestModView(userId, guildId) !== "called") this.toast("Mod View", "Mod View is not available yet.");
+      void this.ensureLate().then(() => {
+        if (requestModView(userId, guildId) !== "called") this.toast("Mod View", "Mod View is not available yet.");
+      });
       return;
     }
     if (action === "move") {
@@ -12909,7 +12995,7 @@ class LarkApp {
   }
 
   private appendSoundboard(wrap: HTMLElement) {
-    const card = settingCard("Soundboard");
+    const card = this.late!.settingCard("Soundboard");
     card.dataset.setting = "voice.soundboard";
     card.append(el("p", "setting-help", "WAV clips mixed into the call. A hotkey with a modifier also works while another app is in front."));
     const file = el("input");
@@ -13659,9 +13745,13 @@ class LarkApp {
       pop.id = "lark-popout";
       this.root.append(pop);
     }
+    if (!this.late) {
+      void this.ensureLate().then(() => this.paintPopout());
+      return;
+    }
     const person = this.popout;
     const details = this.wireProfile?.id === person.id ? this.wireProfile : null;
-    const sample = this.demo && !details ? sampleProfile(person) : null;
+    const sample = this.demo && !details ? this.late!.sampleProfile(person) : null;
     const roles = this.profileRoles(person);
     const mutualNames = (details?.mutualGuilds ?? [])
       .map((guild) => this.guilds().find((item) => item.id === guild.id)?.name)
@@ -13672,11 +13762,11 @@ class LarkApp {
       : { ...person, statusEmoji: person.id === this.meId() ? this.statusEmoji || person.statusEmoji : person.statusEmoji };
     const knownFriend = person.id === this.meId() || this.friends.some((item) => item.id === person.id) || this.relationships.some((item) => item.id === person.id && item.kind === "friend");
     const spot = voiceSpotFor(Object.values(this.voiceRoster), person.id);
-    renderProfileCard(pop, {
+    this.late!.renderProfileCard(pop, {
       person: personView,
       self: person.id === this.meId(),
       statusPicker: this.statusOpen && person.id === this.meId(),
-      roles: roles.length ? roles : (sample ? sampleRoles() : []),
+      roles: roles.length ? roles : (sample ? this.late!.sampleRoles() : []),
       placement: this.profileFull ? "full" : "modal",
       serverEditor: this.serverEditor && person.id === this.meId(),
       details: details ? {
@@ -15449,26 +15539,33 @@ class LarkApp {
   }
 
   private gameDeskList(): { plugin: PluginSource; catalog: GameCatalog }[] {
+    if (!this.late) return [];
     const out: { plugin: PluginSource; catalog: GameCatalog }[] = [];
     for (const plugin of this.enabledPlugins()) {
       if (!plugin.hooks.gameDesk) continue;
-      const catalog = readCatalog(plugin.source);
+      const catalog = this.late!.readCatalog(plugin.source);
       if (catalog) out.push({ plugin, catalog });
     }
     return out;
   }
 
   private mountGameDeskCard(wrap: HTMLElement, plugin: PluginSource) {
-    const catalog = readCatalog(plugin.source);
+    if (!this.late) {
+      void this.ensureLate().then(() => {
+        if (wrap.isConnected) this.mountGameDeskCard(wrap, plugin);
+      });
+      return;
+    }
+    const catalog = this.late.readCatalog(plugin.source);
     if (!catalog) {
       wrap.append(el("p", "hint", "This desk has no options."));
       return;
     }
-    const settings = this.pack.gameDesks[plugin.id] ?? emptyDesk();
-    mountGameDesk(wrap, {
+    const settings = this.pack.gameDesks[plugin.id] ?? this.late!.emptyDesk();
+    this.late!.mountGameDesk(wrap, {
       catalog,
       settings,
-      clock: sessionClock(settings.sessionStart, Date.now()),
+      clock: this.late!.sessionClock(settings.sessionStart, Date.now()),
       save: (next, repaint) => {
         this.pack.gameDesks = { ...this.pack.gameDesks, [plugin.id]: next };
         this.savePack();
@@ -15486,7 +15583,7 @@ class LarkApp {
     button.type = "button";
     button.setAttribute("aria-label", "Game desk");
     button.addEventListener("click", () => {
-      const items = this.gameDeskList().flatMap(({ plugin, catalog }) => deskActions(plugin.id, catalog, this.pack.gameDesks[plugin.id] ?? emptyDesk()));
+      const items = this.gameDeskList().flatMap(({ plugin, catalog }) => this.late!.deskActions(plugin.id, catalog, this.pack.gameDesks[plugin.id] ?? this.late!.emptyDesk()));
       if (!items.length) {
         this.toast("Desk", "Turn on a game plugin first.");
         return;
@@ -15501,18 +15598,18 @@ class LarkApp {
     const [pluginId, action, encoded] = actionId.split(":");
     const found = this.gameDeskList().find((item) => item.plugin.id === pluginId);
     if (!found || !action) return;
-    const desk = this.pack.gameDesks[pluginId] ?? emptyDesk();
-    const name = deskName(found.catalog, desk);
+    const desk = this.pack.gameDesks[pluginId] ?? this.late!.emptyDesk();
+    const name = this.late!.displayName(found.catalog, desk);
     if (action === "session") {
       this.toggleDeskSession(pluginId);
       return;
     }
     if (action === "lfg") {
-      this.insertDesk(lfgText(name, desk));
+      this.insertDesk(this.late!.lfgText(name, desk));
       return;
     }
     if (action === "build") {
-      const text = buildText(name, found.catalog.slots, desk);
+      const text = this.late!.buildText(name, found.catalog.slots, desk);
       if (!text) this.toast("Build", "Fill in a slot first.");
       else this.insertDesk(text);
       return;
@@ -15522,7 +15619,7 @@ class LarkApp {
       return;
     }
     if (action === "crew") {
-      const text = crewText(name, desk);
+      const text = this.late!.crewText(name, desk);
       if (!text) this.toast("Crew", "Add a line in the plugin settings.");
       else this.insertDesk(text);
       return;
@@ -15531,9 +15628,9 @@ class LarkApp {
   }
 
   private toggleDeskSession(id: string) {
-    const current = this.pack.gameDesks[id] ?? emptyDesk();
+    const current = this.pack.gameDesks[id] ?? this.late!.emptyDesk();
     const running = current.sessionStart === 0;
-    this.pack.gameDesks = setSession(this.pack.gameDesks, id, running, Date.now());
+    this.pack.gameDesks = this.late!.setSession(this.pack.gameDesks, id, running, Date.now());
     this.savePack();
     if (!running) this.clearSessionStatus();
     else this.syncGameSessions(true);
@@ -15561,16 +15658,16 @@ class LarkApp {
   private async lookupDesk(pluginId: string) {
     const found = this.gameDeskList().find((item) => item.plugin.id === pluginId);
     if (!found) return;
-    const desk = this.pack.gameDesks[pluginId] ?? emptyDesk();
-    const name = deskName(found.catalog, desk);
-    const kind = activeStatKind(found.catalog, desk);
+    const desk = this.pack.gameDesks[pluginId] ?? this.late!.emptyDesk();
+    const name = this.late!.displayName(found.catalog, desk);
+    const kind = this.late!.activeStatKind(found.catalog, desk);
     if (kind === "card") {
-      const text = statsCard(name, desk);
+      const text = this.late!.statsCard(name, desk);
       if (!text) this.toast("Stats", "Add a line first.");
       else this.insertDesk(text);
       return;
     }
-    const target = profileTarget(kind, desk.statId);
+    const target = this.late!.profileTarget(kind, desk.statId);
     if (!target) {
       this.toast("Stats", found.catalog.stats?.hint || "That is not a public profile.");
       return;
@@ -15578,9 +15675,9 @@ class LarkApp {
     if (kind === "steam" && isTauri()) {
       try {
         const xml = await invoke<string>("read_public_profile", { kind: "steam", id: desk.statId.trim() });
-        const card = parseSteamProfile(xml, target.url);
+        const card = this.late!.parseSteamProfile(xml, target.url);
         if (card) {
-          this.insertDesk(statsCard(name, desk, card));
+          this.insertDesk(this.late!.statsCard(name, desk, card));
           return;
         }
       } catch {
@@ -15593,7 +15690,7 @@ class LarkApp {
     } catch {
       window.open(target.url, "_blank", "noopener,noreferrer");
     }
-    const text = statsCard(name, desk, null, target.url);
+    const text = this.late!.statsCard(name, desk, null, target.url);
     if (text) this.insertDesk(text);
     else this.toast("Stats", "Opened the public page.");
   }
@@ -15603,7 +15700,7 @@ class LarkApp {
     for (const { plugin, catalog } of this.gameDeskList()) {
       const desk = this.pack.gameDesks[plugin.id];
       if (!desk?.sessionStart || !desk.presence) continue;
-      const line = sessionStatusLine(deskName(catalog, desk), desk.sessionStart, now);
+      const line = this.late!.sessionStatusLine(this.late!.displayName(catalog, desk), desk.sessionStart, now);
       if (line) this.writeSession(line, desk.presenceReplace, force);
       return;
     }
@@ -15611,7 +15708,7 @@ class LarkApp {
 
   private writeSession(line: string, replace: boolean, force: boolean) {
     if (this.demo) return;
-    if (!canReplaceSession(this.me.custom ?? "", this.sessionShown, replace)) return;
+    if (!this.late!.canReplaceSession(this.me.custom ?? "", this.sessionShown, replace)) return;
     const now = Date.now();
     if (!force && !shouldWritePlaying(this.sessionShown, line, this.sessionWrite, now)) return;
     this.sessionShown = line;
@@ -16876,8 +16973,12 @@ class LarkApp {
   }
 
   private showSocialMenu(x: number, y: number, items: { id: string; label: string; danger?: boolean }[], onPick: (id: string) => void) {
+    if (!this.late) {
+      void this.ensureLate().then(() => this.showSocialMenu(x, y, items, onPick));
+      return;
+    }
     this.closeSocialMenu();
-    const menu = renderContextMenu(x, y, items, (id) => {
+    const menu = this.late!.renderContextMenu(x, y, items, (id) => {
       this.closeSocialMenu();
       onPick(id);
     });
@@ -16938,7 +17039,10 @@ class LarkApp {
       else if (id === "apps") window.open("https://discord.com/app-directory", "_blank", "noopener");
       else if (id === "roles") this.openRoleMenu(person);
       else if (id === "mod") {
-        if (requestModView(person.id, this.guildId) !== "called") this.toast("Mod View", "Mod View is not available yet.");
+        const guildId = this.guildId;
+        void this.ensureLate().then(() => {
+          if (requestModView(person.id, guildId) !== "called") this.toast("Mod View", "Mod View is not available yet.");
+        });
       } else if (id === "copy-id") void this.copySocialId(person.id, "User ID");
     });
   }
@@ -17155,6 +17259,10 @@ class LarkApp {
       panel.append(el("p", "empty", "No profile for this conversation."));
       return;
     }
+    if (!this.late) {
+      void this.ensureLate().then(() => this.paintProfilePanel());
+      return;
+    }
     if (panel.dataset.user !== person.id) {
       panel.dataset.user = person.id;
       if (!this.demo) {
@@ -17166,13 +17274,13 @@ class LarkApp {
       }
     }
     const details = this.wireProfile?.id === person.id ? this.wireProfile : null;
-    const sample = this.demo && !details ? sampleProfile(person) : null;
+    const sample = this.demo && !details ? this.late!.sampleProfile(person) : null;
     const roles = this.profileRoles(person);
-    renderProfileCard(panel, {
+    this.late!.renderProfileCard(panel, {
       person,
       self: false,
       statusPicker: false,
-      roles: roles.length ? roles : (sample ? sampleRoles() : []),
+      roles: roles.length ? roles : (sample ? this.late!.sampleRoles() : []),
       placement: "panel",
       details: details ? {
         id: details.id,
@@ -17609,8 +17717,57 @@ class LarkApp {
     }
   }
 
+  private parkCallChrome() {
+    const chat = this.messagesEl?.parentElement;
+    if (chat) {
+      chat.dataset.call = "off";
+      chat.dataset.strip = "closed";
+      chat.classList.remove("is-call-full");
+    }
+    if (this.messagesEl) this.messagesEl.hidden = false;
+    if (this.callStrip) {
+      if (this.callStrip.childElementCount) clear(this.callStrip);
+      this.callStrip.hidden = true;
+    }
+    if (this.callSplit) this.callSplit.hidden = true;
+    if (this.callHandle) this.callHandle.hidden = true;
+    if (this.callSplitBar?.childElementCount) clear(this.callSplitBar);
+    if (this.voiceDock?.childElementCount) clear(this.voiceDock);
+    if (this.callPip && !this.callPip.hidden) {
+      if (this.callPip.childElementCount) clear(this.callPip);
+      this.callPip.hidden = true;
+    }
+  }
+
+  /** Settings, profile, call tiles, inbox, and mod view. Kept off the first message paint. */
+  private ensureLate(): Promise<typeof import("./late")> {
+    if (this.late) return Promise.resolve(this.late);
+    if (!this.lateTask) {
+      this.lateTask = Promise.all([
+        import("./late"),
+        import("../share-settings").then((mod) => mod.installShareSettings()),
+      ]).then(([mod]) => {
+        this.late = mod;
+        this.bootModView();
+        return mod;
+      });
+    }
+    return this.lateTask;
+  }
+
+  private scheduleLate() {
+    const run = () => { void this.ensureLate(); };
+    if (this.bench) window.setTimeout(run, 8000);
+    else {
+      const idle = window.requestIdleCallback ?? ((fn: IdleRequestCallback) => window.setTimeout(() => fn({ didTimeout: false, timeRemaining: () => 0 }), 400));
+      idle(() => run());
+    }
+  }
+
   private bootModView() {
-    installModView({
+    if (!this.late || this.modReady) return;
+    this.modReady = true;
+    this.late.installModView({
       isDemo: () => this.demo || !isTauri(),
       name: (userId) => this.directory[userId]?.name || this.userNames[userId] || "Member",
       roles: (guildId) => (this.rolesByGuild[guildId] ?? [])

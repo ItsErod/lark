@@ -7,6 +7,37 @@ export interface WindowSlice {
 /** Below this, mounting every row is cheaper than spacers. */
 export const VIRTUAL_MIN = 32;
 
+/** Rows kept outside the viewport. Two covers the next scroll frame without mounting a second screen. */
+export const MESSAGE_OVERSCAN = 2;
+
+export type RowReuseOp =
+  | { t: "keep"; id: string }
+  | { t: "make"; from: number; to: number };
+
+/**
+ * Turn a scroll from `mounted` ids to `next` ids into ordered keep/create runs.
+ * Indexes on `make` are positions in `next`.
+ */
+export function rowReuseOps(mounted: readonly string[], next: readonly string[]): RowReuseOp[] {
+  const have = new Set(mounted);
+  const ops: RowReuseOp[] = [];
+  let makeFrom = -1;
+  const flush = (to: number) => {
+    if (makeFrom < 0) return;
+    ops.push({ t: "make", from: makeFrom, to });
+    makeFrom = -1;
+  };
+  for (let index = 0; index < next.length; index += 1) {
+    const id = next[index];
+    if (have.has(id)) {
+      flush(index);
+      ops.push({ t: "keep", id });
+    } else if (makeFrom < 0) makeFrom = index;
+  }
+  flush(next.length);
+  return ops;
+}
+
 export interface SpanWindow {
   start: number;
   end: number;

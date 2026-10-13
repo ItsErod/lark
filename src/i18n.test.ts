@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogSize, hasPhrase, localizeTree, setLocale, t } from "./i18n";
+import { catalogSize, ensurePhrases, hasPhrase, localizeTree, setLocale, t } from "./i18n";
 import { phrases } from "./i18n-phrases";
 
 class FakeLabel {
@@ -43,7 +43,8 @@ function fakeLabel(text: string, children: FakeLabel[] = []) {
 }
 
 describe("i18n", () => {
-  it("keeps English and switches the same source live", () => {
+  it("keeps English and switches the same source live", async () => {
+    await ensurePhrases();
     setLocale("en");
     expect(t("Friends")).toBe("Friends");
     expect(t("Not a chrome string")).toBe("Not a chrome string");

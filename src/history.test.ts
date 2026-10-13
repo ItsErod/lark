@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildViewMessage } from "./render/message";
 import type { RenderContext } from "./render/content";
-import { HISTORY_PAGE, AFTER_MESSAGE_PAINT, historyPath, initialHistory, reconcileHistory } from "./history";
+import { HISTORY_PAGE, AFTER_MESSAGE_PAINT, droppedMessageIds, historyPath, initialHistory, reconcileHistory } from "./history";
 import { anchoredScrollTop } from "./scroll";
 import { spanWindow } from "./virtual";
 
@@ -43,6 +43,13 @@ describe("channel history", () => {
     const echoed = { ...row(90), nonce: "local-abc" };
     expect(reconcileHistory([pending], [echoed]).map((item) => item.id)).toEqual([echoed.id]);
     expect(reconcileHistory([{ id: "local-new", nonce: "local-new" }], fresh).at(-1)?.id).toBe("local-new");
+  });
+
+  it("names the ids dropped when a channel is shrunk to its newest page", () => {
+    const cached = Array.from({ length: 80 }, (_, index) => row(index));
+    const visible = initialHistory(cached, 20);
+    expect(droppedMessageIds(cached, visible)).toEqual(cached.slice(0, 60).map((item) => item.id));
+    expect(droppedMessageIds(visible, visible)).toEqual([]);
   });
 
   it("keeps the viewport when a page of older messages is prepended", () => {

@@ -1,6 +1,9 @@
-import type { RingMotion, StageMember, StageTile, VoiceLinkStatus } from "../voice-stage";
-import { focusLayout, signalBars, signalLabel } from "../voice-stage";
+import type { RingMotion, StageMember, StageTile } from "../voice-stage";
+import { focusLayout } from "../voice-stage";
 import { clear, el, icon, portrait, paths } from "./dom";
+import { signalMeter, speakWrap } from "./voice-bits";
+
+export { signalMeter, speakWrap };
 
 /**
  * Call tiles are generic. A screen tile is the stream / Go Live slot: the same
@@ -84,23 +87,6 @@ export interface CallStageHandlers {
   onGuildSound?: (id: string) => void;
   onActivity?: (id: string) => void;
   onWatch?: (url: string) => void;
-}
-
-export function speakWrap(avatar: HTMLElement, motion: RingMotion, large = false): HTMLElement {
-  const wrap = el("span", `speak-ring${large ? " is-lg" : ""} is-${motion}`);
-  const spin = el("span", "speak-ring-spin");
-  spin.setAttribute("aria-hidden", "true");
-  wrap.append(spin, avatar);
-  return wrap;
-}
-
-export function signalMeter(status: VoiceLinkStatus): HTMLElement {
-  const bars = signalBars(status);
-  const meter = el("span", `voice-signal is-${bars}`);
-  meter.setAttribute("role", "img");
-  meter.setAttribute("aria-label", signalLabel(bars));
-  for (let index = 0; index < 3; index += 1) meter.append(el("i"));
-  return meter;
 }
 
 export interface StripPerson {

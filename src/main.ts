@@ -9,7 +9,6 @@ import "./design-chrome.css";
 import { installCrashHandlers, reportCrash } from "./crash";
 import { notifyInterfaceBoot } from "./interface-update";
 import { mount } from "./ui/app";
-import { mountCallPopout } from "./ui/call-popout";
 
 installCrashHandlers();
 
@@ -23,10 +22,19 @@ if (!new URLSearchParams(location.search).has("bench")) {
 }
 
 const root = document.querySelector("#app");
-if (root instanceof HTMLElement) {
+const popout = new URLSearchParams(location.search).has("popout");
+if (root instanceof HTMLElement && popout) {
+  void import("./ui/call-popout").then(({ mountCallPopout }) => {
+    try {
+      mountCallPopout(root);
+      notifyInterfaceBoot();
+    } catch (error) {
+      reportCrash(error);
+    }
+  });
+} else if (root instanceof HTMLElement) {
   try {
-    if (new URLSearchParams(location.search).has("popout")) mountCallPopout(root);
-    else mount(root);
+    mount(root);
     notifyInterfaceBoot();
   } catch (error) {
     reportCrash(error);
