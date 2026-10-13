@@ -413,7 +413,7 @@ export function defaultCallView(): CallViewPrefs {
   return {
     showChat: false,
     fullScreen: false,
-    grid: true,
+    grid: false,
     showNonVideo: true,
     messagePreviews: false,
     hideNames: false,

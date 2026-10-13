@@ -14,8 +14,10 @@ import {
   speakColor,
   speakingMotion,
   stageGroups,
+  focusLayout,
   stageTiles,
   startStageBody,
+  voiceStatusNote,
   visibleCallTiles,
   voiceBadges,
   watchEmbedUrl,
@@ -57,6 +59,30 @@ describe("voice stage", () => {
     expect(tiles[1].badge).toBeUndefined();
     expect(tiles[2]).toMatchObject({ speaking: true, muted: false, mixable: true, volume: 100 });
     expect(tiles[3]).toMatchObject({ speaking: false, muted: true, volume: 80, mixable: true });
+  });
+
+  it("puts the share and the speaker on the stage and everyone else in a caption", () => {
+    const layout = focusLayout([
+      member({ id: "3", name: "Jonah Adler", speaking: true }),
+      member({ id: "2", name: "Maya Chen", sharing: true }),
+      member({ id: "4", name: "Priya Shah" }),
+      member({ id: "1", name: "Ethan Park", self: true }),
+    ]);
+    expect(layout.primary).toMatchObject({ kind: "screen", userId: "2" });
+    expect(layout.speaker).toMatchObject({ kind: "avatar", userId: "3", speaking: true });
+    expect(layout.captions.map((caption) => caption.label)).toEqual(["Priya Shah", "Ethan Park · You"]);
+    expect(voiceStatusNote({ self: true, speaking: true, sharing: true })).toBe("You");
+    expect(voiceStatusNote({ self: false, speaking: false, sharing: true })).toBe("Sharing");
+  });
+
+  it("gives the wide pane to the speaker when nobody is sharing", () => {
+    const layout = focusLayout([
+      member({ id: "2", name: "Maya Chen" }),
+      member({ id: "3", name: "Jonah Adler", speaking: true }),
+    ]);
+    expect(layout.primary).toMatchObject({ kind: "avatar", userId: "3" });
+    expect(layout.speaker).toBeNull();
+    expect(layout.captions.map((caption) => caption.label)).toEqual(["Maya Chen"]);
   });
 
   it("treats deafen and a local mute as silence", () => {

@@ -1,5 +1,5 @@
-import type { RingMotion, StageTile, VoiceLinkStatus } from "../voice-stage";
-import { signalBars, signalLabel } from "../voice-stage";
+import type { RingMotion, StageMember, StageTile, VoiceLinkStatus } from "../voice-stage";
+import { focusLayout, signalBars, signalLabel } from "../voice-stage";
 import { clear, el, icon, portrait, paths } from "./dom";
 
 /**
@@ -172,6 +172,79 @@ export function renderCallStage(
   row.append(grid);
   if (chat) row.append(chat);
   host.append(row, controlBar(handlers));
+}
+
+/** Share and the person speaking share a short band. Everyone else is a caption. The bar stays in the band. */
+export function renderFocusStage(
+  host: HTMLElement,
+  members: StageMember[],
+  motion: RingMotion,
+  handlers: CallStageHandlers,
+): void {
+  clear(host);
+  host.className = "voice-stage is-focus-band";
+  host.setAttribute("aria-label", "Voice call");
+  const layout = focusLayout(members);
+  const band = el("div", `focus${layout.speaker ? "" : " is-solo"}`);
+  const primary = el("div", "focus-primary");
+  primary.dataset.callGrid = "";
+  if (!layout.primary) primary.append(el("p", "voice-empty", "Nobody is in this channel yet."));
+  else if (layout.primary.kind === "avatar") primary.append(speakerPane(layout.primary, handlers.onMenu));
+  else primary.append(tileView(layout.primary, motion, handlers.onMenu));
+  band.append(primary);
+  if (layout.speaker) band.append(speakerPane(layout.speaker, handlers.onMenu));
+  const foot = el("div", "focus-foot");
+  const captions = el("div", "focus-captions");
+  captions.setAttribute("aria-label", "Also in this call");
+  for (const caption of layout.captions) {
+    const item = el("span", "focus-caption", caption.label);
+    item.dataset.voiceUser = caption.userId;
+    captions.append(item);
+  }
+  foot.append(captions, compactBar(handlers));
+  host.append(band, foot);
+}
+
+function speakerPane(tile: StageTile, onMenu: CallStageHandlers["onMenu"]): HTMLElement {
+  const node = el("div", `focus-speaker${tile.speaking ? " is-speaking" : ""}`);
+  node.dataset.voiceUser = tile.userId;
+  const copy = el("span", "focus-copy");
+  copy.append(el("strong", "focus-name", tile.name));
+  copy.append(el("span", "focus-note", tile.speaking ? "Speaking" : tile.self ? "You" : "Quiet"));
+  node.append(portrait(tile.name, tile.userId, tile.avatarUrl), copy);
+  if (tile.mixable) {
+    node.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      onMenu(tile.userId, event.clientX, event.clientY);
+    });
+  }
+  return node;
+}
+
+function compactBar(handlers: CallStageHandlers): HTMLElement {
+  const bar = el("div", "voice-bar is-compact");
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", "Call controls");
+  bar.append(callButton(handlers.muted ? "Unmute" : "Mute", handlers.muted ? paths.micOff : paths.mic, handlers.onMute, { hot: handlers.muted }));
+  bar.append(callButton(handlers.deafened ? "Undeafen" : "Deafen", handlers.deafened ? paths.headphonesOff : paths.headphones, handlers.onDeafen, { hot: handlers.deafened }));
+  bar.append(callButton(handlers.cameraOn ? "Turn off camera" : "Turn on camera", handlers.cameraOn ? paths.camera : paths.cameraOff, handlers.onCamera, { live: handlers.cameraOn }));
+  bar.append(callButton(handlers.shareOn ? "Stop sharing" : "Share your screen", handlers.shareOn ? paths.monitor : paths.monitor, handlers.onShare, { live: handlers.shareOn }));
+  if (handlers.onMore) {
+    const more = el("div", "voice-slot");
+    more.append(callButton(handlers.moreOpen ? "Close more" : "More", paths.panels, handlers.onMore, { live: Boolean(handlers.moreOpen) }));
+    if (handlers.moreOpen) more.append(moreMenu(handlers));
+    bar.append(more);
+  }
+  const leave = el("button", "focus-leave", "Leave");
+  leave.type = "button";
+  leave.setAttribute("aria-label", "Disconnect");
+  leave.title = "Leave";
+  leave.addEventListener("click", (event) => {
+    event.stopPropagation();
+    handlers.onLeave();
+  });
+  bar.append(leave);
+  return bar;
 }
 
 function tileView(tile: StageTile, motion: RingMotion, onMenu: CallStageHandlers["onMenu"]): HTMLElement {
