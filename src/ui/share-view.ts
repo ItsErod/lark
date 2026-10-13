@@ -1,4 +1,7 @@
 import { el } from "./dom";
+import { liveBadge } from "./voice-bits";
+
+export { liveBadge };
 import {
   SHARE_HEIGHTS,
   SHARE_RATES,
@@ -48,12 +51,6 @@ export interface ShareDialogHandlers {
 }
 
 const previews = new Map<string, H264Preview>();
-
-export function liveBadge(paused = false): HTMLElement {
-  const badge = el("span", paused ? "live-badge is-paused" : "live-badge", paused ? "PAUSED" : "LIVE");
-  badge.dataset.liveBadge = paused ? "paused" : "live";
-  return badge;
-}
 
 export function shareDialog(handlers: ShareDialogHandlers): HTMLElement {
   const dialog = el("section", "share-dialog");

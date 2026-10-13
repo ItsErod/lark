@@ -41,8 +41,8 @@ describe("go live quality", () => {
     expect(qualityLabel(720, 60)).toBe("720p · 60 fps · 4.5 Mbps");
   });
 
-  it("registers screen share settings on Voice & Video", () => {
-    installShareSettings();
+  it("registers screen share settings on Voice & Video", async () => {
+    await installShareSettings();
     const hit = searchSettings("screen share quality");
     expect(hit[0]?.section).toBe("voice");
     expect(hit[0]?.id).toBe("voice.share.quality");

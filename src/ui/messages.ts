@@ -227,6 +227,41 @@ export function renderMessage(
     }
     body.append(row);
   }
+  article.append(body);
+  let actionsReady = false;
+  const armActions = () => {
+    if (actionsReady) return;
+    actionsReady = true;
+    mountMessageActions(body, view, options);
+  };
+  article.addEventListener("pointerenter", armActions);
+  article.addEventListener("focusin", armActions);
+  article.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    armActions();
+    openMessageMenu(article, view, options, event.clientX, event.clientY);
+  });
+  if (options.blocked) {
+    const hidden = el("div", "blocked-message");
+    const show = el("button", "text-button", "Show message");
+    show.type = "button";
+    hidden.append("Blocked message. ", show);
+    article.hidden = true;
+    show.addEventListener("click", () => {
+      hidden.remove();
+      article.hidden = false;
+    });
+    wrap.append(hidden);
+  }
+  wrap.append(article);
+  return wrap;
+}
+
+function mountMessageActions(
+  body: HTMLElement,
+  view: ViewMessage,
+  options: Parameters<typeof renderMessage>[1],
+) {
   const actions = el("div", "message-actions");
   for (const emoji of (options.quickReactions ?? []).slice(0, 3)) {
     const button = el("button", "icon-button react-quick", emoji);
@@ -245,25 +280,6 @@ export function renderMessage(
   const more = actionButton("More", paths.panels, () => openMessageMenu(more, view, options));
   actions.append(more);
   body.append(actions);
-  article.append(body);
-  article.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    openMessageMenu(article, view, options, event.clientX, event.clientY);
-  });
-  if (options.blocked) {
-    const hidden = el("div", "blocked-message");
-    const show = el("button", "text-button", "Show message");
-    show.type = "button";
-    hidden.append("Blocked message. ", show);
-    article.hidden = true;
-    show.addEventListener("click", () => {
-      hidden.remove();
-      article.hidden = false;
-    });
-    wrap.append(hidden);
-  }
-  wrap.append(article);
-  return wrap;
 }
 
 function openMessageMenu(

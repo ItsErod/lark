@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { spanWindow, sliceWindow, VIRTUAL_MIN } from "./virtual";
+import { spanWindow, sliceWindow, rowReuseOps, VIRTUAL_MIN } from "./virtual";
 
 describe("virtual window", () => {
   it("keeps a short list fully mounted", () => {
@@ -44,5 +44,24 @@ describe("variable message window", () => {
     const span = spanWindow(200, undefined, 0, 320, 80, 2, false, 100);
     expect(span.start).toBeLessThanOrEqual(100);
     expect(span.end).toBeGreaterThan(100);
+  });
+});
+
+describe("row reuse", () => {
+  it("keeps the overlap and creates the rows that entered the window", () => {
+    expect(rowReuseOps(["10", "11", "12"], ["11", "12", "13"])).toEqual([
+      { t: "keep", id: "11" },
+      { t: "keep", id: "12" },
+      { t: "make", from: 2, to: 3 },
+    ]);
+    expect(rowReuseOps(["10", "11", "12"], ["9", "10", "11"])).toEqual([
+      { t: "make", from: 0, to: 1 },
+      { t: "keep", id: "10" },
+      { t: "keep", id: "11" },
+    ]);
+  });
+
+  it("creates the whole window when nothing on screen is still visible", () => {
+    expect(rowReuseOps(["1", "2"], ["8", "9"])).toEqual([{ t: "make", from: 0, to: 2 }]);
   });
 });

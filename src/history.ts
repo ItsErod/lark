@@ -24,6 +24,16 @@ export function initialHistory<T>(messages: readonly T[], limit = HISTORY_PAGE):
   return messages.slice(messages.length - limit);
 }
 
+/** Ids removed when a cached page is shortened to its tail. Same-length lists drop nothing. */
+export function droppedMessageIds(before: readonly { id: string }[], after: readonly { id: string }[]): string[] {
+  if (after.length >= before.length) return [];
+  const keep = new Set<string>();
+  for (const item of after) keep.add(item.id);
+  const dropped: string[] = [];
+  for (const item of before) if (!keep.has(item.id)) dropped.push(item.id);
+  return dropped;
+}
+
 /**
  * Fold a fresh newest-page into what is already on screen.
  * Overlap keeps older rows the reader already paged in. A stale cache with no

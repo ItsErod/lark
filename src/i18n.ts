@@ -1,6 +1,6 @@
 /** Live UI language. English is the source string. Other catalogs override it. */
 
-import { phrases } from "./i18n-phrases";
+type PhraseRows = Record<string, readonly [string, string, string, string]>;
 
 export type Catalog = Readonly<Record<string, string>>;
 
@@ -432,18 +432,18 @@ const pt: Catalog = {
   "GIF": "GIF",
 };
 
-function merge(base: Catalog, index: 0 | 1 | 2 | 3): Catalog {
-  const out: Record<string, string> = { ...base };
-  for (const [source, row] of Object.entries(phrases)) out[source] = row[index];
-  return out;
-}
+const frCatalog: Record<string, string> = { ...fr };
+const esCatalog: Record<string, string> = { ...es };
+const deCatalog: Record<string, string> = { ...de };
+const ptCatalog: Record<string, string> = { ...pt };
 
-const catalogs: Record<string, Catalog> = {
-  fr: merge(fr, 0),
-  es: merge(es, 1),
-  de: merge(de, 2),
-  "pt-BR": merge(pt, 3),
-  pt: merge(pt, 3),
+/** Inline chrome only. The long phrase file joins these on a non-English locale. */
+const catalogs: Record<string, Record<string, string>> = {
+  fr: frCatalog,
+  es: esCatalog,
+  de: deCatalog,
+  "pt-BR": ptCatalog,
+  pt: ptCatalog,
 };
 
 let current = "en";
@@ -466,8 +466,34 @@ export function hasPhrase(source: string): boolean {
 }
 
 const known = new Set<string>();
-for (const catalog of Object.values(catalogs)) {
+for (const catalog of [frCatalog, esCatalog, deCatalog, ptCatalog]) {
   for (const key of Object.keys(catalog)) known.add(key);
+}
+
+let phrasesReady = false;
+let phraseTask: Promise<void> | null = null;
+
+/** Load the long translation file. English never needs it. */
+export function ensurePhrases(): Promise<void> {
+  if (phrasesReady) return Promise.resolve();
+  if (!phraseTask) {
+    phraseTask = import("./i18n-phrases").then(({ phrases }) => {
+      absorbPhrases(phrases);
+    });
+  }
+  return phraseTask;
+}
+
+function absorbPhrases(phrases: PhraseRows) {
+  if (phrasesReady) return;
+  for (const [source, row] of Object.entries(phrases)) {
+    known.add(source);
+    frCatalog[source] = row[0];
+    esCatalog[source] = row[1];
+    deCatalog[source] = row[2];
+    ptCatalog[source] = row[3];
+  }
+  phrasesReady = true;
 }
 
 /** True when the English source is in a shipped catalog, regardless of the active locale. */
