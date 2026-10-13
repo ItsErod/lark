@@ -624,6 +624,13 @@ pub struct ClientMutualGuild {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ClientMutualPerson {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientProfile {
     pub id: String,
     pub name: String,
@@ -637,6 +644,8 @@ pub struct ClientProfile {
     pub role_ids: Vec<String>,
     pub mutual_guilds: Vec<ClientMutualGuild>,
     pub mutual_friends: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mutual_friends_list: Vec<ClientMutualPerson>,
     pub bot: bool,
     pub joined_at: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1536,6 +1545,47 @@ pub fn blocked_user_ids(relationships: &serde_json::Value) -> Vec<String> {
     out
 }
 
+fn mutual_people(value: &serde_json::Value) -> Vec<ClientMutualPerson> {
+    let Some(list) = value.get("mutual_friends").and_then(|item| item.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in list {
+        let user = item.get("user").unwrap_or(item);
+        let id = item
+            .get("id")
+            .and_then(|value| value.as_str())
+            .or_else(|| user.get("id").and_then(|value| value.as_str()))
+            .unwrap_or("");
+        if !snowflake_ok(id) {
+            continue;
+        }
+        let name = item
+            .get("global_name")
+            .and_then(|value| value.as_str())
+            .filter(|name| !name.is_empty())
+            .or_else(|| {
+                user.get("global_name")
+                    .and_then(|value| value.as_str())
+                    .filter(|name| !name.is_empty())
+            })
+            .or_else(|| {
+                user.get("username")
+                    .and_then(|value| value.as_str())
+                    .filter(|name| !name.is_empty())
+            })
+            .unwrap_or("Someone");
+        out.push(ClientMutualPerson {
+            id: id.to_string(),
+            name: name.to_string(),
+        });
+        if out.len() >= 40 {
+            break;
+        }
+    }
+    out
+}
+
 pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
     profile_from_guild(value, None)
 }
@@ -1644,6 +1694,7 @@ pub fn profile_from_guild(
                 .map(|list| list.len() as u64)
         })
         .unwrap_or(0) as u32;
+    let mutual_friends_list = mutual_people(value);
     Some(ClientProfile {
         id: id.to_string(),
         name,
@@ -1657,6 +1708,7 @@ pub fn profile_from_guild(
         role_ids,
         mutual_guilds,
         mutual_friends,
+        mutual_friends_list,
         bot: user
             .get("bot")
             .and_then(|item| item.as_bool())
@@ -2917,7 +2969,20 @@ mod tests {
         assert!(profile.avatar_url.as_deref().unwrap().contains(".gif"));
         assert_eq!(profile.role_ids, vec!["100000000000000099"]);
         assert_eq!(profile.mutual_friends, 2);
+        assert!(profile.mutual_friends_list.is_empty());
         assert_eq!(profile.mutual_guilds[0].id, "100000000000000010");
+        let with_friends = profile_from_value(&serde_json::json!({
+            "user": {"id": "100000000000000002", "username": "maya"},
+            "mutual_friends": [
+                {"id": "100000000000000003", "username": "jonah", "global_name": "Jonah"},
+                {"id": "nope", "username": "skip"}
+            ],
+            "mutual_friends_count": 1
+        }))
+        .unwrap();
+        assert_eq!(with_friends.mutual_friends, 1);
+        assert_eq!(with_friends.mutual_friends_list.len(), 1);
+        assert_eq!(with_friends.mutual_friends_list[0].name, "Jonah");
 
         let friends = friends_from_relationships(
             &serde_json::json!([

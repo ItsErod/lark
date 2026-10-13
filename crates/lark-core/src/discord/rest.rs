@@ -391,10 +391,10 @@ impl DiscordRest {
         let guild = guild_id.filter(|id| snowflake_ok(id));
         let path = match guild {
             Some(guild) => format!(
-                "/users/{user_id}/profile?with_mutual_guilds=true&with_mutual_friends_count=true&guild_id={guild}"
+                "/users/{user_id}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=true&guild_id={guild}"
             ),
             None => format!(
-                "/users/{user_id}/profile?with_mutual_guilds=true&with_mutual_friends_count=true"
+                "/users/{user_id}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=true"
             ),
         };
         let route = route_key("GET", "/users/{user.id}/profile", user_id);

@@ -4,6 +4,7 @@ import { blockedIds, pendingFriendCount } from "../social";
 import type { Person } from "../types";
 import { colorFor, el, portrait } from "./dom";
 import { renderEmojiPicker } from "./emoji-picker";
+import { profileTabId, renderProfileTabs, type ProfileFriend, type ProfileTabId, type ProfileTabModel } from "./profile-tabs";
 import type { ServerEmoji } from "./status-emoji";
 
 export { blockedIds, pendingFriendCount };
@@ -45,6 +46,7 @@ export interface WireProfile {
   roleIds?: string[];
   mutualGuilds?: { id: string; nick?: string | null }[];
   mutualFriends?: number;
+  mutualFriendsList?: ProfileFriend[];
   bot?: boolean;
   joinedAt?: string;
   badges?: ProfileBadge[];
@@ -65,6 +67,7 @@ export interface ProfileDetails {
   mutualNames: string[];
   mutualGuilds: number;
   mutualFriends: number;
+  mutualFriendsList: ProfileFriend[];
   joinedAt?: string;
   badges: ProfileBadge[];
   widgets: ProfileWidget[];
@@ -88,6 +91,7 @@ export interface ProfileView {
   placement?: ProfilePlacement;
   serverEditor?: boolean;
   statusEmojis?: StatusEmojiSource;
+  profileTab?: ProfileTabId;
 }
 
 /** Stream B adds moderation buttons here. The card renders them and does not own the actions. */
@@ -115,6 +119,8 @@ export interface ProfileActions {
   onJoinVoice?: () => void;
   onWatchStream?: () => void;
   onOpenFull?: () => void;
+  onBack?: () => void;
+  onProfileTab?: (tab: ProfileTabId) => void;
   onSaveServerProfile?: (nick: string, bio: string, avatar: string | null) => void;
   slots?: ProfileActionSlot[];
 }
@@ -136,6 +142,7 @@ export function sampleProfile(person: Person): ProfileDetails {
     mutualNames: ["Northwind"],
     mutualGuilds: 1,
     mutualFriends: 1,
+    mutualFriendsList: [{ id: "3", name: "Jonah" }],
     badges: [{ id: "lark", description: "Lark" }],
     widgets: [],
   };
@@ -235,11 +242,14 @@ export function renderProfileCard(host: HTMLElement, view: ProfileView, actions:
     body.append(statusPicker(view, actions));
   }
 
-  if (details?.bio) {
+  if (placement === "full") {
+    body.append(renderProfileTabs(profileTabModel(view), profileTabId(view.profileTab), (tab) => actions.onProfileTab?.(tab), noteEditor(view, actions)));
+  } else if (details?.bio) {
     const about = el("section", "profile-section");
     about.append(el("h3", "", "About me"), el("p", "", details.bio));
     body.append(about);
   }
+  if (placement !== "full") {
   const since = memberSince(details?.joinedAt);
   if (since) body.append(el("p", "profile-since", since));
   if (view.roles.length) {
@@ -288,6 +298,7 @@ export function renderProfileCard(host: HTMLElement, view: ProfileView, actions:
     notes.append(field, el("p", "hint", "Saved on your Discord account. Other people cannot read it."));
     body.append(notes);
   }
+  }
   if (view.serverEditor && view.self && actions.onSaveServerProfile) {
     body.append(serverProfileEditor(actions));
   }
@@ -330,6 +341,12 @@ export function renderProfileCard(host: HTMLElement, view: ProfileView, actions:
     full.addEventListener("click", actions.onOpenFull);
     actionsRow.append(full);
   }
+  if (placement === "full" && actions.onBack) {
+    const back = el("button", "text-button", "Back");
+    back.type = "button";
+    back.addEventListener("click", actions.onBack);
+    actionsRow.append(back);
+  }
   const close = el("button", "ghost", "Close");
   close.type = "button";
   close.addEventListener("click", actions.onClose);
@@ -337,6 +354,39 @@ export function renderProfileCard(host: HTMLElement, view: ProfileView, actions:
   body.append(actionsRow);
   card.append(body);
   host.append(...(backdrop ? [backdrop, card] : [card]));
+}
+
+function profileTabModel(view: ProfileView): ProfileTabModel {
+  const details = view.details;
+  const widgets = details?.widgets ?? [];
+  return {
+    bio: details?.bio?.trim() ?? "",
+    pronouns: details?.pronouns?.trim() ?? "",
+    since: memberSince(details?.joinedAt),
+    roles: view.roles.map((role) => role.name),
+    badges: (details?.badges ?? []).map((badge) => badge.description || badge.id),
+    note: "",
+    servers: details?.mutualNames ?? [],
+    friends: details?.mutualFriendsList ?? [],
+    friendCount: details?.mutualFriends ?? 0,
+    custom: view.person.custom?.trim() ?? "",
+    activity: view.person.activity?.trim() ?? "",
+    connections: widgets.map((widget) => widget.verified && widget.name ? `${widget.name} · ${widget.kind}` : widget.name || widget.kind).filter(Boolean),
+  };
+}
+
+function noteEditor(view: ProfileView, actions: ProfileActions): HTMLElement | null {
+  if (view.self || !actions.onNote) return null;
+  const notes = el("section", "profile-section");
+  notes.append(el("h3", "", "Note"));
+  const field = el("textarea", "profile-note");
+  field.maxLength = 256;
+  field.value = actions.note ?? "";
+  field.placeholder = "Only you can see this";
+  field.setAttribute("aria-label", `Note for ${view.person.name}`);
+  field.addEventListener("change", () => actions.onNote?.(field.value));
+  notes.append(field, el("p", "hint", "Saved on your Discord account. Other people cannot read it."));
+  return notes;
 }
 
 function badgeRow(badges: ProfileBadge[]): HTMLElement {
