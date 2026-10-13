@@ -9,6 +9,7 @@ export function commandCatalog(): CommandItem[] {
   return [
     { id: "settings", label: "Open settings", hint: "Appearance, voice, plugins", keywords: "settings preferences" },
     { id: "search", label: "Search messages", hint: "This server", keywords: "search find" },
+    { id: "local-search", label: "Search loaded messages", hint: "On this device, across servers", keywords: "search find offline local history index" },
     { id: "split", label: "Toggle split view", hint: "Two channels side by side", keywords: "split pane columns" },
     { id: "theme", label: "Theme editor", hint: "Live colour preview", keywords: "theme color accent editor" },
     { id: "themes", label: "Theme gallery", hint: "Preview and apply a theme", keywords: "theme discord blurple nord dracula catppuccin oled appearance gallery warm" },

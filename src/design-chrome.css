@@ -267,6 +267,52 @@
   background: color-mix(in srgb, black 48%, transparent);
 }
 
+#app .local-search-card {
+  width: min(640px, calc(100% - 32px));
+}
+
+#app .local-search-filters {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+#app .local-search-filters select {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+#app .local-search-jump {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--space-3);
+}
+
+#app .local-hit {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+#app .local-hit .local-where,
+#app .local-hit .local-preview {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
 #app .modal-card,
 #app .switcher-card,
 #app .invite-card,

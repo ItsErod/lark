@@ -262,6 +262,7 @@ import {
 } from "../interface-update";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { formatShortcut, matchShortcut, shortcutConflicts, shortcutFromEvent } from "../shortcuts";
+import type { LocalSearchClient } from "../local-search-client";
 import type { AppConfig, Channel, GameProfile, Guild, NotifyLevel, Person, RawMessage, Shortcuts, SoundClip } from "../types";
 import {
   applyRootOverrides,
@@ -906,6 +907,14 @@ class LarkApp {
   private draftsReady = false;
   private emojiUses: EmojiUse[] = [];
   private searchOpen = false;
+  private localSearchOpen = false;
+  private localSearchSeq = 0;
+  private localSearchPanel: { destroy(): void } | null = null;
+  private localPending = new Map<string, RawMessage[]>();
+  private localTombstones = new Set<string>();
+  private localFlushQueued = false;
+  private localOps: Promise<unknown> = Promise.resolve();
+  private localClientPromise: Promise<LocalSearchClient> | null = null;
   private pinsOpen = false;
   private digestOpen = false;
   private receiptNote = false;
@@ -1042,6 +1051,7 @@ class LarkApp {
         this.pages[id] = initialHistory(messages as RawMessage[]);
         if (trimmed) this.more[id] = true;
       }
+      this.reindexLoaded();
     }
     try {
       this.savedPlace = parsePlace(JSON.parse(localStorage.getItem(PLACE_KEY) ?? "null"));
@@ -3495,6 +3505,7 @@ class LarkApp {
     this.more[id] = page.hasMore;
     this.loading = false;
     for (const message of page.messages) this.absorbMessage(message);
+    this.queueLocalIndex(id);
     if (this.divider[id]) return;
     const marker = firstUnreadId(page.messages.map((message) => message.id), this.lastRead[id]);
     const unread = this.unread[id] ?? 0;
@@ -3617,6 +3628,7 @@ class LarkApp {
         : await this.livePage(id);
       const next = reconcileHistory(this.pages[id] ?? [], page.messages);
       this.pages[id] = next;
+      this.queueLocalIndex(id);
       this.more[id] = page.hasMore || next.length > page.messages.length;
       for (const message of page.messages) this.absorbMessage(message);
       if (!this.divider[id]) {
@@ -3680,6 +3692,7 @@ class LarkApp {
         ? pageMessages(history[id] ?? [], loaded[0].id, HISTORY_PAGE)
         : await this.livePage(id, loaded[0].id);
       this.pages[id] = [...page.messages, ...loaded];
+      this.queueLocalIndex(id);
       this.more[id] = page.hasMore;
       this.scroll = "preserve";
       this.msgSig = "";
@@ -5230,6 +5243,7 @@ class LarkApp {
         }
       }
       if (kept) this.noteLoggedEdit(editing, previous, editing.content);
+      this.queueLocalIndex(id);
       this.msgSig = "";
     } else {
       const localId = outgoingNonce();
@@ -5318,6 +5332,7 @@ class LarkApp {
     this.noteLoggedDelete(message);
     history[id] = (history[id] ?? []).filter((item) => item.id !== message.id);
     this.pages[id] = (this.pages[id] ?? []).filter((item) => item.id !== message.id);
+    this.forgetLocalMessage(id, message.id, message.nonce);
     this.pendingDelete = null;
     if (!this.demo) void invoke("delete_message", { channelId: id, messageId: message.id });
     this.msgSig = "";
@@ -7653,6 +7668,8 @@ class LarkApp {
       } else if (this.themeOpen) {
         this.themeOpen = false;
         this.paintTheme();
+      } else if (this.localSearchOpen) {
+        this.closeLocalSearch();
       } else if (this.searchOpen) {
         this.searchOpen = false;
         this.paintSearch();
@@ -8576,6 +8593,7 @@ class LarkApp {
       if (this.liveChannels[guildId]) return;
       this.liveChannels[guildId] = channels.map(normalizeChannel);
       for (const channel of this.liveChannels[guildId]) this.noteChannel(channel);
+      this.reindexLoaded();
       if (this.holdShell) {
         this.queueChannelCheck();
         return;
@@ -9012,6 +9030,7 @@ class LarkApp {
         for (const channel of this.liveChannels[group.guildId]) this.noteChannel(channel);
         this.wakeChannelWaiters(group.guildId);
       }
+      this.reindexLoaded();
       this.connection = "Connected";
       if (this.holdShell) {
         this.resumeOverlay = false;
@@ -9095,6 +9114,7 @@ class LarkApp {
         this.noteChannel(channel);
         this.refreshChannelBadge(channel.id);
       }
+      this.reindexLoaded();
       if (this.holdShell) {
         this.queueChannelCheck();
         return;
@@ -9160,6 +9180,7 @@ class LarkApp {
       const bucket = this.pages[message.channelId] ?? [];
       const known = bucket.some((item) => sameOutgoing(item, message));
       this.pages[message.channelId] = mergeIncoming(bucket, message);
+      this.queueLocalIndex(message.channelId);
       const prior = history[message.channelId];
       if (prior?.some((item) => sameOutgoing(item, message))) history[message.channelId] = mergeIncoming(prior, message);
       const guildId = message.guildId || this.guildForChannel(message.channelId);
@@ -9239,6 +9260,7 @@ class LarkApp {
           this.noteLoggedEdit(message, message.content, patch.content);
           message.content = patch.content;
           message.edited = true;
+          this.queueLocalIndex(event.channelId);
         }
         if (patch.embeds) message.embeds = patch.embeds;
         if (patch.attachments) message.attachments = patch.attachments;
@@ -9258,6 +9280,7 @@ class LarkApp {
       if (gone) this.noteLoggedDelete(gone);
       if (list) {
         this.pages[event.channelId] = list.filter((item) => item.id !== event.messageId);
+        this.forgetLocalMessage(event.channelId, event.messageId, gone?.nonce);
         if (event.channelId === this.channelId) this.paintMessages();
       }
     } else if (event.kind === "reaction" && event.channelId && event.messageId && event.emoji) {
@@ -9762,6 +9785,7 @@ class LarkApp {
           this.pages[channelId] = page.messages;
           this.more[channelId] = page.hasMore;
           this.warm.add(channelId);
+          this.queueLocalIndex(channelId);
           continue;
         }
         try {
@@ -9770,6 +9794,7 @@ class LarkApp {
             this.pages[channelId] = page.messages;
             this.more[channelId] = page.hasMore;
             this.warm.add(channelId);
+            this.queueLocalIndex(channelId);
           }
           if (token !== this.prefetchToken) return;
         } catch {
@@ -10394,11 +10419,13 @@ class LarkApp {
     if (this.demo) {
       const page = pageMessages(history[id] ?? [], undefined, HISTORY_PAGE);
       this.pages[id] = page.messages;
+      this.queueLocalIndex(id);
       this.paintSplit();
       return;
     }
     const page = await this.livePage(id);
     this.pages[id] = page.messages;
+    this.queueLocalIndex(id);
     this.paintSplit();
   }
 
@@ -10407,7 +10434,8 @@ class LarkApp {
     else if (id === "search") {
       this.searchOpen = true;
       this.paintSearch();
-    } else if (id === "split") this.toggleSplit();
+    } else if (id === "local-search") this.openLocalSearch();
+    else if (id === "split") this.toggleSplit();
     else if (id === "theme") {
       this.themeOpen = true;
       this.paintTheme();
@@ -12554,6 +12582,135 @@ class LarkApp {
     return undefined;
   }
 
+  private localClient(): Promise<LocalSearchClient> {
+    if (!this.localClientPromise) {
+      this.localClientPromise = import("../local-search-client").then((mod) => mod.startLocalSearch());
+    }
+    return this.localClientPromise;
+  }
+
+  private localOp(task: () => Promise<void>): void {
+    this.localOps = this.localOps.then(task).catch(() => undefined);
+  }
+
+  private reindexLoaded() {
+    if (this.bench) return;
+    for (const id of Object.keys(this.pages)) this.queueLocalIndex(id);
+  }
+
+  private queueLocalIndex(channelId: string) {
+    if (this.bench || !channelId) return;
+    const list = this.pages[channelId];
+    if (!list?.length) return;
+    this.localPending.set(channelId, list.slice());
+    this.armLocalFlush();
+  }
+
+  private armLocalFlush() {
+    if (this.localFlushQueued) return;
+    this.localFlushQueued = true;
+    const run = () => {
+      this.localFlushQueued = false;
+      this.localOp(() => this.flushLocalIndex());
+    };
+    const idle = window.requestIdleCallback;
+    if (typeof idle === "function") idle(() => run(), { timeout: 700 });
+    else window.setTimeout(run, 200);
+  }
+
+  private async flushLocalIndex(): Promise<void> {
+    const pending = [...this.localPending.entries()];
+    this.localPending.clear();
+    if (!pending.length) return;
+    const { localDocFromMessage } = await import("../local-search");
+    const docs = [];
+    for (const [, messages] of pending) {
+      for (const message of messages) {
+        const doc = localDocFromMessage({ ...message, mentionUsers: this.mentionNames(message) }, this.placeFor(message.channelId));
+        if (!doc || this.localTombstones.has(doc.key)) continue;
+        docs.push(doc);
+      }
+    }
+    if (docs.length) (await this.localClient()).upsert(docs);
+    if (this.localPending.size) this.armLocalFlush();
+  }
+
+  private forgetLocalMessage(channelId: string, messageId: string, nonce?: string | null) {
+    if (this.bench || !channelId || !messageId) return;
+    this.localOp(async () => {
+      const { docKey, localKeys } = await import("../local-search");
+      const keys = localKeys(channelId, messageId, nonce);
+      for (const key of keys) this.localTombstones.add(key);
+      const queued = this.localPending.get(channelId);
+      if (queued) {
+        this.localPending.set(channelId, queued.filter((message) => !keys.includes(docKey(message.channelId || channelId, message.id, message.nonce))));
+      }
+      (await this.localClient()).remove(keys);
+    });
+  }
+
+  private mentionNames(message: RawMessage): { id: string; name: string }[] {
+    const names = new Map<string, string>();
+    for (const mention of message.mentionUsers ?? []) {
+      if (mention.id && mention.name && mention.name !== "someone") names.set(mention.id, mention.name);
+    }
+    for (const id of message.mentionIds ?? []) {
+      if (names.has(id)) continue;
+      const name = this.userNames[id];
+      if (name) names.set(id, name);
+    }
+    return [...names.entries()].map(([id, name]) => ({ id, name }));
+  }
+
+  private placeFor(channelId: string): { guildId: string; guildName: string; channelName: string } {
+    const channel = this.channelById(channelId);
+    const guildId = this.guildForChannel(channelId) ?? "";
+    const guildName = guildId
+      ? (this.guilds().find((guild) => guild.id === guildId)?.name ?? "")
+      : channel?.kind === "group" ? "Group DM" : "Direct messages";
+    return { guildId, guildName, channelName: channel?.name ?? "" };
+  }
+
+  private openLocalSearch() {
+    this.searchOpen = false;
+    this.paintSearch();
+    this.closeSwitcher();
+    this.localSearchPanel?.destroy();
+    this.localSearchPanel = null;
+    const seq = ++this.localSearchSeq;
+    this.localSearchOpen = true;
+    void import("./local-search-view").then(({ openLocalSearchPanel }) => {
+      if (seq !== this.localSearchSeq || !this.localSearchOpen) return;
+      this.localSearchPanel = openLocalSearchPanel(this.root, {
+        query: (query) => this.localClient().then((client) => client.query(query)),
+        present: (hit) => this.localHitText(hit),
+        jump: (channelId, messageId) => {
+          this.closeLocalSearch();
+          void this.jumpToMessage(channelId, messageId);
+        },
+        close: () => this.closeLocalSearch(),
+      });
+    });
+  }
+
+  private closeLocalSearch() {
+    this.localSearchOpen = false;
+    this.localSearchSeq += 1;
+    this.localSearchPanel?.destroy();
+    this.localSearchPanel = null;
+  }
+
+  private localHitText(hit: { channelId: string; guildId: string; authorName: string; channelName: string; guildName: string; preview: string }): { author: string; where: string; preview: string } {
+    const channel = this.channelById(hit.channelId);
+    const direct = !hit.guildId || channel?.kind === "dm" || channel?.kind === "group";
+    if (direct && this.hideDirect()) return { author: "Someone", where: "Direct message", preview: "Message hidden" };
+    const place = this.placeFor(hit.channelId);
+    const guild = place.guildName || hit.guildName || "Server";
+    const name = place.channelName || hit.channelName;
+    const where = (place.guildId || hit.guildId) ? `${guild} · #${name || "channel"}` : `${guild} · ${name || "conversation"}`;
+    return { author: this.maskText(hit.authorName), where: this.maskText(where), preview: this.maskText(hit.preview) };
+  }
+
   private paintSearch() {
     let overlay = document.getElementById("lark-search");
     if (!this.searchOpen) {
@@ -12630,7 +12787,13 @@ class LarkApp {
       window.clearTimeout(timer);
       timer = window.setTimeout(render, 48);
     });
-    card.append(input, results);
+    const loaded = el("div", "local-search-jump");
+    const loadedButton = el("button", "text-button", "Search loaded messages");
+    loadedButton.type = "button";
+    loadedButton.title = "Messages already on this device, across servers";
+    loadedButton.addEventListener("click", () => this.openLocalSearch());
+    loaded.append(loadedButton);
+    card.append(input, loaded, results);
     overlay.append(card);
     overlay.onclick = (event) => {
       if (event.target === overlay) {
@@ -15024,12 +15187,14 @@ class LarkApp {
   private storeEcho(channelId: string, message: RawMessage) {
     history[channelId] = mergeIncoming(history[channelId] ?? [], message);
     this.pages[channelId] = mergeIncoming(this.pages[channelId] ?? [], message);
+    this.queueLocalIndex(channelId);
   }
 
   private dropEcho(channelId: string, localId: string) {
     const keep = (item: RawMessage) => item.id !== localId && item.nonce !== localId;
     history[channelId] = (history[channelId] ?? []).filter(keep);
     this.pages[channelId] = (this.pages[channelId] ?? []).filter(keep);
+    this.forgetLocalMessage(channelId, localId, localId);
   }
 
   private async postPlain(channelId: string, content: string): Promise<boolean> {
