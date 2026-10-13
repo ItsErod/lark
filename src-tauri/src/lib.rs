@@ -663,6 +663,7 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     *state.gateway.lock().await = Some(gateway_tx);
     let app_handle = app.clone();
     let voice_slot = state.voice.clone();
+    let voice_log = state.voice_log.clone();
     let premium_type = Arc::clone(&state.premium_type);
     let streams = state.streams.clone();
     tauri::async_runtime::spawn(async move {
@@ -677,9 +678,11 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
                 }
                 ClientEvent::VoiceServer { guild_id, endpoint, token } => {
                     if let Ok(mut slot) = voice_slot.lock() {
-                        slot.guild_id = guild_id.clone();
-                        slot.endpoint = endpoint.clone();
-                        slot.token = token.clone();
+                        if !endpoint.is_empty() && !token.is_empty() {
+                            slot.guild_id = guild_id.clone();
+                            slot.endpoint = endpoint.clone();
+                            slot.token = token.clone();
+                        }
                     }
                     Some(serde_json::json!({
                         "kind": "voiceServer",
@@ -699,14 +702,15 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
                 }
                 ClientEvent::VoiceState(state) => {
                     if let Ok(mut slot) = voice_slot.lock() {
-                        if slot.user_id == state.user_id && !state.session_id.is_empty() {
-                            slot.session_id = state.session_id.clone();
-                            if !state.guild_id.is_empty() {
-                                slot.guild_id = state.guild_id.clone();
-                            }
-                        }
+                        store_voice_session(&mut slot, state);
                     }
                     serde_json::to_value(&event).ok()
+                }
+                ClientEvent::VoiceStep { step } => {
+                    if let Ok(mut log) = voice_log.lock() {
+                        log.push(step.clone());
+                    }
+                    None
                 }
                 _ => serde_json::to_value(&event).ok(),
             };
@@ -1222,6 +1226,11 @@ async fn join_voice(
             slot.guild_id = guild;
         }
     }
+    if let Ok(mut log) = state.voice_log.lock() {
+        *log = lark_core::discord::voice_log::VoiceLog::default();
+        log.push("join requested");
+        log.push("op4 queued");
+    }
     gateway
         .send(lark_core::discord::GatewayCommand::VoiceState {
             guild_id: guild_id.clone(),
@@ -1254,10 +1263,6 @@ async fn join_voice(
     let slot = state.voice.clone();
     let voice_log = state.voice_log.clone();
     let camera = state.camera.clone();
-    if let Ok(mut log) = voice_log.lock() {
-        *log = lark_core::discord::voice_log::VoiceLog::default();
-        log.push("join requested");
-    }
     let server_id = guild_id.unwrap_or(channel_id);
     tauri::async_runtime::spawn(async move {
         let ready = wait_for_voice(&slot, &server_id, &rx, camera).await;
@@ -1265,9 +1270,13 @@ async fn join_voice(
             return;
         }
         let Ok(mut hello) = ready else {
+            let detail = voice_wait_detail(&slot);
+            if let Ok(mut log) = voice_log.lock() {
+                log.push(detail.to_lowercase());
+            }
             let _ = app.emit(
                 "discord",
-                serde_json::json!({"kind": "voiceLink", "state": "reconnecting", "detail": "Voice server did not answer", "epoch": epoch}),
+                serde_json::json!({"kind": "voiceLink", "state": "reconnecting", "detail": detail, "epoch": epoch}),
             );
             return;
         };
@@ -1297,6 +1306,55 @@ async fn join_voice(
         .await;
     });
     Ok(())
+}
+
+fn store_voice_session(slot: &mut VoiceSlot, state: &lark_core::discord::ClientVoiceState) {
+    if state.session_id.is_empty() {
+        return;
+    }
+    let known = !slot.user_id.is_empty() && slot.user_id == state.user_id;
+    let adopt = slot.user_id.is_empty() && !slot.channel_id.is_empty();
+    if !known && !adopt {
+        return;
+    }
+    if slot.user_id.is_empty() {
+        slot.user_id = state.user_id.clone();
+    }
+    if slot.user_id != state.user_id {
+        return;
+    }
+    slot.session_id = state.session_id.clone();
+    if !state.guild_id.is_empty() {
+        slot.guild_id = state.guild_id.clone();
+    }
+}
+
+fn voice_wait_detail(slot: &Arc<std::sync::Mutex<VoiceSlot>>) -> String {
+    let guard = slot.lock().ok();
+    let missing = match guard.as_deref() {
+        Some(slot) => {
+            let mut missing = Vec::new();
+            if slot.session_id.is_empty() {
+                missing.push("session");
+            }
+            if slot.endpoint.is_empty() {
+                missing.push("endpoint");
+            }
+            if slot.token.is_empty() {
+                missing.push("token");
+            }
+            if slot.user_id.is_empty() {
+                missing.push("user");
+            }
+            missing
+        }
+        None => vec!["session", "endpoint", "token", "user"],
+    };
+    if missing.is_empty() {
+        "Voice server did not answer".to_string()
+    } else {
+        format!("Voice server did not answer; missing {}", missing.join(", "))
+    }
 }
 
 async fn wait_for_voice(

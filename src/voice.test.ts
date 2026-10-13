@@ -172,6 +172,9 @@ describe("voice roster", () => {
     expect(voiceDetailLine(details, "connected")).toContain("Ping 42 ms");
     expect(voiceDetailLine(details, "connected")).toContain("c-ord.discord.gg");
     expect(voiceDetailLine(details, "connected")).not.toContain("aead_");
+    const timeout = "Voice server did not answer; missing session, endpoint";
+    expect(voiceDetailLine(details, "reconnecting", timeout)).toBe(timeout);
+    expect(voiceDetailLine(details, "connected", timeout)).toContain("Connected");
   });
 
   it("keeps the participant volume menu inside the voice surface", () => {

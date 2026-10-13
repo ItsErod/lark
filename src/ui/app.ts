@@ -3218,7 +3218,7 @@ class LarkApp {
     line.append(signalMeter(status), el("strong", "voice-panel-name", session.name ?? "Voice"), diagnostics);
     if (timer) line.append(el("time", "voice-panel-timer", timer));
     if (this.shareOn) line.append(liveBadge(this.sharePaused));
-    const details = el("p", "voice-panel-details", voiceDetailLine(this.voiceDetails, status));
+    const details = el("p", "voice-panel-details", voiceDetailLine(this.voiceDetails, status, session.detail ?? ""));
     const actions = el("div", "voice-panel-actions");
     const share = this.iconButton(this.shareOn ? "Stop sharing" : "Share your screen", paths.monitor, () => this.toggleShare(), false);
     if (this.shareOn) share.classList.add("is-live");
@@ -9354,6 +9354,9 @@ class LarkApp {
       if (epoch && epoch !== this.voiceEpoch) return;
       const state = String((event as { state?: string }).state ?? "");
       const detail = String((event as { detail?: string }).detail ?? "");
+      if (detail.toLowerCase().includes("did not answer")) {
+        this.toast("Voice", friendlyVoiceDetail(detail) || "Voice server did not answer");
+      }
       if (this.voice && (state === "connected" || state === "connecting" || state === "reconnecting")) {
         this.voice.status = state as VoiceSession["status"];
         this.voice.detail = friendlyVoiceDetail(detail);
