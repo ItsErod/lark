@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityAgo, activityClock, dashboardFeed, dashboardSig } from "./dashboard";
+import { activityAgo, activityClock, dashboardFeed, dashboardSig, friendGames } from "./dashboard";
 import type { Person } from "../types";
 import type { SocialRelationship } from "../social";
 
@@ -110,6 +110,16 @@ describe("dashboard feed", () => {
       actions: [{ id: "join", label: "Join" }],
     });
     expect(feed.ticking).toBe(false);
+  });
+
+  it("lists friends in a game and leaves music on the feed", () => {
+    expect(friendGames([me, priya, jonah, maya], "me", now)).toEqual([{
+      id: "jonah",
+      name: "Jo",
+      game: "Deadlock",
+      clock: "1:12:04",
+      avatarUrl: null,
+    }]);
   });
 
   it("changes the signature when the clock moves", () => {

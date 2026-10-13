@@ -363,6 +363,7 @@ import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
 import { MESSAGE_OVERSCAN, rowEstimate, rowReuseOps, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
+import type { BoardHandlers, BoardSession, BoardSnapshot } from "./dashboard-view";
 import { mountPrivacyPanel } from "./privacy-panels";
 import {
   DISCORD_LINKS,
@@ -732,6 +733,10 @@ class LarkApp {
   private late: typeof import("./late") | null = null;
   private lateTask: Promise<typeof import("./late")> | null = null;
   private modReady = false;
+  private boardOpen = false;
+  private boardSession: BoardSession | null = null;
+  private boardLoading: Promise<BoardSession> | null = null;
+  private boardHost!: HTMLElement;
   private statusEmoji = "";
   private statusClearAt: number | null = null;
   private directory: Record<string, Person> = {};
@@ -1287,7 +1292,9 @@ class LarkApp {
     this.newBar.type = "button";
     this.newBar.hidden = true;
     this.newBar.addEventListener("click", () => this.jumpToBottom());
-    chat.append(this.chatHead, this.callStrip, this.callSplit, this.callHandle, this.messagesEl, this.typingEl, composerWrap, this.newBar);
+    this.boardHost = el("div", "dash-board-host");
+    this.boardHost.hidden = true;
+    chat.append(this.chatHead, this.callStrip, this.callSplit, this.callHandle, this.boardHost, this.messagesEl, this.typingEl, composerWrap, this.newBar);
     this.splitPane = el("section", "split");
     this.splitPane.hidden = true;
     this.stage = el("div", "stage");
@@ -3835,6 +3842,14 @@ class LarkApp {
     feed.setAttribute("aria-label", "Dashboard");
     feed.setAttribute("aria-pressed", this.dashboardOpen ? "true" : "false");
     feed.addEventListener("click", () => this.toggleDashboard());
+    const boardBtn = (this.guildId || this.voice) ? el("button", `text-button${this.boardOpen ? " is-on" : ""}`, "Dashboard") : null;
+    if (boardBtn) {
+      boardBtn.type = "button";
+      boardBtn.title = "Dashboard";
+      boardBtn.setAttribute("aria-label", "Open dashboard");
+      boardBtn.setAttribute("aria-pressed", this.boardOpen ? "true" : "false");
+      boardBtn.addEventListener("click", () => this.toggleBoard());
+    }
     const members = el("button", `icon-button${this.config.appearance.show_member_list ? " is-on" : ""}`);
     members.type = "button";
     members.setAttribute("aria-label", "Members");
@@ -3858,7 +3873,7 @@ class LarkApp {
       this.paintBookmarks();
     });
     const parityButtons = threadsNow()?.parityHeaderButtons() ?? [];
-    const headerButtons = [search, find, pin, ...parityButtons, saved, feed, split, theme, members, bell];
+    const headerButtons = [search, find, pin, ...parityButtons, saved, feed, ...(boardBtn ? [boardBtn] : []), split, theme, members, bell];
     actions.append(...headerButtons);
     if (this.hookOn("readAll")) actions.append(this.readAllButton());
     const help = el("button", "icon-button");
@@ -4357,6 +4372,15 @@ class LarkApp {
 
   private paintMessageList() {
     if (this.holdShell) return;
+    if (this.boardActive()) {
+      this.messagesEl.hidden = true;
+      this.paintTyping();
+      this.refreshBoard("all");
+      return;
+    }
+    this.boardHost.hidden = true;
+    this.boardSession?.pause();
+    if (this.messagesEl.hidden) this.messagesEl.hidden = false;
     if (this.clipsOpen) {
       this.paintClipLibrary();
       return;
@@ -4664,6 +4688,213 @@ class LarkApp {
         onCancel: (id) => void this.changeRelationship(id, "remove"),
       }, dock);
       this.armDashboardTick(masked.ticking);
+    }).catch(() => undefined);
+  }
+
+  private boardActive(): boolean {
+    if (!this.boardOpen || this.clipsOpen) return false;
+    if (!(this.guildId || this.voice)) return false;
+    if (this.friendsOpen && !this.guildId && !this.voice) return false;
+    return true;
+  }
+
+  private toggleBoard() {
+    if (!this.guildId && !this.voice) return;
+    this.boardOpen = !this.boardOpen;
+    this.msgSig = "";
+    this.paint();
+  }
+
+  private boardPeople(): Person[] {
+    if (this.demo) return people.filter((person) => person.id !== this.meId());
+    return this.dashboardPeople();
+  }
+
+  private boardVoicePlace(): { channelId: string; name: string; guildId: string } {
+    if (this.voice?.channelId) {
+      const channel = this.channelById(this.voice.channelId);
+      return {
+        channelId: this.voice.channelId,
+        name: this.voice.name || channel?.name || "Voice",
+        guildId: this.voice.guildId ?? this.guildId ?? "",
+      };
+    }
+    const guildId = this.guildId ?? "";
+    let best = { channelId: "", name: "", count: -1 };
+    for (const channel of this.channelsOf(guildId)) {
+      if (channel.kind !== "voice" && channel.kind !== "stage") continue;
+      const count = participantsIn(this.voiceRoster, guildId, channel.id).length;
+      if (count > best.count) best = { channelId: channel.id, name: channel.name, count };
+    }
+    return { channelId: best.channelId, name: best.name, guildId };
+  }
+
+  private boardHandlers(): BoardHandlers {
+    return {
+      onWrite: () => this.composer.focus(),
+      onOpenDm: (id) => {
+        this.boardOpen = false;
+        void this.openChannel(id);
+      },
+      onOpenUser: (id) => {
+        const person = this.boardPeople().find((item) => item.id === id) ?? this.directory[id] ?? this.personFromRelationship(id);
+        if (person) this.openProfile(person);
+      },
+      onJoinVoice: () => {
+        const place = this.boardVoicePlace();
+        const channel = place.channelId ? this.channelById(place.channelId) : undefined;
+        if (channel) this.joinVoice(channel);
+      },
+      onMute: () => this.toggleMute(),
+      onDeafen: () => this.toggleDeafen(),
+      onLeave: () => this.leaveVoice(),
+      onMutePerson: (id) => {
+        const person = Object.values(this.voiceRoster).find((item) => item.userId === id);
+        if (!person) return;
+        this.setUserMix(id, person.volume, !person.localMuted);
+      },
+      onWatch: (id) => {
+        if (this.voice) this.watchMember(id);
+        else this.watchFriend(id);
+      },
+      onStopWatch: () => this.stopWatching(),
+      onStopShare: () => this.stopShare(),
+      onShareHost: () => this.mountShareSurfaces(),
+      feed: {
+        onOpen: (id) => {
+          const person = this.boardPeople().find((item) => item.id === id) ?? this.personFromRelationship(id);
+          if (person) this.openProfile(person);
+        },
+        onWatch: (id) => this.watchFriend(id),
+        onJoin: (id) => this.joinFriendVoice(id),
+        onAccept: (id) => void this.changeRelationship(id, "friend"),
+        onIgnore: (id) => void this.changeRelationship(id, "ignore"),
+        onCancel: (id) => void this.changeRelationship(id, "remove"),
+      },
+    };
+  }
+
+  private boardSnapshot(): BoardSnapshot {
+    const place = this.boardVoicePlace();
+    const voicePeople = place.channelId ? participantsIn(this.voiceRoster, place.guildId, place.channelId) : [];
+    const selfId = this.meId();
+    const lines = (this.channelId ? this.pages[this.channelId] ?? [] : []).slice(-12);
+    const chat = lines.flatMap((message) => {
+      const text = this.maskText((message.content || "").replace(/\s+/g, " ").trim()).slice(0, 180);
+      if (!text) return [];
+      return [{
+        id: message.id,
+        author: this.maskText(message.authorName || "Someone"),
+        text,
+        mine: message.authorId === selfId,
+      }];
+    });
+    const sharer = this.shareOn && this.voice
+      ? { userId: selfId, name: "You", label: "Live", self: true, paused: this.sharePaused, watching: false }
+      : null;
+    const other = sharer ? null : Object.values(this.voiceRoster).find((person) => person.sharing && person.channelId);
+    const share = sharer ?? (other ? {
+      userId: other.userId,
+      name: this.maskText(other.name || "Someone"),
+      label: other.streamLabel || this.channelById(other.channelId)?.name || "Live",
+      self: other.userId === selfId,
+      paused: false,
+      watching: this.shareWatching === other.userId,
+    } : null);
+    const channel = this.currentChannel();
+    return {
+      channelName: channel ? (channel.kind === "text" ? `#${channel.name}` : this.maskText(channel.name)) : "",
+      inCall: Boolean(this.voice),
+      muted: Boolean(this.voice?.muted),
+      deafened: Boolean(this.voice?.deafened),
+      chat,
+      voiceName: place.name,
+      voice: voicePeople.map((person) => {
+        const muted = person.selfMute || person.serverMute || person.localMuted;
+        const deafened = person.selfDeaf || person.serverDeaf;
+        return {
+          id: person.userId,
+          name: this.maskText(person.userId === selfId ? "You" : (person.name || "Someone")),
+          avatarUrl: person.avatarUrl,
+          speaking: person.speaking && !muted && !deafened,
+          muted,
+          deafened,
+          self: person.userId === selfId,
+          sharing: person.sharing,
+        };
+      }),
+      share,
+      feed: {
+        people: this.boardPeople(),
+        relationships: this.relationships,
+        voices: Object.values(this.voiceRoster).flatMap((person) => person.channelId && person.userId !== selfId ? [{
+          userId: person.userId,
+          guildId: person.guildId,
+          channelId: person.channelId,
+          sharing: person.sharing,
+          streamLabel: person.streamLabel,
+          name: person.name,
+          avatarUrl: person.avatarUrl,
+        }] : []),
+        meId: selfId,
+        now: Date.now(),
+        place: (guildId, channelId) => ({
+          guild: this.guilds().find((guild) => guild.id === guildId)?.name ?? "",
+          channel: this.channelsOf(guildId).find((item) => item.id === channelId)?.name ?? "",
+        }),
+      },
+      dms: this.dms().slice(0, 8).map((item) => {
+        const last = (this.pages[item.id] ?? []).at(-1);
+        const preview = last?.content?.replace(/\s+/g, " ").trim() ?? "";
+        return {
+          id: item.id,
+          name: this.maskText(item.name),
+          preview: preview ? this.maskText(preview).slice(0, 80) : "",
+          unread: item.unread ?? 0,
+        };
+      }),
+      people: this.boardPeople(),
+      meId: selfId,
+    };
+  }
+
+  private ensureBoard(): Promise<BoardSession> {
+    if (this.boardSession) return Promise.resolve(this.boardSession);
+    if (!this.boardLoading) {
+      this.boardLoading = import("./dashboard-view").then((mod) => {
+        const session = mod.mountBoard(this.boardHost, this.boardHandlers());
+        this.boardSession = session;
+        return session;
+      });
+    }
+    return this.boardLoading;
+  }
+
+  private hideCallChrome() {
+    if (this.callStrip) this.callStrip.hidden = true;
+    if (this.callSplit) this.callSplit.hidden = true;
+    if (this.callHandle) this.callHandle.hidden = true;
+    if (this.callPip) this.callPip.hidden = true;
+    const chat = this.messagesEl.parentElement;
+    if (chat) {
+      chat.dataset.call = "off";
+      chat.dataset.strip = "closed";
+      chat.classList.remove("is-call-full");
+    }
+  }
+
+  private refreshBoard(scope: "all" | "voice") {
+    if (!this.boardActive()) {
+      this.boardHost.hidden = true;
+      this.boardSession?.pause();
+      return;
+    }
+    this.boardHost.hidden = false;
+    this.messagesEl.hidden = true;
+    this.hideCallChrome();
+    void this.ensureBoard().then((session) => {
+      if (!this.boardActive() || !this.boardHost.isConnected) return;
+      session.show(this.boardSnapshot(), scope);
     }).catch(() => undefined);
   }
 
@@ -11445,6 +11676,10 @@ class LarkApp {
   private paintVoice() {
     if (this.holdShell) return;
     this.syncMutedTalk();
+    if (this.boardActive()) {
+      this.refreshBoard("voice");
+      return;
+    }
     const dock = this.voiceDock;
     if (!dock || !this.callStrip || !this.callSplit) return;
     const liveCall = Boolean(this.voice) || this.shareOn || this.cameraOn || this.callSurface !== "chat";

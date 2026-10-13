@@ -1,0 +1,272 @@
+/* Optional server and call dashboard. Loaded with the board, not the first paint.
+   Minimal Mono: flat ground, hairline tiles, 120ms motion, no shadows. */
+
+.dash-board {
+  --dash-bg: #09090b;
+  --dash-fg: #fafafa;
+  --dash-muted: #a1a1aa;
+  --dash-faint: #71717a;
+  --dash-line: #27272a;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(180px, 0.85fr) minmax(180px, 0.85fr);
+  grid-template-rows: minmax(160px, 1.15fr) minmax(150px, 1fr) minmax(168px, 0.95fr) auto;
+  gap: 8px;
+  padding: 8px;
+  background: var(--dash-bg);
+  color: var(--dash-fg);
+  box-shadow: none;
+}
+
+.dash-tile {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--dash-bg);
+  color: var(--dash-fg);
+  border: 1px solid var(--dash-line);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.tile-chat { grid-column: 1; grid-row: 1 / span 2; }
+.tile-voice { grid-column: 2 / span 2; grid-row: 1; }
+.tile-share { grid-column: 2 / span 2; grid-row: 2; }
+.tile-feed { grid-column: 1; grid-row: 3; }
+.tile-dms { grid-column: 2; grid-row: 3; }
+.tile-pc { grid-column: 3; grid-row: 3; }
+.tile-playing { grid-column: 1 / -1; grid-row: 4; }
+
+.dash-tile-head {
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--dash-line);
+}
+
+.dash-tile-head h3 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.dash-tile-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 12px;
+}
+
+.dash-tile-empty {
+  margin: 8px 0;
+  color: var(--dash-muted);
+  font-size: 0.75rem;
+}
+
+.dash-board button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 120ms linear, color 120ms linear, border-color 120ms linear;
+}
+
+.dash-board button:focus-visible {
+  outline: 1px solid var(--dash-fg);
+  outline-offset: 1px;
+}
+
+.dash-text,
+.dash-mini {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  background: var(--dash-fg);
+  color: var(--dash-bg);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.dash-mini.ghost,
+.dash-text.ghost {
+  background: transparent;
+  color: var(--dash-fg);
+  border: 1px solid var(--dash-line);
+  box-shadow: none;
+}
+
+.dash-chat-name,
+.dash-kicker {
+  color: var(--dash-faint);
+  font-size: 0.6875rem;
+  margin-bottom: 6px;
+}
+
+.dash-chat-log,
+.dash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dash-line,
+.dash-dm,
+.dash-play,
+.dash-voice-row {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.dash-line strong,
+.dash-dm strong,
+.dash-play strong,
+.dash-voice-copy strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-line span,
+.dash-dm span,
+.dash-play span,
+.dash-voice-copy span,
+.dash-stat span {
+  color: var(--dash-muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-line.is-mine strong { color: var(--dash-fg); }
+
+.dash-dm,
+.dash-play,
+.dash-voice-row {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  min-height: 36px;
+  padding: 0;
+}
+
+.dash-voice-row {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.dash-voice-row.is-speaking {
+  border-color: var(--dash-fg);
+  box-shadow: none;
+}
+
+.dash-voice-copy { min-width: 0; display: flex; flex-direction: column; }
+.dash-controls { display: flex; gap: 6px; margin-bottom: 8px; }
+.dash-stats { display: flex; flex-direction: column; gap: 8px; }
+.dash-stat { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.dash-stat b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-sample { color: var(--dash-faint); font-size: 0.6875rem; margin: 8px 0 0; }
+
+.dash-stage {
+  height: 92px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+  border: 1px solid var(--dash-line);
+  border-radius: 4px;
+  background: #09090b;
+  color: var(--dash-muted);
+  font-size: 0.75rem;
+  box-shadow: none;
+}
+
+.dash-stage.is-live {
+  height: auto;
+  min-height: 140px;
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+
+.dash-board .stream-tile {
+  border-radius: 4px;
+  background: #09090b;
+  border: 1px solid var(--dash-line);
+  color: var(--dash-fg);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.dash-board .stream-preview { background: #09090b; }
+
+.dash-board .stream-tile-foot,
+.dash-board .stream-tile-name,
+.dash-board .stream-note,
+.dash-board .stream-tile-quality {
+  text-shadow: none;
+  color: var(--dash-fg);
+}
+
+.dash-board .stream-tile-actions .text-button {
+  background: var(--dash-fg);
+  color: var(--dash-bg);
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.dash-share-actions { display: flex; gap: 6px; }
+.tile-feed .dash-feed { background: transparent; }
+.tile-feed .dash-row { padding-left: 0; padding-right: 0; }
+.dash-unread {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--dash-fg);
+  color: var(--dash-bg);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 980px) {
+  .dash-board {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .tile-chat { grid-column: 1; grid-row: auto; }
+  .tile-voice, .tile-share { grid-column: 2; grid-row: auto; }
+  .tile-feed, .tile-dms, .tile-pc { grid-column: auto; grid-row: auto; }
+  .tile-playing { grid-column: 1 / -1; grid-row: auto; }
+}
+
+@media (max-width: 720px) {
+  .dash-board { grid-template-columns: minmax(0, 1fr); }
+  .tile-chat, .tile-voice, .tile-share, .tile-playing { grid-column: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-board button, .dash-voice-row { transition: none; }
+}
