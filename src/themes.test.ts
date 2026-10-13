@@ -24,7 +24,7 @@ describe("theme pack", () => {
   const files = readdirSync("store/themes").sort();
 
   it("keeps the theme catalog in the store and discord as the built-in default", () => {
-    expect(themePack().length).toBe(16);
+    expect(themePack().length).toBe(19);
     expect(themePack().map((theme) => theme.id)).toContain("discord");
     expect(themePack().map((theme) => theme.id)).toContain("modern-dark");
     expect(files).toEqual(SHIPPED_THEMES.map((theme) => theme.id).sort());
@@ -92,6 +92,49 @@ describe("theme pack", () => {
     expect(css).toContain("html.is-vibrancy");
     expect(css.toLowerCase()).not.toContain("backdrop-filter");
     expect(parseThemeCss(css).vars["--bg-0"]).toBe("#1c212b");
+  });
+
+  it("keeps Minimal Mono store themes at WCAG AA for body text", () => {
+    const ids = files.filter((id) => readFileSync(`store/themes/${id}/theme.css`, "utf8").includes("Minimal Mono store theme"));
+    expect(ids.length).toBeGreaterThan(0);
+    const surfaces = ["--bg-0", "--bg-1", "--bg-2", "--bg-3", "--bg-panel", "--selected", "--highlight"] as const;
+    const pairs: [string, string][] = [
+      ...surfaces.flatMap((bg) => [["--text", bg], ["--heading", bg]] as [string, string][]),
+      ["--muted", "--bg-0"],
+      ["--muted", "--bg-2"],
+      ["--muted", "--bg-3"],
+      ["--faint", "--bg-0"],
+      ["--faint", "--bg-2"],
+      ["--link", "--bg-0"],
+      ["--link", "--bg-2"],
+      ["--accent-ink", "--accent"],
+      ["--mention-fg", "--mention-bg"],
+      ["--ok", "--bg-0"],
+      ["--ok", "--bg-2"],
+      ["--idle", "--bg-0"],
+      ["--danger", "--bg-0"],
+      ["--danger", "--bg-2"],
+      ["--speak", "--bg-0"],
+    ];
+    const tokens = [
+      "--bg-0", "--bg-1", "--bg-2", "--bg-3", "--bg-4", "--bg-panel",
+      "--hover", "--selected", "--message-hover", "--line",
+      "--text", "--muted", "--faint", "--heading",
+      "--accent", "--accent-ink", "--accent-soft",
+      "--ok", "--idle", "--busy", "--danger", "--speak",
+      "--mention-bg", "--mention-fg", "--highlight", "--highlight-bar",
+      "--link", "--pill", "--scrollbar", "--scrollbar-hover", "--shadow",
+    ];
+    for (const id of ids) {
+      const parsed = parseThemeCss(readFileSync(`store/themes/${id}/theme.css`, "utf8"));
+      for (const token of tokens) expect(parsed.vars[token], `${id} ${token}`).toBeTruthy();
+      const floor = id === "mono-contrast" ? 7 : 4.5;
+      for (const [fg, bg] of pairs) {
+        const ratio = contrastRatio(parsed.vars[fg], parsed.vars[bg]);
+        expect(ratio, `${id} ${fg} on ${bg}`).not.toBeNull();
+        expect(ratio ?? 0, `${id} ${fg} on ${bg}`).toBeGreaterThanOrEqual(floor);
+      }
+    }
   });
 
   it("keeps high contrast text at 7:1", () => {

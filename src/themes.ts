@@ -31,6 +31,9 @@ export const SHIPPED_THEMES: ThemeMeta[] = [
   { id: "frosted", title: "Frosted", blurb: "Native vibrancy on macOS and Windows" },
   { id: "phosphor", title: "Phosphor", blurb: "Retro green terminal" },
   { id: "high-contrast", title: "High contrast", blurb: "Large text contrast" },
+  { id: "mono-oled", title: "Mono OLED", blurb: "True black, white accent" },
+  { id: "mono-graphite", title: "Mono graphite", blurb: "Warm graphite, warm-white accent" },
+  { id: "mono-light", title: "Mono light", blurb: "White surfaces, black type" },
   { id: "daylight", title: "Daylight", blurb: "Warm paper" },
   { id: "ink-contrast", title: "Ink contrast", blurb: "Bright-room black" },
 ];

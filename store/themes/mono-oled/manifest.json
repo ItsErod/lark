@@ -1,0 +1,12 @@
+{
+  "id": "mono-oled",
+  "name": "Mono OLED",
+  "description": "True black Minimal Mono. A white accent, and unused pixels stay off.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "moon",
+  "changelog": "Store release. Pure black surfaces and a white accent. Installed from the store, not bundled with the app."
+}

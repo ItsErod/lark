@@ -22,6 +22,9 @@ Themes are not part of the app download. The files live in `store/themes/<id>/`.
 | `frosted` | Cool glass. On macOS and Windows it asks for native vibrancy. Everywhere else it stays opaque. |
 | `phosphor` | Green on black. The UI uses the mono stack while the font setting is still Inter. |
 | `high-contrast` | White and near-white type on black, yellow accent. Text pairs are at least 7:1. |
+| `mono-oled` | Minimal Mono on pure black. White accent, hairline edges, unused pixels stay off. |
+| `mono-graphite` | Minimal Mono on warm graphite. Warm-white accent, no apricot. |
+| `mono-light` | Minimal Mono in daylight. White surfaces, black type, black accent. |
 | `daylight` | Warm paper. |
 | `ink-contrast` | The earlier bright-room black. `high-contrast` is the stricter one. |
 
@@ -34,7 +37,7 @@ Discord also sets the rail, channel, chat, and user-panel colours (`--bg-0` `#1e
 A theme is one `:root` block, plus an optional `html.is-vibrancy` block of the same kind of declarations:
 
 - `color-scheme: dark` or `light`
-- custom properties: `--bg-0` through `--bg-4`, `--bg-panel`, `--hover`, `--selected`, `--message-hover`, `--line`, `--text`, `--muted`, `--faint`, `--heading`, `--accent`, `--accent-ink`, `--accent-soft`, `--ok`, `--idle`, `--busy`, `--danger`, `--mention-bg`, `--mention-fg`, `--highlight`, `--highlight-bar`, `--link`, `--pill`, `--scrollbar`, `--scrollbar-hover`, `--shadow`, `--font`, `--mono`, `--emoji`
+- custom properties: `--bg-0` through `--bg-4`, `--bg-panel`, `--hover`, `--selected`, `--message-hover`, `--line`, `--text`, `--muted`, `--faint`, `--heading`, `--accent`, `--accent-ink`, `--accent-soft`, `--ok`, `--idle`, `--busy`, `--danger`, `--speak`, `--mention-bg`, `--mention-fg`, `--highlight`, `--highlight-bar`, `--link`, `--pill`, `--scrollbar`, `--scrollbar-hover`, `--shadow`, `--font`, `--mono`, `--emoji`
 - `--window-material: vibrancy` or `none`
 
 `--bg-0`, `--text`, and `--accent` are required. The name of the file is the theme id: a lowercase slug, `[a-z0-9][a-z0-9-]{0,63}`.

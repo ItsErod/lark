@@ -1,0 +1,12 @@
+{
+  "id": "mono-light",
+  "name": "Mono light",
+  "description": "White surfaces, black type, and a black accent.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "light",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "sun",
+  "changelog": "Store release. Light Minimal Mono. Installed from the store, not bundled with the app."
+}
