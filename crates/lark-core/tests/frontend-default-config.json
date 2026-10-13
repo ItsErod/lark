@@ -72,7 +72,9 @@
     "share_resolution": "1080",
     "share_fps": 30,
     "share_app_audio": true,
-    "share_encoder": "auto"
+    "share_encoder": "auto",
+    "camera_height": 720,
+    "camera_fps": 30
   },
   "soundboard": {
     "clips": []

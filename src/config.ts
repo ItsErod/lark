@@ -3,6 +3,7 @@ import { readDisplayFlags } from "./display-flags";
 import { clampFontSize, defaultKeybinds, defaultPreferences, sanitizeKeybinds, sanitizePreferences, sanitizeSessions } from "./user-settings";
 import { sanitizeGames } from "./game";
 import { sanitizeClipBuffer, sanitizeClipFps, sanitizeClipResolution } from "./clip";
+import { snapCameraFps, snapCameraHeight } from "./camera-quality";
 import { snapShareFps, snapShareHeight } from "./share";
 import { sanitizeClips } from "./soundboard";
 import { cleanAlertList, defaultQuiet, sanitizeQuiet } from "./smart-notify";
@@ -72,6 +73,8 @@ export function defaultConfig(): AppConfig {
       share_fps: 30,
       share_app_audio: true,
       share_encoder: "auto",
+      camera_height: 720,
+      camera_fps: 30,
     },
     soundboard: { clips: [] },
     desktop: {
@@ -171,6 +174,12 @@ export function sanitizeConfig(input: unknown): AppConfig {
     if (typeof raw.voice.share_encoder === "string") {
       const encoder = raw.voice.share_encoder.trim().toLowerCase();
       base.voice.share_encoder = ["nvenc", "amf", "qsv", "videotoolbox", "media-foundation"].includes(encoder) ? encoder : "auto";
+    }
+    if (typeof raw.voice.camera_height === "number" && Number.isFinite(raw.voice.camera_height)) {
+      base.voice.camera_height = snapCameraHeight(raw.voice.camera_height);
+    }
+    if (typeof raw.voice.camera_fps === "number" && Number.isFinite(raw.voice.camera_fps)) {
+      base.voice.camera_fps = snapCameraFps(raw.voice.camera_fps);
     }
   }
   base.soundboard.clips = sanitizeClips(raw.soundboard?.clips);
