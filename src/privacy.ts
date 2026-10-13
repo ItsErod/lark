@@ -2,9 +2,11 @@ import type { Block, Inline } from "./render/content";
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const TOKEN = /\b(?:mfa\.[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,})\b/g;
+const INVITE = /\b(?:https?:\/\/)?(?:(?:www|ptb|canary)\.)?(?:discord\.gg\/[A-Za-z0-9-]{2,32}|discord(?:app)?\.com\/invite\/[A-Za-z0-9-]{2,32})(?:[?#][^\s)]*)?/gi;
 
 export const EMAIL_HIDDEN = "[email hidden]";
 export const TOKEN_HIDDEN = "[token hidden]";
+export const INVITE_HIDDEN = "[invite hidden]";
 
 /** Manual streamer mode, or the auto option while a share or clip buffer is recording. */
 export function streamerActive(manual: boolean, auto: boolean, capturing: boolean): boolean {
@@ -12,7 +14,7 @@ export function streamerActive(manual: boolean, auto: boolean, capturing: boolea
 }
 
 export function redactSensitive(input: string): string {
-  return input.replace(EMAIL, EMAIL_HIDDEN).replace(TOKEN, TOKEN_HIDDEN);
+  return input.replace(EMAIL, EMAIL_HIDDEN).replace(TOKEN, TOKEN_HIDDEN).replace(INVITE, INVITE_HIDDEN);
 }
 
 /** Last-line preview under a DM. Streamer mode drops it. */
@@ -56,8 +58,11 @@ function redactInline(node: Inline, scrub: (value: string) => string): Inline {
     case "text":
     case "code":
       return { ...node, v: scrub(node.v) };
-    case "link":
-      return { ...node, label: scrub(node.label) };
+    case "link": {
+      const href = scrub(node.href);
+      const leaked = href !== node.href;
+      return { ...node, label: leaked ? href : scrub(node.label), href: leaked ? "" : node.href };
+    }
     case "strong":
     case "em":
     case "u":
