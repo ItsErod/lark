@@ -1,0 +1,12 @@
+{
+  "id": "call-of-duty",
+  "name": "Call of Duty",
+  "description": "Group posts, loadouts, and callouts for Call of Duty. Stats are numbers you type. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "pin",
+  "changelog": "Multiplayer, Warzone, and Zombies posts, a weapon card, and a stats card you write. No Activision sign-in."
+}

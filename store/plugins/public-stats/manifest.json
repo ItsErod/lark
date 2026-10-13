@@ -1,0 +1,12 @@
+{
+  "id": "public-stats",
+  "name": "Public stats",
+  "description": "Look up a public Steam profile, open an Overwatch career link, or share numbers you typed.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "terminal",
+  "changelog": "Steam community XML, an overwatch.blizzard.com career link, or a card you write. Unofficial trackers are refused."
+}

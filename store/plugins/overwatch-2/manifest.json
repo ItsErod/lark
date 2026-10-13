@@ -1,0 +1,12 @@
+{
+  "id": "overwatch-2",
+  "name": "Overwatch 2",
+  "description": "Roles, group posts, hero builds, callouts, and a session clock for Overwatch 2. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "bolt",
+  "changelog": "Tank, damage, and support posts, a hero card, and a career link you paste. The page is opened, not scraped."
+}

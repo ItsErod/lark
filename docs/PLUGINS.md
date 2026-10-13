@@ -335,3 +335,45 @@ Start a timer for a game you name.
 - **Replace a custom status** is off until you turn it on. A status you wrote stays.
 - Stopping the session clears that line only if it is still the one Lark wrote.
 - A session older than 12 hours is dropped.
+
+## Squad post
+
+Pick a role, a mode, a size, and a note. **Put LFG in the composer** writes `LFG · …`. You send it.
+
+## Build card
+
+Fill the slots you want. Empty slots are left off the card.
+
+## Callout board
+
+A click inserts one line at the cursor. Extra lines you add are kept on this device.
+
+## Crew check
+
+One person per line. The post ends with “Reply with ready.”
+
+## Public stats
+
+Three lookups, and no others.
+
+- **Steam** reads the public community profile (`steamcommunity.com` XML) for a vanity name or a SteamID64. The desktop app makes that request. It does not send your Discord token.
+- **Career link** opens `https://overwatch.blizzard.com/…/career/…` in the browser. The page is not downloaded.
+- **Card** is the numbers you type.
+
+`tracker.gg`, community Deadlock APIs, and the Activision profile API are refused.
+
+## Overwatch 2
+
+Tank, damage, support, and flex posts. A hero and perk card. Callouts. A session clock. Paste a public career link from overwatch.blizzard.com, or type a rank card. Blizzard does not offer a keyless stats API.
+
+## Deadlock
+
+Lane, roam, and flex posts. A hero card. Callouts. The stats lookup is the public Steam profile. Valve does not publish Deadlock match stats, so match history is not requested.
+
+## Call of Duty
+
+Multiplayer, Warzone, Zombies, and Ranked posts. A weapon card. Callouts. The stats card is what you type. Lark does not sign in to Activision.
+
+## GTA V
+
+Heist roles, a crew check, a vehicle card, and a session clock. The stats card is what you type. Lark does not sign in to Social Club.

@@ -98,6 +98,38 @@
       "download": "downloads/bookmarks.zip"
     },
     {
+      "id": "build-card",
+      "name": "Build card",
+      "description": "Share a loadout you typed. The card waits in the composer. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "archive",
+      "changelog": "Four slots you fill in. Empty slots are left off the card.",
+      "sha256": "646fb60be7eeb16578802686e3ad27755d9e9f94cf5e7b9e236eeb5aded10b6c",
+      "bytes": 342,
+      "file": "plugins/build-card/plugin.js",
+      "download": "downloads/build-card.zip"
+    },
+    {
+      "id": "call-of-duty",
+      "name": "Call of Duty",
+      "description": "Group posts, loadouts, and callouts for Call of Duty. Stats are numbers you type. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "pin",
+      "changelog": "Multiplayer, Warzone, and Zombies posts, a weapon card, and a stats card you write. No Activision sign-in.",
+      "sha256": "bc10c6fa6d6f8bb5a5d08ef9043105a00b5ce780e9c18941c05e2aacae5e33a5",
+      "bytes": 963,
+      "file": "plugins/call-of-duty/plugin.js",
+      "download": "downloads/call-of-duty.zip"
+    },
+    {
       "id": "call-timer",
       "name": "Call Timer",
       "description": "Shows how long you have been in the voice channel.",
@@ -112,6 +144,22 @@
       "bytes": 154,
       "file": "plugins/call-timer/plugin.js",
       "download": "downloads/call-timer.zip"
+    },
+    {
+      "id": "callout-board",
+      "name": "Callout board",
+      "description": "Insert a short callout at the cursor. Add your own lines. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "keyboard",
+      "changelog": "Six starter lines, plus any you add. A click inserts the line. It does not send.",
+      "sha256": "54d264565be542e8b5dc8e0f13e15db66594bc30a200a089341ad55d5c1a4c91",
+      "bytes": 386,
+      "file": "plugins/callout-board/plugin.js",
+      "download": "downloads/callout-board.zip"
     },
     {
       "id": "clean-links",
@@ -194,6 +242,38 @@
       "download": "downloads/copy-markdown.zip"
     },
     {
+      "id": "crew-check",
+      "name": "Crew check",
+      "description": "Post a crew list and ask who is ready. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "shield",
+      "changelog": "One person per line. The ready line is added when you put the check in the composer.",
+      "sha256": "d1cacbae3b03e2d7d59a19364568e79e7ed8af1bfbe9a7655f6796c589365d32",
+      "bytes": 307,
+      "file": "plugins/crew-check/plugin.js",
+      "download": "downloads/crew-check.zip"
+    },
+    {
+      "id": "deadlock",
+      "name": "Deadlock",
+      "description": "Lane posts, hero builds, callouts, and a public Steam profile for Deadlock. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "spark",
+      "changelog": "Group posts and a hero card. Stats are the public Steam profile. Match history is not requested.",
+      "sha256": "c7022c30d8a89c20532db07f3153d0db575486f70616ca1b23eca91edb3f47aa",
+      "bytes": 884,
+      "file": "plugins/deadlock/plugin.js",
+      "download": "downloads/deadlock.zip"
+    },
+    {
       "id": "edit-log",
       "name": "Edit log",
       "description": "Badge a message after it is edited.",
@@ -256,6 +336,22 @@
       "bytes": 167,
       "file": "plugins/game-activity/plugin.js",
       "download": "downloads/game-activity.zip"
+    },
+    {
+      "id": "gta-v",
+      "name": "GTA V",
+      "description": "Heist roles, crew checks, and a session clock for GTA V. Stats are numbers you type. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "image",
+      "changelog": "Driver, gunner, hacker, and the rest of a crew check. A loadout card you type. No Social Club sign-in.",
+      "sha256": "754e5621a61d1f46a9ff50c1b367ff7a0d8c6168ef4c68935b2f9c40dc127164",
+      "bytes": 928,
+      "file": "plugins/gta-v/plugin.js",
+      "download": "downloads/gta-v.zip"
     },
     {
       "id": "hide-blocked",
@@ -546,6 +642,22 @@
       "download": "downloads/original-image.zip"
     },
     {
+      "id": "overwatch-2",
+      "name": "Overwatch 2",
+      "description": "Roles, group posts, hero builds, callouts, and a session clock for Overwatch 2. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "bolt",
+      "changelog": "Tank, damage, and support posts, a hero card, and a career link you paste. The page is opened, not scraped.",
+      "sha256": "5be31b80a89fafcc50babba36e3b5e852845d0a8fec8a526aece7d07dc5ca48a",
+      "bytes": 1043,
+      "file": "plugins/overwatch-2/plugin.js",
+      "download": "downloads/overwatch-2.zip"
+    },
+    {
       "id": "panic-key",
       "name": "Panic Key",
       "description": "A hotkey that hides or minimizes Lark and mutes.",
@@ -576,6 +688,22 @@
       "bytes": 175,
       "file": "plugins/pin-dms/plugin.js",
       "download": "downloads/pin-dms.zip"
+    },
+    {
+      "id": "public-stats",
+      "name": "Public stats",
+      "description": "Look up a public Steam profile, open an Overwatch career link, or share numbers you typed.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "terminal",
+      "changelog": "Steam community XML, an overwatch.blizzard.com career link, or a card you write. Unofficial trackers are refused.",
+      "sha256": "f98b7b3705f9de14a61715984b86fcab805eec732eb543d6d7598f137d268ca9",
+      "bytes": 682,
+      "file": "plugins/public-stats/plugin.js",
+      "download": "downloads/public-stats.zip"
     },
     {
       "id": "quick-react",
@@ -816,6 +944,22 @@
       "bytes": 203,
       "file": "plugins/spotify-controls/plugin.js",
       "download": "downloads/spotify-controls.zip"
+    },
+    {
+      "id": "squad-post",
+      "name": "Squad post",
+      "description": "Drop a looking-for-group card into the composer. You send it. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "at",
+      "changelog": "Role, mode, size, and a note. The message waits in the composer until you send it.",
+      "sha256": "6331119dbbe76874e21f0654948d4a22b518fe9e1876277febe795ee54bd842c",
+      "bytes": 402,
+      "file": "plugins/squad-post/plugin.js",
+      "download": "downloads/squad-post.zip"
     },
     {
       "id": "streamer-safe",

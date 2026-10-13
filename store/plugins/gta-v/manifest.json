@@ -1,0 +1,12 @@
+{
+  "id": "gta-v",
+  "name": "GTA V",
+  "description": "Heist roles, crew checks, and a session clock for GTA V. Stats are numbers you type. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "image",
+  "changelog": "Driver, gunner, hacker, and the rest of a crew check. A loadout card you type. No Social Club sign-in."
+}
