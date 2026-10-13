@@ -170,7 +170,8 @@ export function cycleServer(ids: readonly (string | null)[], current: string | n
   const size = ids.length;
   const start = index < 0 ? (delta > 0 ? -1 : 0) : index;
   const next = ((start + delta) % size + size) % size;
-  return ids[next] ?? current;
+  const picked = ids[next];
+  return picked === undefined ? current : picked;
 }
 
 export function isNewerSnowflake(messageId: string, lastRead: string): boolean {
