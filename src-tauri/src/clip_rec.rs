@@ -12,10 +12,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use lark_clip_hw::{LiveConfig, LiveSession};
-use lark_core::clip::{prepare_frame, ClipBuffer, CLIP_SAMPLE_INTERVAL_MS, CLIP_WINDOW_MS};
+use lark_core::clip::{prepare_frame, ClipBuffer, CLIP_SAMPLE_INTERVAL_MS};
+use lark_core::clip_audio::{MicTap, PcmRing};
 use lark_core::clip_rate::{
-    frame_duration_ticks, resolve_clip_capture, sample_is_key, take_access_unit, AccessUnit,
-    ClipRequest, DisplayCaps, EncoderCaps, EncoderKind, PacketRing, RateWatch, VideoCodec,
+    buffer_window_ms, frame_duration_ticks, resolve_clip_capture, sample_is_key, take_access_unit,
+    AccessUnit, ClipRequest, DisplayCaps, EncoderCaps, EncoderKind, PacketRing, RateWatch, VideoCodec,
 };
 use serde::Serialize;
 
@@ -122,6 +123,9 @@ struct Inner {
     game: AtomicBool,
     fps: AtomicU32,
     resolution: AtomicU32,
+    window_ms: AtomicU64,
+    system_pcm: Mutex<PcmRing>,
+    mic_pcm: Mutex<PcmRing>,
     pace: AtomicBool,
     runtime_cap: AtomicU32,
     generation: AtomicU64,
@@ -145,18 +149,25 @@ impl ClipEngine {
         game_capture: bool,
         fps: u32,
         resolution: u32,
+        buffer_sec: u32,
         game_mode: bool,
     ) -> Self {
         let request = ClipRequest::new(fps, resolution);
+        let window = buffer_window_ms(buffer_sec);
+        let mut ring = PacketRing::new(VideoCodec::H264, 2560, 1440, request.fps);
+        ring.set_window(window);
         let inner = Arc::new(Inner {
             dir,
-            buffer: Mutex::new(ClipBuffer::new(CLIP_WINDOW_MS)),
-            ring: Mutex::new(PacketRing::new(VideoCodec::H264, 2560, 1440, request.fps)),
+            buffer: Mutex::new(ClipBuffer::new(window)),
+            ring: Mutex::new(ring),
             view: Mutex::new(CaptureView::idle()),
             share: AtomicBool::new(false),
             game: AtomicBool::new(game_capture),
             fps: AtomicU32::new(request.fps),
             resolution: AtomicU32::new(request.resolution),
+            window_ms: AtomicU64::new(window),
+            system_pcm: Mutex::new(PcmRing::new(window)),
+            mic_pcm: Mutex::new(PcmRing::new(window)),
             pace: AtomicBool::new(game_mode),
             runtime_cap: AtomicU32::new(0),
             generation: AtomicU64::new(0),
@@ -214,6 +225,34 @@ impl ClipEngine {
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .clear();
+    }
+
+    pub fn set_window(&self, seconds: u32) {
+        let window = buffer_window_ms(seconds);
+        if self.inner.window_ms.swap(window, Ordering::Relaxed) == window {
+            return;
+        }
+        self.inner
+            .buffer
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .set_window(window);
+        self.inner
+            .ring
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .set_window(window);
+        self.inner
+            .system_pcm
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .set_window(window);
+        self.inner
+            .mic_pcm
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .set_window(window);
+        self.inner.generation.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn set_pace(&self, game_mode: bool) {
@@ -602,6 +641,16 @@ impl ClipEngine {
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
                 .clear();
+            self.inner
+                .system_pcm
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .clear();
+            self.inner
+                .mic_pcm
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .clear();
         }
     }
 
@@ -625,13 +674,40 @@ impl ClipEngine {
         let name = unique_name(&self.inner.dir);
         let path = self.inner.dir.join(&name);
         std::fs::write(&path, bytes).map_err(|err| format!("Couldn't write the clip: {err}"))?;
-        Ok(ClipSaved::ready(
+        let mut saved = ClipSaved::ready(
             name,
             path.display().to_string(),
             bytes.len() as u64,
             frames,
             span_ms,
-        ))
+        );
+        self.mix_audio(&mut saved);
+        Ok(saved)
+    }
+
+    fn mix_audio(&self, saved: &mut ClipSaved) {
+        let system = self
+            .inner
+            .system_pcm
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .to_i16();
+        let mic = self
+            .inner
+            .mic_pcm
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .to_i16();
+        if system.is_empty() && mic.is_empty() {
+            return;
+        }
+        let Some(ffmpeg) = ffmpeg_bin() else {
+            return;
+        };
+        let path = PathBuf::from(&saved.path);
+        if let Ok(bytes) = lark_core::clip_fit::mix_captured_audio(&ffmpeg, &path, &system, &mic, saved.span_ms.max(1)) {
+            saved.bytes = bytes;
+        }
     }
 }
 
@@ -647,6 +723,8 @@ fn sample_loop(inner: Arc<Inner>) {
     let mut next_probe = Instant::now();
     let mut held = lark_clip_hw::probe();
     let mut paced: Option<bool> = None;
+    let mut mic: Option<MicTap> = None;
+    let mut mic_tried = false;
 
     loop {
         let generation = inner.generation.load(Ordering::Relaxed);
@@ -684,10 +762,24 @@ fn sample_loop(inner: Arc<Inner>) {
                     .clear();
                 session = None;
                 session_key.clear();
+                mic = None;
+                mic_tried = false;
+                inner.system_pcm.lock().unwrap_or_else(|err| err.into_inner()).clear();
+                inner.mic_pcm.lock().unwrap_or_else(|err| err.into_inner()).clear();
                 was_active = false;
             }
             thread::sleep(Duration::from_millis(100));
             continue;
+        }
+        if mic.is_none() && !mic_tried {
+            mic_tried = true;
+            mic = MicTap::open().ok();
+        }
+        if let Some(tap) = mic.as_ref() {
+            let samples = tap.pull();
+            if !samples.is_empty() {
+                inner.mic_pcm.lock().unwrap_or_else(|err| err.into_inner()).push(&samples);
+            }
         }
         was_active = true;
         let resolved = plan_for(&inner, &held);
@@ -719,7 +811,7 @@ fn sample_loop(inner: Arc<Inner>) {
                 game_mode: pace,
                 stream: false,
                 source: String::new(),
-                app_audio: false,
+                app_audio: true,
                 encoder: String::new(),
                 idr_interval: 0,
             };
@@ -734,8 +826,9 @@ fn sample_loop(inner: Arc<Inner>) {
                     };
                     let backend = opened.backend();
                     store_view(&inner, &resolved, Some(backend), &extra);
-                    *inner.ring.lock().unwrap_or_else(|err| err.into_inner()) =
-                        PacketRing::new(codec, resolved.width, resolved.height, resolved.fps);
+                    let mut ring = PacketRing::new(codec, resolved.width, resolved.height, resolved.fps);
+                    ring.set_window(inner.window_ms.load(Ordering::Relaxed));
+                    *inner.ring.lock().unwrap_or_else(|err| err.into_inner()) = ring;
                     watch.reset(resolved.fps);
                     last_pts = None;
                     session_key = key;
@@ -764,6 +857,14 @@ fn sample_loop(inner: Arc<Inner>) {
         match live.tick() {
             Ok(packets) => {
                 let now_ms = started.elapsed().as_millis() as u64;
+                let system = live.pull_audio();
+                if !system.is_empty() {
+                    inner
+                        .system_pcm
+                        .lock()
+                        .unwrap_or_else(|err| err.into_inner())
+                        .push(&system);
+                }
                 ingest_packets(&inner, codec, resolved.fps, &packets, &mut last_pts);
                 let stepped = if packets.is_empty() {
                     watch.observe(now_ms, false)
@@ -828,6 +929,7 @@ fn plan_for(
             h264: probe.h264,
         },
         inner.runtime_cap.load(Ordering::Relaxed),
+        inner.window_ms.load(Ordering::Relaxed),
     )
 }
 
@@ -932,12 +1034,26 @@ fn set_error(inner: &Inner, error: String) {
         .unwrap_or_else(|err| err.into_inner()) = error;
 }
 
+fn ffmpeg_bin() -> Option<PathBuf> {
+    let candidates = lark_core::clip_fit::ffmpeg_candidates(
+        None,
+        std::env::current_exe()
+            .ok()
+            .as_deref()
+            .and_then(|path| path.parent()),
+    );
+    lark_core::clip_fit::resolve_ffmpeg(&candidates)
+}
+
 fn unique_name(dir: &Path) -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let name = lark_core::clip::clip_file_name(secs);
+    let game = lark_core::hardware::sample_load(std::env::consts::OS).game;
+    let label = game.as_deref().and_then(lark_core::clip::clip_game_label);
+    let name = lark_core::clip::clip_file_name_for(secs, label.as_deref());
+    let name = unique_clip_name(dir, &name);
     if !dir.join(&name).exists() {
         return name;
     }

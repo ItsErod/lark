@@ -279,7 +279,7 @@ unsafe fn open_stream(
     let _: () = msg_send![stream_config, setHeight: config.height as usize];
     let _: () = msg_send![stream_config, setPixelFormat: 0x4247_5241u32];
     let _: () = msg_send![stream_config, setShowsCursor: true];
-    if config.stream && config.app_audio {
+    if config.app_audio {
         let captures = sel!(setCapturesAudio:);
         let responds: bool = msg_send![stream_config, respondsToSelector: captures];
         if responds {
@@ -329,7 +329,7 @@ unsafe fn open_stream(
     let stream: *mut Object = msg_send![stream, initWithFilter: filter configuration: stream_config delegate: std::ptr::null_mut::<Object>()];
     let mut add_error: *mut Object = std::ptr::null_mut();
     let added: bool = msg_send![stream, addStreamOutput: output type: 0usize sampleHandlerQueue: queue error: &mut add_error];
-    if added && config.stream && config.app_audio {
+    if added && config.app_audio {
         let mut audio_error: *mut Object = std::ptr::null_mut();
         let _: bool = msg_send![stream, addStreamOutput: output type: 1usize sampleHandlerQueue: queue error: &mut audio_error];
     }

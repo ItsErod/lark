@@ -4,6 +4,7 @@
 pub mod boot;
 pub mod cache;
 pub mod clip;
+pub mod clip_audio;
 mod clip_encode;
 pub mod clip_fit;
 pub mod clip_rate;

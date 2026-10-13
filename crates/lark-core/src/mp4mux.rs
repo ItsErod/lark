@@ -131,6 +131,142 @@ pub fn mux_encoded(video: &EncodedVideo<'_>) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// One AAC track. Empty `frames` becomes silence for the length of the video.
+pub struct AudioPiece<'a> {
+    pub name: &'a str,
+    pub frames: &'a [Vec<u8>],
+}
+
+/// Faststart MP4 with the video track plus the named AAC tracks, in order.
+pub fn mux_encoded_audio(video: &EncodedVideo<'_>, tracks: &[AudioPiece<'_>]) -> Result<Vec<u8>, String> {
+    if tracks.is_empty() {
+        return mux_encoded(video);
+    }
+    if video.samples.is_empty()
+        || video.timescale == 0
+        || video.width == 0
+        || video.height == 0
+        || video.sample_entry.is_empty()
+    {
+        return Err("There is nothing to mux.".into());
+    }
+    if video.sync.len() != video.samples.len() || video.durations.len() != video.samples.len() {
+        return Err("Encoder timing does not match the frames.".into());
+    }
+    let mut payload = Vec::new();
+    for sample in video.samples {
+        if sample.is_empty() {
+            return Err("The encoder wrote an empty frame.".into());
+        }
+        payload.extend_from_slice(sample);
+    }
+    let units: u64 = video.durations.iter().map(|duration| u64::from(*duration)).sum();
+    let video_ms = ((units.saturating_mul(1000)) / u64::from(video.timescale.max(1))).max(1) as u32;
+    let needed = aac_frame_count_ms(video_ms);
+    let mut pieces = Vec::with_capacity(tracks.len());
+    let mut audio_offsets = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        audio_offsets.push(payload.len());
+        let frames = expand_aac(track.frames, needed)?;
+        for frame in &frames {
+            payload.extend_from_slice(frame);
+        }
+        pieces.push(frames);
+    }
+    let audio_ms = (u64::from(needed) * u64::from(AAC_FRAME_SAMPLES) * 1000 / u64::from(AAC_SAMPLE_RATE)) as u32;
+    let movie_ms = video_ms.max(audio_ms).max(1);
+    let ftyp = if video.hevc { ftyp_hevc() } else { ftyp() };
+    let mut moov = moov_with_audio(
+        video,
+        units.min(u64::from(u32::MAX)) as u32,
+        movie_ms,
+        video_ms,
+        audio_ms,
+        tracks,
+        &pieces,
+    );
+    let data_at = ftyp.len() + moov.len() + 8;
+    if data_at > u32::MAX as usize {
+        return Err("The clip is too large to remux.".into());
+    }
+    let mut chunk_offsets = vec![data_at as u32];
+    for offset in audio_offsets {
+        let at = data_at + offset;
+        if at > u32::MAX as usize {
+            return Err("The clip is too large to remux.".into());
+        }
+        chunk_offsets.push(at as u32);
+    }
+    assign_chunk_offsets(&mut moov, &chunk_offsets)?;
+    let mut out = Vec::with_capacity(data_at + payload.len());
+    out.extend_from_slice(&ftyp);
+    out.extend_from_slice(&moov);
+    out.extend_from_slice(&box_wrap(b"mdat", &payload));
+    require_clip_mp4(&out)?;
+    Ok(out)
+}
+
+fn expand_aac(frames: &[Vec<u8>], needed: u32) -> Result<Vec<Vec<u8>>, String> {
+    let needed = needed.max(1) as usize;
+    if frames.is_empty() {
+        return Ok(vec![SILENT_AAC.to_vec(); needed]);
+    }
+    let mut out = Vec::with_capacity(needed);
+    for frame in frames.iter().take(needed) {
+        if frame.is_empty() {
+            return Err("The encoder wrote an empty audio frame.".into());
+        }
+        out.push(frame.clone());
+    }
+    while out.len() < needed {
+        out.push(SILENT_AAC.to_vec());
+    }
+    Ok(out)
+}
+
+fn moov_with_audio(
+    video: &EncodedVideo<'_>,
+    duration_units: u32,
+    movie_ms: u32,
+    video_ms: u32,
+    audio_ms: u32,
+    tracks: &[AudioPiece<'_>],
+    pieces: &[Vec<Vec<u8>>],
+) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(mvhd_tracks(movie_ms, 2 + pieces.len() as u32));
+    body.extend(video_trak_timed(video, duration_units, video_ms, 0));
+    for (index, frames) in pieces.iter().enumerate() {
+        let name = tracks.get(index).map(|track| track.name).unwrap_or("Audio");
+        body.extend(audio_piece_trak((index as u32) + 2, name, audio_ms, frames, 0));
+    }
+    box_wrap(b"moov", &body)
+}
+
+fn audio_piece_trak(track_id: u32, name: &str, duration_ms: u32, frames: &[Vec<u8>], chunk_offset: u32) -> Vec<u8> {
+    let sizes: Vec<u32> = frames.iter().map(|frame| frame.len() as u32).collect();
+    let count = frames.len() as u32;
+    let stbl = concat(&[
+        stsd(&mp4a()),
+        stts(count, AAC_FRAME_SAMPLES),
+        stsc(count),
+        stsz(&sizes),
+        stco(chunk_offset),
+    ]);
+    let minf = concat(&[smhd(), dinf(), box_wrap(b"stbl", &stbl)]);
+    let media_duration = count.saturating_mul(AAC_FRAME_SAMPLES);
+    let mdia = concat(&[
+        mdhd(AAC_SAMPLE_RATE, media_duration),
+        hdlr(b"soun", name),
+        box_wrap(b"minf", &minf),
+    ]);
+    let trak = concat(&[
+        tkhd(track_id, duration_ms, 0, 0, true),
+        box_wrap(b"mdia", &mdia),
+    ]);
+    box_wrap(b"trak", &trak)
+}
+
 fn aac_frame_count_ms(video_ms: u32) -> u32 {
     let samples = (u64::from(video_ms.max(1)) * u64::from(AAC_SAMPLE_RATE) + 999) / 1000;
     ((samples + u64::from(AAC_FRAME_SAMPLES) - 1) / u64::from(AAC_FRAME_SAMPLES)).max(1) as u32
@@ -498,6 +634,10 @@ fn audio_trak(duration_ms: u32, frames: u32, chunk_offset: u32) -> Vec<u8> {
 }
 
 fn mvhd(duration: u32) -> Vec<u8> {
+    mvhd_tracks(duration, 3)
+}
+
+fn mvhd_tracks(duration: u32, next_track: u32) -> Vec<u8> {
     let mut payload = Vec::new();
     push_u32(&mut payload, 0);
     push_u32(&mut payload, 0);
@@ -512,7 +652,7 @@ fn mvhd(duration: u32) -> Vec<u8> {
     for _ in 0..6 {
         push_u32(&mut payload, 0);
     }
-    push_u32(&mut payload, 3);
+    push_u32(&mut payload, next_track);
     full_box(b"mvhd", 0, 0, &payload)
 }
 

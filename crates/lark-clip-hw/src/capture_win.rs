@@ -168,7 +168,7 @@ impl Session {
                 u64::from(config.fps.max(1))
             },
             force_idr: Arc::new(AtomicBool::new(false)),
-            audio: if config.stream && config.app_audio {
+            audio: if config.app_audio {
                 crate::audio_win::AudioPump::start(&config.source).ok()
             } else {
                 None

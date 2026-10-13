@@ -88,6 +88,8 @@ game_capture = false
 compress = "ask"
 fps = 60
 resolution = 1440
+# How far back the hotkey reaches: 15, 30, 60, 90, or 120 seconds.
+buffer_sec = 30
 
 [privacy]
 # Hides emails, tokens, DM previews, and personal info. Off until you turn it on.

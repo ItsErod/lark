@@ -3,7 +3,8 @@
 //! The desktop shell captures with the GPU (Windows Graphics Capture or DXGI on
 //! Windows, ScreenCaptureKit on macOS) and feeds a hardware encoder. This module
 //! decides the size, rate, codec, and bitrate, and it keeps the encoded packets
-//! for the last 30 seconds. Saving remuxes those packets. It does not keep raw frames.
+//! for the configured window (15 seconds to 2 minutes, 30 seconds by default).
+//! Saving remuxes those packets. It does not keep raw frames.
 //! Saved clips are H.264. WebView2 has no HEVC decoder, so a HEVC file stays black.
 
 use std::collections::VecDeque;
@@ -21,6 +22,28 @@ pub const FPS_OPTIONS: [u32; 3] = [60, 120, 240];
 pub const RESOLUTION_OPTIONS: [u32; 4] = [720, 1080, 1440, 2160];
 pub const DEFAULT_FPS: u32 = 60;
 pub const DEFAULT_RESOLUTION: u32 = 1440;
+pub const BUFFER_OPTIONS_SEC: [u32; 5] = [15, 30, 60, 90, 120];
+pub const DEFAULT_BUFFER_SEC: u32 = 30;
+
+pub fn snap_buffer_sec(value: u32) -> u32 {
+    if BUFFER_OPTIONS_SEC.contains(&value) {
+        value
+    } else {
+        DEFAULT_BUFFER_SEC
+    }
+}
+
+pub fn buffer_window_ms(seconds: u32) -> u64 {
+    u64::from(snap_buffer_sec(seconds)).saturating_mul(1_000)
+}
+
+/// Bitrate that still fits [`RING_BUDGET_BYTES`] for the chosen window.
+pub fn bitrate_for_window(codec: VideoCodec, height: u32, fps: u32, window_ms: u64) -> u32 {
+    let wanted = bitrate_for(codec, height, fps);
+    let seconds = (window_ms / 1_000).clamp(15, 120);
+    let cap = ((RING_BUDGET_BYTES as u64).saturating_mul(8) / seconds).max(1_000_000) as u32;
+    wanted.min(cap)
+}
 
 /// 1440p at 240 fps. Hardware HEVC on NVENC, AMF, and VideoToolbox is modeled to hold this.
 pub const HEVC_PIXELS_PER_SEC: u64 = 2560 * 1440 * 240;
@@ -455,6 +478,7 @@ pub fn resolve_clip_capture(
     display: DisplayCaps,
     encoder: EncoderCaps,
     runtime_fps_cap: u32,
+    window_ms: u64,
 ) -> ResolvedCapture {
     let hevc_only = encoder.hevc && !encoder.h264;
     let playable = EncoderCaps {
@@ -470,6 +494,7 @@ pub fn resolve_clip_capture(
     if resolved.codec == VideoCodec::Hevc {
         resolved.codec = VideoCodec::H264;
     }
+    resolved.bitrate = bitrate_for_window(resolved.codec, resolved.height, resolved.fps, window_ms);
     if hevc_only {
         let extra = "This encoder only offers HEVC, which WebView2 cannot play, so Lark is using the H.264 fallback.";
         if resolved.note.is_empty() {
@@ -586,6 +611,11 @@ impl PacketRing {
         }
     }
 
+    pub fn set_window(&mut self, window_ms: u64) {
+        self.window_ms = window_ms.max(1_000);
+        self.evict();
+    }
+
     pub fn clear(&mut self) {
         self.packets.clear();
         self.bytes = 0;
@@ -687,16 +717,28 @@ impl PacketRing {
                     return Err("The encoder did not write H.264 parameter sets.".into());
                 }
                 let entry = mp4mux::avc1_entry(self.width, self.height, &self.sps, &self.pps);
-                mp4mux::mux_encoded(&EncodedVideo {
-                    width: self.width,
-                    height: self.height,
-                    timescale: CLIP_TIMESCALE,
-                    sample_entry: &entry,
-                    samples: &samples,
-                    sync: &sync,
-                    durations: &durations,
-                    hevc: false,
-                })?
+                mp4mux::mux_encoded_audio(
+                    &EncodedVideo {
+                        width: self.width,
+                        height: self.height,
+                        timescale: CLIP_TIMESCALE,
+                        sample_entry: &entry,
+                        samples: &samples,
+                        sync: &sync,
+                        durations: &durations,
+                        hevc: false,
+                    },
+                    &[
+                        mp4mux::AudioPiece {
+                            name: "System",
+                            frames: &[],
+                        },
+                        mp4mux::AudioPiece {
+                            name: "Microphone",
+                            frames: &[],
+                        },
+                    ],
+                )?
             }
             VideoCodec::Hevc => {
                 if self.vps.is_empty() || self.sps.is_empty() || self.pps.is_empty() {
@@ -710,16 +752,28 @@ impl PacketRing {
                     &self.pps,
                     hevc_level_idc(self.width, self.height, self.fps),
                 );
-                mp4mux::mux_encoded(&EncodedVideo {
-                    width: self.width,
-                    height: self.height,
-                    timescale: CLIP_TIMESCALE,
-                    sample_entry: &entry,
-                    samples: &samples,
-                    sync: &sync,
-                    durations: &durations,
-                    hevc: true,
-                })?
+                mp4mux::mux_encoded_audio(
+                    &EncodedVideo {
+                        width: self.width,
+                        height: self.height,
+                        timescale: CLIP_TIMESCALE,
+                        sample_entry: &entry,
+                        samples: &samples,
+                        sync: &sync,
+                        durations: &durations,
+                        hevc: true,
+                    },
+                    &[
+                        mp4mux::AudioPiece {
+                            name: "System",
+                            frames: &[],
+                        },
+                        mp4mux::AudioPiece {
+                            name: "Microphone",
+                            frames: &[],
+                        },
+                    ],
+                )?
             }
         };
         let span_ms = self.span_ms().max(u64::from(1000 / self.fps.max(1)));
@@ -1022,6 +1076,7 @@ mod tests {
             display(2560, 1440, 240),
             nvenc_hevc(),
             0,
+            30_000,
         );
         assert_eq!(resolved.codec, VideoCodec::H264);
         assert!(resolved.hardware);
@@ -1036,6 +1091,7 @@ mod tests {
                 h264: false,
             },
             0,
+            30_000,
         );
         assert_eq!(hevc_only.codec, VideoCodec::H264);
         assert!(!hevc_only.hardware);
@@ -1045,6 +1101,7 @@ mod tests {
             display(2560, 1440, 60),
             nvenc_hevc(),
             0,
+            30_000,
         );
         assert_eq!(
             (normal.codec, normal.width, normal.height, normal.fps),
@@ -1147,7 +1204,14 @@ mod tests {
         mp4mux::require_clip_mp4(&clip.bytes).unwrap();
         assert!(clip.bytes.windows(4).any(|tag| tag == *b"hvc1"));
         assert!(clip.bytes.windows(4).any(|tag| tag == *b"mp4a"));
+        assert!(clip.bytes.windows(6).any(|tag| tag == *b"System"));
+        assert!(clip.bytes.windows(10).any(|tag| tag == *b"Microphone"));
         assert!(mp4mux::moov_before_mdat(&clip.bytes));
+        let rate = bitrate_for_window(VideoCodec::H264, 1440, 60, 120_000);
+        assert!(u64::from(rate) / 8 * 120 <= RING_BUDGET_BYTES as u64);
+        assert_eq!(snap_buffer_sec(45), 30);
+        assert_eq!(snap_buffer_sec(120), 120);
+        assert_eq!(buffer_window_ms(15), 15_000);
     }
 
     #[test]

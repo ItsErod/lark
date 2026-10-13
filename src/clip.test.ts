@@ -8,6 +8,7 @@ import {
   clipsDirHint,
   DEFAULT_CLIP_FPS,
   DEFAULT_CLIP_RESOLUTION,
+  sanitizeClipBuffer,
   sanitizeClipFps,
   sanitizeClipResolution,
 } from "./clip";
@@ -19,6 +20,12 @@ describe("clips", () => {
     for (const os of ["macos", "windows", "linux"] as const) {
       const note = clipBehaviorNote(os);
       expect(note).toContain("30 seconds");
+      expect(note).toContain("15 seconds");
+      expect(note).toContain("2 minutes");
+      expect(note).toContain("microphone");
+      expect(note).toContain("Overwatch 2");
+      expect(note).toContain("Deadlock");
+      expect(note).toContain("does not hook");
       expect(note).toContain("screen share");
       expect(note).toContain("Game Mode");
       expect(note).toContain("clips folder");
@@ -70,6 +77,9 @@ describe("clips", () => {
     expect(sanitizeClipResolution(480)).toBe(1440);
     expect(defaultConfig().clips.fps).toBe(60);
     expect(defaultConfig().clips.resolution).toBe(1440);
+    expect(defaultConfig().clips.buffer_sec).toBe(30);
+    expect(sanitizeClipBuffer(120)).toBe(120);
+    expect(sanitizeClipBuffer(45)).toBe(30);
   });
 
   it("puts clips next to the config directory", () => {

@@ -146,6 +146,7 @@ pub fn run() {
                 config.clips.game_capture,
                 config.clips.fps,
                 config.clips.resolution,
+                config.clips.buffer_sec,
                 config.desktop.game_mode,
             );
             let hide_on_close = Arc::new(AtomicBool::new(config.desktop.minimize_to_tray));
@@ -2347,6 +2348,7 @@ fn sync_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {
 fn apply_clip_config(app: &AppHandle, config: &Config) {
     let state = app.state::<Shared>();
     state.clips.set_quality(config.clips.fps, config.clips.resolution);
+    state.clips.set_window(config.clips.buffer_sec);
     state.clips.set_game(config.clips.game_capture);
     apply_clip_hotkey(app, &config.shortcuts.save_clip);
 }

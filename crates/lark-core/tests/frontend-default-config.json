@@ -79,7 +79,8 @@
     "game_capture": false,
     "compress": "ask",
     "fps": 60,
-    "resolution": 1440
+    "resolution": 1440,
+    "buffer_sec": 30
   },
   "games": {},
   "privacy": {
