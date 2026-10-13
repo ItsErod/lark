@@ -5,6 +5,7 @@ import { sanitizeGames } from "./game";
 import { sanitizeClipBuffer, sanitizeClipFps, sanitizeClipResolution } from "./clip";
 import { snapShareFps, snapShareHeight } from "./share";
 import { sanitizeClips } from "./soundboard";
+import { cleanAlertList, defaultQuiet, sanitizeQuiet } from "./smart-notify";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
 import { speakColor } from "./voice-stage";
 
@@ -47,6 +48,10 @@ export function defaultConfig(): AppConfig {
         "100000000000000025": { muted: true },
       },
       keywords: ["wordmark"],
+      quiet: defaultQuiet(),
+      alert_keywords: [],
+      people: [],
+      blocked: [],
     },
     plugins: { enabled: [] },
     voice: {
@@ -122,6 +127,10 @@ export function sanitizeConfig(input: unknown): AppConfig {
     if (LEVELS.has(raw.notifications.default)) base.notifications.default = raw.notifications.default;
     base.notifications.guilds = sanitizeOverrides(raw.notifications.guilds);
     base.notifications.channels = sanitizeOverrides(raw.notifications.channels);
+    base.notifications.quiet = sanitizeQuiet(raw.notifications.quiet);
+    base.notifications.alert_keywords = cleanAlertList(raw.notifications.alert_keywords);
+    base.notifications.people = cleanAlertList(raw.notifications.people);
+    base.notifications.blocked = cleanAlertList(raw.notifications.blocked);
   }
   if (Array.isArray(raw.plugins?.enabled)) {
     base.plugins.enabled = raw.plugins.enabled.filter((id): id is string => typeof id === "string");
