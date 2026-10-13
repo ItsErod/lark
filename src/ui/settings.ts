@@ -170,7 +170,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "voice.mode", section: "voice", label: "Input mode", description: "Voice activity opens the mic when you speak. Push to talk waits for the key.", keywords: "vad ptt microphone" },
   { id: "voice.sensitivity", section: "voice", label: "Voice activity sensitivity", description: "How loud you need to be before voice activity opens the mic.", keywords: "threshold" },
   { id: "voice.noise", section: "voice", label: "Noise suppression", description: "RNNoise runs on the microphone. Echo cancellation is a separate switch. This is not Krisp.", keywords: "rnnoise denoise" },
-  { id: "voice.quality", section: "voice", label: "Higher quality suppression", description: "Spectral noise suppression and a longer echo filter.", keywords: "aec spectral rnnoise" },
+  { id: "voice.quality", section: "voice", label: "Higher quality suppression", description: "Spectral noise suppression. Echo cancellation is a separate switch.", keywords: "spectral rnnoise" },
   { id: "voice.soundboard", section: "voice", label: "Soundboard", description: "WAV clips mixed into the call.", keywords: "wav hotkey sound" },
   { id: "voice.hud", section: "voice", label: "Voice HUD", description: "A small always-on-top window that uses the same voice roster.", keywords: "overlay in-game" },
   { id: "voice.opacity", section: "voice", label: "HUD opacity", description: "How solid the voice HUD is.", keywords: "transparent" },

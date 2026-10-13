@@ -1,3 +1,4 @@
+pub mod aec;
 pub mod browser_handoff;
 pub mod discover;
 pub mod gateway;

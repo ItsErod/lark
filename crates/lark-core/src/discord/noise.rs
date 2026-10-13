@@ -5,8 +5,8 @@
 //! while someone is talking.
 //!
 //! Higher quality is an original spectral suppressor (Hann-free Wiener gain on
-//! a short FFT) plus a longer FIR echo canceller. Both are in this crate.
-//! Neither path is Krisp.
+//! a short FFT). Echo cancellation is separate and lives in `aec`. Neither
+//! path is Krisp.
 
 use nnnoiseless::DenoiseState;
 
@@ -15,7 +15,6 @@ const FRAME: usize = DenoiseState::FRAME_SIZE;
 const HP_R: f32 = 0.9896;
 const FFT: usize = 512;
 const BINS: usize = FFT / 2 + 1;
-const FIR: usize = 64;
 
 pub struct NoiseSuppressor {
     state: Box<DenoiseState<'static>>,
@@ -129,50 +128,6 @@ impl SpectralSuppressor {
             }
         }
         self.frames = self.frames.saturating_add(1);
-    }
-}
-
-/// FIR NLMS echo canceller. Adapts a short filter against the playback reference
-/// and freezes while near-end speech is much louder than the reference.
-pub struct FirAec {
-    weights: [f32; FIR],
-    hist: [f32; FIR],
-}
-
-impl FirAec {
-    pub fn new() -> Self {
-        Self {
-            weights: [0.0; FIR],
-            hist: [0.0; FIR],
-        }
-    }
-
-    pub fn process(&mut self, frame: &mut [f32], reference: &[f32]) {
-        let count = frame.len().min(reference.len());
-        for index in 0..count {
-            self.hist.copy_within(0..FIR - 1, 1);
-            self.hist[0] = reference[index];
-            let mut echo = 0.0;
-            let mut power = 1.0e-4;
-            for tap in 0..FIR {
-                echo += self.weights[tap] * self.hist[tap];
-                power += self.hist[tap] * self.hist[tap];
-            }
-            let err = frame[index] - echo;
-            let near = frame[index].abs();
-            let far = reference[index].abs();
-            let far_energy: f32 = self.hist.iter().map(|sample| sample * sample).sum();
-            let freeze =
-                far_energy < 0.01 || (near > 0.15 && far < 0.05 && echo.abs() < near * 0.3);
-            if !freeze {
-                let step = 0.45 / power;
-                for tap in 0..FIR {
-                    let next = self.weights[tap] + step * err * self.hist[tap];
-                    self.weights[tap] = next.clamp(-2.0, 2.0);
-                }
-            }
-            frame[index] = err.clamp(-1.0, 1.0);
-        }
     }
 }
 
@@ -313,39 +268,5 @@ mod tests {
         let kept = energy(&tone);
         assert!(kept > loud * 0.25, "tone energy {loud} -> {kept}");
         assert!(tone.iter().all(|sample| sample.is_finite()));
-    }
-
-    #[test]
-    fn fir_aec_cancels_a_delayed_echo_and_freezes_on_double_talk() {
-        let mut aec = FirAec::new();
-        let mut seed = 0x00C0_FFEE_u32;
-        let delay = 20usize;
-        let mut line = vec![0f32; delay];
-        let mut cursor = 0usize;
-        let mut raw = 0.0;
-        let mut left = 0.0;
-        for _ in 0..60 {
-            let mut reference = vec![0f32; 320];
-            let mut mic = vec![0f32; 320];
-            for index in 0..320 {
-                let sample = unit_noise(&mut seed) * 0.4;
-                reference[index] = sample;
-                mic[index] = 0.6 * line[cursor];
-                line[cursor] = sample;
-                cursor = (cursor + 1) % delay;
-            }
-            raw = energy(&mic);
-            aec.process(&mut mic, &reference);
-            left = energy(&mic);
-        }
-        assert!(left < raw * 0.2, "echo energy {raw} -> {left}");
-
-        let mut drain = vec![0f32; FIR];
-        aec.process(&mut drain, &vec![0f32; FIR]);
-        let weights = aec.weights;
-        let mut speech = vec![0.3f32; 320];
-        aec.process(&mut speech, &vec![0f32; 320]);
-        assert!(speech.iter().all(|sample| (*sample - 0.3).abs() < 0.05));
-        assert_eq!(aec.weights, weights);
     }
 }

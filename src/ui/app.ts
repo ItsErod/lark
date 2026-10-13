@@ -6912,8 +6912,8 @@ class LarkApp {
     this.late!.registerSettingEntries([
       { id: "voice.mic-test", section: "voice", label: "Mic test", description: "Watch the microphone level.", keywords: "meter input" },
       { id: "voice.profiles", section: "voice", label: "Input profiles", description: "Saved microphone, input mode, and sensitivity.", keywords: "profile" },
-      { id: "voice.echo", section: "voice", label: "Echo cancellation", description: "Subtract playback from the microphone.", keywords: "aec echo" },
-      { id: "voice.quality", section: "voice", label: "Higher quality suppression", description: "Spectral noise suppression and a longer echo filter.", keywords: "aec spectral" },
+      { id: "voice.echo", section: "voice", label: "Echo cancellation", description: "Cancel speaker echo with the playback mix.", keywords: "aec echo" },
+      { id: "voice.quality", section: "voice", label: "Higher quality suppression", description: "Spectral noise suppression. Echo cancellation is separate.", keywords: "spectral rnnoise" },
       { id: "voice.agc", section: "voice", label: "Automatic gain control", description: "Keep the microphone at a steady level.", keywords: "agc volume" },
       { id: "voice.camera-test", section: "voice", label: "Camera test", description: "Preview the camera. In a call, the same picture is sent.", keywords: "video webcam" },
       { id: "voice.stream-preview", section: "voice", label: "Stream preview", description: "The current Go Live picture.", keywords: "share screen" },
@@ -6979,12 +6979,12 @@ class LarkApp {
       profiles.append(row);
     }
     const process = this.late!.settingCard("Processing");
-    process.append(this.switchRow("voice.echo", "Echo cancellation", "Subtracts the call playback from the microphone before noise suppression.", this.echoCancellation, (value) => {
+    process.append(this.switchRow("voice.echo", "Echo cancellation", "Cancels speaker echo with the playback mix, before noise suppression.", this.echoCancellation, (value) => {
       this.echoCancellation = value;
       this.storeVoicePrefs();
       this.pushVoiceProcessing();
     }));
-    process.append(this.switchRow("voice.quality", "Higher quality suppression", "Spectral noise suppression and a longer echo filter. Standard stays on RNNoise. This is not Krisp.", this.noiseQuality === "high", (value) => {
+    process.append(this.switchRow("voice.quality", "Higher quality suppression", "Spectral noise suppression. Standard stays on RNNoise. Echo cancellation is separate. This is not Krisp.", this.noiseQuality === "high", (value) => {
       this.noiseQuality = noiseQualityName(value ? "high" : "standard");
       this.storeVoicePrefs();
       this.pushVoiceProcessing();
