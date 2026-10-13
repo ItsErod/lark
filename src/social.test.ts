@@ -15,6 +15,7 @@ import {
   friendUsernameOk,
   friendsForTab,
   dmVoiceStamp,
+  groupCallStamp,
   groupMemberCount,
   indexedRelationships,
   memberContextMenu,
@@ -174,6 +175,16 @@ describe("relationships", () => {
     expect(dmVoiceStamp(null)).toBe("");
     expect(dmVoiceStamp({ sharing: false })).toBe("voice");
     expect(dmVoiceStamp({ sharing: true })).toBe("live");
+    const group = "100000000000000043";
+    expect(groupCallStamp([], group)).toBe("");
+    expect(groupCallStamp([{ userId: "2", channelId: "other" }], group)).toBe("");
+    expect(groupCallStamp([{ userId: "", channelId: group }], group)).toBe("");
+    expect(groupCallStamp([{ userId: "2", channelId: group }], "  ")).toBe("");
+    expect(groupCallStamp([{ userId: "2", channelId: group, sharing: false }], group)).toBe("voice");
+    expect(groupCallStamp([
+      { userId: "2", channelId: group, sharing: false },
+      { userId: "3", channelId: group, sharing: true },
+    ], group)).toBe("live");
     expect(friendUsernameOk("maya.chen")).toBe(true);
     expect(friendUsernameOk("Maya")).toBe(false);
     expect(friendUsernameOk("a")).toBe(false);

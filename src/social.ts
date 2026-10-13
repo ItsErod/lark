@@ -256,6 +256,31 @@ export function dmVoiceStamp(spot: { sharing?: boolean } | null | undefined): ""
   return spot.sharing ? "live" : "voice";
 }
 
+export interface GroupCallPerson {
+  userId: string;
+  channelId?: string;
+  sharing?: boolean;
+}
+
+/**
+ * In-call mark for a group DM row. People in that group channel count.
+ * LIVE when any of them is streaming. An empty channel id never matches.
+ */
+export function groupCallStamp(
+  roster: readonly GroupCallPerson[],
+  channelId: string,
+): "" | "voice" | "live" {
+  const id = channelId.trim();
+  if (!id) return "";
+  let inCall = false;
+  for (const person of roster) {
+    if (!person.userId || person.channelId !== id) continue;
+    inCall = true;
+    if (person.sharing) return "live";
+  }
+  return inCall ? "voice" : "";
+}
+
 export function floatPinned<T extends { id: string }>(channels: T[], pinned: ReadonlySet<string>): T[] {
   const top: T[] = [];
   const rest: T[] = [];
