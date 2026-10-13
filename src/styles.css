@@ -599,6 +599,27 @@ html.is-panic body > * { visibility: hidden !important; }
 .setting-head p { margin: 0 0 12px; color: var(--muted); line-height: 1.4; }
 .setting-head .text-button { margin: 0 0 16px; }
 .store-actions { display: flex; gap: 8px; margin: -6px 0 12px; }
+.store-search {
+  width: 100%;
+  margin: 8px 0;
+  background: var(--bg-0);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.store-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.store-chip {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+.store-chip[aria-pressed="true"] { background: var(--text); color: var(--bg-0); border-color: var(--text); }
 .settings-stack { display: flex; flex-direction: column; }
 .setting-card {
   background: var(--bg-1); border-radius: 8px; padding: 4px 16px 8px; margin: 0 0 16px;

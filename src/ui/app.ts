@@ -131,7 +131,8 @@ import { describePlugin, enabledSources, validPluginId, type PluginCatalogItem, 
 import {
   acceptBytes,
   APP_VERSION,
-  availableStoreItems,
+  browseStore,
+  categoryLabel,
   entryUrl,
   findStoreItem,
   hashMatches,
@@ -613,6 +614,9 @@ class LarkApp {
   private storeRefreshing = false;
   private storeIndexTried = false;
   private storeInstalling = "";
+  private storeQuery = "";
+  private storeKind: "all" | "plugin" | "theme" = "all";
+  private storeCategory = "";
   private loaded = new Map<string, PluginSource>();
   private pack: PackState = defaultPack();
   private translated: Record<string, string> = {};
@@ -6786,25 +6790,77 @@ class LarkApp {
       card.append(el("p", "setting-help", this.storeIndexTried ? "The store could not be reached." : "Loading the store…"));
       return card;
     }
-    const plugins = availableStoreItems(this.storeIndex, this.installed, "plugin");
-    const themes = availableStoreItems(this.storeIndex, this.installed, "theme");
-    if (!plugins.length && !themes.length) {
-      card.append(el("p", "setting-help", "Everything in the store is installed."));
-      return card;
-    }
-    const paint = (item: StoreItem) => {
-      const busy = this.storeInstalling === item.id;
-      const install = el("button", "text-button", busy ? "Installing…" : "Install");
-      install.type = "button";
-      install.disabled = this.storeInstalling !== "";
-      install.addEventListener("click", () => void this.installFromCatalog(item.id));
-      const needs = larkVersionOk(item.minLark, APP_VERSION) ? "" : ` · Needs Lark ${item.minLark}`;
-      card.append(settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}`, install));
+    const index = this.storeIndex;
+    const search = el("input", "store-search");
+    search.type = "search";
+    search.placeholder = "Search the store";
+    search.setAttribute("aria-label", "Search the store");
+    search.value = this.storeQuery;
+    const chips = el("div", "store-chips");
+    chips.setAttribute("role", "toolbar");
+    chips.setAttribute("aria-label", "Store filters");
+    const results = el("div", "store-results");
+    const paint = () => {
+      const browsed = browseStore(index, this.installed, {
+        query: this.storeQuery,
+        kind: this.storeKind,
+        category: this.storeCategory,
+      });
+      if (this.storeCategory && !browsed.categories.includes(this.storeCategory)) this.storeCategory = "";
+      chips.replaceChildren();
+      for (const kind of ["all", "plugin", "theme"] as const) {
+        const label = kind === "all" ? "All" : kind === "plugin" ? "Plugins" : "Themes";
+        const button = el("button", "store-chip", label);
+        button.type = "button";
+        button.setAttribute("aria-pressed", this.storeKind === kind ? "true" : "false");
+        button.addEventListener("click", () => {
+          this.storeKind = kind;
+          paint();
+        });
+        chips.append(button);
+      }
+      for (const category of browsed.categories) {
+        const button = el("button", "store-chip", categoryLabel(category));
+        button.type = "button";
+        button.setAttribute("aria-pressed", this.storeCategory === category ? "true" : "false");
+        button.addEventListener("click", () => {
+          this.storeCategory = this.storeCategory === category ? "" : category;
+          paint();
+        });
+        chips.append(button);
+      }
+      results.replaceChildren();
+      const empty = !browsed.plugins.length && !browsed.themes.length;
+      const unfiltered = browseStore(index, this.installed, { query: "", kind: "all", category: "" });
+      if (empty && !unfiltered.plugins.length && !unfiltered.themes.length) {
+        results.append(el("p", "setting-help", "Everything in the store is installed."));
+        return;
+      }
+      if (empty) {
+        results.append(el("p", "setting-help", "Nothing matches."));
+        return;
+      }
+      const paintItem = (item: StoreItem) => {
+        const busy = this.storeInstalling === item.id;
+        const install = el("button", "text-button", busy ? "Installing…" : "Install");
+        install.type = "button";
+        install.disabled = this.storeInstalling !== "";
+        install.addEventListener("click", () => void this.installFromCatalog(item.id));
+        const needs = larkVersionOk(item.minLark, APP_VERSION) ? "" : ` · Needs Lark ${item.minLark}`;
+        const note = item.changelog ? ` · ${item.changelog}` : "";
+        results.append(settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, install));
+      };
+      if (browsed.plugins.length) results.append(el("h3", "", "Plugins"));
+      for (const item of browsed.plugins) paintItem(item);
+      if (browsed.themes.length) results.append(el("h3", "", "Themes"));
+      for (const item of browsed.themes) paintItem(item);
     };
-    if (plugins.length) card.append(el("h3", "", "Plugins"));
-    for (const item of plugins) paint(item);
-    if (themes.length) card.append(el("h3", "", "Themes"));
-    for (const item of themes) paint(item);
+    search.addEventListener("input", () => {
+      this.storeQuery = search.value;
+      paint();
+    });
+    card.append(search, chips, results);
+    paint();
     return card;
   }
 
