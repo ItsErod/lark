@@ -112,6 +112,7 @@ export function defaultPreferences(): UserPreferences {
     message_sound: false,
     call_sound: true,
     pause_gif: false,
+    reduced_motion: "system",
     unread_badge: true,
     email_notifications: false,
     share_activity: true,
@@ -165,6 +166,7 @@ export function sanitizePreferences(input: unknown): UserPreferences {
   base.message_sound = flag(raw.message_sound, false);
   base.call_sound = flag(raw.call_sound, true);
   base.pause_gif = flag(raw.pause_gif, false);
+  base.reduced_motion = raw.reduced_motion === "reduce" || raw.reduced_motion === "allow" ? raw.reduced_motion : "system";
   base.unread_badge = flag(raw.unread_badge, true);
   base.email_notifications = flag(raw.email_notifications, false);
   base.share_activity = flag(raw.share_activity, true);
@@ -563,6 +565,8 @@ export function applyUserChrome(root: HTMLElement, config: AppConfig) {
   root.dataset.spoilers = display?.show_spoilers === true ? "on" : "off";
   root.dataset.media = prefs.show_media === false ? "off" : "on";
   document.documentElement.dataset.gifPause = prefs.pause_gif ? "on" : "off";
+  if (prefs.reduced_motion === "reduce" || prefs.reduced_motion === "allow") document.documentElement.dataset.motion = prefs.reduced_motion;
+  else delete document.documentElement.dataset.motion;
   root.dataset.underline = prefs.underline_links ? "on" : "off";
   root.dataset.uiDensity = prefs.ui_density === "compact" ? "compact" : "cozy";
   root.dataset.contrast = prefs.high_contrast ? "on" : "off";

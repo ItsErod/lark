@@ -687,6 +687,10 @@ fn default_time_format() -> String {
     "auto".into()
 }
 
+fn default_reduced_motion() -> String {
+    "system".into()
+}
+
 /// Settings pages other than the three display flags.
 /// Unknown fields are ignored. Missing fields use the defaults below.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -723,6 +727,8 @@ pub struct Preferences {
     pub message_sound: bool,
     pub call_sound: bool,
     pub pause_gif: bool,
+    #[serde(default = "default_reduced_motion")]
+    pub reduced_motion: String,
     #[serde(default = "default_true")]
     pub unread_badge: bool,
     pub email_notifications: bool,
@@ -758,6 +764,7 @@ impl Default for Preferences {
             message_sound: false,
             call_sound: true,
             pause_gif: false,
+            reduced_motion: default_reduced_motion(),
             unread_badge: true,
             email_notifications: false,
             share_activity: true,
@@ -815,6 +822,11 @@ fn normalize_preferences(mut prefs: Preferences) -> Preferences {
         prefs.language = "en".into();
     }
     prefs.time_format = pick(&prefs.time_format, &["auto", "12", "24"], "auto");
+    prefs.reduced_motion = pick(
+        &prefs.reduced_motion,
+        &["system", "reduce", "allow"],
+        "system",
+    );
     prefs
 }
 

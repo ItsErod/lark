@@ -124,6 +124,7 @@
     "message_sound": false,
     "call_sound": true,
     "pause_gif": false,
+    "reduced_motion": "system",
     "unread_badge": true,
     "email_notifications": false,
     "share_activity": true,

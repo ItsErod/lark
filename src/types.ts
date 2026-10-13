@@ -159,6 +159,7 @@ export interface UserPreferences {
   message_sound: boolean;
   call_sound: boolean;
   pause_gif: boolean;
+  reduced_motion: string;
   unread_badge: boolean;
   email_notifications: boolean;
   share_activity: boolean;

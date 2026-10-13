@@ -1,0 +1,25 @@
+/* In-app motion. These selectors outrank the OS media query. Game Mode still wins. */
+html[data-motion="reduce"] {
+  --motion-fast: 0ms;
+  --motion-base: 0ms;
+  --motion-slow: 0ms;
+}
+html[data-motion="reduce"] .startup,
+html[data-motion="reduce"] .settings-layer,
+html[data-motion="reduce"] .settings-content,
+html[data-motion="reduce"] .switch-knob,
+html[data-motion="reduce"] .overlay,
+html[data-motion="reduce"] .switcher-card,
+html[data-motion="reduce"] .is-speaking .speak-ring .speak-ring-spin {
+  animation: none !important;
+  transition: none !important;
+}
+
+html[data-motion="allow"]:not(.is-game-mode) {
+  --motion-fast: 80ms;
+  --motion-base: 100ms;
+  --motion-slow: 120ms;
+}
+html[data-motion="allow"]:not(.is-game-mode) .is-speaking .speak-ring.is-flow .speak-ring-spin {
+  animation: speak-flow 1.5s linear infinite !important;
+}

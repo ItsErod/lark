@@ -229,6 +229,7 @@ import {
 } from "../call-layout";
 import { callBus, openCallPopout, type CallCommand, type CallFrame } from "../call-window";
 import { speakColor, speakingMotion, stageTiles, voiceBadges, voiceStatusNote, type RingMotion, type StageMember, type StageTile } from "../voice-stage";
+import { motionChoice, prefersReduced } from "../motion-pref";
 import { fuzzyScore } from "../search";
 import {
   AUTO_INSTALL_KEY,
@@ -10631,8 +10632,8 @@ class LarkApp {
   }
 
   private ringMotion(): RingMotion {
-    const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    return speakingMotion(this.gameMode, reduced);
+    const os = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return speakingMotion(this.gameMode, prefersReduced(motionChoice(this.config.preferences.reduced_motion), os));
   }
 
   private stageMembers(): StageMember[] {
