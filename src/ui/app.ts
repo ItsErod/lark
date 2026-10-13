@@ -42,10 +42,12 @@ import {
 import {
   canViewChannel,
   channelFlags,
+  cycleServer as stepServer,
   dockBadge,
   folderBadge,
   inviteCode,
   layoutRail,
+  orderedGuildIds,
   mentionsUser,
   normalizeFolder,
   type ChannelOverwrite,
@@ -8056,6 +8058,13 @@ class LarkApp {
       this.composer.focus();
     } else if (matchShortcut(event, shortcuts.next_channel, os)) this.cycle(1);
     else if (matchShortcut(event, shortcuts.previous_channel, os)) this.cycle(-1);
+    else if (matchShortcut(event, shortcuts.next_server, os)) {
+      event.preventDefault();
+      this.cycleServer(1);
+    } else if (matchShortcut(event, shortcuts.previous_server, os)) {
+      event.preventDefault();
+      this.cycleServer(-1);
+    }
     else if (matchShortcut(event, shortcuts.next_unread, os)) this.nextUnread();
     else if (matchShortcut(event, shortcuts.toggle_mute, os)) {
       event.preventDefault();
@@ -8096,6 +8105,12 @@ class LarkApp {
       event.preventDefault();
       this.editLast();
     }
+  }
+
+  private cycleServer(delta: number) {
+    const ids: (string | null)[] = [null, ...orderedGuildIds(this.guilds().map((guild) => guild.id), this.folders)];
+    const next = stepServer(ids, this.guildId, delta);
+    if (next !== this.guildId) this.selectGuild(next);
   }
 
   private cycle(delta: number) {

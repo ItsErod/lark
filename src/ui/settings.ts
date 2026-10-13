@@ -85,6 +85,8 @@ export const SHORTCUT_COPY: Record<string, ShortcutCopy> = {
   next_unread: { label: "Next unread", description: "Jump to the next channel with something new." },
   previous_channel: { label: "Previous channel", description: "Move up the channel list." },
   next_channel: { label: "Next channel", description: "Move down the channel list." },
+  previous_server: { label: "Previous server", description: "Move up the server list. Home is included." },
+  next_server: { label: "Next server", description: "Move down the server list. Home is included." },
   edit_last: { label: "Edit last message", description: "Edit your latest message when the composer is empty." },
   toggle_mute: { label: "Mute", description: "Mute or unmute your microphone." },
   toggle_deafen: { label: "Deafen", description: "Deafen or undeafen." },

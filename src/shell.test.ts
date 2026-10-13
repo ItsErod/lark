@@ -10,7 +10,9 @@ import {
   folderBadge,
   inviteCode,
   isNewerSnowflake,
+  cycleServer,
   layoutRail,
+  orderedGuildIds,
   mentionsUser,
   type GuildAccess,
 } from "./shell";
@@ -28,6 +30,23 @@ function access(extra: Partial<GuildAccess> = {}): GuildAccess {
     ...extra,
   };
 }
+
+describe("server navigation", () => {
+  it("walks the rail, including servers inside a folder, and wraps past Home", () => {
+    const ids = orderedGuildIds(
+      [guild, "100000000000000011", "100000000000000012"],
+      [{ id: "4", name: "Friends", color: null, guildIds: ["100000000000000011", guild] }],
+    );
+    expect(ids).toEqual(["100000000000000011", guild, "100000000000000012"]);
+    const rail = [null, ...ids];
+    expect(cycleServer(rail, null, 1)).toBe("100000000000000011");
+    expect(cycleServer(rail, guild, 1)).toBe("100000000000000012");
+    expect(cycleServer(rail, "100000000000000012", 1)).toBeNull();
+    expect(cycleServer(rail, null, -1)).toBe("100000000000000012");
+    expect(cycleServer(rail, "missing", 1)).toBeNull();
+    expect(cycleServer([], null, 1)).toBeNull();
+  });
+});
 
 describe("server folders", () => {
   it("orders folders, loose servers, and anything Discord left out", () => {

@@ -197,6 +197,10 @@ pub struct Shortcuts {
     pub next_unread: String,
     pub previous_channel: String,
     pub next_channel: String,
+    #[serde(default = "default_previous_server")]
+    pub previous_server: String,
+    #[serde(default = "default_next_server")]
+    pub next_server: String,
     pub edit_last: String,
     pub toggle_mute: String,
     pub toggle_deafen: String,
@@ -222,6 +226,8 @@ impl Default for Shortcuts {
             next_unread: "alt+shift+down".into(),
             previous_channel: "alt+up".into(),
             next_channel: "alt+down".into(),
+            previous_server: default_previous_server(),
+            next_server: default_next_server(),
             edit_last: "arrowup".into(),
             toggle_mute: "mod+shift+alt+m".into(),
             toggle_deafen: "mod+shift+d".into(),
@@ -236,7 +242,7 @@ impl Default for Shortcuts {
 }
 
 impl Shortcuts {
-    pub fn entries(&self) -> [(&str, &str); 17] {
+    pub fn entries(&self) -> [(&str, &str); 19] {
         [
             ("quick_switcher", self.quick_switcher.as_str()),
             ("open_settings", self.open_settings.as_str()),
@@ -246,6 +252,8 @@ impl Shortcuts {
             ("next_unread", self.next_unread.as_str()),
             ("previous_channel", self.previous_channel.as_str()),
             ("next_channel", self.next_channel.as_str()),
+            ("previous_server", self.previous_server.as_str()),
+            ("next_server", self.next_server.as_str()),
             ("edit_last", self.edit_last.as_str()),
             ("toggle_mute", self.toggle_mute.as_str()),
             ("toggle_deafen", self.toggle_deafen.as_str()),
@@ -269,6 +277,14 @@ fn default_toggle_game_mode() -> String {
 
 fn default_toggle_call() -> String {
     "mod+shift+v".into()
+}
+
+fn default_previous_server() -> String {
+    "mod+alt+arrowup".into()
+}
+
+fn default_next_server() -> String {
+    "mod+alt+arrowdown".into()
 }
 
 fn default_ptt_key() -> String {
@@ -1855,6 +1871,8 @@ mode = "suppress"
         assert_eq!(cfg.shortcuts.toggle_game_mode, "mod+shift+g");
         assert_eq!(cfg.shortcuts.toggle_voice_overlay, "mod+shift+o");
         assert_eq!(cfg.shortcuts.toggle_call, "mod+shift+v");
+        assert_eq!(cfg.shortcuts.previous_server, "mod+alt+arrowup");
+        assert_eq!(cfg.shortcuts.next_server, "mod+alt+arrowdown");
     }
 
     #[test]
