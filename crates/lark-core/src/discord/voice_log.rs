@@ -24,6 +24,7 @@ pub struct VoiceLog {
     pub opus_decode_fail: u64,
     pub encrypt_fail: u64,
     pub not_rtp: u64,
+    pub quiet: u64,
     pub close_code: Option<u16>,
     pub close_reason: String,
     pub input_error: String,
@@ -74,6 +75,7 @@ impl Default for VoiceLog {
             opus_decode_fail: 0,
             encrypt_fail: 0,
             not_rtp: 0,
+            quiet: 0,
             close_code: None,
             close_reason: String::new(),
             input_error: String::new(),
@@ -187,7 +189,7 @@ impl VoiceLog {
              opus out: {opus_out}\n\
              dave open failures: {open_fail}\n\
              dave seal skipped: {seal_skip}\n\
-             drops: transport {transport_fail}, queue {queue_full}, own ssrc {own_ssrc}, empty {empty_frame}, no user {no_user}, late {late_packet}, opus decode {decode_fail}, encrypt {encrypt_fail}, not rtp {not_rtp}\n\
+             drops: transport {transport_fail}, queue {queue_full}, own ssrc {own_ssrc}, empty {empty_frame}, no user {no_user}, late {late_packet}, opus decode {decode_fail}, encrypt {encrypt_fail}, not rtp {not_rtp}, quiet {quiet}\n\
              close: {close}\n\
              microphone: {mic}\n\
              speakers: {speakers}\n\
@@ -222,6 +224,7 @@ impl VoiceLog {
             decode_fail = self.opus_decode_fail,
             encrypt_fail = self.encrypt_fail,
             not_rtp = self.not_rtp,
+            quiet = self.quiet,
         );
         if self.steps.is_empty() {
             text.push_str("- no voice attempt yet\n");
