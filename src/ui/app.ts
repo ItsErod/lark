@@ -355,6 +355,7 @@ import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, st
 import { MESSAGE_OVERSCAN, rowEstimate, rowReuseOps, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
 import { clear, colorFor, el, icon, portrait, paths } from "./dom";
 import type { BoardHandlers, BoardSession, BoardSnapshot } from "./dashboard-view";
+import type { StatNote } from "./stats-store";
 import { mountPrivacyPanel } from "./privacy-panels";
 import {
   DISCORD_LINKS,
@@ -730,6 +731,11 @@ class LarkApp {
   private boardSession: BoardSession | null = null;
   private boardLoading: Promise<BoardSession> | null = null;
   private boardHost!: HTMLElement;
+  private statOff = false;
+  private statSpeaking = false;
+  private statBoot = 0;
+  private statTimer = 0;
+  private statQueue: StatNote[] = [];
   private statusEmoji = "";
   private statusClearAt: number | null = null;
   private directory: Record<string, Person> = {};
@@ -1026,6 +1032,8 @@ class LarkApp {
     this.hideMuted = parseFlag(localStorage.getItem("lark.hide-muted.v1"));
     const params = new URLSearchParams(location.search);
     this.bench = params.has("bench");
+    this.statBoot = Date.now();
+    try { this.statOff = localStorage.getItem("lark.stats.off") === "1"; } catch { this.statOff = true; }
     if (!params.has("demo")) {
       const stored = this.ensureFolderSync().load();
       if (stored) this.folders = stored.folders;
@@ -3612,6 +3620,7 @@ class LarkApp {
     this.msgSig = "";
     this.friendsOpen = false;
     this.clipsOpen = false;
+    if (leaving !== id) this.notePlace("focus", id);
     this.paintMessages();
     if (perf) perf.lastSwitch = performance.now() - started;
     window.setTimeout(() => this.finishChannelChrome(id), 0);
@@ -5668,6 +5677,7 @@ class LarkApp {
           this.msgSig = "";
         }
       }
+      this.notePlace("message", id);
       this.reply = null;
     }
     clearStickers();
@@ -6063,6 +6073,60 @@ class LarkApp {
     return wrap;
   }
 
+  private noteStat(note: StatNote) {
+    if (this.bench || this.statOff) return;
+    this.statQueue.push(note);
+    if (this.statTimer) return;
+    this.statTimer = window.setTimeout(() => {
+      this.statTimer = 0;
+      void this.flushStats();
+    }, 1200);
+  }
+
+  private flushStats(): Promise<void> {
+    const batch = this.statQueue.splice(0);
+    if (!batch.length || this.statOff || this.bench) return Promise.resolve();
+    const boot = this.statBoot;
+    this.statBoot = 0;
+    return import("./stats-store").then((mod) => {
+      mod.noteAll(batch, boot);
+    }).catch(() => undefined);
+  }
+
+  private notePlace(kind: "focus" | "message" | "voice", id: string, on?: 0 | 1) {
+    if (this.bench || this.statOff) return;
+    const place = this.placeFor(id);
+    const channel = this.channelById(id);
+    const scope = channel?.kind === "dm" || channel?.kind === "group"
+      ? channel.kind
+      : channel?.kind === "voice" || channel?.kind === "stage" ? "voice" : "text";
+    this.noteStat({
+      t: Date.now(),
+      kind,
+      id,
+      name: place.channelName,
+      place: place.guildName,
+      scope: kind === "voice" ? "voice" : scope,
+      on,
+    });
+  }
+
+  private paneStats(): HTMLElement {
+    const wrap = el("div", "settings-stack");
+    wrap.append(el("p", "setting-help", "Loading stats"));
+    void this.flushStats().then(() => import("./stats-page")).then((mod) => {
+      if (this.section !== "stats" || !wrap.isConnected) return;
+      clear(wrap);
+      mod.mountStatsPage(wrap, {
+        onCollecting: (on) => {
+          this.statOff = !on;
+          if (!on) this.statQueue.length = 0;
+        },
+      });
+    }).catch(() => undefined);
+    return wrap;
+  }
+
   private settingsPane(): HTMLElement {
     switch (this.section) {
       case "account": return this.paneAccount();
@@ -6084,6 +6148,7 @@ class LarkApp {
       case "privacy": return this.panePrivacy();
       case "clips": return this.paneClips();
       case "gaming": return this.paneGaming();
+      case "stats": return this.paneStats();
       case "plugins":
       case "lark":
         return this.panePlugins();
@@ -8577,6 +8642,7 @@ class LarkApp {
       bytes: payload.bytes || 0,
       spanMs: payload.spanMs || 0,
     };
+    this.noteStat({ t: Date.now(), kind: "clip" });
     void this.notify("Clip saved", `${clipDisplayTitle(payload.name)} is on this computer. Share sends it to the open channel. Nothing was uploaded.`);
     if (this.view === "app") this.paintComposer();
   }
@@ -10874,6 +10940,7 @@ class LarkApp {
       deafened: this.desk.deafened,
       members: [],
     };
+    this.notePlace("voice", target.channelId, 1);
     this.noteCallForUpdates();
     this.voiceJoinedAt = Date.now();
     this.voiceConnectedAt = 0;
@@ -10921,6 +10988,7 @@ class LarkApp {
   }
 
   private leaveVoice() {
+    if (this.voice) this.notePlace("voice", this.voice.channelId, 0);
     const guildId = this.voice?.guildId ?? "";
     if (this.voice) applyVoiceState(this.voiceRoster, { guildId, channelId: "", userId: this.meId() });
     this.voice = null;
@@ -11089,6 +11157,10 @@ class LarkApp {
       this.paintVoice();
     }
     setSpeaking(this.voiceRoster, userId, speaking);
+    if (userId === this.meId() && speaking !== this.statSpeaking) {
+      this.statSpeaking = speaking;
+      this.noteStat({ t: Date.now(), kind: "speak", on: speaking ? 1 : 0 });
+    }
     const member = this.voice?.members.find((item) => item.id === userId);
     if (member) member.speaking = speaking;
     this.syncSpeakingClass(userId);
@@ -11328,6 +11400,7 @@ class LarkApp {
     const clean = name ? cleanGameName(name) : null;
     if (clean === this.detectedGame) return;
     this.detectedGame = clean;
+    this.noteStat({ t: Date.now(), kind: "game", on: clean ? 1 : 0, name: clean ?? "" });
     this.syncGameEffects();
     if (this.settings && (this.section === "voice" || this.section === "gaming")) this.renderSettings();
   }

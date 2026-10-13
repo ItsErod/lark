@@ -76,6 +76,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
   { id: "privacy", label: "Privacy", group: "lark", description: "Streamer mode hides personal info on this screen." },
   { id: "clips", label: "Clips", group: "lark", description: "A local recording of the main display, and the library of clips saved on this computer." },
   { id: "gaming", label: "Gaming", group: "lark", description: "Game Mode, per-game profiles, and a hardware status line." },
+  { id: "stats", label: "Stats", group: "lark", description: "Play time, voice, messages, clips, and usage stored on this device." },
   { id: "plugins", label: "Plugins and Themes", group: "lark", description: "Install plugins and themes from the store. They stay off until you turn them on." },
 ];
 
@@ -196,6 +197,8 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "gaming.detect", section: "gaming", label: "Detect games", description: "Watch the front app a few times a minute. GPU sensors stay off.", keywords: "foreground" },
   { id: "gaming.hardware", section: "gaming", label: "Hardware in status", description: "GPU, CPU temperature, and the current game as your Discord custom status.", keywords: "sensors" },
   { id: "gaming.profiles", section: "gaming", label: "Game profiles", description: "Push to talk, Game Mode, and the HUD for each game you adjust.", keywords: "per game" },
+  { id: "stats.collect", section: "stats", label: "Collect stats", description: "Counts stay on this device. Turn collection off to stop new ones.", keywords: "usage play time voice clips local privacy" },
+  { id: "stats.clear", section: "stats", label: "Clear stats", description: "Erase the counts stored on this device.", keywords: "reset delete history" },
   { id: "plugins.list", section: "plugins", label: "Plugins and Themes", description: "Installed from the store. The token never reaches a plugin.", keywords: "pack translate bookmarks store themes browse install" },
   { id: "plugins.store", section: "plugins", label: "Store", description: "Install a plugin or theme from the Lark store. Update and uninstall stay on the installed item.", keywords: "catalog browse install theme update uninstall" },
   { id: "accessibility.size", section: "accessibility", label: "Text size", description: "From 12 to 24.", keywords: "font size scale" },
