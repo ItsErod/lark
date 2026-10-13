@@ -1,0 +1,12 @@
+{
+  "id": "mono-contrast",
+  "name": "Mono contrast",
+  "description": "White type on black. The accent stays white, and text pairs are at least 7:1.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "contrast",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "contrast",
+  "changelog": "Store release. High-contrast Minimal Mono with a white accent. Installed from the store, not bundled with the app."
+}

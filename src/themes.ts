@@ -34,6 +34,9 @@ export const SHIPPED_THEMES: ThemeMeta[] = [
   { id: "mono-oled", title: "Mono OLED", blurb: "True black, white accent" },
   { id: "mono-graphite", title: "Mono graphite", blurb: "Warm graphite, warm-white accent" },
   { id: "mono-light", title: "Mono light", blurb: "White surfaces, black type" },
+  { id: "mono-contrast", title: "Mono contrast", blurb: "White on black, 7:1" },
+  { id: "mono-blue", title: "Mono blue", blurb: "Zinc with a muted steel accent" },
+  { id: "mono-sage", title: "Mono sage", blurb: "Zinc with a muted sage accent" },
   { id: "daylight", title: "Daylight", blurb: "Warm paper" },
   { id: "ink-contrast", title: "Ink contrast", blurb: "Bright-room black" },
 ];

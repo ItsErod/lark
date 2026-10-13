@@ -1372,6 +1372,50 @@
       ]
     },
     {
+      "id": "mono-blue",
+      "name": "Mono blue",
+      "description": "Minimal Mono with one muted steel-blue accent.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "dark",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "palette",
+      "changelog": "Store release. Neutral zinc and a muted blue accent. Installed from the store, not bundled with the app.",
+      "sha256": "9ddf907e5d24ab31400c82c21c9fc6fc56263cf880cb5f4f47449ae75da74058",
+      "bytes": 1061,
+      "file": "themes/mono-blue/theme.css",
+      "download": "downloads/mono-blue.zip",
+      "swatches": [
+        "#09090b",
+        "#0c0c0e",
+        "#8eabc4",
+        "#f4f4f5"
+      ]
+    },
+    {
+      "id": "mono-contrast",
+      "name": "Mono contrast",
+      "description": "White type on black. The accent stays white, and text pairs are at least 7:1.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "contrast",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "contrast",
+      "changelog": "Store release. High-contrast Minimal Mono with a white accent. Installed from the store, not bundled with the app.",
+      "sha256": "878a997c354bc217b95529f4dc01a10d4428da0d332188a7ca8c10301f362539",
+      "bytes": 1060,
+      "file": "themes/mono-contrast/theme.css",
+      "download": "downloads/mono-contrast.zip",
+      "swatches": [
+        "#000000",
+        "#0a0a0a",
+        "#ffffff",
+        "#ffffff"
+      ]
+    },
+    {
       "id": "mono-graphite",
       "name": "Mono graphite",
       "description": "Warm graphite surfaces with a warm-white accent.",
@@ -1434,6 +1478,28 @@
         "#000000",
         "#000000",
         "#fafafa",
+        "#f4f4f5"
+      ]
+    },
+    {
+      "id": "mono-sage",
+      "name": "Mono sage",
+      "description": "Minimal Mono with one muted sage accent.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "dark",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "palette",
+      "changelog": "Store release. Neutral zinc and a muted green accent. Installed from the store, not bundled with the app.",
+      "sha256": "2770c65a4f85ce64a1b9a9ea4fa3278cf70697b4a6c062a55953fbc39700b707",
+      "bytes": 1055,
+      "file": "themes/mono-sage/theme.css",
+      "download": "downloads/mono-sage.zip",
+      "swatches": [
+        "#09090b",
+        "#0c0c0e",
+        "#8eae98",
         "#f4f4f5"
       ]
     },

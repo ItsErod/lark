@@ -24,7 +24,7 @@ describe("theme pack", () => {
   const files = readdirSync("store/themes").sort();
 
   it("keeps the theme catalog in the store and discord as the built-in default", () => {
-    expect(themePack().length).toBe(19);
+    expect(themePack().length).toBe(22);
     expect(themePack().map((theme) => theme.id)).toContain("discord");
     expect(themePack().map((theme) => theme.id)).toContain("modern-dark");
     expect(files).toEqual(SHIPPED_THEMES.map((theme) => theme.id).sort());
