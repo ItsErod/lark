@@ -125,6 +125,20 @@ pub enum ClientEvent {
         user_id: String,
         username: String,
     },
+    /// A bot answered a component or command with a modal form.
+    Modal {
+        nonce: String,
+        interaction_id: String,
+        custom_id: String,
+        title: String,
+        application_id: String,
+        components: Value,
+    },
+    /// Discord accepted or rejected an interaction, matched by nonce.
+    InteractionResult {
+        nonce: String,
+        ok: bool,
+    },
     /// Choices a bot returned for an autocomplete interaction, matched by nonce.
     Autocomplete {
         nonce: String,
@@ -1673,6 +1687,38 @@ fn handle_dispatch(
                     guild_id,
                     channel_id: parent,
                     threads: vec![channel_to_client(&channel)],
+                });
+            }
+            false
+        }
+        "INTERACTION_MODAL_CREATE" => {
+            let custom_id = json_str(data, "custom_id");
+            if !custom_id.is_empty() {
+                emit(ClientEvent::Modal {
+                    nonce: json_str(data, "nonce"),
+                    interaction_id: json_str(data, "id"),
+                    custom_id,
+                    title: json_str(data, "title"),
+                    application_id: data
+                        .pointer("/application/id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    components: data
+                        .get("components")
+                        .filter(|v| v.is_array())
+                        .cloned()
+                        .unwrap_or_else(|| json!([])),
+                });
+            }
+            false
+        }
+        "INTERACTION_SUCCESS" | "INTERACTION_FAILURE" => {
+            let nonce = json_str(data, "nonce");
+            if !nonce.is_empty() {
+                emit(ClientEvent::InteractionResult {
+                    nonce,
+                    ok: name == "INTERACTION_SUCCESS",
                 });
             }
             false
