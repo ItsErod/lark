@@ -331,7 +331,7 @@ import { isHeldRequest } from "../message-requests";
 import { loadThreadsUi, threadsNow } from "./lazy-threads";
 import { writeClipboard } from "../clipboard";
 import { acceptHeardSound, clipForHotkey, hearSoundKey, parseSoundEffect, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
-import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, isDefaultAvatar, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, preferAvatar, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, isDefaultAvatar, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, placeMenu, preferAvatar, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
@@ -11805,6 +11805,7 @@ class LarkApp {
     const mute = el("button", muted ? "text-button is-on" : "text-button", muted ? "Muted for you" : "Mute for you");
     mute.type = "button";
     mute.addEventListener("click", () => this.setUserMix(person.userId, Number(vol.value), !muted));
+    vol.classList.add("voice-user-volume");
     host.append(readout, vol, mute);
     const labels: Record<ParticipantMenuAction, string> = {
       profile: "Profile",
@@ -11832,7 +11833,37 @@ class LarkApp {
       button.addEventListener("click", () => void this.moderateMember(person.userId, action));
       host.append(button);
     }
-    this.clampFloat(host, menu.x, menu.y);
+    this.anchorVoiceMenu(host, menu.x, menu.y);
+  }
+
+  private anchorVoiceMenu(host: HTMLElement, x: number, y: number) {
+    const bounds = this.voiceMenuBounds(x, y);
+    const place = (width: number, height: number) => {
+      const placed = placeMenu({ x, y }, bounds, { width, height });
+      host.style.width = `${placed.width}px`;
+      host.style.maxHeight = `${placed.maxHeight}px`;
+      host.style.left = `${placed.left}px`;
+      host.style.top = `${placed.top}px`;
+    };
+    place(220, 280);
+    requestAnimationFrame(() => {
+      const rect = host.getBoundingClientRect();
+      place(Math.min(220, rect.width || 220), rect.height || 180);
+    });
+  }
+
+  private voiceMenuBounds(x: number, y: number): { left: number; top: number; right: number; bottom: number } {
+    const nodes = [this.callSplit, this.channelPane];
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement) || node.hidden) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 64 || rect.height < 64) continue;
+      const near = x >= rect.left - 12 && x <= rect.right + 12 && y >= rect.top - 12 && y <= rect.bottom + 12;
+      if (!near) continue;
+      return { left: rect.left + 4, top: rect.top + 4, right: rect.right - 4, bottom: rect.bottom - 4 };
+    }
+    const rect = this.channelPane.getBoundingClientRect();
+    return { left: rect.left + 4, top: 8, right: Math.max(rect.left + 160, rect.right - 4), bottom: Math.max(160, window.innerHeight - 8) };
   }
 
   private paintGear() {
