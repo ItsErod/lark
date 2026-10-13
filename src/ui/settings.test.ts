@@ -80,6 +80,7 @@ describe("settings catalog", () => {
 expect(searchSettings("check for updates").some((hit) => hit.id === "updates.check")).toBe(true);
     expect(searchSettings("canary").some((hit) => hit.id === "updates.channel")).toBe(true);
     expect(searchSettings("built-in").some((hit) => hit.id === "updates.reset")).toBe(true);
+    expect(searchSettings("uninstall").some((hit) => hit.id === "plugins.store")).toBe(true);
   });
 
   it("accepts a later section without dropping the built-in pages", () => {
