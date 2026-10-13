@@ -196,7 +196,8 @@ describe("voice roster", () => {
     const prefs = applyMoreAction(defaultCallView(), "non-video");
     expect(prefs.showNonVideo).toBe(false);
     expect(applyMoreAction(prefs, "fullscreen").fullScreen).toBe(true);
-    expect(applyMoreAction(prefs, "grid").grid).toBe(false);
+    expect(defaultCallView().grid).toBe(false);
+    expect(applyMoreAction(prefs, "grid").grid).toBe(true);
   });
 
   it("keeps input profiles, echo cancellation, and gain", () => {

@@ -259,3 +259,63 @@ export function stageTiles(members: StageMember[]): StageTile[] {
   });
   return tiles;
 }
+
+export type VoiceStatusNote = "You" | "Speaking" | "Sharing" | "Quiet";
+
+/** Sidebar roster and stage captions. You wins, then the person talking, then a share. */
+export function voiceStatusNote(input: { self: boolean; speaking: boolean; sharing: boolean }): VoiceStatusNote {
+  if (input.self) return "You";
+  if (input.speaking) return "Speaking";
+  if (input.sharing) return "Sharing";
+  return "Quiet";
+}
+
+export function focusCaption(name: string, note: VoiceStatusNote): string {
+  if (note === "Quiet") return name;
+  return `${name} · ${note}`;
+}
+
+export interface FocusCaption {
+  userId: string;
+  label: string;
+}
+
+export interface FocusLayout {
+  /** A screen or camera when someone is sending one. Otherwise the person speaking. */
+  primary: StageTile | null;
+  /** The person speaking, beside a share. Absent when the primary pane is already that person. */
+  speaker: StageTile | null;
+  captions: FocusCaption[];
+}
+
+/**
+ * Short stage. The share (or the speaker, when nobody is sharing) takes the wide pane.
+ * The other person talking sits beside a share. Everyone else is a caption.
+ */
+export function focusLayout(members: readonly StageMember[]): FocusLayout {
+  const people = members.filter((member) => member.id);
+  const tiles = stageTiles(people);
+  const media = tiles.find((tile) => tile.kind === "screen") ?? tiles.find((tile) => tile.kind === "video") ?? null;
+  const face = (member: StageMember): StageTile | null =>
+    tiles.find((tile) => tile.userId === member.id && tile.kind !== "screen") ?? null;
+  let primary = media;
+  let speaker: StageTile | null = null;
+  if (media) {
+    const beside = people.find((member) => voiceBadges(member).speaking && member.id !== media.userId)
+      ?? people.find((member) => member.id !== media.userId)
+      ?? null;
+    speaker = beside ? face(beside) : null;
+  } else {
+    const lead = people.find((member) => voiceBadges(member).speaking) ?? people[0] ?? null;
+    primary = lead ? face(lead) : null;
+  }
+  const shown = new Set<string>();
+  if (primary) shown.add(primary.userId);
+  if (speaker) shown.add(speaker.userId);
+  const captions = people.filter((member) => !shown.has(member.id)).map((member) => {
+    const badges = voiceBadges(member);
+    const note = voiceStatusNote({ self: member.self, speaking: badges.speaking, sharing: member.sharing });
+    return { userId: member.id, label: focusCaption(member.name, note) };
+  });
+  return { primary, speaker, captions };
+}

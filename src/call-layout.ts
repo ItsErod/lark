@@ -24,6 +24,8 @@ export const PIP_GAP = 12;
 export const SPLIT_MIN = 0.28;
 export const SPLIT_MAX = 0.62;
 export const SPLIT_DEFAULT = 0.42;
+/** Focus stage: share, speaker, captions, and the compact bar. Short enough that the thread stays on screen. */
+export const FOCUS_SPLIT_PX = 252;
 
 const CORNERS: readonly PipCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
 

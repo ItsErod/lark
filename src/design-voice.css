@@ -219,3 +219,167 @@
   border-radius: var(--radius-sm);
   box-shadow: none;
 }
+
+/* Focus. A short band: the share, the person speaking, captions, and a compact bar.
+   The band is in the chat column, so the thread stays on screen. */
+
+#app .call-split.is-focus {
+  height: 252px;
+}
+
+#app .voice-stage.is-focus-band {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+#app .focus {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+#app .focus.is-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#app .focus-primary {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+#app .focus-primary > .voice-tile,
+#app .focus-primary > .voice-tile.is-screen,
+#app .focus-primary > .voice-tile.is-video {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  grid-column: auto;
+  border-radius: var(--radius-sm);
+}
+
+#app .focus-speaker {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-sm);
+}
+
+#app .focus-primary > .focus-speaker {
+  flex: 1;
+}
+
+#app .focus-speaker.is-speaking {
+  box-shadow: inset 2px 0 0 var(--color-fg);
+}
+
+#app .focus-speaker .avatar {
+  width: 64px;
+  height: 64px;
+  font-size: 20px;
+}
+
+#app .focus-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-fg);
+}
+
+#app .focus-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-fg-faint);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#app .focus-foot {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-3);
+}
+
+#app .focus-captions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-fg-muted);
+  font-size: var(--text-sm);
+}
+
+#app .focus-caption {
+  flex: none;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#app .focus-foot .voice-bar.is-compact {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  width: auto;
+  max-width: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  gap: 2px;
+  z-index: auto;
+}
+
+#app .focus-foot .call-button {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+}
+
+#app .focus-leave {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-fg);
+  color: var(--color-bg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.011em;
+}
+
+#app .voice-roster .speak-ring-spin {
+  opacity: 0;
+}
+
+#app .voice-user.is-speaking {
+  box-shadow: inset 2px 0 0 var(--color-fg);
+}
+
+#app .voice-user-sub {
+  color: var(--color-fg-faint);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+}

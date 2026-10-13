@@ -185,6 +185,7 @@ import {
   clampPip,
   clampSplitRatio,
   dismissCallSurface,
+  FOCUS_SPLIT_PX,
   leadMedia,
   nearestPipCorner,
   pipAnchors,
@@ -200,7 +201,7 @@ import {
   type PipCorner,
 } from "../call-layout";
 import { callBus, openCallPopout, type CallCommand, type CallFrame } from "../call-window";
-import { speakColor, speakingMotion, stageTiles, voiceBadges, type RingMotion, type StageMember, type StageTile } from "../voice-stage";
+import { speakColor, speakingMotion, stageTiles, voiceBadges, voiceStatusNote, type RingMotion, type StageMember, type StageTile } from "../voice-stage";
 import { fuzzyScore } from "../search";
 import {
   AUTO_INSTALL_KEY,
@@ -391,7 +392,7 @@ import { demoShareSources, qualityLabel, snapShareFps, snapShareHeight, streamKe
 import { renderVoiceHud } from "./hud";
 import { attachCameraTiles, cameraFrameBytes, clearCameraFrames, pushCameraFrame } from "../camera-view";
 import { clearStreamFrames, liveBadge, mountStreamTiles, pushStreamFrame, shareDialog } from "./share-view";
-import { appendCallControls, renderCallStage, renderCallStrip, renderPipTile, signalMeter, speakWrap } from "./voice-view";
+import { appendCallControls, renderCallStage, renderCallStrip, renderFocusStage, renderPipTile, signalMeter, speakWrap } from "./voice-view";
 import { renderStageBoard, renderVoiceChat } from "./stage-view";
 import { bindLazyMedia, renderBlockedMessage, renderMessage } from "./messages";
 import {
@@ -1436,9 +1437,11 @@ class LarkApp {
   private seedDemoVoice(sharing = false) {
     const channelId = demoChannels[NORTHWIND].find((channel) => channel.kind === "voice")?.id;
     if (!channelId) return;
+    const focusBooth = new URLSearchParams(location.search).get("booth") === "focus";
     replaceGuildVoice(this.voiceRoster, NORTHWIND, [
       { guildId: NORTHWIND, channelId, userId: booth[0].id, name: booth[0].name },
-      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true, ...(sharing ? { selfStream: true } : {}) },
+      { guildId: NORTHWIND, channelId, userId: booth[1].id, name: booth[1].name, selfMute: true, ...(sharing || focusBooth ? { selfStream: true } : {}) },
+      { guildId: NORTHWIND, channelId, userId: "100000000000000004", name: "Priya Shah" },
     ]);
     setSpeaking(this.voiceRoster, booth[0].id, true);
     hydrateMix(this.voiceRoster, this.config.voice.levels);
@@ -3057,7 +3060,14 @@ class LarkApp {
     const row = el("div", `voice-user${badges.speaking ? " is-speaking" : ""}`);
     row.dataset.voiceUser = person.userId;
     row.append(speakWrap(portrait(person.name, person.userId, person.avatarUrl, true), this.ringMotion()));
-    row.append(el("span", "voice-user-name", person.name));
+    const note = voiceStatusNote({
+      self: person.userId === this.meId(),
+      speaking: badges.speaking,
+      sharing: person.sharing || (person.userId === this.meId() && this.shareOn),
+    });
+    const copy = el("span", "voice-user-copy");
+    copy.append(el("span", "voice-user-name", person.name), el("span", "voice-user-sub", note));
+    row.append(copy);
     const flags = el("span", "voice-flags");
     if (badges.deafened) flags.append(icon(paths.headphonesOff));
     if (badges.muted) flags.append(icon(paths.micOff));
@@ -10544,8 +10554,12 @@ class LarkApp {
       });
     }
     const showGrid = chrome.grid === "split";
+    const channel = this.voice ? this.channelById(this.voice.channelId) : undefined;
+    const stageChannel = Boolean(channel && isStageChannel(channel));
+    const focusLayoutOn = showGrid && !stageChannel && !this.callView.grid;
+    this.callSplit.classList.toggle("is-focus", focusLayoutOn && !this.callView.fullScreen);
     this.callSplit.hidden = !showGrid;
-    this.callHandle.hidden = !showGrid;
+    this.callHandle.hidden = !showGrid || (focusLayoutOn && !this.callView.fullScreen);
     clear(this.callSplitBar);
     clear(dock);
     if (showGrid && this.voice) {
@@ -10562,9 +10576,8 @@ class LarkApp {
       const actions = el("div", "call-split-actions");
       actions.append(pop, close);
       this.callSplitBar.append(actions);
-      const chat = chrome.voiceChat ? this.voiceChatPanel() : null;
-      const channel = this.voice ? this.channelById(this.voice.channelId) : undefined;
-      if (channel && isStageChannel(channel)) {
+      const chat = chrome.voiceChat && !focusLayoutOn ? this.voiceChatPanel() : null;
+      if (stageChannel) {
         clear(dock);
         dock.className = "voice-stage";
         renderStageBoard(dock, stageGroups(this.stagePeople()), {
@@ -10579,7 +10592,14 @@ class LarkApp {
         if (chat) dock.append(chat);
         appendCallControls(dock, this.callStageHandlers());
       } else {
-        renderCallStage(dock, this.decorateTiles(tiles), this.ringMotion(), this.callStageHandlers(), chat);
+        if (focusLayoutOn) {
+          const members = this.callView.showNonVideo
+            ? this.stageMembers()
+            : this.stageMembers().filter((member) => member.self || member.video || member.sharing);
+          renderFocusStage(dock, members, this.ringMotion(), this.callStageHandlers());
+        } else {
+          renderCallStage(dock, this.decorateTiles(tiles), this.ringMotion(), this.callStageHandlers(), chat);
+        }
       }
     }
     this.paintPip(chrome.pip ? media : null);
@@ -10589,14 +10609,14 @@ class LarkApp {
     this.paintVoiceFloats();
     this.publishVoiceHud();
     this.publishCallFrame();
-    const inlineChat = chrome.voiceChat && chrome.grid === "split";
+    const inlineChat = chrome.voiceChat && chrome.grid === "split" && !focusLayoutOn;
     this.placeVoiceChat(chrome.voiceChat && !inlineChat);
     if (this.callView.fullScreen) this.messagesEl.parentElement?.classList.add("is-call-full");
     else this.messagesEl.parentElement?.classList.remove("is-call-full");
     requestAnimationFrame(() => {
       this.placeCallSplit();
       this.placePip();
-      this.placeVoiceChat(chrome.voiceChat && chrome.grid !== "split");
+      this.placeVoiceChat(chrome.voiceChat && (chrome.grid !== "split" || focusLayoutOn));
     });
   }
 
@@ -10805,6 +10825,10 @@ class LarkApp {
 
   private placeCallSplit() {
     if (!this.callSplit || this.callSplit.hidden) return;
+    if (this.callSplit.classList.contains("is-focus")) {
+      this.callSplit.style.height = `${FOCUS_SPLIT_PX}px`;
+      return;
+    }
     const available = this.callAvailable();
     if (available <= 0) return;
     this.callSplit.style.height = `${Math.round(available * this.splitRatio)}px`;

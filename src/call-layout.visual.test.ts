@@ -112,13 +112,15 @@ describe("call layout", () => {
     expect(expanded.chatText).not.toContain("Voice Connected");
 
     await page.getByRole("button", { name: /Open call view/ }).click();
-    await page.waitForSelector(".call-split .voice-tile", { timeout: 5_000 });
+    await page.waitForSelector(".call-split .focus", { timeout: 5_000 });
     const grid = await metrics(page);
     expect(grid.header).toBe("# design-crit");
     expect(grid.call).toBe("split");
     expect(grid.split?.hidden).toBe(false);
-    expect(grid.split?.height).toBeGreaterThan(120);
+    expect(grid.split?.height).toBeGreaterThan(160);
+    expect(grid.split?.height).toBeLessThan(320);
     expect(grid.messages?.height).toBeGreaterThan(120);
+    expect((grid.split?.bottom ?? 0)).toBeLessThanOrEqual((grid.messages?.top ?? 0) + 8);
     expect(grid.composer?.hidden).toBe(false);
     expect(grid.pip?.hidden).toBe(true);
     expect(grid.sliders).toBe(0);
