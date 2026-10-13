@@ -7663,7 +7663,7 @@ class LarkApp {
       return true;
     }
     if (id === "create_or_join_server") {
-      this.openDiscord("https://discord.com/channels/@me");
+      this.openAddServer();
       return true;
     }
     if (id === "toggle_inbox") {
