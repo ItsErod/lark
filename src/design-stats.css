@@ -62,3 +62,9 @@
 @media (prefers-reduced-motion: reduce) {
   .stats-bar, .stats-page .switch, .stats-page .switch-knob { transition: none; }
 }
+
+html[data-motion="reduce"] .stats-bar,
+html[data-motion="reduce"] .stats-page .switch,
+html[data-motion="reduce"] .stats-page .switch-knob {
+  transition: none;
+}

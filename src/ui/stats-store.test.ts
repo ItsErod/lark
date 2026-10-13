@@ -101,6 +101,12 @@ describe("local stats", () => {
     expect(statsView().voiceMs).toBe(6 * 60 * 60 * 1000);
   });
 
+  it("includes time still in progress", () => {
+    setup();
+    noteAll([{ t: 1_000, kind: "focus", ...channel }]);
+    expect(statsView(6_000).channels[0]?.ms).toBe(5_000);
+  });
+
   it("formats short and long durations", () => {
     expect(formatDuration(0)).toBe("0s");
     expect(formatDuration(45_000)).toBe("45s");

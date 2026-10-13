@@ -170,7 +170,7 @@ export function noteAll(notes: readonly StatNote[], boot = 0) {
 }
 
 export function statsView(now = Date.now()): StatsView {
-  const book = data();
+  const book = withPending(data(), now);
   const places = Object.values(book.places);
   const servers = new Map<string, number>();
   for (const place of places) {
@@ -220,6 +220,37 @@ export function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function withPending(book: StatsFile, now: number): StatsFile {
+  const copy = JSON.parse(JSON.stringify(book)) as StatsFile;
+  if (focus) {
+    const span = spanMs(focus.since, now);
+    if (span) touch(copy, focus).ms += span;
+  }
+  if (voice) {
+    const span = spanMs(voice.since, now);
+    if (span) {
+      const place = touch(copy, { id: voice.id, name: voice.name, place: voice.place, scope: "voice" });
+      place.voiceMs += span;
+      copy.voiceMs += span;
+      day(copy, now).voiceMs += span;
+    }
+  }
+  if (speakSince) {
+    const span = spanMs(speakSince, now);
+    if (span) {
+      copy.speakMs += span;
+      day(copy, now).speakMs += span;
+      if (voice) touch(copy, { id: voice.id, name: voice.name, place: voice.place, scope: "voice" }).speakMs += span;
+    }
+  }
+  if (game) {
+    const span = spanMs(game.since, now);
+    if (span && game.name) copy.games[game.name] = (copy.games[game.name] ?? 0) + span;
+  }
+  if (larkSince && visible()) addLark(copy, now, spanMs(larkSince, now));
+  return copy;
 }
 
 function apply(book: StatsFile, note: StatNote) {
