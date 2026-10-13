@@ -134,7 +134,8 @@ describe("store index", () => {
     expect(browseStore(index, installed, { query: "timer", kind: "all", category: "" }).plugins.map((item) => item.name)).toEqual(["Call Timer"]);
     expect(browseStore(index, installed, { query: "previews", kind: "all", category: "" }).plugins).toEqual([]);
     expect(browseStore(index, [], { query: "previews", kind: "plugin", category: "" }).plugins.map((item) => item.id)).toEqual(["quiet-media"]);
-    expect(browseStore(index, installed, { query: "", kind: "theme", category: "voice" }).themes).toEqual([]);
+    expect(browseStore(index, [], { query: "", kind: "plugin", category: "voice" }).plugins.map((item) => item.id)).toEqual(["call-timer"]);
+    expect(browseStore(index, installed, { query: "", kind: "theme", category: "voice" }).themes.map((item) => item.id)).toEqual(["nord"]);
     expect(browseStore(index, installed, { query: "", kind: "all", category: "missing" }).plugins.map((item) => item.id)).toEqual(["call-timer"]);
     expect(categoryLabel("voice")).toBe("Voice");
     expect(categoryLabel("better-folders")).toBe("Better folders");
