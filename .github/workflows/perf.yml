@@ -1,0 +1,80 @@
+name: Perf
+
+on:
+  pull_request:
+
+# Bench results are posted on same-repo pull requests. Forks only get the
+# uploaded artifact. This workflow does not publish installers.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: perf-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: perf
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pr
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pr/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: pr
+        run: npm ci
+      - name: Install main dependencies
+        working-directory: base
+        run: npm ci
+      - name: Install Chromium
+        working-directory: pr
+        run: npx playwright install --with-deps chromium
+      - name: Perf compare unit tests
+        working-directory: pr
+        run: node --test .github/scripts/perf-compare.test.mjs
+      - name: Bench this pull request
+        working-directory: pr
+        run: npm run bench > perf-pr.log
+      - name: Bench main
+        working-directory: base
+        continue-on-error: true
+        run: npm run bench > perf-main.log
+      - name: Compare against main
+        id: compare
+        run: |
+          set +e
+          node pr/.github/scripts/perf-compare.mjs pr/perf-pr.log base/perf-main.log | tee perf-summary.md
+          code=${PIPESTATUS[0]}
+          cat perf-summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+      - name: Upload perf results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: |
+            pr/perf-pr.log
+            base/perf-main.log
+            perf-summary.md
+          if-no-files-found: ignore
+      - name: Post the perf summary
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s perf-summary.md ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file perf-summary.md
+          fi
