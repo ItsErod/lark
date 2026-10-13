@@ -98,6 +98,21 @@ describe("version history", () => {
     expect(history.totalMs).toBe(now - Date.parse("2026-10-12T17:10:27Z"));
   });
 
+  it("shows current work, downloads, and a short roadmap instead of the finished 3.0 dashboard", () => {
+    expect(html).not.toContain('class="hero"');
+    expect(html).not.toContain("Stage estimates");
+    expect(html).not.toContain('id="stages"');
+    expect(html).not.toContain('id="streams"');
+    expect(html).toContain('id="now-list"');
+    expect(html).toContain('id="downloads"');
+    expect(html).toContain("Dashboard view");
+    expect(html).toContain("3.1.1");
+    expect(html).toContain('archive.id = "archive-3"');
+    expect(html).toContain("#09090b");
+    expect(html).toContain("#fafafa");
+    expect(html).not.toContain("box-shadow");
+  });
+
   it("splits release notes into Added, Changed, Fixed, and Removed sections", () => {
     const notes = parseReleaseNotes([
       "Servers and settings land in 3.0.",

@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Live progress for the Lark 3.0 build. Percentages are estimates from public GitHub pull requests.">
-  <meta name="theme-color" content="#1e1f22">
-  <title>Lark 3.0 build progress</title>
+  <meta name="description" content="What Lark is building now, with version history, build times, and the latest Windows and Mac downloads.">
+  <meta name="theme-color" content="#09090b">
+  <title>Lark</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="icon.png">
@@ -13,25 +13,18 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #1e1f22;
-      --bg-deep: #111214;
-      --panel: #2b2d31;
-      --card: #313338;
-      --raised: #383a40;
-      --line: rgba(255, 255, 255, 0.08);
-      --text: #f2f3f5;
-      --secondary: #c7ccd1;
-      --muted: #b5bac1;
-      --blurple: #5865f2;
-      --amber: #e2a15a;
-      --amber-2: #f0c27a;
-      --green: #23a55a;
-      --yellow: #f0b232;
-      --shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+      --bg: #09090b;
+      --panel: #09090b;
+      --card: #09090b;
+      --line: #27272a;
+      --text: #fafafa;
+      --secondary: #d4d4d8;
+      --muted: #a1a1aa;
+      --accent: #fafafa;
+      --ok: #4ade80;
       --font: "Inter", "Segoe UI", system-ui, sans-serif;
       --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
     }
-
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     html { scroll-behavior: smooth; }
@@ -39,24 +32,18 @@
       margin: 0;
       min-height: 100vh;
       font-family: var(--font);
-      font-size: 16px;
-      line-height: 1.5;
+      font-size: 15px;
+      line-height: 1.45;
       color: var(--text);
-      background:
-        radial-gradient(1000px 480px at -10% -10%, rgba(88, 101, 242, 0.22), transparent 55%),
-        radial-gradient(900px 420px at 110% -20%, rgba(226, 161, 90, 0.16), transparent 50%),
-        var(--bg);
+      background: var(--bg);
     }
     img { max-width: 100%; }
-    a { color: #dee0fc; }
+    a { color: var(--accent); }
     a:hover { color: #fff; }
     button, summary { font: inherit; color: inherit; }
     button { cursor: pointer; }
     :focus { outline: none; }
-    :focus-visible {
-      outline: 2px solid var(--amber-2);
-      outline-offset: 3px;
-    }
+    :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
     .sr-only {
       position: absolute;
       width: 1px;
@@ -73,996 +60,348 @@
       left: 12px;
       top: -48px;
       z-index: 40;
-      background: var(--amber);
-      color: #1a140d;
-      font-weight: 700;
+      background: var(--accent);
+      color: #09090b;
+      font-weight: 650;
       text-decoration: none;
       padding: 8px 12px;
-      border-radius: 8px;
+      border-radius: 4px;
     }
     .skip:focus { top: 12px; }
-
     .top {
       position: sticky;
       top: 0;
       z-index: 20;
-      background: rgba(30, 31, 34, 0.88);
-      backdrop-filter: blur(16px);
+      background: #09090b;
       border-bottom: 1px solid var(--line);
       padding-top: env(safe-area-inset-top);
     }
-    .top::after {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 2px;
-      background: linear-gradient(90deg, #5865f2, #e2a15a 60%, #f0c27a);
-    }
-    .top-inner, main {
-      width: min(1120px, calc(100% - 32px));
+    .top-inner, main, .foot {
+      width: min(880px, calc(100% - 32px));
       margin: 0 auto;
       min-width: 0;
     }
     .top-inner {
-      min-height: 64px;
+      min-height: 56px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 10px 0;
+      padding: 8px 0;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       min-width: 0;
       color: inherit;
       text-decoration: none;
     }
-    .brand img {
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
-    }
-    .brand-name {
-      font-weight: 750;
-      font-size: 18px;
-      letter-spacing: -0.02em;
-    }
-    .brand-sub {
-      display: block;
-      color: var(--muted);
+    .brand img { width: 28px; height: 28px; border-radius: 4px; }
+    .brand-name { font-weight: 650; font-size: 15px; letter-spacing: -0.02em; }
+    .brand-sub { display: block; color: var(--muted); font-size: 12px; }
+    .top-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .clock, .updated, .refresh, .store-link, .nav-link {
       font-size: 13px;
-      font-weight: 500;
-    }
-    .live-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 0 0 rgba(35, 165, 90, 0.7);
-      animation: pulse 1.8s ease-out infinite;
-      display: inline-block;
-    }
-    .top-meta {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    .clock, .updated {
-      font-variant-numeric: tabular-nums;
-      font-size: 13px;
-      color: var(--secondary);
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 6px 10px;
+      border-radius: 4px;
       min-height: 32px;
       display: inline-flex;
       align-items: center;
     }
-    .refresh {
-      border: 0;
-      background: var(--raised);
+    .clock, .updated {
+      font-variant-numeric: tabular-nums;
+      color: var(--secondary);
+      border: 1px solid var(--line);
+      padding: 4px 8px;
+    }
+    .refresh, .store-link, .nav-link {
+      border: 1px solid var(--line);
+      background: transparent;
       color: var(--text);
-      border-radius: 999px;
-      min-height: 36px;
-      padding: 6px 14px;
-      font-weight: 700;
-      font-size: 13px;
-    }
-    .refresh:hover { background: #4e5058; }
-    .refresh:disabled { opacity: 0.55; cursor: wait; }
-    .store-link {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 36px;
-      padding: 6px 14px;
-      border-radius: 999px;
-      background: var(--blurple);
-      color: #fff;
-      font-weight: 700;
-      font-size: 13px;
-      line-height: 1.2;
+      padding: 4px 10px;
+      font-weight: 600;
       text-decoration: none;
-      white-space: nowrap;
     }
-    .store-link:hover { background: #4752c4; color: #fff; }
-    .card-titles .store-link { margin-top: 10px; }
-
-    main {
-      display: grid;
-      gap: 28px;
-      padding: 28px 0 72px;
-    }
+    .refresh:hover, .store-link:hover, .nav-link:hover { background: #18181b; color: var(--text); }
+    .refresh:disabled { opacity: 0.55; cursor: wait; }
+    .store-link { background: var(--accent); color: #09090b; border-color: var(--accent); }
+    .store-link:hover { background: #fff; color: #09090b; }
+    main { display: grid; gap: 36px; padding: 28px 0 64px; }
     main > * { min-width: 0; }
-
     .notice {
       margin: 0;
-      padding: 12px 14px;
-      border-radius: 12px;
-      background: rgba(240, 178, 50, 0.12);
-      border: 1px solid rgba(240, 178, 50, 0.38);
-      color: #f8e7c4;
-      font-size: 14.5px;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: 240px 1fr;
-      gap: 28px;
-      align-items: center;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 40%), var(--panel);
+      padding: 10px 12px;
+      border-radius: 4px;
       border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 28px;
-      box-shadow: var(--shadow);
-    }
-    .ring-wrap {
-      position: relative;
-      width: 220px;
-      height: 220px;
-      margin: 0 auto;
-    }
-    .ring-wrap::before {
-      content: "";
-      position: absolute;
-      inset: 18%;
-      background: radial-gradient(circle, rgba(226, 161, 90, 0.28), transparent 68%);
-      filter: blur(6px);
-    }
-    .ring { width: 100%; height: 100%; display: block; }
-    .ring-track { fill: none; stroke: rgba(255, 255, 255, 0.08); stroke-width: 14; }
-    .ring-value {
-      fill: none;
-      stroke: url(#ringGrad);
-      stroke-width: 14;
-      stroke-linecap: round;
-      transform: rotate(-90deg);
-      transform-origin: 100px 100px;
-      transition: stroke-dashoffset 0.9s cubic-bezier(.2, .8, .2, 1);
-    }
-    .ring-center {
-      position: absolute;
-      inset: 0;
-      display: grid;
-      place-content: center;
-      text-align: center;
-    }
-    .ring-pct {
-      font-size: 56px;
-      font-weight: 760;
-      letter-spacing: -0.04em;
-      line-height: 0.95;
-      font-variant-numeric: tabular-nums;
-    }
-    .ring-est, .est {
-      color: var(--amber-2);
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .eyebrow {
-      margin: 0 0 6px;
-      color: var(--amber-2);
-      font-size: 13px;
-      font-weight: 750;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-    h1, h2 { margin: 0; letter-spacing: -0.03em; line-height: 1.15; }
-    h1 { font-size: clamp(32px, 4vw, 48px); }
-    h2 { font-size: 22px; }
-    .lead { margin: 10px 0 0; color: var(--secondary); max-width: 62ch; }
-    .meter {
-      --bar-a: #4752c4;
-      --bar-b: #f0c27a;
-      position: relative;
-      margin-top: 18px;
-      height: 16px;
-      border-radius: 999px;
-      background: rgba(0, 0, 0, 0.38);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      overflow: hidden;
-    }
-    .stats {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 16px 0 0;
-      padding: 0;
-      list-style: none;
-    }
-    .stats li {
-      background: rgba(0, 0, 0, 0.22);
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 13px;
       color: var(--secondary);
-    }
-    .stats strong { color: var(--text); font-variant-numeric: tabular-nums; }
-
-    .section-head p { margin: 6px 0 0; color: var(--muted); }
-
-    .stages {
-      display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
-      gap: 8px;
-      margin: 14px 0 0;
-      padding: 0;
-      list-style: none;
-      min-width: 0;
-      max-width: 100%;
-    }
-    .stage {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 10px;
-      min-width: 0;
-    }
-    .stage-k {
-      display: flex;
-      justify-content: space-between;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .stage-name {
-      display: block;
-      margin-top: 4px;
-      font-weight: 700;
-      font-size: 13px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .stage .bar { margin-top: 8px; height: 8px; flex: none; }
-    .stage.is-release { outline: 1px dashed rgba(226, 161, 90, 0.45); }
-    .stage.is-ready { outline: 1px solid rgba(226, 161, 90, 0.8); background: #3a3228; }
-
-    .streams {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-      margin-top: 14px;
-    }
-    .card, .skel {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 16px;
-      min-width: 0;
-    }
-    .card {
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
-      animation: rise 0.45s ease both;
-    }
-    .card:hover { border-color: rgba(226, 161, 90, 0.38); }
-    .card-top { display: flex; gap: 12px; align-items: flex-start; }
-    .card-titles { flex: 1; min-width: 0; }
-    .ico {
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      background: color-mix(in srgb, var(--accent, var(--blurple)) 22%, #1e1f22);
-      color: var(--accent, var(--text));
-    }
-    .ico svg { width: 22px; height: 22px; display: block; }
-    .card[data-status="coding"] { --accent: #e2a15a; }
-    .card[data-status="review"] { --accent: #8ea1ff; }
-    .card[data-status="merged"] { --accent: #3ecf78; }
-    .card[data-status="done"] { --accent: #f0c27a; }
-    [data-agent="A"] { --bar-a: #3c45a5; --bar-b: #9aa6ff; }
-    [data-agent="B"] { --bar-a: #a86a28; --bar-b: #f0c27a; }
-    [data-agent="C"] { --bar-a: #1a7464; --bar-b: #7ee0c4; }
-    [data-agent="D"] { --bar-a: #6444aa; --bar-b: #cbb8ff; }
-    [data-agent="E"] { --bar-a: #2a5ec4; --bar-b: #8fd4ff; }
-    [data-agent="F"] { --bar-a: #a34766; --bar-b: #f2a8c6; }
-    [data-agent="plug"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
-    [data-agent="G"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
-    [data-agent="starter"] { --bar-a: #9a3a74; --bar-b: #ffb4dc; }
-    [data-agent="privacy"] { --bar-a: #1a7464; --bar-b: #7ee0c4; }
-    [data-agent="chat"] { --bar-a: #3c45a5; --bar-b: #9aa6ff; }
-    [data-agent="media"] { --bar-a: #a86a28; --bar-b: #f0c27a; }
-    [data-agent="R"] { --bar-a: #8a6230; --bar-b: #f0c27a; }
-    .card.just-done { animation: glow 1.2s ease; }
-    .kicker {
-      margin: 0;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 750;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .card h3 { margin: 2px 0 0; font-size: 17px; letter-spacing: -0.02em; line-height: 1.25; }
-    .card h3 a { color: inherit; text-decoration: none; }
-    .card h3 a:hover { text-decoration: underline; }
-    .card-side { margin-left: auto; text-align: right; }
-    .pct {
-      display: block;
-      font-size: 28px;
-      font-weight: 760;
-      letter-spacing: -0.04em;
-      font-variant-numeric: tabular-nums;
-      line-height: 1;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 8px;
-      border-radius: 999px;
-      padding: 4px 10px 4px 8px;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: 0.01em;
-    }
-    .pill[data-status="coding"] { background: var(--yellow); color: #1e1604; }
-    .pill[data-status="review"] { background: var(--blurple); color: #fff; }
-    .pill[data-status="merged"] { background: var(--green); color: #04150c; }
-    .pill[data-status="done"] { background: linear-gradient(90deg, #e2a15a, #f0c27a); color: #1e1604; }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: currentColor;
-      box-shadow: 0 0 0 0 currentColor;
-      animation: pulse 1.6s ease-out infinite;
-    }
-    .pill[data-status="done"] .dot { animation: none; }
-    .bar-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 14px;
-      min-width: 0;
-    }
-    .bar {
-      position: relative;
-      flex: 1 1 auto;
-      height: 18px;
-      min-width: 0;
-      border-radius: 999px;
-      background: rgba(0, 0, 0, 0.4);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      overflow: hidden;
-    }
-    .bar-row.is-slim .bar { height: 12px; }
-    .bar:not(.is-idle),
-    .meter:not(.is-idle) {
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.07),
-        0 0 14px color-mix(in srgb, var(--bar-b, #f0c27a) 42%, transparent);
-    }
-    .bar.is-done,
-    .meter.is-done {
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-        0 0 14px rgba(35, 165, 90, 0.4);
-    }
-    .stage .bar:not(.is-idle) {
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.06),
-        0 0 8px color-mix(in srgb, var(--bar-b, #f0c27a) 38%, transparent);
-    }
-    .stage .bar.is-done {
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-        0 0 8px rgba(35, 165, 90, 0.38);
-    }
-    .bar-fill {
-      display: block;
-      height: 100%;
-      width: 0;
-      border-radius: inherit;
-      position: relative;
-      background-image: linear-gradient(
-        90deg,
-        var(--bar-a, #4752c4),
-        color-mix(in srgb, var(--bar-a, #4752c4) 42%, var(--bar-b, #f0c27a)) 52%,
-        var(--bar-b, #f0c27a)
-      );
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-      transition: width 0.9s cubic-bezier(.2, .8, .2, 1);
-    }
-    .bar-fill::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      background: linear-gradient(100deg, transparent 36%, rgba(255, 255, 255, 0.34) 50%, transparent 64%);
-      transform: translateX(-120%);
-      animation: shimmer 3.2s ease-in-out infinite;
-    }
-    .bar.is-idle .bar-fill::after,
-    .meter.is-idle .bar-fill::after,
-    .bar.is-done .bar-fill::after,
-    .meter.is-done .bar-fill::after { animation: none; opacity: 0; }
-    .bar.is-done .bar-fill,
-    .meter.is-done .bar-fill {
-      background: var(--green);
-      background-image: none;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
-    }
-    .bar-label {
-      position: absolute;
-      inset: 0;
-      z-index: 1;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 0 10px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
-      color: #fff;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-      pointer-events: none;
-    }
-    .bar.is-done .bar-label,
-    .meter.is-done .bar-label {
-      color: #04210f;
-      text-shadow: none;
-      padding-right: 26px;
-    }
-    .bar-check {
-      position: absolute;
-      z-index: 2;
-      right: 6px;
-      top: 50%;
-      width: 14px;
-      height: 14px;
-      transform: translateY(-50%);
-      color: #04210f;
-      pointer-events: none;
-    }
-    .bar-check svg { width: 100%; height: 100%; display: block; }
-    .bar-row.is-slim .bar-check { width: 10px; height: 10px; right: 4px; }
-    .meter .bar-check { width: 13px; height: 13px; right: 6px; }
-    .bar-value {
-      flex: 0 0 auto;
-      min-width: 2.6em;
-      text-align: right;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      font-variant-numeric: tabular-nums;
-      color: var(--secondary);
-    }
-    .meta { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
-    .prs { margin-top: 8px; }
-    .prs summary {
-      min-height: 44px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      list-style: none;
-      color: var(--secondary);
-      font-weight: 700;
       font-size: 14px;
     }
-    .prs summary::-webkit-details-marker { display: none; }
-    .prs summary::before {
-      content: "";
-      width: 7px;
-      height: 7px;
-      border-right: 2px solid currentColor;
-      border-bottom: 2px solid currentColor;
-      transform: rotate(-45deg);
-      margin-left: 4px;
-    }
-    .prs[open] summary::before { transform: rotate(45deg) translateY(-2px); }
-    .pr-list { list-style: none; margin: 0; padding: 0 0 4px; }
-    .pr { padding: 10px 0; border-top: 1px solid var(--line); }
-    .pr-top { display: flex; gap: 8px; align-items: flex-start; }
-    .pr a { font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
-    .pr a:hover { text-decoration: underline; }
-    .pr-meta { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-    .badge {
-      flex: 0 0 auto;
-      border-radius: 999px;
-      padding: 2px 8px;
+    .eyebrow {
+      margin: 0 0 4px;
       font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.02em;
-    }
-    .badge.open { background: var(--blurple); color: #fff; }
-    .badge.merged { background: var(--green); color: #04150c; }
-    .badge.draft { background: var(--yellow); color: #1e1604; }
-    .badge.closed { background: #4e5058; color: #f2f3f5; }
-    .empty-note { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
-
-    .skel {
-      min-height: 168px;
-      background: linear-gradient(90deg, #2b2d31 25%, #3a3c43 37%, #2b2d31 63%);
-      background-size: 400% 100%;
-      animation: flow 1.4s ease infinite;
-    }
-
-    .release {
-      display: grid;
-      gap: 8px;
-      background:
-        radial-gradient(600px 180px at 100% 0%, rgba(226, 161, 90, 0.16), transparent 50%),
-        var(--panel);
-      border: 1px dashed rgba(226, 161, 90, 0.45);
-      border-radius: 20px;
-      padding: 22px;
-    }
-    .release.is-ready {
-      border-style: solid;
-      border-color: rgba(226, 161, 90, 0.75);
-      box-shadow: 0 0 0 1px rgba(226, 161, 90, 0.2), var(--shadow);
-    }
-    .release p { margin: 8px 0 0; color: var(--secondary); }
-    .release-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-top: 8px;
-    }
-    .dl {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 2px;
-      min-height: 92px;
-      padding: 16px 18px;
-      border-radius: 16px;
-      text-decoration: none;
-      color: #fff;
-      background: var(--blurple);
-      box-shadow: 0 10px 24px rgba(88, 101, 242, 0.28);
-    }
-    .dl:hover { color: #fff; transform: translateY(-2px); }
-    .dl.mac {
-      background: linear-gradient(180deg, #3d342c, #2a241f);
-      border: 1px solid rgba(226, 161, 90, 0.45);
-      box-shadow: var(--shadow);
-    }
-    .dl-kicker { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
-    .dl-title { font-size: 20px; font-weight: 760; letter-spacing: -0.02em; }
-    .dl-file { font-family: var(--mono); font-size: 12px; opacity: 0.85; }
-    .soon { font-size: 14px; }
-
-    .timeline { list-style: none; margin: 14px 0 0; padding: 0; }
-    .event {
-      position: relative;
-      display: grid;
-      grid-template-columns: 16px 1fr auto;
-      gap: 12px;
-      padding: 0 0 16px;
-    }
-    .event::before {
-      content: "";
-      position: absolute;
-      left: 5px;
-      top: 14px;
-      bottom: 0;
-      width: 2px;
-      background: rgba(255, 255, 255, 0.08);
-    }
-    .event:last-child::before { display: none; }
-    .event-dot {
-      width: 12px;
-      height: 12px;
-      margin-top: 4px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 0 4px rgba(35, 165, 90, 0.18);
-    }
-    .event a { font-weight: 700; text-decoration: none; }
-    .event a:hover { text-decoration: underline; }
-    .event time { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .chip {
-      display: inline-block;
-      margin-top: 4px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: rgba(88, 101, 242, 0.18);
-      color: #dee0fc;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .how {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 8px 16px 12px;
-      overflow-x: auto;
-    }
-    .how summary { min-height: 44px; cursor: pointer; font-weight: 750; }
-    .how p, .how li { color: var(--secondary); }
-    .how table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .how th, .how td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
-    .how code { font-family: var(--mono); color: var(--amber-2); }
-
-    footer {
-      border-top: 1px solid var(--line);
-      padding: 28px 0 calc(28px + env(safe-area-inset-bottom));
-      color: var(--muted);
-    }
-    .foot {
-      width: min(1120px, calc(100% - 32px));
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      gap: 18px;
-      flex-wrap: wrap;
-    }
-    .foot p { margin: 0; max-width: 68ch; }
-    .foot nav { display: flex; gap: 14px; align-items: center; }
-    #confetti {
-      position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 50;
-    }
-
-    @keyframes flow { to { background-position: 220% 50%; } }
-    @keyframes shimmer { to { transform: translateX(130%); } }
-    @keyframes pulse {
-      70% { box-shadow: 0 0 0 7px transparent; }
-    }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: none; }
-    }
-    @keyframes glow {
-      0% { box-shadow: 0 0 0 0 rgba(240, 194, 122, 0.55); }
-      100% { box-shadow: 0 0 0 12px transparent; }
-    }
-
-    .history-total {
-      margin-top: 14px;
-      background:
-        radial-gradient(560px 180px at 0% 0%, rgba(226, 161, 90, 0.18), transparent 58%),
-        var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 22px 24px;
-      box-shadow: var(--shadow);
-    }
-    .history-total-value {
-      margin: 2px 0 0;
-      font-size: clamp(40px, 6vw, 68px);
-      font-weight: 760;
-      letter-spacing: -0.045em;
-      line-height: 0.95;
-      font-variant-numeric: tabular-nums;
-    }
-    .history-total-note { margin: 8px 0 0; color: var(--secondary); }
-    .overall-eta {
-      margin: 14px 0 0;
-      font-size: clamp(20px, 3vw, 28px);
-      font-weight: 760;
-      letter-spacing: -0.03em;
-      line-height: 1.2;
-      font-variant-numeric: tabular-nums;
-      color: var(--amber-2);
-    }
-    .overall-eta.is-done { color: #3ecf78; }
-    .eta {
-      margin: 10px 0 0;
-      font-size: 15px;
-      font-weight: 750;
-      letter-spacing: -0.02em;
-      font-variant-numeric: tabular-nums;
-      color: var(--amber-2);
-    }
-    .eta.is-done { color: #3ecf78; }
-    .doing {
-      min-width: 0;
-      margin-top: 12px;
-      padding: 10px 12px 8px;
-      border-radius: 12px;
-      background: rgba(0, 0, 0, 0.22);
-      border: 1px solid var(--line);
-    }
-    .doing-kicker {
-      margin: 0;
-      font-size: 11px;
-      font-weight: 700;
+      font-weight: 650;
       letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--muted);
     }
-    .doing-task,
-    .doing-state {
-      margin: 4px 0 0;
-      font-size: 14px;
-      font-weight: 650;
-      line-height: 1.35;
-      letter-spacing: -0.01em;
-    }
-    .doing-task a { color: inherit; text-decoration: none; }
-    .doing-task a:hover { text-decoration: underline; }
-    .doing[data-doing-state="working"] .doing-task { color: var(--text); }
-    .doing[data-doing-state="idle"] .doing-state { color: var(--muted); }
-    .doing[data-doing-state="done"] .doing-state { color: #3ecf78; }
-    .doing-times {
+    .now-head, .section-head {
       display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-end;
       flex-wrap: wrap;
-      gap: 4px 14px;
-      margin: 6px 0 0;
-      color: var(--secondary);
-      font-size: 13px;
+    }
+    h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.03em; }
+    h1 { margin: 0; font-size: 28px; line-height: 1.15; }
+    h2 { margin: 0; font-size: 20px; line-height: 1.2; }
+    .section-head p, .now-copy { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+    .downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+    .dl {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 168px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #09090b;
+      text-decoration: none;
+    }
+    .dl:hover { color: #09090b; background: #fff; }
+    .dl-kicker { font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
+    .dl-title { font-weight: 650; }
+    .dl-file { font-size: 12px; font-family: var(--mono); }
+    .streams { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 14px;
+      background: var(--card);
+      min-width: 0;
+    }
+    .card.just-done { border-color: var(--accent); }
+    .card.is-feature { grid-column: 1 / -1; }
+    .card-top { display: flex; gap: 10px; align-items: flex-start; }
+    .ico {
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      background: #18181b;
+      color: var(--accent);
+      flex: none;
+    }
+    .ico svg { width: 16px; height: 16px; display: block; }
+    .card-titles { min-width: 0; flex: 1; }
+    .kicker { margin: 0; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; }
+    .card h3 { margin: 2px 0 0; font-size: 16px; }
+    .card h3 a { color: inherit; text-decoration: none; }
+    .card h3 a:hover { text-decoration: underline; }
+    .card-blurb { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .card-side { text-align: right; }
+    .pct { display: block; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .est { display: block; color: var(--muted); font-size: 12px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pill .dot { width: 6px; height: 6px; background: var(--muted); }
+    .pill[data-status="done"] .dot, .pill[data-status="merged"] .dot { background: var(--ok); }
+    .pill[data-status="review"] .dot, .pill[data-status="coding"] .dot { background: var(--accent); }
+    .bar-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .bar {
+      position: relative;
+      flex: 1;
+      height: 18px;
+      background: #18181b;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bar-row.is-slim .bar { height: 6px; }
+    .bar-fill {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--accent);
+      border-radius: 4px;
+    }
+    .bar.is-done .bar-fill { background: var(--ok); }
+    .bar-label, .bar-value {
+      font-size: 11px;
       font-weight: 650;
       font-variant-numeric: tabular-nums;
     }
-    .doing-commits {
-      list-style: none;
-      margin: 8px 0 0;
-      padding: 0;
+    .bar-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+      color: #09090b;
     }
+    .bar-row.is-slim .bar-label { display: none; }
+    .bar-check {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      transform: translateY(-50%);
+      color: #09090b;
+    }
+    .bar-check svg { width: 100%; height: 100%; display: block; }
+    .bar-value { color: var(--secondary); min-width: 2.6em; text-align: right; }
+    .meta, .empty-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+    .eta { margin: 8px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .eta.is-done { color: var(--ok); }
+    .doing {
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .doing-kicker { margin: 0; font-size: 11px; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .doing-task, .doing-state { margin: 4px 0 0; font-size: 14px; }
+    .doing-task a { color: inherit; }
+    .doing[data-doing-state="done"] .doing-state { color: var(--ok); }
+    .doing-times { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 0; color: var(--secondary); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .doing-commits { list-style: none; margin: 8px 0 0; padding: 0; }
     .doing-commits li {
       display: flex;
-      align-items: baseline;
       justify-content: space-between;
       gap: 10px;
-      padding: 5px 0;
+      padding: 4px 0;
       border-top: 1px solid var(--line);
       color: var(--secondary);
-      font-size: 12.5px;
-      line-height: 1.35;
+      font-size: 12px;
     }
-    .doing-msg {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .doing-commits time {
-      flex: none;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-    }
-    .plugin-group .doing { margin-top: 10px; padding: 8px 10px 6px; }
-    .plugin-group .doing-commits li { font-size: 12px; }
-    .card[data-stream="G"] .ico {
-      background: color-mix(in srgb, #eb459e 24%, #1e1f22);
-      color: #ffc2e4;
-    }
-    .card-blurb {
-      margin: 4px 0 0;
-      color: var(--secondary);
-      font-size: 13px;
-    }
-    .card.is-feature {
-      grid-column: 1 / -1;
-      padding: 20px;
-      background:
-        radial-gradient(560px 220px at 100% 0%, rgba(235, 69, 158, 0.14), transparent 56%),
-        var(--card);
-    }
-    .shipped {
-      margin: 14px 0 0;
-      color: var(--secondary);
-      font-size: 14px;
-      font-weight: 650;
-    }
-    .shipped strong {
-      color: var(--amber);
-      font-size: 20px;
-      font-weight: 800;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -0.03em;
-    }
-    .plugin-groups {
+    .doing-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doing-commits time { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .shipped { margin: 12px 0 0; color: var(--secondary); font-size: 14px; }
+    .shipped strong { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .plugin-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .plugin-group { min-width: 0; border: 1px solid var(--line); border-radius: 4px; padding: 10px; }
+    .plugin-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .plugin-head h4 { margin: 0; font-size: 14px; }
+    .plugin-score { margin: 0; text-align: right; }
+    .plugin-pct { font-weight: 650; font-variant-numeric: tabular-nums; }
+    .plugin-est { display: block; color: var(--muted); font-size: 12px; }
+    .plugin-list { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 8px 0 0; padding: 0; }
+    .plugin-chip { border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; color: var(--muted); font-size: 12px; }
+    .plugin-chip.is-landed { color: var(--text); border-color: #3f3f46; }
+    .prs { margin-top: 8px; }
+    .prs summary { min-height: 36px; display: flex; align-items: center; cursor: pointer; color: var(--secondary); font-weight: 600; font-size: 13px; }
+    .pr-list { list-style: none; margin: 0; padding: 0; }
+    .pr { padding: 8px 0; border-top: 1px solid var(--line); }
+    .pr-top { display: flex; gap: 8px; align-items: baseline; }
+    .pr-top a { color: inherit; }
+    .badge { flex: none; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge.merged { color: var(--ok); }
+    .pr-meta { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .roadmap, .timeline { list-style: none; margin: 14px 0 0; padding: 0; }
+    .roadmap li, .version-line, .version-live, .event {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(88px, 0.7fr) minmax(0, 1.6fr) auto;
       gap: 12px;
-      margin-top: 12px;
+      align-items: baseline;
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
     }
-    .plugin-group {
-      min-width: 0;
-      background: rgba(0, 0, 0, 0.22);
+    .roadmap-ver, .version-name { font-weight: 650; }
+    .roadmap-name, .version-meta { color: var(--secondary); }
+    .roadmap-state, .version-duration { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+    .roadmap li.is-shipped .roadmap-state { color: var(--text); }
+    .version-line { display: block; padding: 0; }
+    .version-line summary {
+      display: grid;
+      grid-template-columns: minmax(88px, 0.7fr) minmax(0, 1.6fr) auto;
+      gap: 12px;
+      align-items: baseline;
+      padding: 12px 0;
+      cursor: pointer;
+      list-style: none;
+    }
+    .version-line summary::-webkit-details-marker { display: none; }
+    .version-line summary::marker { content: ""; }
+    .version-body { padding: 0 0 14px; }
+    .version-body .version-name { color: inherit; }
+    .release-notes { display: grid; gap: 8px; }
+    .note-copy, .note-list { margin: 0; color: var(--secondary); }
+    .note-list { padding-left: 18px; }
+    .note-section h4 { margin: 8px 0 4px; }
+    .note-pill {
+      display: inline-block;
+      margin-right: 6px;
       border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px;
-    }
-    .plugin-head {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 8px;
-    }
-    .plugin-head h4 {
-      margin: 0;
-      font-size: 15px;
-      letter-spacing: -0.02em;
-    }
-    .plugin-score {
-      margin: 0;
-      display: flex;
-      align-items: baseline;
-      gap: 6px;
-    }
-    .plugin-pct {
-      font-size: 18px;
-      font-weight: 760;
-      letter-spacing: -0.03em;
-      font-variant-numeric: tabular-nums;
-    }
-    .plugin-est {
-      color: var(--muted);
+      border-radius: 4px;
+      padding: 1px 6px;
       font-size: 11px;
-      font-weight: 700;
+      font-weight: 650;
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
-    .plugin-group .bar-row { margin-top: 8px; }
-    .plugin-group .eta { margin-top: 8px; font-size: 14px; }
-    .plugin-group .meta { margin-top: 8px; }
-    .plugin-list {
+    .archive { margin-top: 8px; }
+    .archive h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+    .archive-list { list-style: none; margin: 0; padding: 0; }
+    .archive-list li {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin: 10px 0 0;
-      padding: 0;
-      list-style: none;
-    }
-    .plugin-chip {
-      border-radius: 999px;
-      padding: 4px 9px;
-      font-size: 12px;
-      font-weight: 650;
-      line-height: 1.3;
-      color: var(--secondary);
-      background: rgba(0, 0, 0, 0.28);
-      border: 1px solid var(--line);
-    }
-    .plugin-chip.is-landed {
-      color: #04150c;
-      background: var(--green);
-      border-color: transparent;
-      font-weight: 750;
-    }
-    .version-body { min-width: 0; }
-    .version-name {
-      font-size: 18px;
-      font-weight: 760;
-      letter-spacing: -0.02em;
-      text-decoration: none;
-    }
-    a.version-name:hover { text-decoration: underline; }
-    .version-body .pill { margin: 0 0 0 8px; vertical-align: 2px; }
-    .version-meta { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-    .release-notes { margin-top: 8px; }
-    .release-notes summary {
-      min-height: 36px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      list-style: none;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 0;
+      border-top: 1px solid var(--line);
       color: var(--secondary);
       font-size: 13px;
-      font-weight: 750;
     }
-    .release-notes summary::-webkit-details-marker { display: none; }
-    .release-notes summary::before {
-      content: "";
-      width: 7px;
-      height: 7px;
-      border-right: 2px solid currentColor;
-      border-bottom: 2px solid currentColor;
-      transform: rotate(-45deg);
-      margin: 0 4px 2px 2px;
-      flex: 0 0 auto;
+    .history-total {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      margin-top: 12px;
     }
-    .release-notes[open] summary::before { transform: rotate(45deg) translateY(-2px); }
-    .note-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-    .note-pill {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.02em;
-      line-height: 1.4;
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--secondary);
+    .history-total .eyebrow { margin: 0; }
+    .history-total-value { margin: 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .history-total-note { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .event { color: var(--secondary); grid-template-columns: minmax(0, 1fr) auto; }
+    .event-dot { display: none; }
+    .event a { color: inherit; }
+    .event time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+    .chip { display: inline-block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .how {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
     }
-    .note-pill[data-kind="added"] { background: rgba(35, 165, 90, 0.18); color: #3ecf78; }
-    .note-pill[data-kind="changed"] { background: rgba(226, 161, 90, 0.2); color: #f0c27a; }
-    .note-pill[data-kind="fixed"] { background: rgba(88, 101, 242, 0.22); color: #c9d0ff; }
-    .note-pill[data-kind="removed"] { background: rgba(237, 66, 69, 0.18); color: #ffb4b4; }
-    .note-pill[data-kind="performance"] { background: rgba(240, 178, 50, 0.16); color: #f0b232; }
-    .note-pill[data-kind="security"] { background: rgba(155, 132, 255, 0.18); color: #d4c9ff; }
-    .note-body { padding: 4px 0 2px 16px; }
-    .note-copy, .note-list { margin: 8px 0 0; color: var(--secondary); font-size: 14px; }
-    .note-list { padding-left: 1.1em; }
-    .note-list li { margin: 4px 0; }
-    .note-section { margin-top: 12px; }
-    .note-section .note-pill { font-size: 12px; padding: 3px 10px; }
-    .note-copy a, .note-list a { font-weight: 700; }
-    .note-copy code, .note-list code {
-      font-family: var(--mono);
-      font-size: 0.92em;
-      color: var(--amber-2);
-    }
-    .event .version-duration {
-      color: var(--amber-2);
-      font-size: 15px;
-      font-weight: 750;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    .event.is-live .version-duration { font-size: 18px; font-weight: 760; }
-    .event.is-live .event-dot {
-      background: var(--amber);
-      box-shadow: 0 0 0 4px rgba(226, 161, 90, 0.22);
-      animation: pulse 1.6s ease-out infinite;
-    }
-
-    @media (max-width: 980px) {
-      .streams { grid-template-columns: 1fr 1fr; }
-      .stages { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
-      .stage { min-width: 148px; scroll-snap-align: start; }
-    }
-    @media (max-width: 760px) {
-      .top-inner, main, .foot { width: min(1120px, calc(100% - 24px)); }
-      .top-inner { flex-wrap: wrap; }
-      .top-meta { width: 100%; justify-content: flex-start; }
-      .hero { grid-template-columns: 1fr; padding: 20px; text-align: center; }
-      .hero .lead { margin-left: auto; margin-right: auto; }
-      .stats { justify-content: center; }
-      .streams, .release-actions, .plugin-groups { grid-template-columns: 1fr; }
-      .ring-wrap { width: 200px; height: 200px; }
-      .ring-pct { font-size: 48px; }
+    .how summary { min-height: 40px; cursor: pointer; font-weight: 650; }
+    .how p, .how li { color: var(--secondary); }
+    .how table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .how th, .how td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    .how code { font-family: var(--mono); color: var(--accent); }
+    footer { border-top: 1px solid var(--line); padding: 24px 0 calc(24px + env(safe-area-inset-bottom)); color: var(--muted); }
+    .foot { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .foot p { margin: 0; max-width: 68ch; }
+    .foot nav { display: flex; gap: 14px; align-items: center; }
+    .foot a { color: var(--secondary); text-decoration: none; }
+    .foot a:hover { color: var(--text); }
+    @media (max-width: 720px) {
+      .plugin-groups { grid-template-columns: 1fr; }
+      .roadmap li, .version-live, .version-line summary, .event {
+        grid-template-columns: 1fr;
+        gap: 2px;
+      }
+      .roadmap-state, .version-duration, .event time { text-align: left; }
       .top-inner { align-items: flex-start; }
-      .event { grid-template-columns: 16px 1fr; }
-      .event time { grid-column: 2; }
-      .history-total { padding: 18px; }
     }
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
-      *, *::before, *::after {
-        animation: none !important;
-        transition: none !important;
-      }
-      .card:hover, .dl:hover { transform: none; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
     }
   </style>
 </head>
@@ -1071,14 +410,15 @@
   <header class="top">
     <div class="top-inner">
       <a class="brand" href="https://github.com/ItsErod/lark">
-        <img src="icon.png" width="36" height="36" alt="">
+        <img src="icon.png" width="28" height="28" alt="">
         <span>
-          <span class="brand-name">Lark <span class="live-dot" aria-hidden="true"></span></span>
-          <span class="brand-sub">3.0 build progress</span>
+          <span class="brand-name">Lark</span>
+          <span class="brand-sub">Progress</span>
         </span>
       </a>
       <div class="top-meta">
-        <a class="store-link" href="../store/">Plugin &amp; Theme Store</a>
+        <a class="nav-link" href="../">Home</a>
+        <a class="store-link" href="../store/">Store</a>
         <span class="updated" id="updated">Waiting for GitHub…</span>
         <span class="clock" id="countdown">Refresh in 1:00</span>
         <button class="refresh" id="refresh" type="button">Refresh</button>
@@ -1088,98 +428,75 @@
   <p id="live" class="sr-only" aria-live="polite"></p>
   <main id="content">
     <p id="notice" class="notice" hidden></p>
-    <section class="hero" aria-labelledby="page-title">
-      <div class="ring-wrap">
-        <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
-          <defs>
-            <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#5865f2"/>
-              <stop offset="55%" stop-color="#e2a15a"/>
-              <stop offset="100%" stop-color="#f0c27a"/>
-            </linearGradient>
-          </defs>
-          <circle class="ring-track" cx="100" cy="100" r="84"></circle>
-          <circle id="ring-value" class="ring-value" cx="100" cy="100" r="84"></circle>
-        </svg>
-        <div class="ring-center">
-          <span id="overall-pct" class="ring-pct">–</span>
-          <span class="ring-est">estimate</span>
+    <section class="now" aria-labelledby="now-title">
+      <div class="now-head">
+        <div>
+          <p class="eyebrow">In progress</p>
+          <h1 id="now-title">Now</h1>
+          <p id="now-lead" class="now-copy">Loading public pull requests…</p>
+          <p id="now-eta" class="eta" hidden>ETA —</p>
         </div>
+        <div id="downloads" class="downloads"></div>
       </div>
-      <div>
-        <p class="eyebrow">Seven workstreams</p>
-        <h1 id="page-title">Lark 3.0</h1>
-        <p id="hero-lead" class="lead">Loading public pull requests…</p>
-        <p id="overall-eta" class="overall-eta">3.0 ETA —</p>
-        <div class="meter is-idle" id="overall-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Overall progress">
-          <span class="bar-fill" id="overall-fill"></span>
-          <span class="bar-label" id="overall-bar-label" aria-hidden="true">–</span>
-        </div>
-        <ul id="hero-stats" class="stats"></ul>
-      </div>
-    </section>
-
-    <section aria-labelledby="stages-title">
-      <div class="section-head">
-        <h2 id="stages-title">Stage estimates</h2>
-        <p>Each percentage is an estimate. Release 3.0 finishes when GitHub publishes v3.0.0.</p>
-      </div>
-      <ol class="stages" id="stages"></ol>
-    </section>
-
-    <section aria-labelledby="streams-title">
-      <div class="section-head">
-        <h2 id="streams-title">Workstreams</h2>
-        <p>A pull request belongs to a stream when its head branch ends with that stream’s suffix. Plugin tracks match the longer suffix first. Each card shows what that agent is doing right now.</p>
-      </div>
-      <div id="streams" class="streams">
-        <div class="skel"></div>
-        <div class="skel"></div>
-        <div class="skel"></div>
-        <div class="skel"></div>
-        <div class="skel"></div>
-        <div class="skel"></div>
-      </div>
-    </section>
-
-    <section class="release" id="release" aria-labelledby="release-title">
-      <div>
-        <p class="eyebrow">Final stage</p>
-        <h2 id="release-title">Release 3.0</h2>
-        <p id="release-status">Checking the latest GitHub release…</p>
-        <p id="release-latest"></p>
-      </div>
-      <div class="meter is-idle" id="release-meter" data-agent="R" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Release progress">
-        <span class="bar-fill" id="release-fill"></span>
-      </div>
-      <p class="soon" id="release-soon">Windows and Mac installers appear here after v3.0.0 is published: Lark_3.0.0_x64-setup.exe and Lark_3.0.0_universal.dmg.</p>
-      <div id="release-actions" class="release-actions" hidden></div>
-    </section>
-
-    <section aria-labelledby="history-title">
-      <div class="section-head">
-        <h2 id="history-title">Version history</h2>
-        <p>Update time runs from the previous release’s publish time to this one. The version still in progress counts live from the latest release. Open a version for its release notes.</p>
-      </div>
-      <div class="history-total">
-        <p class="eyebrow">Total update time</p>
-        <p class="history-total-value" id="history-total-value">–</p>
-        <p class="history-total-note" id="history-total-note">Loading published releases…</p>
-      </div>
-      <ol id="history-list" class="timeline"></ol>
+      <div id="now-list" class="streams"></div>
     </section>
 
     <section aria-labelledby="activity-title">
       <div class="section-head">
-        <h2 id="activity-title">Recent merges</h2>
-        <p>The latest merged pull requests across the seven workstreams.</p>
+        <div>
+          <h2 id="activity-title">Activity</h2>
+          <p>The latest merged pull requests.</p>
+        </div>
       </div>
       <ol id="activity-list" class="timeline"></ol>
     </section>
 
+    <section aria-labelledby="roadmap-title">
+      <div class="section-head">
+        <div>
+          <h2 id="roadmap-title">Roadmap</h2>
+          <p>3.0.2, then a dashboard, then stats.</p>
+        </div>
+      </div>
+      <ol class="roadmap">
+        <li id="roadmap-302-row">
+          <span class="roadmap-ver">3.0.2</span>
+          <span class="roadmap-name">Minimal Mono, speed, network viewer, sync</span>
+          <span class="roadmap-state" id="roadmap-302">Publishing</span>
+        </li>
+        <li>
+          <span class="roadmap-ver">3.1</span>
+          <span class="roadmap-name">Dashboard view</span>
+          <span class="roadmap-state">Next</span>
+        </li>
+        <li>
+          <span class="roadmap-ver">3.1.1</span>
+          <span class="roadmap-name">Stats</span>
+          <span class="roadmap-state">After</span>
+        </li>
+      </ol>
+    </section>
+
+    <section id="history" aria-labelledby="history-title">
+      <div class="section-head">
+        <div>
+          <h2 id="history-title">Version history</h2>
+          <p>Each line is a published release. Open it for the Added, Changed, Fixed, and Removed notes. The time on the right is how long that build took, from the previous release.</p>
+        </div>
+      </div>
+      <div class="history-total">
+        <div>
+          <p class="eyebrow">Total update time</p>
+          <p class="history-total-note" id="history-total-note">Loading published releases…</p>
+        </div>
+        <p class="history-total-value" id="history-total-value">–</p>
+      </div>
+      <ol id="history-list" class="timeline"></ol>
+    </section>
+
     <details class="how">
       <summary>How these estimates are calculated</summary>
-      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% while a pull request is open. Once nothing is open and the latest pull request merged, it reads 100%, even when fewer merged than the planned count. status.json beside this page can mark a stream or plugin track done and set its finish time. A done flag is the source of truth: the page shows 100% and Done at that time, with no ETA. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded. Each workstream and plugin track also shows the current task: the title of its latest open pull request, or else the latest commit message on its branch, plus the last three commit messages. Working time starts at the earliest commit or pull request on that task and counts up every second. Total time starts at the agent’s first commit or pull request. A finished agent shows Done and freezes that total at the last merge. An agent with nothing open and no recent push shows Idle. Branch names and recent pushes are saved for 15 minutes. The current branch is compared with main so the commits on that task come back in one request. If the branch is already in main, only its latest commit message is kept. Those lookups stop when fewer than 12 GitHub requests remain. The activity refresh itself is skipped below 18, so the page stays inside the unauthenticated hourly limit.</p>
+      <p>Expected pull requests for a stream is the planned count, or the actual open-plus-merged count if more land. Progress is (merged + half of the open pull requests) divided by that expected count. A stream with no open or merged pull request stays at 5% while it is still coding. It stops at 95% while a pull request is open. Once nothing is open and the latest pull request merged, it reads 100%, even when fewer merged than the planned count. status.json beside this page can mark a stream or plugin track done and set its finish time. A done flag is the source of truth: the page shows 100% and Done at that time, with no ETA. Closed pull requests that were not merged stay in the list and do not move the percentage. Plugins is the average of four tracks. Starter is a branch that ends with -plug and not -privacy-plug, -chat-plug, or -media-plug, planned at 5 pull requests. Privacy, Chat, and Media are planned at 4 each. A chip lights up when a merged pull request in that track names the plugin. While this tab is visible, pull requests refresh every minute. A hidden tab pauses, then refreshes when you come back. Published releases refresh at most every 10 minutes, and again when every workstream first reaches 100%. The page saves a snapshot in this browser and waits out GitHub’s limit.  A version’s update time is the gap from the previous release’s publish time; the first release is the start. The total adds those gaps to the live in-progress timer. An agent’s ETA is the time since its first pull request, divided by the fraction done, minus the time already spent. That estimate counts down every second until the next refresh. The 3.0 ETA is the latest of the workstream and plugin-track estimates. A finished agent shows Done and the time its last pull request merged. ETAs are computed from pull requests the page already loaded. Each workstream and plugin track also shows the current task: the title of its latest open pull request, or else the latest commit message on its branch, plus the last three commit messages. Working time starts at the earliest commit or pull request on that task and counts up every second. Total time starts at the agent’s first commit or pull request. A finished agent shows Done and freezes that total at the last merge. An agent with nothing open and no recent push shows Idle. Branch names and recent pushes are saved for 15 minutes. The current branch is compared with main so the commits on that task come back in one request. If the branch is already in main, only its latest commit message is kept. Those lookups stop when fewer than 12 GitHub requests remain. The activity refresh itself is skipped below 18, so the page stays inside the unauthenticated hourly limit. Finished 3.0 streams stay in the 3.0.0 line of the version history. The main view lists only agents that are still in progress.</p>
       <table>
         <caption>Workstream plan</caption>
         <thead>
@@ -1203,11 +520,11 @@
       <nav aria-label="Footer">
         <a href="https://github.com/ItsErod/lark">Repository</a>
         <a href="https://github.com/ItsErod/lark/releases">Releases</a>
+        <a href="../store/">Store</a>
         <a href="https://github.com/ItsErod/lark/blob/main/LICENSE">MIT</a>
       </nav>
     </div>
   </footer>
-  <canvas id="confetti" aria-hidden="true"></canvas>
   <script>
     const PLUGIN_GROUPS = [
       {
@@ -2161,10 +1478,12 @@
     function downloadUrl(release, name) {
       const assets = release && Array.isArray(release.assets) ? release.assets : [];
       const match = assets.find((asset) => asset.name === name);
+      const tag = release && release.tag_name ? String(release.tag_name) : "v3.0.2";
+      const fallback = "https://github.com/ItsErod/lark/releases/download/" + encodeURIComponent(tag) + "/" + encodeURIComponent(name);
       if (match && match.browser_download_url) {
-        return safeGithubUrl(match.browser_download_url, "https://github.com/ItsErod/lark/releases/download/v3.0.0/" + name);
+        return safeGithubUrl(match.browser_download_url, fallback);
       }
-      return "https://github.com/ItsErod/lark/releases/download/v3.0.0/" + name;
+      return fallback;
     }
 
     globalThis.LarkProgress = {
@@ -2209,12 +1528,16 @@
       let sawAllDone = false;
       const ringLength = 2 * Math.PI * 84;
       const ring = document.getElementById("ring-value");
-      ring.style.strokeDasharray = String(ringLength);
-      ring.style.strokeDashoffset = String(ringLength);
+      if (ring) {
+        ring.style.strokeDasharray = String(ringLength);
+        ring.style.strokeDashoffset = String(ringLength);
+      }
 
       const stages = document.getElementById("stages");
-      STREAMS.forEach((stream) => stages.append(stageNode(stream)));
-      stages.append(stageNode({ id: "R", short: "Release", release: true }));
+      if (stages) {
+        STREAMS.forEach((stream) => stages.append(stageNode(stream)));
+        stages.append(stageNode({ id: "R", short: "Release", release: true }));
+      }
 
       document.getElementById("refresh").addEventListener("click", () => { refresh(true); });
       document.addEventListener("visibilitychange", () => {
@@ -2236,6 +1559,7 @@
 
       let historyModel = null;
       let historySignature = "";
+      let latestResults = null;
       let activitySnapshot = readJson(ACTIVITY_CACHE_KEY);
       paintHistoryFromCache();
 
@@ -2501,12 +1825,16 @@
             applyPayload(saved, { fromCache: true, quiet: false });
           } else if (!current) {
             setNotice("Couldn't reach GitHub just now. This page will try again shortly.");
-            document.getElementById("hero-lead").textContent = "Public pull requests couldn't be loaded yet.";
-            document.getElementById("streams").textContent = "";
-            const note = document.createElement("p");
-            note.className = "empty-note";
-            note.textContent = "The workstreams will fill in on the next successful refresh.";
-            document.getElementById("streams").append(note);
+            const lead = document.getElementById("now-lead");
+            if (lead) lead.textContent = "Public pull requests couldn't be loaded yet.";
+            const list = document.getElementById("now-list");
+            if (list) {
+              list.textContent = "";
+              const note = document.createElement("p");
+              note.className = "empty-note";
+              note.textContent = "Active agents will fill in on the next successful refresh.";
+              list.append(note);
+            }
           } else {
             setNotice("Couldn't reach GitHub. Still showing the last snapshot from this browser.");
           }
@@ -2587,13 +1915,15 @@
       }
 
       function formatStamp(ms) {
-        return new Date(ms).toLocaleString(undefined, {
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
           month: "short",
           day: "numeric",
           year: "numeric",
           hour: "numeric",
-          minute: "2-digit"
-        });
+          minute: "2-digit",
+          timeZoneName: "short"
+        }).format(new Date(ms));
       }
 
       function paintHistoryFromCache() {
@@ -2607,7 +1937,10 @@
         const signature = (releases || []).map((item) => {
           return [item && item.tag_name, item && item.published_at, item && item.prerelease ? 1 : 0, item && item.body].join("|");
         }).join("\n");
-        if (signature === historySignature && historyModel) return;
+        if (signature === historySignature && historyModel) {
+          attachArchive();
+          return;
+        }
         historySignature = signature;
         historyModel = buildVersionHistory(releases, Date.now());
         const list = document.getElementById("history-list");
@@ -2626,10 +1959,11 @@
         const count = historyModel.versions.length;
         const progress = historyModel.inProgress;
         note.textContent = count + " published " + (count === 1 ? "version" : "versions") +
-          (progress ? " · " + progress.version + " in progress since " + progress.since : "") +
+          (progress ? " · counting since " + progress.since : "") +
           (historyModel.firstTag ? " · from " + historyModel.firstTag : "");
         historyModel.entries.forEach((entry) => list.append(historyRow(entry)));
         paintHistoryClock();
+        attachArchive();
       }
 
       function paintHistoryClock() {
@@ -2643,58 +1977,57 @@
 
       function historyRow(entry) {
         const li = document.createElement("li");
-        li.className = "event" + (entry.kind === "progress" ? " is-live" : "");
-        const dot = document.createElement("span");
-        dot.className = "event-dot";
-        dot.setAttribute("aria-hidden", "true");
-        const body = document.createElement("div");
-        body.className = "version-body";
         if (entry.kind === "progress") {
+          li.className = "version-live";
           const name = document.createElement("span");
           name.className = "version-name";
-          name.textContent = entry.version;
-          const pill = document.createElement("span");
-          pill.className = "pill";
-          pill.dataset.status = "coding";
-          const pillDot = document.createElement("span");
-          pillDot.className = "dot";
-          pillDot.setAttribute("aria-hidden", "true");
-          pill.append(pillDot, document.createTextNode("In progress"));
-          const meta = document.createElement("p");
+          name.textContent = "Since " + entry.since;
+          const meta = document.createElement("span");
           meta.className = "version-meta";
-          meta.textContent = "Since " + entry.since;
-          body.append(name, pill, meta);
-        } else {
-          const link = document.createElement("a");
-          link.className = "version-name";
-          link.href = safeGithubUrl(entry.url, "https://github.com/ItsErod/lark/releases/tag/" + encodeURIComponent(entry.version));
-          link.target = "_blank";
-          link.rel = "noreferrer";
-          link.textContent = entry.version;
-          const meta = document.createElement("p");
-          meta.className = "version-meta";
-          const when = document.createElement("time");
-          when.dateTime = new Date(entry.date).toISOString();
-          when.textContent = formatStamp(entry.date);
-          meta.append(when);
-          if (entry.prerelease) meta.append(document.createTextNode(" · pre-release"));
-          meta.append(document.createTextNode(entry.since ? " · from " + entry.since : " · first release"));
-          body.append(link, meta);
-          const notes = releaseNotes(entry.notes);
-          if (notes) body.append(notes);
-        }
-        const duration = document.createElement("time");
-        duration.className = "version-duration";
-        if (entry.kind === "progress") {
+          meta.textContent = "Time since the latest release";
+          const duration = document.createElement("time");
+          duration.className = "version-duration";
           duration.id = "history-live-duration";
           duration.dateTime = new Date(entry.startedAt).toISOString();
           duration.textContent = formatDuration(entry.durationMs, true);
-        } else if (entry.durationMs == null) {
-          duration.textContent = "—";
-        } else {
-          duration.textContent = formatDuration(entry.durationMs, false);
+          li.append(name, meta, duration);
+          return li;
         }
-        li.append(dot, body, duration);
+        li.className = "version-line";
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        const name = document.createElement("span");
+        name.className = "version-name";
+        name.textContent = entry.version;
+        const meta = document.createElement("span");
+        meta.className = "version-meta";
+        const when = document.createElement("time");
+        when.dateTime = new Date(entry.date).toISOString();
+        when.textContent = formatStamp(entry.date);
+        meta.append(when);
+        if (entry.prerelease) meta.append(document.createTextNode(" · pre-release"));
+        const duration = document.createElement("time");
+        duration.className = "version-duration";
+        duration.textContent = entry.durationMs == null ? "—" : formatDuration(entry.durationMs, false);
+        summary.append(name, meta, duration);
+        const body = document.createElement("div");
+        body.className = "version-body";
+        const link = document.createElement("a");
+        link.href = safeGithubUrl(entry.url, "https://github.com/ItsErod/lark/releases/tag/" + encodeURIComponent(entry.version));
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "Release page";
+        body.append(link);
+        if (String(entry.version || "").toLowerCase() === "v3.0.0") {
+          const archive = document.createElement("div");
+          archive.id = "archive-3";
+          archive.className = "archive";
+          body.append(archive);
+        }
+        const notes = releaseNotes(entry.notes);
+        if (notes) body.append(notes);
+        details.append(summary, body);
+        li.append(details);
         return li;
       }
 
@@ -2750,18 +2083,14 @@
       function releaseNotes(markdown) {
         const parsed = parseReleaseNotes(markdown);
         if (!parsed) return null;
-        const details = document.createElement("details");
-        details.className = "release-notes";
-        const summary = document.createElement("summary");
-        summary.append(document.createTextNode("Release notes"));
+        const wrap = document.createElement("div");
+        wrap.className = "release-notes";
         if (parsed.sections.length) {
-          const pills = document.createElement("span");
+          const pills = document.createElement("p");
           pills.className = "note-pills";
           parsed.sections.forEach((section) => pills.append(notePill(section.kind, section.label)));
-          summary.append(pills);
+          wrap.append(pills);
         }
-        const wrap = document.createElement("div");
-        wrap.className = "note-body";
         parsed.intro.forEach((paragraph) => {
           const p = document.createElement("p");
           p.className = "note-copy";
@@ -2783,8 +2112,7 @@
           block.append(heading, list);
           wrap.append(block);
         });
-        details.append(summary, wrap);
-        return details;
+        return wrap;
       }
 
       function isRateLimited(status, info) {
@@ -2958,26 +2286,25 @@
         const changed = nextSignature !== signature;
         signature = nextSignature;
 
-        paintHero(results, overall);
-        paintStages(results, ready);
+        latestResults = results;
         if (changed || !sawPayload) {
-          paintStreams(results);
+          paintStreams(results, payload.pulls);
           paintActivity(results);
         }
         refreshEtas(results);
-        paintRelease(payload.release, ready);
+        paintDownloads(payload.release);
+        paintRoadmap(payload.release);
         paintHistoryFromCache();
+        attachArchive();
         sawPayload = true;
-        document.title = "Lark 3.0 · " + overall.percent + "% estimate";
+        const activeCount = results.filter((item) => item.status !== "done").length;
+        document.title = activeCount ? "Lark · " + activeCount + " in progress" : "Lark";
         const celebrate = markSeen(results, ready);
         if (!opts.quiet && celebrate.fire && !reduceMotion) burst();
         if (!opts.quiet) {
-          const review = results.filter((item) => item.status === "review").length;
           const done = results.filter((item) => item.status === "done").length;
           document.getElementById("live").textContent =
-            "Progress updated. Overall estimate " + overall.percent + " percent. " +
-            review + " in review, " + done + " done." +
-            (ready ? " Release 3.0 is available." : "");
+            "Progress updated. " + activeCount + " in progress, " + done + " finished.";
         }
         tick();
       }
@@ -3043,6 +2370,7 @@
       }
 
       function setRing(percent) {
+        if (!ring) return;
         const target = ringLength * (1 - percent / 100);
         if (!ring.dataset.ready) {
           ring.dataset.ready = "1";
@@ -3074,7 +2402,98 @@
         stage.classList.toggle("is-ready", ready);
       }
 
-      function paintStreams(results) {
+      function pullIsCovered(pr, results) {
+        const ref = String(pr && pr.head && pr.head.ref || "").toLowerCase();
+        const group = pluginGroupFor(ref);
+        if (group) {
+          let track = null;
+          (results || []).forEach((item) => {
+            (item.groups || []).forEach((candidate) => {
+              if (candidate.id === group.id) track = candidate;
+            });
+          });
+          return !!(track && track.status !== "done");
+        }
+        const suffix = STREAMS.map((stream) => String(stream.suffix || "").toLowerCase())
+          .filter((item) => item && !item.endsWith("-plug"))
+          .find((item) => ref.endsWith(item));
+        if (!suffix) return false;
+        const stream = (results || []).find((item) => String(item.suffix || "").toLowerCase() === suffix);
+        return !!(stream && stream.status !== "done");
+      }
+
+      function looseOpenPulls(pulls, results) {
+        const now = Date.now();
+        return (pulls || []).filter((pr) => {
+          if (!pr || pr.merged_at || pr.state !== "open") return false;
+          const stamp = Date.parse(pr.updated_at || pr.created_at || "");
+          if (!Number.isFinite(stamp) || now - stamp > 48 * 60 * 60 * 1000) return false;
+          return !pullIsCovered(pr, results);
+        });
+      }
+
+      function openCard(pr) {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.dataset.status = "review";
+        const titles = document.createElement("div");
+        titles.className = "card-titles";
+        const kicker = document.createElement("p");
+        kicker.className = "kicker";
+        kicker.textContent = "Open pull request";
+        const heading = document.createElement("h3");
+        const link = document.createElement("a");
+        link.href = pr.html_url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.dataset.key = "open-" + pr.number;
+        link.textContent = "#" + pr.number + " " + pr.title;
+        heading.append(link);
+        titles.append(kicker, heading);
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.dataset.status = "review";
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.setAttribute("aria-hidden", "true");
+        pill.append(dot, document.createTextNode("In review"));
+        const meta = document.createElement("p");
+        meta.className = "meta";
+        const ref = pr.head && pr.head.ref ? pr.head.ref : "";
+        meta.textContent = (pr.user && pr.user.login ? pr.user.login + " · " : "") + ref;
+        card.append(titles, pill, meta);
+        return card;
+      }
+
+      function attachArchive() {
+        const host = document.getElementById("archive-3");
+        if (!host || !latestResults) return;
+        host.textContent = "";
+        const heading = document.createElement("h4");
+        heading.textContent = "3.0 streams";
+        const list = document.createElement("ul");
+        list.className = "archive-list";
+        const row = (label, status, finishedAt, percent) => {
+          const li = document.createElement("li");
+          const name = document.createElement("span");
+          name.textContent = label;
+          const when = document.createElement("span");
+          if (status === "done" && Number.isFinite(finishedAt)) when.textContent = "Done " + formatStamp(finishedAt);
+          else if (status === "done") when.textContent = "Done";
+          else when.textContent = percent + "%";
+          li.append(name, when);
+          list.append(li);
+        };
+        latestResults.forEach((item) => {
+          row(item.id + " · " + item.name, item.status, item.finishedAt, item.percent);
+          (item.groups || []).forEach((group) => {
+            row(item.id + " · " + group.name, group.status, group.finishedAt, group.percent);
+          });
+        });
+        host.append(heading, list);
+      }
+
+      function paintStreams(results, pulls) {
         const opened = new Set(
           [...document.querySelectorAll("details[data-stream][open]")].map((node) => node.dataset.stream)
         );
@@ -3082,12 +2501,27 @@
           ? document.activeElement.closest("[data-key]")
           : null;
         const focusKey = focusHost ? focusHost.dataset.key : "";
-        const root = document.getElementById("streams");
+        const root = document.getElementById("now-list");
+        if (!root) return;
         root.textContent = "";
         const seen = readJson(SEEN_KEY) || {};
-        results.forEach((item, index) => {
+        const active = results.filter((item) => item.status !== "done");
+        active.forEach((item, index) => {
           root.append(streamCard(item, index, opened.has(item.id), seen));
         });
+        looseOpenPulls(pulls, results).forEach((pr) => root.append(openCard(pr)));
+        const lead = document.getElementById("now-lead");
+        if (lead) {
+          const openCount = root.querySelectorAll(".card").length - active.length;
+          if (!active.length && openCount <= 0) {
+            lead.textContent = "No agents are in progress. Finished 3.0 work is one line in the version history.";
+          } else if (!active.length) {
+            lead.textContent = openCount === 1 ? "1 open pull request." : openCount + " open pull requests.";
+          } else {
+            const names = active.map((item) => item.short).join(", ");
+            lead.textContent = names + (active.length === 1 ? " is in progress." : " are in progress.");
+          }
+        }
         if (focusKey) {
           const next = document.querySelector('[data-key="' + CSS.escape(focusKey) + '"]');
           if (next) next.focus();
@@ -3492,18 +2926,24 @@
 
       function refreshEtas(results) {
         const now = Date.now();
-        const etas = [];
+        const pending = [];
         (results || []).forEach((item) => {
           const eta = etaFor(item, now);
-          etas.push(eta);
+          if (item.status !== "done") pending.push(eta);
           renderEta(document.querySelector('[data-eta-for="' + item.id + '"]'), eta, "");
           (item.groups || []).forEach((group) => {
             const trackEta = etaFor(group, now);
-            etas.push(trackEta);
+            if (group.status !== "done") pending.push(trackEta);
             renderEta(document.querySelector('[data-eta-for="track-' + group.id + '"]'), trackEta, "");
           });
         });
-        renderEta(document.getElementById("overall-eta"), overallAgentEta(etas, now), "3.0 ");
+        const node = document.getElementById("now-eta");
+        if (!pending.length) {
+          if (node) node.hidden = true;
+          return;
+        }
+        if (node) node.hidden = false;
+        renderEta(node, overallAgentEta(pending, now), "");
       }
 
       function paintPlugins(plugins) {
@@ -3597,7 +3037,7 @@
         if (!merges.length) {
           const li = document.createElement("li");
           li.className = "empty-note";
-          li.textContent = "No workstream merges yet. They will show up here as reviews land.";
+          li.textContent = "No merges yet. They will show up here as reviews land.";
           list.append(li);
           return;
         }
@@ -3623,49 +3063,46 @@
         });
       }
 
-      function paintRelease(release, ready) {
-        const section = document.getElementById("release");
-        section.classList.toggle("is-ready", ready);
-        const status = document.getElementById("release-status");
-        const latest = document.getElementById("release-latest");
-        const soon = document.getElementById("release-soon");
-        const actions = document.getElementById("release-actions");
-        const meter = document.getElementById("release-meter");
-        const fill = document.getElementById("release-fill");
-        latest.textContent = "";
-        if (release && release.tag_name) {
-          const link = document.createElement("a");
-          link.href = release.html_url || "https://github.com/ItsErod/lark/releases/latest";
-          link.target = "_blank";
-          link.rel = "noreferrer";
-          link.textContent = release.tag_name;
-          latest.append(document.createTextNode("Latest GitHub release is "), link, document.createTextNode("."));
+      function pickAsset(release, pattern) {
+        const assets = release && Array.isArray(release.assets) ? release.assets : [];
+        return assets.find((asset) => asset && pattern.test(String(asset.name || "")) && !/\.sig$/i.test(String(asset.name || ""))) || null;
+      }
+
+      function paintDownloads(release) {
+        const root = document.getElementById("downloads");
+        if (!root) return;
+        const tag = release && release.tag_name ? String(release.tag_name) : "";
+        const exe = pickAsset(release, /x64-setup\.exe$/i);
+        const dmg = pickAsset(release, /universal\.dmg$/i);
+        const signature = [tag, exe && exe.name, dmg && dmg.name].join("|");
+        if (root.dataset.signature === signature && root.childElementCount) return;
+        root.dataset.signature = signature;
+        root.textContent = "";
+        if (!exe && !dmg) {
+          const note = document.createElement("p");
+          note.className = "empty-note";
+          note.textContent = tag ? "Installers for " + tag + " are not listed yet." : "Checking the latest release…";
+          root.append(note);
+          return;
         }
-        if (ready) {
-          status.textContent = "v3.0.0 is published. Downloads for Windows and Mac are below.";
-          soon.hidden = true;
-          actions.hidden = false;
-          meter.classList.remove("is-idle");
-          meter.classList.add("is-done");
-          meter.setAttribute("aria-valuenow", "100");
-          setFillWidth(fill, "release", 100);
-          syncCheck(meter, true);
-          if (!actions.childElementCount) {
-            actions.append(
-              downloadLink("Windows", "Download setup", EXE_NAME, downloadUrl(release, EXE_NAME), false),
-              downloadLink("macOS", "Download disk image", DMG_NAME, downloadUrl(release, DMG_NAME), true)
-            );
-          }
-        } else {
-          status.textContent = "This stage completes when a v3.0.0 GitHub release exists.";
-          soon.hidden = false;
-          actions.hidden = true;
-          meter.classList.add("is-idle");
-          meter.classList.remove("is-done");
-          meter.setAttribute("aria-valuenow", "0");
-          setFillWidth(fill, "release", 0);
-          syncCheck(meter, false);
+        if (exe) root.append(downloadLink("Windows", "Download EXE", exe.name, downloadUrl(release, exe.name), false));
+        if (dmg) root.append(downloadLink("macOS", "Download DMG", dmg.name, downloadUrl(release, dmg.name), true));
+      }
+
+      function paintRoadmap(release) {
+        const node = document.getElementById("roadmap-302");
+        const row = document.getElementById("roadmap-302-row");
+        if (!node) return;
+        const parsed = parseTag(release && release.tag_name);
+        const shipped = !!(parsed && (parsed.major > 3 || (parsed.major === 3 && (parsed.minor > 0 || parsed.patch >= 2))));
+        if (!shipped) {
+          node.textContent = "Publishing";
+          if (row) row.classList.remove("is-shipped");
+          return;
         }
+        const published = Date.parse(release && release.published_at || "");
+        node.textContent = Number.isFinite(published) ? "Shipped " + formatStamp(published) : "Shipped";
+        if (row) row.classList.add("is-shipped");
       }
 
       function downloadLink(kicker, title, file, href, mac) {
