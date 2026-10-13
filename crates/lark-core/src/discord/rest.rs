@@ -2424,18 +2424,30 @@ pub fn message_search_query(search: &MessageSearch) -> String {
     parts.join("&")
 }
 
+fn search_id(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|id| !id.is_empty())
+}
+
+/// Guild search, one conversation, or every direct message when both ids are absent.
+/// A non-empty id that is not a snowflake is refused instead of widening the search.
 pub fn message_search_path(
     guild_id: Option<&str>,
     channel_id: Option<&str>,
     query: &str,
 ) -> Result<String, String> {
-    if let Some(guild_id) = guild_id.filter(|id| snowflake_ok(id)) {
+    if let Some(guild_id) = search_id(guild_id) {
+        if !snowflake_ok(guild_id) {
+            return Err("Search needs a server or a conversation.".into());
+        }
         return Ok(format!("/guilds/{guild_id}/messages/search?{query}"));
     }
-    if let Some(channel_id) = channel_id.filter(|id| snowflake_ok(id)) {
+    if let Some(channel_id) = search_id(channel_id) {
+        if !snowflake_ok(channel_id) {
+            return Err("Search needs a server or a conversation.".into());
+        }
         return Ok(format!("/channels/{channel_id}/messages/search?{query}"));
     }
-    Err("Search needs a server or a conversation.".into())
+    Ok(format!("/users/@me/messages/search?{query}"))
 }
 
 pub fn composed_payload(
@@ -2616,16 +2628,26 @@ impl DiscordRest {
     ) -> Result<Vec<ClientMessage>, RestError> {
         let query = message_search_query(search);
         let path = message_search_path(guild_id, channel_id, &query).map_err(RestError::Message)?;
-        let major = guild_id
-            .filter(|id| snowflake_ok(id))
-            .unwrap_or(channel_id.unwrap_or("search"));
-        let route = if guild_id.filter(|id| snowflake_ok(id)).is_some() {
-            route_key("GET", "/guilds/{guild.id}/messages/search", major)
+        let guild = search_id(guild_id).filter(|id| snowflake_ok(id));
+        let channel = search_id(channel_id).filter(|id| snowflake_ok(id));
+        let (route, major) = if let Some(guild_id) = guild {
+            (
+                route_key("GET", "/guilds/{guild.id}/messages/search", guild_id),
+                guild_id.to_string(),
+            )
+        } else if let Some(channel_id) = channel {
+            (
+                route_key("GET", "/channels/{channel.id}/messages/search", channel_id),
+                channel_id.to_string(),
+            )
         } else {
-            route_key("GET", "/channels/{channel.id}/messages/search", major)
+            (
+                route_key("GET", "/users/@me/messages/search", "me"),
+                "me".to_string(),
+            )
         };
         let value = self
-            .send_json(Method::GET, &route, major, &path, None)
+            .send_json(Method::GET, &route, &major, &path, None)
             .await?;
         Ok(messages_from_search(&value))
     }
@@ -2989,6 +3011,16 @@ mod messaging_search {
                 .unwrap()
                 .starts_with("/channels/100000000000000022/messages/search?")
         );
+        let home = message_search_path(None, None, &query).unwrap();
+        assert!(home.starts_with("/users/@me/messages/search?"));
+        assert!(home.contains("author_id=100000000000000001"));
+        assert!(home.contains("has=image"));
+        assert!(home.contains("max_id=100000000000000333"));
+        assert!(home.contains("min_id=100000000000000222"));
+        assert!(message_search_path(Some("  "), Some(""), &query)
+            .unwrap()
+            .starts_with("/users/@me/messages/search?"));
+        assert!(message_search_path(Some("nope"), None, "content=a").is_err());
 
         let payload = composed_payload(
             "",
