@@ -15,6 +15,7 @@ import {
   micLevel,
   participantMenu,
   participantsIn,
+  placeMenu,
   playbackVolume,
   readVoicePrefs,
   replaceGuildVoice,
@@ -171,6 +172,18 @@ describe("voice roster", () => {
     expect(voiceDetailLine(details, "connected")).toContain("Ping 42 ms");
     expect(voiceDetailLine(details, "connected")).toContain("c-ord.discord.gg");
     expect(voiceDetailLine(details, "connected")).not.toContain("aead_");
+  });
+
+  it("keeps the participant volume menu inside the voice surface", () => {
+    const channel = placeMenu({ x: 400, y: 220 }, { left: 72, top: 8, right: 300, bottom: 640 }, { width: 220, height: 280 });
+    expect(channel.left).toBeGreaterThanOrEqual(72);
+    expect(channel.left + channel.width).toBeLessThanOrEqual(300);
+    expect(channel.width).toBe(220);
+    const split = placeMenu({ x: 12, y: 12 }, { left: 640, top: 48, right: 980, bottom: 420 }, { width: 220, height: 500 });
+    expect(split.left).toBe(640);
+    expect(split.top).toBe(48);
+    expect(split.left + split.width).toBeLessThanOrEqual(980);
+    expect(split.maxHeight).toBe(372);
   });
 
   it("lists the voice-channel menu and the participant moderation actions", () => {

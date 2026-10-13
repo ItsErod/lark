@@ -176,6 +176,34 @@ export function setSpeaking(roster: VoiceRoster, userId: string, speaking: boole
   return changed;
 }
 
+export interface MenuBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Keep a participant menu inside the voice surface that was clicked. */
+export function placeMenu(
+  click: { x: number; y: number },
+  bounds: MenuBox,
+  size: { width: number; height: number },
+): { left: number; top: number; width: number; maxHeight: number } {
+  const maxWidth = Math.max(0, bounds.right - bounds.left);
+  const maxHeight = Math.max(0, bounds.bottom - bounds.top);
+  const width = Math.min(Math.max(0, size.width), maxWidth);
+  const height = Math.min(Math.max(0, size.height), maxHeight);
+  const left = clampMenu(click.x, bounds.left, bounds.right - width);
+  const top = clampMenu(click.y, bounds.top, bounds.bottom - height);
+  return { left, top, width, maxHeight };
+}
+
+function clampMenu(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  if (max < min) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
 /** Built-in per-user slider. */
 export const VOLUME_SLIDER_MAX = 200;
 /** Storage ceiling for the volume booster plugin. Playback stays at the slider max until that plugin is on. */
