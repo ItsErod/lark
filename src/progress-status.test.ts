@@ -35,7 +35,10 @@ describe("work status", () => {
     expect(parsed.streams.D.finishedAt).toBe(Date.parse("2026-10-12T15:32:00-04:00"));
     expect(parsed.streams.E.finishedAt).toBe(Date.parse("2026-10-12T16:03:00-04:00"));
     expect(parsed.streams.F.finishedAt).toBe(Date.parse("2026-10-12T15:14:41-04:00"));
-    expect(parsed.tracks.privacy.done).toBe(false);
+    expect(parsed.tracks.starter).toEqual({ done: true, finishedAt: Date.parse("2026-10-12T17:02:01-04:00") });
+    expect(parsed.tracks.privacy).toEqual({ done: true, finishedAt: Date.parse("2026-10-12T15:59:12-04:00") });
+    expect(parsed.tracks.chat).toEqual({ done: true, finishedAt: Date.parse("2026-10-12T16:19:45-04:00") });
+    expect(parsed.tracks.media).toEqual({ done: true, finishedAt: Date.parse("2026-10-12T16:41:16-04:00") });
     (["A", "B", "C", "D", "E", "F"] as const).forEach((id) => {
       const forced = resolveWork(short, [{ state: "open", created_at: "2026-10-12T18:00:00Z" }], parsed.streams[id]);
       expect(forced.status).toBe("done");
