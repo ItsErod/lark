@@ -528,3 +528,100 @@
 .lark-discover.is-preview {
   grid-template-rows: auto minmax(0, 1fr);
 }
+
+.lark-directory {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  overflow: auto;
+}
+
+.lark-directory h2,
+.lark-directory h3 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.011em;
+}
+
+.directory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.lark-directory input {
+  width: min(420px, 100%);
+  background: var(--color-bg-subtle);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.directory-cats,
+.lark-directory .directory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.lark-directory .directory-card {
+  display: grid;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  color: inherit;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+.directory-banner {
+  display: block;
+  width: 100%;
+  height: 72px;
+  object-fit: cover;
+  background: var(--color-bg-muted);
+}
+
+.directory-body {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.directory-copy {
+  color: var(--color-fg-muted);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.directory-preview {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  max-width: 560px;
+}
+
+.lark-directory.is-confirm {
+  grid-template-rows: auto minmax(0, 1fr);
+}

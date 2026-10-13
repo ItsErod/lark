@@ -16744,7 +16744,7 @@ class LarkApp {
       return;
     }
     if (id === "apps") {
-      externalLink(DISCORD_LINKS.apps);
+      this.openAppDirectory(guildId);
       return;
     }
     if (id === "copy-id") {
@@ -16798,6 +16798,19 @@ class LarkApp {
         void this.ensureGuild(guildId);
         this.paint();
       },
+    });
+  }
+
+  private openAppDirectory(guildId: string) {
+    const guild = this.guilds().find((item) => item.id === guildId);
+    void import("./app-directory-view").then(({ openAppDirectory }) => {
+      openAppDirectory({
+        invoke: (command, args) => invoke(command, args),
+        toast: (title, detail) => this.toast(title, detail),
+        guildId,
+        guildName: guild?.name ?? "Server",
+        onInstalled: () => this.toast("Installed", "The app was added to this server."),
+      });
     });
   }
 

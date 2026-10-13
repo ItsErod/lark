@@ -420,6 +420,9 @@ pub fn run() {
             discover_preview,
             join_discoverable,
             search_gifs,
+            directory_categories,
+            directory_search,
+            install_application,
             fetch_stickers,
             reaction_users,
             search_app_commands,
@@ -2784,6 +2787,56 @@ async fn search_gifs(
     rest(&state)
         .await?
         .search_gifs(&query)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn directory_categories(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::DirectoryCategory>, String> {
+    rest(&state)
+        .await?
+        .directory_categories()
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn directory_search(
+    state: State<'_, Shared>,
+    query: String,
+    category_id: Option<i64>,
+    guild_id: Option<String>,
+    page: u32,
+) -> Result<lark_core::discord::DirectoryPage, String> {
+    rest(&state)
+        .await?
+        .directory_search(&query, category_id, guild_id.as_deref(), page)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn install_application(
+    state: State<'_, Shared>,
+    application_id: String,
+    guild_id: String,
+    permissions: String,
+    scopes: Vec<String>,
+    custom_install_url: String,
+    custom_install_blocked: bool,
+) -> Result<lark_core::discord::InstallResult, String> {
+    rest(&state)
+        .await?
+        .install_application(
+            &application_id,
+            &guild_id,
+            &permissions,
+            &scopes,
+            &custom_install_url,
+            custom_install_blocked,
+        )
         .await
         .map_err(|err| err.to_string())
 }
