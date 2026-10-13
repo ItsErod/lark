@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listenDevServer } from "./dev-listen";
+import { listenDevServer } from "./dev-listen.dev";
 
 describe("dev server ports", () => {
   it("binds two servers at once", async () => {

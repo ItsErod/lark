@@ -1,7 +1,7 @@
 import type { ViteDevServer } from "vite";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listenDevServer } from "./dev-listen";
+import { listenDevServer } from "./dev-listen.dev";
 
 describe("smarter notifications settings", () => {
   let server: ViteDevServer;
