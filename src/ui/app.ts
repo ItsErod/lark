@@ -682,6 +682,12 @@ class LarkApp {
   private serverEditor = false;
   private socialMenusBound = false;
   private friendTick = 0;
+  private dashboardOpen = false;
+  private dashboardTick = 0;
+  private dashboardSig = "";
+  private dashboardVis = false;
+  private dashboardLoading: Promise<typeof import("./dashboard")> | null = null;
+  private dashboardMod: typeof import("./dashboard") | null = null;
   private statusEmoji = "";
   private statusClearAt: number | null = null;
   private directory: Record<string, Person> = {};
@@ -1792,18 +1798,25 @@ class LarkApp {
     const rail = appearance.show_server_rail ? "56px" : "0px";
     const channelW = appearance.channel_list === "hidden" ? "0px" : "240px";
     const dmSidebar = !this.guildId && !this.friendsOpen && this.currentChannelIsDm();
-    const members = appearance.show_member_list && !this.narrow && (this.guildId || dmSidebar) ? "240px" : "0px";
+    const homeFeed = this.dashboardHome();
+    const dashDock = this.dashboardOpen && !homeFeed;
+    const members = !this.narrow && (dashDock || (appearance.show_member_list && (this.guildId || dmSidebar))) ? (dashDock ? "320px" : "240px") : "0px";
     this.rail.hidden = !appearance.show_server_rail;
     this.channelPane.hidden = appearance.channel_list === "hidden" && !this.drawer;
-    this.membersEl.hidden = members === "0px";
+    this.membersEl.hidden = members === "0px" && !(this.narrow && dashDock);
     const callSplit = this.callSurface === "split";
     if (this.stage) {
       this.stage.classList.toggle("is-split", Boolean(this.splitId) && !this.narrow && !callSplit);
       this.splitPane.hidden = !this.splitId || this.narrow || callSplit;
     }
     if (this.narrow) {
-      this.shell.style.gridTemplateColumns = `${rail} minmax(0, 1fr)`;
-      this.shell.style.gridTemplateAreas = `"rail chat"`;
+      if (dashDock) {
+        this.shell.style.gridTemplateColumns = `${rail} minmax(0, 1fr) 220px`;
+        this.shell.style.gridTemplateAreas = `"rail chat members"`;
+      } else {
+        this.shell.style.gridTemplateColumns = `${rail} minmax(0, 1fr)`;
+        this.shell.style.gridTemplateAreas = `"rail chat"`;
+      }
     } else if (appearance.channel_list === "right") {
       this.shell.style.gridTemplateColumns = `${rail} minmax(0,1fr) ${channelW} ${members}`;
       this.shell.style.gridTemplateAreas = `"rail chat channels members"`;
@@ -2857,11 +2870,13 @@ class LarkApp {
     }
     const friends = this.channelPane.querySelector<HTMLElement>("[data-friends]");
     if (friends) {
-      friends.classList.toggle("is-selected", this.friendsOpen && !this.channelId && !this.clipsOpen);
+      friends.classList.toggle("is-selected", this.friendsOpen && !this.dashboardOpen && !this.channelId && !this.clipsOpen);
       const online = this.friends.filter((person) => person.status === "online" || person.status === "idle" || person.status === "dnd").length;
       const pending = pendingFriendCount();
       this.setBadge(friends, pending || online);
     }
+    const activity = this.channelPane.querySelector<HTMLElement>("[data-activity]");
+    if (activity) activity.classList.toggle("is-selected", this.dashboardHome());
     const clips = this.channelPane.querySelector<HTMLElement>("[data-clips]");
     if (clips) clips.classList.toggle("is-selected", this.clipsOpen);
     for (const node of this.channelPane.querySelectorAll<HTMLElement>("[data-channel]")) {
@@ -2906,7 +2921,7 @@ class LarkApp {
     if (guild && this.viewAsRoleId) head.append(this.viewAsBar(guild.id));
     const scroll = el("div", "channel-scroll");
     if (!this.guildId) {
-      const friends = el("button", `channel-row${this.friendsOpen ? " is-selected" : ""}`);
+      const friends = el("button", `channel-row${this.friendsOpen && !this.dashboardOpen ? " is-selected" : ""}`);
       friends.type = "button";
       friends.dataset.friends = "1";
       friends.append(icon(paths.users), el("span", "row-label", "Friends"));
@@ -2915,6 +2930,9 @@ class LarkApp {
       if (pending) friends.append(el("span", "badge", String(pending)));
       else if (online) friends.append(el("span", "badge", String(online)));
       friends.addEventListener("click", () => {
+        this.dashboardOpen = false;
+        this.stopDashboardTick();
+        this.dashboardSig = "";
         this.friendsOpen = true;
         this.returnToChat();
         this.channelId = "";
@@ -2922,7 +2940,12 @@ class LarkApp {
         this.msgSig = "";
         this.paint();
       });
-      scroll.append(friends, this.clipsNavButton());
+      const activity = el("button", `channel-row${this.dashboardHome() ? " is-selected" : ""}`);
+      activity.type = "button";
+      activity.dataset.activity = "1";
+      activity.append(icon(paths.bell), el("span", "row-label", "Activity"));
+      activity.addEventListener("click", () => this.showActivity());
+      scroll.append(friends, activity, this.clipsNavButton());
       const group = el("button", "channel-row");
       group.type = "button";
       group.append(icon(paths.plus), el("span", "row-label", "New Group DM"));
@@ -3632,7 +3655,7 @@ class LarkApp {
     }
     const heading = this.clipsOpen
       ? "Clips"
-      : this.friendsOpen && !this.guildId ? "Friends" : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : this.channelHeading(channel)) : "Lark";
+      : this.friendsOpen && !this.guildId ? (this.dashboardOpen ? "Activity" : "Friends") : channel ? (channel.kind === "dm" || channel.kind === "group" ? this.maskText(channel.name) : this.channelHeading(channel)) : "Lark";
     row.append(el("h2", "", heading));
     if (this.demo) row.append(el("span", "demo-pill", "Demo"));
     if (this.streamerOn() || this.streamerSafeOn()) row.append(el("span", "demo-pill", "Streamer"));
@@ -3696,6 +3719,13 @@ class LarkApp {
       this.themeOpen = true;
       this.paintTheme();
     });
+    const feed = el("button", `text-button${this.dashboardOpen ? " is-on" : ""}`);
+    feed.type = "button";
+    feed.textContent = "Feed";
+    feed.title = "Dashboard";
+    feed.setAttribute("aria-label", "Dashboard");
+    feed.setAttribute("aria-pressed", this.dashboardOpen ? "true" : "false");
+    feed.addEventListener("click", () => this.toggleDashboard());
     const members = el("button", `icon-button${this.config.appearance.show_member_list ? " is-on" : ""}`);
     members.type = "button";
     members.setAttribute("aria-label", "Members");
@@ -3719,7 +3749,7 @@ class LarkApp {
       this.paintBookmarks();
     });
     const parityButtons = threadsNow()?.parityHeaderButtons() ?? [];
-    const headerButtons = [search, find, pin, ...parityButtons, saved, split, theme, members, bell];
+    const headerButtons = [search, find, pin, ...parityButtons, saved, feed, split, theme, members, bell];
     actions.append(...headerButtons);
     if (this.hookOn("readAll")) actions.append(this.readAllButton());
     const help = el("button", "icon-button");
@@ -4134,6 +4164,14 @@ class LarkApp {
       return;
     }
     if (this.friendsOpen && !this.guildId) {
+      if (this.dashboardOpen && !this.clipsOpen) {
+        if (this.friendTick) {
+          window.clearTimeout(this.friendTick);
+          this.friendTick = 0;
+        }
+        this.paintDashboard(this.messagesEl, false);
+        return;
+      }
       this.paintFriends();
       return;
     }
@@ -4282,7 +4320,152 @@ class LarkApp {
     return { users, roles: this.demo ? ({} as Record<string, string>) : this.liveRoles, channels: channelNames, meId: this.meId() };
   }
 
+  private dashboardHome(): boolean {
+    return this.dashboardOpen && this.friendsOpen && !this.guildId && !this.clipsOpen;
+  }
+
+  private dashboardDock(): boolean {
+    return this.dashboardOpen && !this.dashboardHome();
+  }
+
+  private watchDashboardVisibility() {
+    if (this.dashboardVis) return;
+    this.dashboardVis = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.stopDashboardTick();
+      else if (this.dashboardOpen) this.refreshDashboard();
+    });
+  }
+
+  private ensureDashboard() {
+    this.watchDashboardVisibility();
+    if (this.dashboardMod) return Promise.resolve(this.dashboardMod);
+    if (!this.dashboardLoading) {
+      this.dashboardLoading = import("./dashboard").then((mod) => {
+        this.dashboardMod = mod;
+        return mod;
+      });
+    }
+    return this.dashboardLoading;
+  }
+
+  private stopDashboardTick() {
+    if (!this.dashboardTick) return;
+    window.clearTimeout(this.dashboardTick);
+    this.dashboardTick = 0;
+  }
+
+  private refreshDashboard() {
+    if (!this.dashboardOpen) return;
+    this.dashboardSig = "";
+    if (this.dashboardHome()) this.paintMessages();
+    else this.paintMembers();
+  }
+
+  private toggleDashboard() {
+    this.dashboardOpen = !this.dashboardOpen;
+    this.dashboardSig = "";
+    this.msgSig = "";
+    this.memberShape = "";
+    if (this.dashboardOpen) this.watchDashboardVisibility();
+    else this.stopDashboardTick();
+    this.paint();
+  }
+
+  private showActivity() {
+    this.dashboardOpen = true;
+    this.friendsOpen = true;
+    this.clipsOpen = false;
+    this.channelId = "";
+    this.drawer = false;
+    this.dashboardSig = "";
+    this.msgSig = "";
+    this.memberShape = "";
+    this.watchDashboardVisibility();
+    this.paint();
+  }
+
+  private dashboardPeople(): Person[] {
+    const byId = new Map<string, Person>();
+    for (const person of this.friends) {
+      if (person.id && person.id !== this.meId()) byId.set(person.id, person);
+    }
+    for (const voice of Object.values(this.voiceRoster)) {
+      if (!voice.channelId || !voice.userId || voice.userId === this.meId() || byId.has(voice.userId)) continue;
+      const known = this.directory[voice.userId];
+      byId.set(voice.userId, known ?? {
+        id: voice.userId,
+        name: voice.name || "Someone",
+        avatarUrl: voice.avatarUrl,
+        status: "online",
+      });
+    }
+    return [...byId.values()];
+  }
+
+  private armDashboardTick(ticking: boolean) {
+    this.stopDashboardTick();
+    if (!this.dashboardOpen || !ticking || document.hidden) return;
+    this.dashboardTick = window.setTimeout(() => {
+      this.dashboardTick = 0;
+      this.refreshDashboard();
+    }, 1000);
+  }
+
+  private paintDashboard(host: HTMLElement, dock: boolean) {
+    void this.ensureDashboard().then((mod) => {
+      if (!this.dashboardOpen || !host.isConnected) return;
+      if (dock ? !this.dashboardDock() : !this.dashboardHome()) return;
+      const model = mod.dashboardFeed({
+        people: this.dashboardPeople(),
+        relationships: this.relationships,
+        voices: Object.values(this.voiceRoster).flatMap((person) => person.channelId && person.userId !== this.meId() ? [{
+          userId: person.userId,
+          guildId: person.guildId,
+          channelId: person.channelId,
+          sharing: person.sharing,
+          streamLabel: person.streamLabel,
+          name: person.name,
+          avatarUrl: person.avatarUrl,
+        }] : []),
+        meId: this.meId(),
+        now: Date.now(),
+        place: (guildId, channelId) => ({
+          guild: this.guilds().find((guild) => guild.id === guildId)?.name ?? "",
+          channel: this.channelsOf(guildId).find((channel) => channel.id === channelId)?.name ?? "",
+        }),
+      });
+      const masked = {
+        ...model,
+        rows: model.rows.map((row) => ({
+          ...row,
+          name: this.maskText(row.name),
+          text: this.maskText(row.text),
+        })),
+      };
+      const sig = `${dock ? "dock" : "home"}|${mod.dashboardSig(masked)}`;
+      if (sig === this.dashboardSig && host.querySelector(".dash-feed")) {
+        this.armDashboardTick(masked.ticking);
+        return;
+      }
+      this.dashboardSig = sig;
+      mod.renderDashboard(host, masked, {
+        onOpen: (id) => {
+          const person = this.dashboardPeople().find((item) => item.id === id) ?? this.personFromRelationship(id);
+          if (person) this.openProfile(person);
+        },
+        onWatch: (id) => this.watchFriend(id),
+        onJoin: (id) => this.joinFriendVoice(id),
+        onAccept: (id) => void this.changeRelationship(id, "friend"),
+        onIgnore: (id) => void this.changeRelationship(id, "ignore"),
+        onCancel: (id) => void this.changeRelationship(id, "remove"),
+      }, dock);
+      this.armDashboardTick(masked.ticking);
+    }).catch(() => undefined);
+  }
+
   private paintFriends() {
+    if (this.dashboardOpen && !this.guildId) return;
     this.loadRelationships();
     const noteSig = Object.entries(this.notes).map(([id, note]) => `${id}:${note}`).join(",");
     const relSig = this.relationships.map((row) => `${row.id}:${row.kind}:${row.nickname}`).join(",");
@@ -4363,7 +4546,7 @@ class LarkApp {
     if (active.some((card) => card.elapsed)) {
       this.friendTick = window.setTimeout(() => {
         this.friendTick = 0;
-        if (!this.friendsOpen) return;
+        if (!this.friendsOpen || this.dashboardOpen) return;
         this.msgSig = "";
         this.paintFriends();
       }, 1000);
@@ -4496,6 +4679,16 @@ class LarkApp {
 
   private paintMembers() {
     if (this.holdShell) return;
+    if (this.dashboardDock()) {
+      this.membersEl.hidden = false;
+      this.paintDashboard(this.membersEl, true);
+      return;
+    }
+    if (this.membersEl.querySelector(".dash-feed")) {
+      this.memberShape = "";
+      this.dashboardSig = "";
+      clear(this.membersEl);
+    }
     if (this.membersEl.hidden) {
       if (this.memberShape) {
         clear(this.membersEl);
@@ -8876,6 +9069,7 @@ class LarkApp {
       this.syncCallMembers();
       this.paintChannels();
       this.paintVoice();
+      if (this.dashboardOpen) this.refreshDashboard();
     } else if (event.kind === "voiceState" && event.userId) {
       const raw = event as VoiceStateInput;
       const state = this.hydrateVoice({ ...raw, guildId: String(raw.guildId ?? event.guildId ?? ""), userId: event.userId }, String(raw.guildId ?? ""));
@@ -8885,6 +9079,7 @@ class LarkApp {
       this.syncCallMembers();
       this.paintChannels();
       this.paintVoice();
+      if (this.dashboardOpen) this.refreshDashboard();
     } else if (event.kind === "soundboard") {
       this.onSoundEffect(event);
     } else if (event.kind === "voiceSpeaking" && event.userId) {
