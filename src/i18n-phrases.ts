@@ -225,6 +225,8 @@ export const phrases: Record<string, readonly [string, string, string, string]> 
     "Imagens, vídeos e incorporações ficam desfocados até você clicar. Um canal pode desfocar ou mostrar mesmo quando o padrão é o contrário.",
   ],
   "Import": ["Importer", "Importar", "Importieren", "Importar"],
+  "Install": ["Installer", "Instalar", "Installieren", "Instalar"],
+  "Installing…": ["Installation…", "Instalando…", "Wird installiert…", "Instalando…"],
   "In this conversation": ["Dans cette conversation", "En esta conversación", "In diesem Gespräch", "Nesta conversa"],
   "Incognito": ["Incognito", "Incógnito", "Inkognito", "Anônimo"],
   "Input profile": ["Profil d’entrée", "Perfil de entrada", "Eingabeprofil", "Perfil de entrada"],

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acceptBytes,
   APP_VERSION,
+  availableStoreItems,
   entryUrl,
   findStoreItem,
   hashMatches,
@@ -82,6 +83,18 @@ describe("store index", () => {
     expect(acceptBytes(item, bytes, "b".repeat(64))).toMatch(/hash/i);
     expect(acceptBytes(item, new Uint8Array([1, 0, 2]), hash)).toMatch(/size|text/i);
     expect(hashMatches(hash, hash.toUpperCase())).toBe(false);
+  });
+
+  it("lists store items that are not installed yet", () => {
+    const index = parseStoreIndex({
+      version: 1,
+      plugins: [plugin(), plugin({ id: "bookmarks", name: "Bookmarks", file: "plugins/bookmarks/plugin.js", download: "downloads/bookmarks.zip" })],
+      themes: [plugin({ id: "nord", name: "Nord", entry: "theme.css", file: "themes/nord/theme.css", download: "downloads/nord.zip" })],
+    });
+    expect(index).not.toBeNull();
+    if (!index) return;
+    expect(availableStoreItems(index, [{ id: "quiet-media", kind: "plugin" }], "plugin").map((item) => item.id)).toEqual(["bookmarks"]);
+    expect(availableStoreItems(index, [], "theme").map((item) => item.id)).toEqual(["nord"]);
   });
 
   it("reads only lark://install/<id>", () => {

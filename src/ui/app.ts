@@ -115,6 +115,7 @@ import { describePlugin, enabledSources, validPluginId, type PluginCatalogItem, 
 import {
   acceptBytes,
   APP_VERSION,
+  availableStoreItems,
   entryUrl,
   findStoreItem,
   hashMatches,
@@ -130,6 +131,7 @@ import {
   writeLocalStore,
   type InstalledRecord,
   type StoreIndex,
+  type StoreItem,
 } from "../store";
 import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
@@ -592,6 +594,8 @@ class LarkApp {
   private preferBuiltin = false;
   private storeListening = false;
   private storeRefreshing = false;
+  private storeIndexTried = false;
+  private storeInstalling = "";
   private loaded = new Map<string, PluginSource>();
   private pack: PackState = defaultPack();
   private translated: Record<string, string> = {};
@@ -6361,7 +6365,7 @@ class LarkApp {
 
   private panePlugins(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    const head = settingHead("Plugins and Themes", "Nothing here ships inside the app. Browse the store, then turn an item on. Lark still runs with none installed.");
+    const head = settingHead("Plugins and Themes", "Install from the store list, then turn an item on. Lark still runs with none installed.");
     const browse = el("button", "text-button", "Browse");
     browse.type = "button";
     browse.addEventListener("click", () => void this.openStorePage());
@@ -6393,8 +6397,47 @@ class LarkApp {
       themeCard.append(this.storeActions(item));
     }
     if (!themes.length) themeCard.append(el("p", "setting-help", "No themes installed. The built-in colours stay on."));
-    wrap.append(card, themeCard);
+    wrap.append(this.storeCatalogCard(), card, themeCard);
     return wrap;
+  }
+
+  private storeCatalogCard(): HTMLElement {
+    const card = settingCard("Store");
+    card.dataset.setting = "plugins.store";
+    if (!this.storeIndex) {
+      card.append(el("p", "setting-help", this.storeIndexTried ? "The store could not be reached." : "Loading the store…"));
+      return card;
+    }
+    const plugins = availableStoreItems(this.storeIndex, this.installed, "plugin");
+    const themes = availableStoreItems(this.storeIndex, this.installed, "theme");
+    if (!plugins.length && !themes.length) {
+      card.append(el("p", "setting-help", "Everything in the store is installed."));
+      return card;
+    }
+    const paint = (item: StoreItem) => {
+      const busy = this.storeInstalling === item.id;
+      const install = el("button", "text-button", busy ? "Installing…" : "Install");
+      install.type = "button";
+      install.disabled = this.storeInstalling !== "";
+      install.addEventListener("click", () => void this.installFromCatalog(item.id));
+      const needs = larkVersionOk(item.minLark, APP_VERSION) ? "" : ` · Needs Lark ${item.minLark}`;
+      card.append(settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}`, install));
+    };
+    if (plugins.length) card.append(el("h3", "", "Plugins"));
+    for (const item of plugins) paint(item);
+    if (themes.length) card.append(el("h3", "", "Themes"));
+    for (const item of themes) paint(item);
+    return card;
+  }
+
+  private async installFromCatalog(id: string) {
+    if (this.storeInstalling) return;
+    this.storeInstalling = id;
+    if (this.settings && this.section === "plugins") this.renderSettings();
+    const name = await this.installStoreItem(id);
+    this.storeInstalling = "";
+    if (name) this.toast("Store", `${name} is installed. Turn it on when you want it.`);
+    if (this.settings && this.section === "plugins") this.renderSettings();
   }
 
   private storeBlurb(item: InstalledRecord): string {
@@ -6424,13 +6467,17 @@ class LarkApp {
     if (this.storeRefreshing) return;
     this.storeRefreshing = true;
     const before = this.installed.map((item) => `${item.kind}:${item.id}:${item.version}`).join();
+    const indexBefore = this.storeIndex ? `${this.storeIndex.plugins.length}:${this.storeIndex.themes.length}` : "";
+    const triedBefore = this.storeIndexTried;
     try {
       await this.refreshStore();
     } finally {
       this.storeRefreshing = false;
+      this.storeIndexTried = true;
     }
     const after = this.installed.map((item) => `${item.kind}:${item.id}:${item.version}`).join();
-    if (before !== after && this.settings && this.section === "plugins") this.renderSettings();
+    const indexAfter = this.storeIndex ? `${this.storeIndex.plugins.length}:${this.storeIndex.themes.length}` : "";
+    if ((before !== after || indexBefore !== indexAfter || !triedBefore) && this.settings && this.section === "plugins") this.renderSettings();
   }
 
   private async openStorePage() {

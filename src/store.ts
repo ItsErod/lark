@@ -86,6 +86,16 @@ export function parseStoreIndex(data: unknown): StoreIndex | null {
   return { version: 1, plugins: plugins as StoreItem[], themes: themes as StoreItem[] };
 }
 
+export function availableStoreItems(
+  index: StoreIndex,
+  installed: readonly { id: string; kind: string }[],
+  kind: "plugin" | "theme",
+): StoreItem[] {
+  const have = new Set(installed.filter((item) => item.kind === kind).map((item) => item.id));
+  const list = kind === "plugin" ? index.plugins : index.themes;
+  return list.filter((item) => !have.has(item.id));
+}
+
 export function findStoreItem(index: StoreIndex, id: string): { kind: "plugin" | "theme"; item: StoreItem } | null {
   const plugin = index.plugins.find((item) => item.id === id);
   const theme = index.themes.find((item) => item.id === id);
