@@ -39,6 +39,9 @@ jobs:
           mkdir -p site
           cp -a docs/. site/
           node scripts/build-store.mjs --publish site
+          # One Pages artifact replaces the whole site. Keep /ui from the live
+          # site so a docs or store deploy does not wipe interface bundles.
+          node scripts/preserve-pages-ui.mjs site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
