@@ -1,0 +1,12 @@
+{
+  "id": "mono-arena",
+  "name": "Mono arena",
+  "description": "A quiet competitive lobby. Neutral black, one dusty crimson accent.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "bolt",
+  "changelog": "Store release. Restrained arena colours on Minimal Mono. Installed from the store, not bundled with the app."
+}
