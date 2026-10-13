@@ -4,6 +4,41 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.5](https://github.com/ItsErod/lark/releases/tag/v3.0.5) — 2026-10-13
+
+Right-click menus for servers and channels, Discover and the App Directory inside Lark, 720p camera video, speaker echo cancellation, and full profiles. Game Mode now tucks the side columns during a call or a game, and the interface code is split into smaller modules.
+
+### ✨ Added
+
+- Right-click menus for servers, channels, and categories: Mark As Read, Invite, Mute, Notification Settings, Copy Link, Edit Channel, Hide Muted Channels, and Server Settings. ([#210](https://github.com/ItsErod/lark/pull/210))
+- Browse, preview, and join servers from Discover without leaving Lark. ([#222](https://github.com/ItsErod/lark/pull/222))
+- Browse the App Directory and add apps to a server inside Lark. Install pages, permissions, and captchas still open in Discord. ([#226](https://github.com/ItsErod/lark/pull/226))
+- Ctrl+Shift+N opens Add Server. ([#216](https://github.com/ItsErod/lark/pull/216))
+- Search direct messages from Home, with filters. It falls back to local results if Discord search fails. ([#218](https://github.com/ItsErod/lark/pull/218))
+- Preview a store theme before installing it. Revert restores your previous look. ([#221](https://github.com/ItsErod/lark/pull/221))
+- Open a full profile with About, mutual servers and friends, activity, and connections. ([#224](https://github.com/ItsErod/lark/pull/224))
+- Group DM rows show when someone is in a call. ([#217](https://github.com/ItsErod/lark/pull/217))
+- Pick an emoji for your custom status from the emoji grid. ([#219](https://github.com/ItsErod/lark/pull/219))
+
+### 🔧 Changed
+
+- Camera video sends at up to 720p and 30 fps by default, with a hardware encoder when one is available. It lowers quality when the connection gets worse. ([#220](https://github.com/ItsErod/lark/pull/220), [#223](https://github.com/ItsErod/lark/pull/223))
+- Speaker echo cancellation uses WebRTC AEC3, so the call no longer leaks back through your microphone on speakers. ([#225](https://github.com/ItsErod/lark/pull/225))
+- Game Mode hides the member list and narrows the server and channel lists during a call or a detected game, so chat stays on screen. It never hooks into the game. ([#211](https://github.com/ItsErod/lark/pull/211))
+- Voice and video call buttons stay in the header of DMs and group chats, and starting a call keeps the conversation on screen. ([#212](https://github.com/ItsErod/lark/pull/212))
+- The interface code is split from one large file into modules by area. Nothing changes in the app. ([#227](https://github.com/ItsErod/lark/pull/227)–[#237](https://github.com/ItsErod/lark/pull/237), [#244](https://github.com/ItsErod/lark/pull/244)–[#252](https://github.com/ItsErod/lark/pull/252))
+- The website and progress page show the current release and download the right installers. ([#209](https://github.com/ItsErod/lark/pull/209), [#214](https://github.com/ItsErod/lark/pull/214), [#215](https://github.com/ItsErod/lark/pull/215))
+- Discord parity gaps refreshed against the current build. ([#208](https://github.com/ItsErod/lark/pull/208))
+
+### 🐛 Fixed
+
+- Group DMs show a member count only when Discord sent the members, a 1:1 DM shows when that person is in voice elsewhere, and closing a DM no longer opens it. ([#213](https://github.com/ItsErod/lark/pull/213))
+- The friends Pending badge matches the Minimal Mono style. ([#213](https://github.com/ItsErod/lark/pull/213))
+
+### 🗑️ Removed
+
+- Nothing was removed in this release.
+
 ## [3.0.4](https://github.com/ItsErod/lark/releases/tag/v3.0.4) — 2026-10-13
 
 Notifications can wait until quiet hours end, clips can be shared and trimmed, and search works on messages already on this device. Incoming calls ring, the first channel paints sooner, and a local stats page stays on this computer.
