@@ -4,6 +4,37 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.3](https://github.com/ItsErod/lark/releases/tag/v3.0.3) — 2026-10-13
+
+Two-way voice works, with real profile pictures and the new Focus call layout. Lark adds the Feed dashboard, a soundboard, per-user volume, a replay clip recorder, and an in-app store.
+
+### ✨ Added
+
+- Focus voice layout: a short stage above chat with the screen share or active speaker and the call controls, folding into the sidebar while you read. ([#169](https://github.com/ItsErod/lark/pull/169))
+- Feed dashboard: one activity list of streams, games, music, voice joins, and friend requests with Watch, Join, and Accept buttons, on Home or beside chat. ([#170](https://github.com/ItsErod/lark/pull/170))
+- Guild soundboard you can play and hear in voice. ([#164](https://github.com/ItsErod/lark/pull/164))
+- Echo cancellation toggle beside noise suppression. ([#167](https://github.com/ItsErod/lark/pull/167))
+- Per-user volume and Mute for you in the voice participant menu. ([#172](https://github.com/ItsErod/lark/pull/172))
+- Replay clip recorder: Ctrl+Shift+C saves the last 15 seconds to 2 minutes with hardware encoding, separate game and mic audio, and game-named files. ([#175](https://github.com/ItsErod/lark/pull/175))
+- Check for updates button in Settings. ([#153](https://github.com/ItsErod/lark/pull/153))
+- Signed interface bundles with Stable and Canary channels and automatic rollback if a bundle does not boot. ([#154](https://github.com/ItsErod/lark/pull/154), [#159](https://github.com/ItsErod/lark/pull/159), [#168](https://github.com/ItsErod/lark/pull/168))
+- In-app store in Settings to install, update, and uninstall plugins and themes. New plugins start off. ([#171](https://github.com/ItsErod/lark/pull/171))
+- Game desk plugins: session clock, squad and build cards, and catalogs for Overwatch 2, Deadlock, Call of Duty, and GTA V. None touch the game process. ([#162](https://github.com/ItsErod/lark/pull/162), [#165](https://github.com/ItsErod/lark/pull/165), [#174](https://github.com/ItsErod/lark/pull/174))
+
+### 🔧 Changed
+
+- The update banner reads Restart to finish the update, and an update waits until a voice call ends. ([#153](https://github.com/ItsErod/lark/pull/153))
+- Website, progress page, and store restyled in Minimal Mono. Finished 3.0 work folds into version history. ([#160](https://github.com/ItsErod/lark/pull/160), [#166](https://github.com/ItsErod/lark/pull/166))
+- Voice join is logged step by step and shows a timeout instead of stalling. ([#176](https://github.com/ItsErod/lark/pull/176))
+
+### 🐛 Fixed
+
+- Inbound voice decrypts Discord RTP header extensions, so other people are audible, and packet loss is counted correctly. ([#156](https://github.com/ItsErod/lark/pull/156), [#177](https://github.com/ItsErod/lark/pull/177))
+- Outbound voice sends once DAVE is ready and the mic clears the activity gate. ([#163](https://github.com/ItsErod/lark/pull/163), [#177](https://github.com/ItsErod/lark/pull/177))
+- Voice participants show their Discord avatars instead of letters in the sidebar and on call tiles. ([#155](https://github.com/ItsErod/lark/pull/155))
+- Recorded clips play in the embedded player, and new clips are saved in a format that plays everywhere. ([#173](https://github.com/ItsErod/lark/pull/173))
+- Restored the input gain test and updated progress page tests. ([#157](https://github.com/ItsErod/lark/pull/157), [#158](https://github.com/ItsErod/lark/pull/158), [#161](https://github.com/ItsErod/lark/pull/161))
+
 ## [3.0.2](https://github.com/ItsErod/lark/releases/tag/v3.0.2) — 2026-10-12
 
 Lark gets the Minimal Mono redesign, a faster start, a network traffic viewer, and Discord sync for mutes, favorites, bookmarks, and language. This is the first release delivered through the auto-updater.
