@@ -12,19 +12,25 @@ struct Hotkeys {
     voice: Option<Shortcut>,
     perf: Option<Shortcut>,
     game: Option<Shortcut>,
+    mute: Option<Shortcut>,
+    deafen: Option<Shortcut>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OverlayHotkey {
     Voice,
     Perf,
     Game,
+    Mute,
+    Deafen,
 }
 
 static HOTKEYS: Mutex<Hotkeys> = Mutex::new(Hotkeys {
     voice: None,
     perf: None,
     game: None,
+    mute: None,
+    deafen: None,
 });
 static FRAME: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
@@ -51,37 +57,53 @@ pub fn hotkey_kind(shortcut: &Shortcut) -> Option<OverlayHotkey> {
     let Ok(slot) = HOTKEYS.lock() else {
         return None;
     };
-    if slot.voice.as_ref() == Some(shortcut) {
+    classify_hotkey(&slot, shortcut)
+}
+
+/// Voice, performance, and Game Mode win when they share a chord with mute or deafen.
+fn classify_hotkey(keys: &Hotkeys, shortcut: &Shortcut) -> Option<OverlayHotkey> {
+    if keys.voice.as_ref() == Some(shortcut) {
         Some(OverlayHotkey::Voice)
-    } else if slot.perf.as_ref() == Some(shortcut) {
+    } else if keys.perf.as_ref() == Some(shortcut) {
         Some(OverlayHotkey::Perf)
-    } else if slot.game.as_ref() == Some(shortcut) {
+    } else if keys.game.as_ref() == Some(shortcut) {
         Some(OverlayHotkey::Game)
+    } else if keys.mute.as_ref() == Some(shortcut) {
+        Some(OverlayHotkey::Mute)
+    } else if keys.deafen.as_ref() == Some(shortcut) {
+        Some(OverlayHotkey::Deafen)
     } else {
         None
     }
 }
 
-/// Register the voice HUD, performance overlay, and Game Mode hotkeys on the one shortcut handler.
-pub fn sync_hotkeys(app: &AppHandle, voice: &str, perf: &str, game: &str) {
+/// Register HUD, Game Mode, mute, and deafen on the one shortcut handler.
+/// Mute and deafen are last so an existing overlay chord keeps its job.
+pub fn sync_hotkeys(app: &AppHandle, voice: &str, perf: &str, game: &str, mute: &str, deafen: &str) {
     let next = Hotkeys {
         voice: parse_global(voice),
         perf: parse_global(perf),
         game: parse_global(game),
+        mute: parse_global(mute),
+        deafen: parse_global(deafen),
     };
     let mut slot = HOTKEYS.lock().unwrap_or_else(|err| err.into_inner());
     let prev = *slot;
-    for old in [prev.voice, prev.perf, prev.game].into_iter().flatten() {
-        if !hotkeys_contain(next, old) {
+    let mut dropped = Vec::new();
+    for old in chords(prev).into_iter().flatten() {
+        if !hotkeys_contain(next, old) && !dropped.contains(&old) {
+            dropped.push(old);
             if let Err(err) = app.global_shortcut().unregister(old) {
                 log::warn!("overlay shortcut unregister: {err}");
             }
         }
     }
-    for shortcut in [next.voice, next.perf, next.game].into_iter().flatten() {
-        if hotkeys_contain(prev, shortcut) {
+    let mut added = Vec::new();
+    for shortcut in chords(next).into_iter().flatten() {
+        if hotkeys_contain(prev, shortcut) || added.contains(&shortcut) {
             continue;
         }
+        added.push(shortcut);
         if let Err(err) = app.global_shortcut().register(shortcut) {
             log::warn!("overlay shortcut register: {err}");
         }
@@ -94,8 +116,42 @@ fn parse_global(shortcut: &str) -> Option<Shortcut> {
     accel.parse::<Shortcut>().ok()
 }
 
+fn chords(keys: Hotkeys) -> [Option<Shortcut>; 5] {
+    [keys.voice, keys.perf, keys.game, keys.mute, keys.deafen]
+}
+
 fn hotkeys_contain(keys: Hotkeys, shortcut: Shortcut) -> bool {
-    keys.voice == Some(shortcut) || keys.perf == Some(shortcut) || keys.game == Some(shortcut)
+    chords(keys).into_iter().flatten().any(|slot| slot == shortcut)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed(raw: &str) -> Shortcut {
+        parse_global(raw).unwrap_or_else(|| panic!("shortcut {raw}"))
+    }
+
+    #[test]
+    fn overlay_chords_win_and_mute_still_matches() {
+        let voice = parsed("mod+shift+o");
+        let keys = Hotkeys {
+            voice: Some(voice),
+            perf: Some(parsed("mod+shift+p")),
+            game: None,
+            mute: Some(voice),
+            deafen: Some(parsed("mod+shift+d")),
+        };
+        assert_eq!(classify_hotkey(&keys, &voice), Some(OverlayHotkey::Voice));
+        assert_eq!(
+            classify_hotkey(&keys, &parsed("mod+shift+d")),
+            Some(OverlayHotkey::Deafen)
+        );
+        assert_eq!(
+            classify_hotkey(&keys, &parsed("mod+shift+alt+m")),
+            None
+        );
+    }
 }
 
 #[tauri::command]
