@@ -413,6 +413,10 @@ pub fn run() {
             remove_connection,
             open_discord_link,
             search_filtered,
+            discover_categories,
+            discover_guilds,
+            discover_preview,
+            join_discoverable,
             search_gifs,
             fetch_stickers,
             reaction_users,
@@ -2687,6 +2691,56 @@ async fn search_filtered(
     rest(&state)
         .await?
         .search_filtered(guild_id.as_deref(), channel_id.as_deref(), &query)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn discover_categories(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::DiscoverCategory>, String> {
+    rest(&state)
+        .await?
+        .discover_categories()
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn discover_guilds(
+    state: State<'_, Shared>,
+    query: String,
+    category_id: Option<i64>,
+    offset: u32,
+) -> Result<lark_core::discord::DiscoverPage, String> {
+    rest(&state)
+        .await?
+        .discover_guilds(&query, category_id, offset)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn discover_preview(
+    state: State<'_, Shared>,
+    guild_id: String,
+) -> Result<lark_core::discord::DiscoverGuild, String> {
+    rest(&state)
+        .await?
+        .discover_preview(&guild_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn join_discoverable(
+    state: State<'_, Shared>,
+    guild_id: String,
+    vanity: String,
+) -> Result<lark_core::discord::DiscoverJoin, String> {
+    rest(&state)
+        .await?
+        .join_discoverable(&guild_id, &vanity)
         .await
         .map_err(|err| err.to_string())
 }

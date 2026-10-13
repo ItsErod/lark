@@ -15,6 +15,10 @@ use crate::ratelimit::{
 };
 use crate::redact::redact;
 
+use super::discover::{
+    self, parse_categories, parse_guild, parse_page, DiscoverCategory, DiscoverGuild, DiscoverJoin,
+    DiscoverPage, JoinOutcome,
+};
 use super::guild_admin::{build_admin_call, GuildAdminRequest};
 use super::shell::{
     encode_guild_folders, invite_code_ok, invite_from_json, ClientFolder, ClientInvite,
@@ -2628,6 +2632,69 @@ impl DiscordRest {
             .send_json(Method::GET, &route, major, &path, None)
             .await?;
         Ok(messages_from_search(&value))
+    }
+
+    pub async fn discover_categories(&self) -> Result<Vec<DiscoverCategory>, RestError> {
+        let path = discover::categories_path();
+        let route = route_key("GET", "/discovery/categories", "discovery");
+        let value = self
+            .send_json(Method::GET, &route, "discovery", path, None)
+            .await?;
+        Ok(parse_categories(&value))
+    }
+
+    pub async fn discover_guilds(
+        &self,
+        query: &str,
+        category_id: Option<i64>,
+        offset: u32,
+    ) -> Result<DiscoverPage, RestError> {
+        let path = discover::guilds_path(query, category_id, offset).map_err(RestError::Message)?;
+        let browsing = query.trim().is_empty();
+        let template = if browsing {
+            "/discoverable-guilds"
+        } else {
+            "/discoverable-guilds/search"
+        };
+        let route = route_key("GET", template, "discovery");
+        let value = self
+            .send_json(Method::GET, &route, "discovery", &path, None)
+            .await?;
+        Ok(parse_page(&value, offset.min(2_999)))
+    }
+
+    pub async fn discover_preview(&self, guild_id: &str) -> Result<DiscoverGuild, RestError> {
+        let path = discover::preview_path(guild_id).map_err(RestError::Message)?;
+        let route = route_key("GET", "/guilds/{guild.id}/preview", guild_id);
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
+        parse_guild(&value).ok_or_else(|| RestError::Message("Could not read that server.".into()))
+    }
+
+    pub async fn join_discoverable(
+        &self,
+        guild_id: &str,
+        vanity: &str,
+    ) -> Result<DiscoverJoin, RestError> {
+        let path = discover::join_path(guild_id).map_err(RestError::Message)?;
+        let route = route_key("PUT", "/guilds/{guild.id}/members/@me", guild_id);
+        let response = self
+            .send(Method::PUT, &route, &path, Some(discover::join_body()), &[])
+            .await?;
+        let status = response.status().as_u16();
+        let text = response.text().await.unwrap_or_default();
+        let text = redact(&text, &[&self.token]);
+        Ok(match discover::interpret_join(status, &text, vanity) {
+            JoinOutcome::Joined => DiscoverJoin::Joined {
+                guild_id: guild_id.trim().to_string(),
+            },
+            JoinOutcome::Captcha { url } => DiscoverJoin::Captcha {
+                url,
+                reason: discover::CAPTCHA_REASON.to_string(),
+            },
+            JoinOutcome::Failed { message } => DiscoverJoin::Failed { message },
+        })
     }
 
     pub async fn send_composed(

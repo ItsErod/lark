@@ -1,4 +1,5 @@
 pub mod browser_handoff;
+pub mod discover;
 pub mod gateway;
 pub mod guild_admin;
 pub mod noise;
@@ -17,6 +18,7 @@ pub mod voice_link;
 pub mod voice_log;
 pub mod voice_media;
 
+pub use discover::{DiscoverCategory, DiscoverGuild, DiscoverJoin, DiscoverPage};
 pub use gateway::{
     gateway_command_payload, intents_without_message_content, run_gateway, ClientEvent,
     GatewayCommand, CLIENT_INTENTS,
