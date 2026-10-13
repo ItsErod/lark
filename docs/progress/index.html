@@ -436,7 +436,18 @@
           <p id="now-lead" class="now-copy">Loading public pull requests…</p>
           <p id="now-eta" class="eta" hidden>ETA —</p>
         </div>
-        <div id="downloads" class="downloads"></div>
+        <div id="downloads" class="downloads">
+          <a class="dl" href="https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_x64-setup.exe">
+            <span class="dl-kicker">Windows</span>
+            <span class="dl-title">Download EXE</span>
+            <span class="dl-file">Lark_3.0.3_x64-setup.exe</span>
+          </a>
+          <a class="dl mac" href="https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_universal.dmg">
+            <span class="dl-kicker">macOS</span>
+            <span class="dl-title">Download DMG</span>
+            <span class="dl-file">Lark_3.0.3_universal.dmg</span>
+          </a>
+        </div>
       </div>
       <div id="now-list" class="streams"></div>
     </section>
@@ -455,24 +466,19 @@
       <div class="section-head">
         <div>
           <h2 id="roadmap-title">Roadmap</h2>
-          <p>3.0.2, then a dashboard, then stats.</p>
+          <p id="roadmap-lead">v3.0.3 is the current download. Dashboard view, local stats, quiet hours, offline search, and clip sharing are on main and are not in that installer.</p>
         </div>
       </div>
       <ol class="roadmap">
-        <li id="roadmap-302-row">
-          <span class="roadmap-ver">3.0.2</span>
-          <span class="roadmap-name">Minimal Mono, speed, network viewer, sync</span>
-          <span class="roadmap-state" id="roadmap-302">Publishing</span>
+        <li id="roadmap-current-row" class="is-shipped">
+          <span class="roadmap-ver" id="roadmap-current-ver">3.0.3</span>
+          <span class="roadmap-name" id="roadmap-current-name">Two-way voice, Focus layout, Feed, clips, store</span>
+          <span class="roadmap-state" id="roadmap-current-state">Shipped</span>
         </li>
-        <li>
-          <span class="roadmap-ver">3.1</span>
-          <span class="roadmap-name">Dashboard view</span>
-          <span class="roadmap-state">Next</span>
-        </li>
-        <li>
-          <span class="roadmap-ver">3.1.1</span>
-          <span class="roadmap-name">Stats</span>
-          <span class="roadmap-state">After</span>
+        <li id="roadmap-main-row">
+          <span class="roadmap-ver">On main</span>
+          <span class="roadmap-name">Dashboard view, local stats, quiet hours, offline search, clip sharing</span>
+          <span class="roadmap-state" id="roadmap-main-state">Not published</span>
         </li>
       </ol>
     </section>
@@ -625,8 +631,8 @@
     let workStatus = { streams: {}, tracks: {} };
     const SEEN_KEY = "lark30-progress-seen-v1";
     const LIMIT_KEY = "lark30-progress-limit-v1";
-    const EXE_NAME = "Lark_3.0.0_x64-setup.exe";
-    const DMG_NAME = "Lark_3.0.0_universal.dmg";
+    const EXE_NAME = "Lark_3.0.3_x64-setup.exe";
+    const DMG_NAME = "Lark_3.0.3_universal.dmg";
     const STATUS_LABEL = { coding: "Coding", review: "In review", merged: "Merged", done: "Done" };
 
     function mentionsPlugin(title, name) {
@@ -1478,7 +1484,7 @@
     function downloadUrl(release, name) {
       const assets = release && Array.isArray(release.assets) ? release.assets : [];
       const match = assets.find((asset) => asset.name === name);
-      const tag = release && release.tag_name ? String(release.tag_name) : "v3.0.2";
+      const tag = release && release.tag_name ? String(release.tag_name) : "v3.0.3";
       const fallback = "https://github.com/ItsErod/lark/releases/download/" + encodeURIComponent(tag) + "/" + encodeURIComponent(name);
       if (match && match.browser_download_url) {
         return safeGithubUrl(match.browser_download_url, fallback);
@@ -2514,7 +2520,8 @@
         if (lead) {
           const openCount = root.querySelectorAll(".card").length - active.length;
           if (!active.length && openCount <= 0) {
-            lead.textContent = "No agents are in progress. Finished 3.0 work is one line in the version history.";
+            const tag = current && current.release && current.release.tag_name ? current.release.tag_name : "v3.0.3";
+            lead.textContent = "No agents are in progress. " + tag + " is the current download. Finished 3.0 work is in the version history.";
           } else if (!active.length) {
             lead.textContent = openCount === 1 ? "1 open pull request." : openCount + " open pull requests.";
           } else {
@@ -3074,6 +3081,10 @@
         const tag = release && release.tag_name ? String(release.tag_name) : "";
         const exe = pickAsset(release, /x64-setup\.exe$/i);
         const dmg = pickAsset(release, /universal\.dmg$/i);
+        if (!exe && !dmg) {
+          if (!tag && root.querySelector("a.dl")) return;
+          if (!tag) return;
+        }
         const signature = [tag, exe && exe.name, dmg && dmg.name].join("|");
         if (root.dataset.signature === signature && root.childElementCount) return;
         root.dataset.signature = signature;
@@ -3081,7 +3092,7 @@
         if (!exe && !dmg) {
           const note = document.createElement("p");
           note.className = "empty-note";
-          note.textContent = tag ? "Installers for " + tag + " are not listed yet." : "Checking the latest release…";
+          note.textContent = "Installers for " + tag + " are not listed yet.";
           root.append(note);
           return;
         }
@@ -3090,19 +3101,34 @@
       }
 
       function paintRoadmap(release) {
-        const node = document.getElementById("roadmap-302");
-        const row = document.getElementById("roadmap-302-row");
-        if (!node) return;
-        const parsed = parseTag(release && release.tag_name);
-        const shipped = !!(parsed && (parsed.major > 3 || (parsed.major === 3 && (parsed.minor > 0 || parsed.patch >= 2))));
-        if (!shipped) {
-          node.textContent = "Publishing";
+        const ver = document.getElementById("roadmap-current-ver");
+        const state = document.getElementById("roadmap-current-state");
+        const row = document.getElementById("roadmap-current-row");
+        const name = document.getElementById("roadmap-current-name");
+        const lead = document.getElementById("roadmap-lead");
+        const onMain = document.getElementById("roadmap-main-state");
+        if (!ver || !state) return;
+        const tag = release && release.tag_name ? String(release.tag_name) : "";
+        if (!tag) return;
+        const parsed = parseTag(tag);
+        const published = Date.parse(release && release.published_at || "");
+        if (!parsed || parsed.major < 3) {
+          state.textContent = "Publishing";
           if (row) row.classList.remove("is-shipped");
           return;
         }
-        const published = Date.parse(release && release.published_at || "");
-        node.textContent = Number.isFinite(published) ? "Shipped " + formatStamp(published) : "Shipped";
+        ver.textContent = tag.replace(/^v/i, "");
+        state.textContent = Number.isFinite(published) ? "Shipped " + formatStamp(published) : "Shipped";
         if (row) row.classList.add("is-shipped");
+        if (tag.toLowerCase() === "v3.0.3") {
+          if (name) name.textContent = "Two-way voice, Focus layout, Feed, clips, store";
+          if (lead) lead.textContent = "v3.0.3 is the current download. Dashboard view, local stats, quiet hours, offline search, and clip sharing are on main and are not in that installer.";
+          if (onMain) onMain.textContent = "Not published";
+          return;
+        }
+        if (name) name.textContent = "Published release. Notes are in the version history.";
+        if (lead) lead.textContent = tag + " is the current download. Open the version history for its notes.";
+        if (onMain) onMain.textContent = "Check the release notes";
       }
 
       function downloadLink(kicker, title, file, href, mac) {

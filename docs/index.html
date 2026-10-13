@@ -33,9 +33,7 @@
     :focus { outline: none; }
     :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
     .wrap { width: min(760px, calc(100% - 32px)); margin: 0 auto; }
-    header {
-      border-bottom: 1px solid var(--line);
-    }
+    header { border-bottom: 1px solid var(--line); }
     .bar {
       min-height: 56px;
       display: flex;
@@ -50,6 +48,7 @@
     nav a:hover { color: var(--text); }
     main { padding: 48px 0 64px; }
     h1 { margin: 0; font-size: clamp(40px, 8vw, 64px); letter-spacing: -0.045em; line-height: 0.95; font-weight: 600; }
+    h2 { margin: 40px 0 0; font-size: 22px; letter-spacing: -0.03em; font-weight: 600; }
     .lede { max-width: 46ch; color: var(--secondary); font-size: 17px; margin: 16px 0 0; }
     .downloads { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
     .dl {
@@ -68,6 +67,23 @@
     .dl strong { font-size: 15px; }
     .dl code { font-family: var(--mono); font-size: 12px; }
     .note { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+    .history-lead { margin: 8px 0 0; color: var(--muted); max-width: 62ch; }
+    .history { margin: 8px 0 0; }
+    .history details { border-top: 1px solid var(--line); padding: 12px 0; }
+    .history summary { cursor: pointer; font-weight: 650; }
+    .history summary span { color: var(--muted); font-weight: 500; }
+    .history p { margin: 12px 0 0; color: var(--secondary); }
+    .history h3 {
+      margin: 16px 0 6px;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .history ul { margin: 0; padding-left: 18px; color: var(--secondary); }
+    .history li { margin: 6px 0; }
+    .history a { color: var(--text); }
     footer { border-top: 1px solid var(--line); padding: 24px 0; color: var(--muted); }
     footer p { margin: 0; max-width: 68ch; }
   </style>
@@ -90,18 +106,182 @@
     <h1>Lark</h1>
     <p class="lede">An unofficial desktop client for one Discord account. Plugins and themes stay in the store, out of the download.</p>
     <div class="downloads" id="downloads">
-      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/latest">
+      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_x64-setup.exe">
         <span>Windows</span>
         <strong>Download EXE</strong>
-        <code>Latest setup</code>
+        <code>Lark_3.0.3_x64-setup.exe</code>
       </a>
-      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/latest">
+      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_universal.dmg">
         <span>macOS</span>
         <strong>Download DMG</strong>
-        <code>Latest disk image</code>
+        <code>Lark_3.0.3_universal.dmg</code>
       </a>
     </div>
-    <p class="note" id="release-note">Checking the latest release…</p>
+    <p class="note" id="release-note">Current release v3.0.3</p>
+
+    <h2>Version history</h2>
+    <p class="history-lead">Notes below are the published GitHub release text. Earlier releases are on the <a href="progress/#history">progress page</a>.</p>
+    <div class="history" id="history">
+      <details open data-tag="v3.0.3">
+        <summary>v3.0.3 <span>Oct 13, 2026</span></summary>
+        <p>Two-way voice works, with real profile pictures and the new Focus call layout. Lark adds the Feed dashboard, a soundboard, per-user volume, a replay clip recorder, and an in-app store.</p>
+        <h3>Added</h3>
+        <ul>
+          <li>Focus voice layout: a short stage above chat with the screen share or active speaker and the call controls, folding into the sidebar while you read. (<a href="https://github.com/ItsErod/lark/pull/169">#169</a>)</li>
+          <li>Feed dashboard: one activity list of streams, games, music, voice joins, and friend requests with Watch, Join, and Accept buttons, on Home or beside chat. (<a href="https://github.com/ItsErod/lark/pull/170">#170</a>)</li>
+          <li>Guild soundboard you can play and hear in voice. (<a href="https://github.com/ItsErod/lark/pull/164">#164</a>)</li>
+          <li>Echo cancellation toggle beside noise suppression. (<a href="https://github.com/ItsErod/lark/pull/167">#167</a>)</li>
+          <li>Per-user volume and Mute for you in the voice participant menu. (<a href="https://github.com/ItsErod/lark/pull/172">#172</a>)</li>
+          <li>Replay clip recorder: Ctrl+Shift+C saves the last 15 seconds to 2 minutes with hardware encoding, separate game and mic audio, and game-named files. (<a href="https://github.com/ItsErod/lark/pull/175">#175</a>)</li>
+          <li>Check for updates button in Settings. (<a href="https://github.com/ItsErod/lark/pull/153">#153</a>)</li>
+          <li>Signed interface bundles with Stable and Canary channels and automatic rollback if a bundle does not boot. (<a href="https://github.com/ItsErod/lark/pull/154">#154</a>, <a href="https://github.com/ItsErod/lark/pull/159">#159</a>, <a href="https://github.com/ItsErod/lark/pull/168">#168</a>)</li>
+          <li>In-app store in Settings to install, update, and uninstall plugins and themes. New plugins start off. (<a href="https://github.com/ItsErod/lark/pull/171">#171</a>)</li>
+          <li>Game desk plugins: session clock, squad and build cards, and catalogs for Overwatch 2, Deadlock, Call of Duty, and GTA V. None touch the game process. (<a href="https://github.com/ItsErod/lark/pull/162">#162</a>, <a href="https://github.com/ItsErod/lark/pull/165">#165</a>, <a href="https://github.com/ItsErod/lark/pull/174">#174</a>)</li>
+        </ul>
+        <h3>Changed</h3>
+        <ul>
+          <li>The update banner reads Restart to finish the update, and an update waits until a voice call ends. (<a href="https://github.com/ItsErod/lark/pull/153">#153</a>)</li>
+          <li>Website, progress page, and store restyled in Minimal Mono. Finished 3.0 work folds into version history. (<a href="https://github.com/ItsErod/lark/pull/160">#160</a>, <a href="https://github.com/ItsErod/lark/pull/166">#166</a>)</li>
+          <li>Voice join is logged step by step and shows a timeout instead of stalling. (<a href="https://github.com/ItsErod/lark/pull/176">#176</a>)</li>
+        </ul>
+        <h3>Fixed</h3>
+        <ul>
+          <li>Inbound voice decrypts Discord RTP header extensions, so other people are audible, and packet loss is counted correctly. (<a href="https://github.com/ItsErod/lark/pull/156">#156</a>, <a href="https://github.com/ItsErod/lark/pull/177">#177</a>)</li>
+          <li>Outbound voice sends once DAVE is ready and the mic clears the activity gate. (<a href="https://github.com/ItsErod/lark/pull/163">#163</a>, <a href="https://github.com/ItsErod/lark/pull/177">#177</a>)</li>
+          <li>Voice participants show their Discord avatars instead of letters in the sidebar and on call tiles. (<a href="https://github.com/ItsErod/lark/pull/155">#155</a>)</li>
+          <li>Recorded clips play in the embedded player, and new clips are saved in a format that plays everywhere. (<a href="https://github.com/ItsErod/lark/pull/173">#173</a>)</li>
+          <li>Restored the input gain test and updated progress page tests. (<a href="https://github.com/ItsErod/lark/pull/157">#157</a>, <a href="https://github.com/ItsErod/lark/pull/158">#158</a>, <a href="https://github.com/ItsErod/lark/pull/161">#161</a>)</li>
+        </ul>
+      </details>
+      <details data-tag="v3.0.2">
+        <summary>v3.0.2 <span>Oct 12, 2026</span></summary>
+        <p>Hide the Windows console for Lark and its child processes, shift design tokens to Minimal Mono, and restyle the composer for Minimal Mono, plus 5 more.</p>
+        <h3>Changed</h3>
+        <ul>
+          <li>Hide the Windows console for Lark and its child processes. (<a href="https://github.com/ItsErod/lark/pull/142">#142</a>)</li>
+          <li>Shift design tokens to Minimal Mono. (<a href="https://github.com/ItsErod/lark/pull/143">#143</a>)</li>
+          <li>Restyle the composer for Minimal Mono. (<a href="https://github.com/ItsErod/lark/pull/144">#144</a>)</li>
+          <li>Restyle messages for Minimal Mono. (<a href="https://github.com/ItsErod/lark/pull/145">#145</a>)</li>
+          <li>Restyle profile and the user area for Minimal Mono. (<a href="https://github.com/ItsErod/lark/pull/146">#146</a>)</li>
+          <li>Restyle voice UI for Minimal Mono. (<a href="https://github.com/ItsErod/lark/pull/147">#147</a>)</li>
+          <li>Square the server rail and flatten chrome. (<a href="https://github.com/ItsErod/lark/pull/148">#148</a>)</li>
+        </ul>
+        <h3>Fixed</h3>
+        <ul>
+          <li>Fix 3.0.2 release tests. (<a href="https://github.com/ItsErod/lark/pull/151">#151</a>)</li>
+        </ul>
+      </details>
+      <details data-tag="v3.0.1">
+        <summary>v3.0.1 <span>Oct 12, 2026</span></summary>
+        <p>Add YouTube picture-in-picture and quick clip share plugins, refresh the Lark 3.0 progress page every minute, and add game activity and now playing status plugins, plus 40 more.</p>
+        <h3>Added</h3>
+        <ul>
+          <li>Add YouTube picture-in-picture and quick clip share plugins. (<a href="https://github.com/ItsErod/lark/pull/99">#99</a>)</li>
+          <li>Add game activity and now playing status plugins. (<a href="https://github.com/ItsErod/lark/pull/101">#101</a>)</li>
+          <li>Add an ETA to each plugin track. (<a href="https://github.com/ItsErod/lark/pull/102">#102</a>)</li>
+          <li>Add local read receipts, a mention digest, and a word counter. (<a href="https://github.com/ItsErod/lark/pull/106">#106</a>)</li>
+          <li>Add reply chain, connection lookup, and local nicknames. (<a href="https://github.com/ItsErod/lark/pull/108">#108</a>)</li>
+          <li>Add server folder stats and better folders. (<a href="https://github.com/ItsErod/lark/pull/109">#109</a>)</li>
+          <li>Add an opt-in away auto-reply and theme attributes. (<a href="https://github.com/ItsErod/lark/pull/110">#110</a>)</li>
+          <li>Add a Plugin &amp; Theme Store button on the progress page. (<a href="https://github.com/ItsErod/lark/pull/111">#111</a>)</li>
+          <li>Add a signed Tauri auto-updater for macOS and Windows. (<a href="https://github.com/ItsErod/lark/pull/107">#107</a>)</li>
+          <li>Add a performance harness and record the baseline. (<a href="https://github.com/ItsErod/lark/pull/118">#118</a>)</li>
+          <li>Add signed interface hot updates on GitHub Pages. (<a href="https://github.com/ItsErod/lark/pull/122">#122</a>)</li>
+          <li>Add a higher-quality noise suppressor and FIR echo filter. (<a href="https://github.com/ItsErod/lark/pull/124">#124</a>)</li>
+          <li>Add Message Requests and a spam inbox for non-friend DMs. (<a href="https://github.com/ItsErod/lark/pull/125">#125</a>)</li>
+          <li>Add a shared design token scale for colour, type, and motion. (<a href="https://github.com/ItsErod/lark/pull/128">#128</a>)</li>
+          <li>Add a Developer Mode network panel for REST, gateway, and voice traffic. (<a href="https://github.com/ItsErod/lark/pull/138">#138</a>)</li>
+        </ul>
+        <h3>Changed</h3>
+        <ul>
+          <li>Refresh the Lark 3.0 progress page every minute. (<a href="https://github.com/ItsErod/lark/pull/81">#81</a>)</li>
+          <li>Move plugins and themes into the store registry. (<a href="https://github.com/ItsErod/lark/pull/97">#97</a>)</li>
+          <li>Show release notes in the version history. (<a href="https://github.com/ItsErod/lark/pull/103">#103</a>)</li>
+          <li>Install store plugins and themes into the app data directory. (<a href="https://github.com/ItsErod/lark/pull/104">#104</a>)</li>
+          <li>Publish the plugin and theme store on GitHub Pages. (<a href="https://github.com/ItsErod/lark/pull/105">#105</a>)</li>
+          <li>Show what each agent is doing on the progress page. (<a href="https://github.com/ItsErod/lark/pull/112">#112</a>)</li>
+          <li>Render polls inside the message list. (<a href="https://github.com/ItsErod/lark/pull/113">#113</a>)</li>
+          <li>Open the Apps catalog from the composer. (<a href="https://github.com/ItsErod/lark/pull/115">#115</a>)</li>
+          <li>Decode remote camera video into call tiles. (<a href="https://github.com/ItsErod/lark/pull/114">#114</a>)</li>
+          <li>Sync mute and notification levels with Discord. (<a href="https://github.com/ItsErod/lark/pull/116">#116</a>)</li>
+          <li>Mark finished 3.0 streams done from a status file. (<a href="https://github.com/ItsErod/lark/pull/117">#117</a>)</li>
+          <li>Allow ten attachments on forum posts. (<a href="https://github.com/ItsErod/lark/pull/119">#119</a>)</li>
+          <li>Accept and ignore inbox friend requests. (<a href="https://github.com/ItsErod/lark/pull/120">#120</a>)</li>
+          <li>Play cached guild soundboard files instead of the local chime. (<a href="https://github.com/ItsErod/lark/pull/121">#121</a>)</li>
+          <li>Hold interface hot updates for 3.0.2. (<a href="https://github.com/ItsErod/lark/pull/123">#123</a>)</li>
+          <li>Sync favorites, DM pins, and pin-to-top. (<a href="https://github.com/ItsErod/lark/pull/126">#126</a>)</li>
+          <li>Sync bookmarks and reminders to Discord saved messages. (<a href="https://github.com/ItsErod/lark/pull/129">#129</a>)</li>
+          <li>Restyle the composer as a floating field with a focus ring. (<a href="https://github.com/ItsErod/lark/pull/130">#130</a>)</li>
+          <li>Restyle messages with quieter groups, pill reactions, and code blocks. (<a href="https://github.com/ItsErod/lark/pull/131">#131</a>)</li>
+          <li>Restyle the profile popout, profile panel, and user area. (<a href="https://github.com/ItsErod/lark/pull/132">#132</a>)</li>
+          <li>Restyle the voice panel, call tiles, and floating control bar. (<a href="https://github.com/ItsErod/lark/pull/134">#134</a>)</li>
+          <li>Localize the interface and switch language live. (<a href="https://github.com/ItsErod/lark/pull/135">#135</a>)</li>
+          <li>Restyle the shell, settings, menus, and toasts. (<a href="https://github.com/ItsErod/lark/pull/136">#136</a>)</li>
+          <li>Wire inbox, GIF, sticker, call, and group keybinds. (<a href="https://github.com/ItsErod/lark/pull/137">#137</a>)</li>
+          <li>Restore two-way Windows voice audio and diagnostics copy. (<a href="https://github.com/ItsErod/lark/pull/133">#133</a>)</li>
+          <li>Open a real Mod View for server members. (<a href="https://github.com/ItsErod/lark/pull/140">#140</a>)</li>
+          <li>Set Lark 3.0.1 and publish the voice hotfix notes. (<a href="https://github.com/ItsErod/lark/pull/141">#141</a>)</li>
+        </ul>
+        <h3>Performance</h3>
+        <ul>
+          <li>Speed up first paint and record the after timings. (<a href="https://github.com/ItsErod/lark/pull/127">#127</a>)</li>
+        </ul>
+      </details>
+      <details data-tag="v3.0.0">
+        <summary>v3.0.0 <span>Oct 12, 2026</span></summary>
+        <p>Accept the call-view keybind so Settings can save, clean up Lark before making the repository public, and document Lark 3.0 parity against Discord web, plus 41 more.</p>
+        <h3>Added</h3>
+        <ul>
+          <li>Add server settings and voice to the Lark 3.0 parity audit. (<a href="https://github.com/ItsErod/lark/pull/58">#58</a>)</li>
+          <li>Add server and channel menus, invites, and create flows. (<a href="https://github.com/ItsErod/lark/pull/61">#61</a>)</li>
+          <li>Add Server Settings for profile, expressions, members, and roles. (<a href="https://github.com/ItsErod/lark/pull/62">#62</a>)</li>
+          <li>Add Discord thread, poll, event, and inbox routes. (<a href="https://github.com/ItsErod/lark/pull/63">#63</a>)</li>
+          <li>Add invites, moderation, community, and the rest of Server Settings. (<a href="https://github.com/ItsErod/lark/pull/67">#67</a>)</li>
+          <li>Add Discord DMs, friends, and profiles. (<a href="https://github.com/ItsErod/lark/pull/65">#65</a>)</li>
+          <li>Add a live Lark 3.0 progress dashboard. (<a href="https://github.com/ItsErod/lark/pull/74">#74</a>)</li>
+          <li>Add Call Timer and Volume Booster plugins. (<a href="https://github.com/ItsErod/lark/pull/71">#71</a>)</li>
+          <li>Add the message logger plugin. (<a href="https://github.com/ItsErod/lark/pull/68">#68</a>)</li>
+          <li>Add Discord user settings, account switching, and keybinds. (<a href="https://github.com/ItsErod/lark/pull/72">#72</a>)</li>
+          <li>Add a Better timestamps plugin. (<a href="https://github.com/ItsErod/lark/pull/79">#79</a>)</li>
+          <li>Add Discord messaging, composer tools, and search filters. (<a href="https://github.com/ItsErod/lark/pull/73">#73</a>)</li>
+          <li>Add version history to the Lark 3.0 progress page. (<a href="https://github.com/ItsErod/lark/pull/84">#84</a>)</li>
+          <li>Add a Spotify mini player from presence and links. (<a href="https://github.com/ItsErod/lark/pull/89">#89</a>)</li>
+          <li>Add keyword highlights and pinned DM plugins. (<a href="https://github.com/ItsErod/lark/pull/69">#69</a>)</li>
+          <li>Add a live ETA to each progress-page agent. (<a href="https://github.com/ItsErod/lark/pull/91">#91</a>)</li>
+          <li>Add Panic Key and Incognito Mode plugins. (<a href="https://github.com/ItsErod/lark/pull/70">#70</a>)</li>
+          <li>Add Streamer Safe and Clean Links plugins. (<a href="https://github.com/ItsErod/lark/pull/77">#77</a>)</li>
+          <li>Add Spoiler Everything and Hide Blocked Messages plugins. (<a href="https://github.com/ItsErod/lark/pull/86">#86</a>)</li>
+          <li>Add voice desk controls, call chrome, and stage chat. (<a href="https://github.com/ItsErod/lark/pull/75">#75</a>)</li>
+          <li>Add quick replies, copy markdown, and image zoom. (<a href="https://github.com/ItsErod/lark/pull/90">#90</a>)</li>
+          <li>Add read-all and user whois plugins. (<a href="https://github.com/ItsErod/lark/pull/92">#92</a>)</li>
+          <li>Add emote cloner and message scheduler plugins. (<a href="https://github.com/ItsErod/lark/pull/95">#95</a>)</li>
+          <li>Add reverse image search and bigger emoji plugins. (<a href="https://github.com/ItsErod/lark/pull/96">#96</a>)</li>
+          <li>Add voice download and original image plugins. (<a href="https://github.com/ItsErod/lark/pull/80">#80</a>)</li>
+        </ul>
+        <h3>Changed</h3>
+        <ul>
+          <li>Accept the call-view keybind so Settings can save. (<a href="https://github.com/ItsErod/lark/pull/54">#54</a>)</li>
+          <li>Clean up Lark before making the repository public. (<a href="https://github.com/ItsErod/lark/pull/55">#55</a>)</li>
+          <li>Document Lark 3.0 parity against Discord web. (<a href="https://github.com/ItsErod/lark/pull/56">#56</a>)</li>
+          <li>Retarget Lark 3.0 parity to the captured Discord inventory. (<a href="https://github.com/ItsErod/lark/pull/57">#57</a>)</li>
+          <li>Map Discord channel kinds 13 and 16 to stage and media. (<a href="https://github.com/ItsErod/lark/pull/59">#59</a>)</li>
+          <li>Show threads, forums, polls, events, and the inbox. (<a href="https://github.com/ItsErod/lark/pull/64">#64</a>)</li>
+          <li>Edit channels: overview, permissions, invites, and webhooks. (<a href="https://github.com/ItsErod/lark/pull/66">#66</a>)</li>
+          <li>Expose Developer Mode, embed, and spoiler flags. (<a href="https://github.com/ItsErod/lark/pull/60">#60</a>)</li>
+          <li>Publish the progress dashboard with GitHub Pages. (<a href="https://github.com/ItsErod/lark/pull/78">#78</a>)</li>
+          <li>Send camera video on the voice socket and add stage commands. (<a href="https://github.com/ItsErod/lark/pull/76">#76</a>)</li>
+          <li>Show typing on channel and DM lists. (<a href="https://github.com/ItsErod/lark/pull/82">#82</a>)</li>
+          <li>Shorten the README. (<a href="https://github.com/ItsErod/lark/pull/83">#83</a>)</li>
+          <li>Translate a message from the right-click menu. (<a href="https://github.com/ItsErod/lark/pull/85">#85</a>)</li>
+          <li>List channels you cannot view. (<a href="https://github.com/ItsErod/lark/pull/87">#87</a>)</li>
+          <li>Expand the README with a short description and grouped features. (<a href="https://github.com/ItsErod/lark/pull/88">#88</a>)</li>
+          <li>Rewrite release notes and generate them from pull requests. (<a href="https://github.com/ItsErod/lark/pull/93">#93</a>)</li>
+          <li>Set Lark 3.0.0 and publish the patch notes. (<a href="https://github.com/ItsErod/lark/pull/94">#94</a>)</li>
+          <li>Redesign the progress page bars. (<a href="https://github.com/ItsErod/lark/pull/98">#98</a>)</li>
+          <li>Include the last merged plugins in the 3.0.0 notes. (<a href="https://github.com/ItsErod/lark/pull/100">#100</a>)</li>
+        </ul>
+      </details>
+    </div>
   </main>
   <footer>
     <div class="wrap">
@@ -110,6 +290,110 @@
   </footer>
   <script>
     const note = document.getElementById("release-note");
+    const history = document.getElementById("history");
+
+    function releaseLink(url) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === "https:" && (parsed.hostname === "github.com" || parsed.hostname === "www.github.com")) return parsed.href;
+      } catch (err) { /* drop anything that is not a GitHub link */ }
+      return "";
+    }
+
+    function appendInline(parent, source) {
+      const text = String(source || "");
+      const pattern = /\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g;
+      let last = 0;
+      let match;
+      while ((match = pattern.exec(text))) {
+        if (match.index > last) parent.append(document.createTextNode(text.slice(last, match.index)));
+        const href = releaseLink(match[2]);
+        if (href) {
+          const link = document.createElement("a");
+          link.href = href;
+          link.textContent = match[1];
+          parent.append(link);
+        } else {
+          parent.append(document.createTextNode(match[1]));
+        }
+        last = pattern.lastIndex;
+      }
+      if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+    }
+
+    function sectionLabel(title) {
+      const name = String(title || "").replace(/^#+\s*/, "").toLowerCase();
+      if (/\badded\b/.test(name)) return "Added";
+      if (/\bchanged\b/.test(name)) return "Changed";
+      if (/\bfixed\b/.test(name)) return "Fixed";
+      if (/\bremoved\b/.test(name)) return "Removed";
+      if (/\bperformance\b/.test(name)) return "Performance";
+      if (/\bsecurity\b/.test(name)) return "Security";
+      return String(title || "").replace(/^#+\s*/, "").replace(/^[^A-Za-z]+/, "").trim() || "Notes";
+    }
+
+    function renderNotes(body) {
+      const fragment = document.createDocumentFragment();
+      const text = String(body || "").replace(/\r\n/g, "\n").trim();
+      if (!text) return fragment;
+      text.split(/\n{2,}/).forEach((chunk) => {
+        const lines = chunk.split("\n").map((line) => line.trim()).filter(Boolean);
+        if (!lines.length) return;
+        const heading = lines[0].match(/^#{1,3}\s+(.+)$/);
+        if (heading) {
+          const title = document.createElement("h3");
+          title.textContent = sectionLabel(heading[1]);
+          fragment.append(title);
+          const rest = lines.slice(1).filter((line) => /^[-*]\s+/.test(line));
+          if (rest.length) {
+            const list = document.createElement("ul");
+            rest.forEach((line) => {
+              const item = document.createElement("li");
+              appendInline(item, line.replace(/^[-*]\s+/, ""));
+              list.append(item);
+            });
+            fragment.append(list);
+          }
+          return;
+        }
+        if (lines.every((line) => /^[-*]\s+/.test(line))) {
+          const list = document.createElement("ul");
+          lines.forEach((line) => {
+            const item = document.createElement("li");
+            appendInline(item, line.replace(/^[-*]\s+/, ""));
+            list.append(item);
+          });
+          fragment.append(list);
+          return;
+        }
+        const paragraph = document.createElement("p");
+        appendInline(paragraph, lines.join(" "));
+        fragment.append(paragraph);
+      });
+      return fragment;
+    }
+
+    function prependRelease(release) {
+      const tag = release && release.tag_name ? String(release.tag_name) : "";
+      if (!tag || history.querySelector('[data-tag="' + CSS.escape(tag) + '"]')) return;
+      const details = document.createElement("details");
+      details.open = true;
+      details.dataset.tag = tag;
+      const summary = document.createElement("summary");
+      summary.append(document.createTextNode(tag + " "));
+      const when = document.createElement("span");
+      when.textContent = release.published_at ? new Date(release.published_at).toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      }) : "";
+      summary.append(when);
+      details.append(summary, renderNotes(release.body));
+      history.querySelectorAll("details[open]").forEach((node) => { node.open = false; });
+      history.prepend(details);
+    }
+
     fetch("https://api.github.com/repos/ItsErod/lark/releases/latest")
       .then((res) => res.ok ? res.json() : Promise.reject(res.status))
       .then((release) => {
@@ -118,11 +402,11 @@
         const dmg = assets.find((asset) => /universal\.dmg$/i.test(asset.name) && !/\.sig$/i.test(asset.name));
         const exeLink = document.getElementById("exe");
         const dmgLink = document.getElementById("dmg");
-        if (exe) {
+        if (exe && exe.browser_download_url) {
           exeLink.href = exe.browser_download_url;
           exeLink.querySelector("code").textContent = exe.name;
         }
-        if (dmg) {
+        if (dmg && dmg.browser_download_url) {
           dmgLink.href = dmg.browser_download_url;
           dmgLink.querySelector("code").textContent = dmg.name;
         }
@@ -134,10 +418,11 @@
           minute: "2-digit",
           timeZoneName: "short"
         }) : "";
-        note.textContent = (release.tag_name || "Latest") + (when ? " · " + when : "");
+        note.textContent = "Current release " + (release.tag_name || "v3.0.3") + (when ? " · " + when : "");
+        prependRelease(release);
       })
       .catch(() => {
-        note.textContent = "Downloads are on the GitHub releases page.";
+        note.textContent = "Current release v3.0.3";
       });
   </script>
 </body>
