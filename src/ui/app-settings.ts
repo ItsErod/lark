@@ -1238,6 +1238,14 @@ export const settingsMethods = defineMethods({
     if (this.clipStatus?.capNote) card.append(el("p", "warning", this.clipStatus.capNote));
     card.append(el("p", "setting-help", `Clips folder: ${this.clipStatus?.dir || this.platform.clipsDir}`));
     if (this.clipStatus?.hotkeyError) card.append(el("p", "warning", this.clipStatus.hotkeyError));
+    card.append(this.switchRow("clips.systemAudio", "Game and system audio", "Record what you hear into clips. A window share records only that app.", this.config.clips.system_audio, (value) => {
+      this.config.clips.system_audio = value;
+      return this.persist().then(() => this.pullClipStatus());
+    }));
+    card.append(this.switchRow("clips.micAudio", "Microphone", "Mix your microphone into clips. Off never opens the microphone for clips.", this.config.clips.mic_audio, (value) => {
+      this.config.clips.mic_audio = value;
+      return this.persist().then(() => this.pullClipStatus());
+    }));
     card.append(this.switchRow("clips.capture", "Game Mode capture", "Keep a buffer of the main display without sharing your screen.", this.config.clips.game_capture, (value) => {
       this.config.clips.game_capture = value;
       return this.persist().then(() => this.pullClipStatus());

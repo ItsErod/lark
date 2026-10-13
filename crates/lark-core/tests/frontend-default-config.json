@@ -93,7 +93,9 @@
     "compress": "ask",
     "fps": 60,
     "resolution": 1440,
-    "buffer_sec": 30
+    "buffer_sec": 30,
+    "system_audio": true,
+    "mic_audio": true
   },
   "games": {},
   "privacy": {

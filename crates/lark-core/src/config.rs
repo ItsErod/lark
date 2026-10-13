@@ -583,6 +583,16 @@ pub struct Clips {
     /// 15, 30, 60, 90, or 120 seconds. Anything else becomes 30.
     #[serde(default = "default_clip_buffer")]
     pub buffer_sec: u32,
+    /// Record game and system audio into clips.
+    #[serde(default = "default_true_clip")]
+    pub system_audio: bool,
+    /// Record the microphone into clips. Off means the microphone is never opened for clips.
+    #[serde(default = "default_true_clip")]
+    pub mic_audio: bool,
+}
+
+fn default_true_clip() -> bool {
+    true
 }
 
 fn default_clip_buffer() -> u32 {
@@ -605,6 +615,8 @@ impl Default for Clips {
             fps: default_clip_fps(),
             resolution: default_clip_resolution(),
             buffer_sec: default_clip_buffer(),
+            system_audio: true,
+            mic_audio: true,
         }
     }
 }

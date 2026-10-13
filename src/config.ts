@@ -86,7 +86,7 @@ export function defaultConfig(): AppConfig {
       detect_games: true,
       game_mode: false,
     },
-    clips: { game_capture: false, compress: "ask", fps: 60, resolution: 1440, buffer_sec: 30 },
+    clips: { game_capture: false, compress: "ask", fps: 60, resolution: 1440, buffer_sec: 30, system_audio: true, mic_audio: true },
     games: {},
     privacy: { streamer: false, streamer_auto: false },
     accents: {},
@@ -188,6 +188,8 @@ export function sanitizeConfig(input: unknown): AppConfig {
   if (raw.clips && "fps" in raw.clips) base.clips.fps = sanitizeClipFps(raw.clips.fps);
   if (raw.clips && "resolution" in raw.clips) base.clips.resolution = sanitizeClipResolution(raw.clips.resolution);
   if (raw.clips && "buffer_sec" in raw.clips) base.clips.buffer_sec = sanitizeClipBuffer(raw.clips.buffer_sec);
+  if (typeof raw.clips?.system_audio === "boolean") base.clips.system_audio = raw.clips.system_audio;
+  if (typeof raw.clips?.mic_audio === "boolean") base.clips.mic_audio = raw.clips.mic_audio;
   if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
   if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
   base.display = readDisplayFlags(raw);
