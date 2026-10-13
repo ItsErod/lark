@@ -172,7 +172,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "voice.perf", section: "voice", label: "Performance", description: "RAM, CPU, and FPS on the same window as the voice HUD.", keywords: "overlay fps" },
   { id: "voice.input", section: "voice", label: "Input device", description: "Microphone Lark stores for the call.", keywords: "mic capture" },
   { id: "voice.output", section: "voice", label: "Output device", description: "Speakers or headphones for the call.", keywords: "playback" },
-  { id: "voice.camera", section: "voice", label: "Camera", description: "Camera id stored for later. Video calls are not sent yet.", keywords: "video webcam" },
+  { id: "voice.camera", section: "voice", label: "Camera", description: "Camera Lark opens for the preview and for video in a call.", keywords: "video webcam" },
   { id: "voice.diagnostics", section: "voice", label: "Copy voice diagnostics", description: "Handshake steps, close codes, and packet counters for a voice call.", keywords: "debug log export dave udp" },
   { id: "voice.speak", section: "voice", label: "Speaking ring", description: "The ring around an avatar while someone is speaking. Discord green is the default.", keywords: "color colour picker speak ring" },
   { id: "messages.saved", section: "messages", label: "Saved messages", description: "Bookmarks kept on this device. Discord pins are unchanged.", keywords: "bookmarks" },
