@@ -4,24 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Plugins and themes for Lark. They are not part of the app download.">
-  <meta name="theme-color" content="#1e1f22">
+  <meta name="theme-color" content="#09090b">
   <title>Lark plugin store</title>
   <link rel="icon" href="../progress/favicon.svg" type="image/svg+xml">
   <style>
     :root {
       color-scheme: dark;
-      --bg: #1e1f22;
-      --panel: #2b2d31;
-      --card: #313338;
-      --raised: #383a40;
-      --line: rgba(255, 255, 255, 0.08);
-      --text: #f2f3f5;
-      --secondary: #c7ccd1;
-      --muted: #b5bac1;
-      --blurple: #5865f2;
-      --amber: #e2a15a;
-      --amber-2: #f0c27a;
-      --shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+      --bg: #09090b;
+      --line: #27272a;
+      --text: #fafafa;
+      --secondary: #d4d4d8;
+      --muted: #a1a1aa;
+      --accent: #fafafa;
       --font: "Inter", "Segoe UI", system-ui, sans-serif;
     }
     * { box-sizing: border-box; }
@@ -30,99 +24,90 @@
       margin: 0;
       min-height: 100vh;
       font-family: var(--font);
-      font-size: 16px;
-      line-height: 1.5;
+      font-size: 15px;
+      line-height: 1.45;
       color: var(--text);
-      background:
-        radial-gradient(1000px 480px at -10% -10%, rgba(88, 101, 242, 0.22), transparent 55%),
-        radial-gradient(900px 420px at 110% -20%, rgba(226, 161, 90, 0.16), transparent 50%),
-        var(--bg);
+      background: var(--bg);
     }
-    a { color: #dee0fc; }
+    a { color: var(--accent); }
     a:hover { color: #fff; }
     button, input { font: inherit; color: inherit; }
     button { cursor: pointer; }
     :focus { outline: none; }
-    :focus-visible { outline: 2px solid var(--amber-2); outline-offset: 3px; }
+    :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
     .skip {
       position: absolute;
       left: 12px;
       top: -48px;
       z-index: 5;
-      background: var(--amber);
-      color: #1a140d;
-      font-weight: 700;
+      background: var(--accent);
+      color: #09090b;
+      font-weight: 650;
       text-decoration: none;
       padding: 8px 12px;
-      border-radius: 8px;
+      border-radius: 4px;
     }
     .skip:focus { top: 12px; }
-    .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    .wrap { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
     header.top {
       position: sticky;
       top: 0;
       z-index: 2;
-      backdrop-filter: blur(16px);
-      background: rgba(30, 31, 34, 0.82);
+      background: #09090b;
       border-bottom: 1px solid var(--line);
     }
-    .top-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; }
-    .brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
-    .brand img { width: 36px; height: 36px; border-radius: 10px; }
-    .brand-name { display: block; font-weight: 750; letter-spacing: -0.03em; }
-    .brand-sub { display: block; color: var(--muted); font-size: 13px; }
+    .top-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; }
+    .brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+    .brand img { width: 28px; height: 28px; border-radius: 4px; }
+    .brand-name { display: block; font-weight: 650; letter-spacing: -0.02em; }
+    .brand-sub { display: block; color: var(--muted); font-size: 12px; }
     .top-nav { display: flex; gap: 14px; align-items: center; }
-    .top-nav a { text-decoration: none; color: var(--secondary); font-weight: 650; }
-    .top-nav a:hover { color: white; }
-    main { padding: 36px 0 64px; }
+    .top-nav a { text-decoration: none; color: var(--secondary); font-weight: 600; }
+    .top-nav a:hover { color: var(--text); }
+    main { padding: 32px 0 64px; }
     h1 {
       margin: 0;
-      font-size: clamp(36px, 6vw, 64px);
-      letter-spacing: -0.045em;
-      line-height: 0.95;
-      font-weight: 760;
+      font-size: clamp(32px, 5vw, 48px);
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      font-weight: 600;
     }
-    .lede { max-width: 62ch; color: var(--secondary); font-size: 18px; margin: 14px 0 0; }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 28px; }
-    .tabs { display: flex; padding: 4px; background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line); border-radius: 999px; }
-    .tabs button, .chip, .search, .btn {
-      border: 0;
-      background: transparent;
-    }
+    .lede { max-width: 62ch; color: var(--secondary); font-size: 16px; margin: 12px 0 0; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 24px; }
+    .tabs { display: flex; gap: 6px; }
+    .tabs button, .chip, .search, .btn { border: 0; background: transparent; }
     .tabs button {
-      border-radius: 999px;
-      padding: 8px 16px;
-      color: var(--secondary);
-      font-weight: 700;
-    }
-    .tabs button[aria-selected="true"] { background: var(--blurple); color: white; }
-    .search {
-      flex: 1 1 240px;
-      min-width: 200px;
-      background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 10px 14px;
+      border-radius: 4px;
+      padding: 8px 14px;
+      color: var(--secondary);
+      font-weight: 600;
     }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
+    .tabs button[aria-selected="true"] { background: var(--accent); color: #09090b; border-color: var(--accent); }
+    .search {
+      flex: 1 1 220px;
+      min-width: 180px;
+      background: #09090b;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 8px 12px;
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 20px; }
     .chip {
       border: 1px solid var(--line);
-      background: rgba(0, 0, 0, 0.2);
+      background: transparent;
       color: var(--secondary);
-      border-radius: 999px;
-      padding: 6px 12px;
-      font-weight: 650;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-weight: 600;
     }
-    .chip[aria-pressed="true"] { background: color-mix(in srgb, var(--amber) 22%, #1e1f22); color: var(--amber-2); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .chip[aria-pressed="true"] { background: var(--accent); color: #09090b; border-color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
     .card {
-      background:
-        radial-gradient(420px 140px at 0% 0%, rgba(88, 101, 242, 0.16), transparent 55%),
-        var(--card);
+      background: #09090b;
       border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: var(--shadow);
+      border-radius: 6px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -130,43 +115,43 @@
     }
     .card-top { display: flex; gap: 12px; align-items: flex-start; }
     .ico {
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
+      width: 36px;
+      height: 36px;
+      border-radius: 4px;
       display: grid;
       place-items: center;
-      background: color-mix(in srgb, var(--blurple) 24%, #1e1f22);
-      color: #dee0fc;
+      background: #18181b;
+      color: var(--accent);
       flex: none;
     }
-    .ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-    .card h2 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
-    .version { margin: 2px 0 0; color: var(--amber-2); font-size: 13px; font-weight: 700; }
+    .ico svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .card h2 { margin: 0; font-size: 16px; letter-spacing: -0.02em; font-weight: 600; }
+    .version { margin: 2px 0 0; color: var(--muted); font-size: 13px; font-weight: 600; }
     .desc, .log { margin: 0; color: var(--secondary); }
     .log { color: var(--muted); font-size: 14px; }
     .swatches { display: flex; gap: 6px; min-height: 18px; }
-    .swatch { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.2); }
+    .swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line); }
     .actions { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       text-decoration: none;
-      border-radius: 10px;
+      border-radius: 4px;
       padding: 8px 12px;
-      font-weight: 750;
+      font-weight: 650;
       border: 1px solid var(--line);
     }
-    .btn.primary { background: var(--blurple); color: white; border-color: transparent; }
-    .btn.primary:hover { color: white; background: color-mix(in srgb, var(--blurple) 88%, white); }
-    .btn.ghost { background: rgba(0, 0, 0, 0.2); color: var(--text); }
-    .btn.ghost:hover { color: white; }
+    .btn.primary { background: var(--accent); color: #09090b; border-color: var(--accent); }
+    .btn.primary:hover { color: #09090b; background: #fff; }
+    .btn.ghost { background: transparent; color: var(--text); }
+    .btn.ghost:hover { color: var(--text); background: #18181b; }
     .status { color: var(--secondary); margin: 8px 0 0; }
-    footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--muted); }
+    footer { border-top: 1px solid var(--line); padding: 24px 0; color: var(--muted); }
     footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
     footer p { margin: 0; max-width: 68ch; }
     @media (max-width: 640px) {
-      .top-inner { min-height: 64px; }
+      .top-inner { min-height: 56px; }
       main { padding-top: 24px; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -178,7 +163,7 @@
   <a class="skip" href="#catalog">Skip to the catalog</a>
   <header class="top">
     <div class="wrap top-inner">
-      <a class="brand" href="../progress/">
+      <a class="brand" href="../">
         <img src="../progress/icon.png" width="36" height="36" alt="">
         <span>
           <span class="brand-name">Lark</span>
@@ -186,6 +171,7 @@
         </span>
       </a>
       <nav class="top-nav" aria-label="Site">
+        <a href="../">Home</a>
         <a href="../progress/">Progress</a>
         <a href="https://github.com/ItsErod/lark">GitHub</a>
       </nav>
