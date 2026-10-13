@@ -3035,6 +3035,9 @@ fn apply_clip_config(app: &AppHandle, config: &Config) {
         .clips
         .set_quality(config.clips.fps, config.clips.resolution);
     state.clips.set_window(config.clips.buffer_sec);
+    state
+        .clips
+        .set_audio(config.clips.system_audio, config.clips.mic_audio);
     state.clips.set_game(config.clips.game_capture);
     apply_clip_hotkey(app, &config.shortcuts.save_clip);
 }

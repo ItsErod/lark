@@ -127,6 +127,8 @@ struct Inner {
     window_ms: AtomicU64,
     system_pcm: Mutex<PcmRing>,
     mic_pcm: Mutex<PcmRing>,
+    system_audio: AtomicBool,
+    mic_audio: AtomicBool,
     pace: AtomicBool,
     runtime_cap: AtomicU32,
     generation: AtomicU64,
@@ -174,6 +176,8 @@ impl ClipEngine {
             window_ms: AtomicU64::new(window),
             system_pcm: Mutex::new(PcmRing::new(window)),
             mic_pcm: Mutex::new(PcmRing::new(window)),
+            system_audio: AtomicBool::new(true),
+            mic_audio: AtomicBool::new(true),
             pace: AtomicBool::new(game_mode),
             runtime_cap: AtomicU32::new(0),
             generation: AtomicU64::new(0),
@@ -267,6 +271,26 @@ impl ClipEngine {
             .unwrap_or_else(|err| err.into_inner())
             .set_window(window);
         self.inner.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Which audio tracks go into clips. A track turned off is cleared at once.
+    pub fn set_audio(&self, system: bool, mic: bool) {
+        self.inner.system_audio.store(system, Ordering::Relaxed);
+        self.inner.mic_audio.store(mic, Ordering::Relaxed);
+        if !system {
+            self.inner
+                .system_pcm
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .clear();
+        }
+        if !mic {
+            self.inner
+                .mic_pcm
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .clear();
+        }
     }
 
     pub fn set_pace(&self, game_mode: bool) {
@@ -734,6 +758,8 @@ impl ClipEngine {
     }
 
     fn mix_audio(&self, saved: &mut ClipSaved) {
+        let want_system = self.inner.system_audio.load(Ordering::Relaxed);
+        let want_mic = self.inner.mic_audio.load(Ordering::Relaxed);
         let system = self
             .inner
             .system_pcm
@@ -746,6 +772,8 @@ impl ClipEngine {
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .to_i16();
+        let system = if want_system { system } else { Vec::new() };
+        let mic = if want_mic { mic } else { Vec::new() };
         if system.is_empty() && mic.is_empty() {
             return;
         }
@@ -833,7 +861,12 @@ fn sample_loop(inner: Arc<Inner>) {
             thread::sleep(Duration::from_millis(100));
             continue;
         }
-        if mic.is_none() && !mic_tried {
+        let mic_wanted = inner.mic_audio.load(Ordering::Relaxed);
+        if !mic_wanted && mic.is_some() {
+            mic = None;
+            mic_tried = false;
+        }
+        if mic_wanted && mic.is_none() && !mic_tried {
             mic_tried = true;
             mic = MicTap::open().ok();
         }
@@ -925,7 +958,7 @@ fn sample_loop(inner: Arc<Inner>) {
             Ok(packets) => {
                 let now_ms = started.elapsed().as_millis() as u64;
                 let system = live.pull_audio();
-                if !system.is_empty() {
+                if !system.is_empty() && inner.system_audio.load(Ordering::Relaxed) {
                     inner
                         .system_pcm
                         .lock()

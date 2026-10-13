@@ -122,7 +122,7 @@ export interface AppConfig {
     detect_games: boolean;
     game_mode: boolean;
   };
-  clips: { game_capture: boolean; compress: "always" | "ask" | "never"; fps: number; resolution: number; buffer_sec: number };
+  clips: { game_capture: boolean; compress: "always" | "ask" | "never"; fps: number; resolution: number; buffer_sec: number; system_audio: boolean; mic_audio: boolean };
   games: Record<string, GameProfile>;
   privacy: { streamer: boolean; streamer_auto: boolean };
   accents: Record<string, string>;
