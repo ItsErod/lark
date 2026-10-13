@@ -2473,16 +2473,22 @@
         heading.textContent = "3.0 streams";
         const list = document.createElement("ul");
         list.className = "archive-list";
-        latestResults.forEach((item) => {
+        const row = (label, status, finishedAt, percent) => {
           const li = document.createElement("li");
           const name = document.createElement("span");
-          name.textContent = item.id + " · " + item.name;
+          name.textContent = label;
           const when = document.createElement("span");
-          if (item.status === "done" && Number.isFinite(item.finishedAt)) when.textContent = "Done " + formatStamp(item.finishedAt);
-          else if (item.status === "done") when.textContent = "Done";
-          else when.textContent = item.percent + "%";
+          if (status === "done" && Number.isFinite(finishedAt)) when.textContent = "Done " + formatStamp(finishedAt);
+          else if (status === "done") when.textContent = "Done";
+          else when.textContent = percent + "%";
           li.append(name, when);
           list.append(li);
+        };
+        latestResults.forEach((item) => {
+          row(item.id + " · " + item.name, item.status, item.finishedAt, item.percent);
+          (item.groups || []).forEach((group) => {
+            row(item.id + " · " + group.name, group.status, group.finishedAt, group.percent);
+          });
         });
         host.append(heading, list);
       }
