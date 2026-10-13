@@ -723,7 +723,7 @@ class LarkApp {
   private youtubeFloatEl!: HTMLElement;
   private toastWrap!: HTMLElement;
   private updateBannerEl!: HTMLElement;
-  private updates: UpdateState = initialUpdateState("3.0.1", true);
+  private updates: UpdateState = initialUpdateState("3.0.2", true);
   private updateTimer = 0;
   private pendingUpdate: Update | null = null;
   private updateBusy = false;
@@ -5425,7 +5425,7 @@ class LarkApp {
     const wrap = el("div", "settings-stack");
     wrap.append(settingHead("Updates", "Lark checks for a new version on startup and every 30 minutes. The download stays in the background. A voice call finishes before the app restarts."));
     const card = settingCard("This computer");
-    card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.1")));
+    card.append(settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.2")));
     card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
       const step = setAutoInstall(this.updates, value);
       this.updates = step.state;
@@ -5433,11 +5433,11 @@ class LarkApp {
       this.paintUpdateBanner();
       this.followUpdate(step);
     }));
-    const check = el("button", "text-button", this.updates.phase === "checking" ? "Checking…" : "Check now");
+    const check = el("button", "text-button", this.updates.phase === "checking" ? "Checking…" : "Check for updates");
     check.type = "button";
     check.disabled = this.updates.phase === "checking" || this.updates.phase === "downloading" || this.updates.phase === "installing";
     check.addEventListener("click", () => void this.checkForUpdates(true));
-    card.append(settingRow("updates.check", "Check now", "Look for a Lark update now.", check));
+    card.append(settingRow("updates.check", "Check for updates", "Look for a Lark update now.", check));
     card.append(el("p", "setting-help", updatesStatus(this.updates)));
     if (!isTauri()) card.append(el("p", "setting-help", "Updates install from the macOS and Windows apps."));
     const notes = this.updates.offer?.notes.trim();
@@ -6906,7 +6906,7 @@ class LarkApp {
   }
 
   private startUpdates() {
-    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.1", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
+    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.2", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
     if (!isTauri()) return;
     void this.watchForUpdates();
   }
@@ -6917,7 +6917,7 @@ class LarkApp {
       const version = await getVersion();
       if (version) this.updates = { ...this.updates, currentVersion: version };
     } catch {
-      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.1" };
+      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.2" };
     }
     this.refreshUpdateUi();
     void this.checkForUpdates(false);

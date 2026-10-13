@@ -77,6 +77,7 @@ describe("settings catalog", () => {
     expect(searchSettings("log out").some((hit) => hit.id === "account.logout")).toBe(true);
     expect(searchSettings("automatically install").some((hit) => hit.id === "updates.auto")).toBe(true);
     expect(searchSettings("check now").some((hit) => hit.section === "updates")).toBe(true);
+    expect(searchSettings("check for updates").some((hit) => hit.id === "updates.check")).toBe(true);
   });
 
   it("accepts a later section without dropping the built-in pages", () => {

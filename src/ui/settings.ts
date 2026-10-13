@@ -194,7 +194,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "advanced.developer", section: "advanced", label: "Developer Mode", description: "Show ids you can copy from messages and menus.", keywords: "copy id debug" },
   { id: "updates.version", section: "updates", label: "Current version", description: "The version of Lark running on this computer.", keywords: "version about" },
   { id: "updates.auto", section: "updates", label: "Automatically install updates", description: "Download a new version in the background and install it when it is ready. A voice call finishes first.", keywords: "updater auto update" },
-  { id: "updates.check", section: "updates", label: "Check now", description: "Look for a Lark update now.", keywords: "version update" },
+  { id: "updates.check", section: "updates", label: "Check for updates", description: "Look for a Lark update now.", keywords: "version update check now" },
 ];
 
 const extraSections: SettingsSectionMeta[] = [];
