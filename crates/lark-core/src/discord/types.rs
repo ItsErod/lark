@@ -171,6 +171,13 @@ pub struct DiscordMessage {
     /// Discord poll object. Kept raw so the client mapper can read answer counts.
     #[serde(default)]
     pub poll: Option<serde_json::Value>,
+    /// Bot message components (action rows, buttons, selects). Kept raw for the renderer.
+    #[serde(default)]
+    pub components: Option<serde_json::Value>,
+    #[serde(default)]
+    pub application_id: Option<String>,
+    #[serde(default)]
+    pub flags: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -567,6 +574,31 @@ pub struct ClientMessage {
     pub forwarded: Option<ClientReply>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub poll: Option<ClientPoll>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub components: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_id: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub message_flags: u64,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
+}
+
+/// Bot components limited to a sane size: at most 10 top-level rows, arrays only.
+pub fn client_components(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let list = value?.as_array()?;
+    if list.is_empty() {
+        return None;
+    }
+    let text = serde_json::to_string(list).ok()?;
+    if text.len() > 64 * 1024 {
+        return None;
+    }
+    Some(serde_json::Value::Array(
+        list.iter().take(10).cloned().collect(),
+    ))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1141,6 +1173,9 @@ pub fn message_to_client(message: &DiscordMessage) -> ClientMessage {
                 "poll": poll,
             }))
         }),
+        components: client_components(message.components.as_ref()),
+        application_id: message.application_id.clone().filter(|id| !id.is_empty()),
+        message_flags: message.flags,
     }
 }
 

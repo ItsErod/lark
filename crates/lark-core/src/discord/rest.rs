@@ -2549,6 +2549,23 @@ fn https_field(value: &Value, keys: &[&str]) -> Option<String> {
     None
 }
 
+/// Upload URL and uploaded filename from POST /channels/{id}/attachments.
+/// Only Discord's own upload bucket over HTTPS is accepted.
+pub fn upload_target(value: &Value) -> Option<(String, String)> {
+    let slot = value.get("attachments")?.as_array()?.first()?;
+    let url = slot.get("upload_url")?.as_str()?;
+    let uploaded = slot.get("upload_filename")?.as_str()?;
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    let trusted = host == "discord-attachments-uploads-prd.storage.googleapis.com"
+        || host.ends_with(".discordapp.net")
+        || host == "discord.com";
+    if parsed.scheme() != "https" || !trusted || uploaded.is_empty() {
+        return None;
+    }
+    Some((url.to_string(), uploaded.to_string()))
+}
+
 /// Parse command options, keeping choices, limits, and subcommand children (two levels deep).
 fn app_options_from_value(value: Option<&Value>, depth: u8) -> Vec<super::types::ClientAppOption> {
     let Some(list) = value.and_then(|v| v.as_array()) else {
@@ -3025,7 +3042,7 @@ impl DiscordRest {
             Some(2) | Some(4)
         ) {
             return Err(RestError::Message(
-                "Only application commands can be sent from the composer.".into(),
+                "Only app commands, components, and modal forms can be sent.".into(),
             ));
         }
         let session = payload
@@ -3051,6 +3068,45 @@ impl DiscordRest {
         }
         let _ = Self::json_body(response, &self.token).await?;
         Ok(())
+    }
+
+    /// Upload one file for an app command option: ask Discord for an upload URL,
+    /// PUT the bytes there, and return the name to reference in the interaction.
+    pub async fn upload_interaction_file(
+        &self,
+        channel_id: &str,
+        file: &OutFile,
+    ) -> Result<String, RestError> {
+        if !snowflake_ok(channel_id) {
+            return Err(RestError::Message("That channel id is not valid.".into()));
+        }
+        if file.bytes.is_empty() {
+            return Err(RestError::Message("That file is empty.".into()));
+        }
+        let path = format!("/channels/{channel_id}/attachments");
+        let route = route_key("POST", "/channels/{channel.id}/attachments", channel_id);
+        let body = json!({ "files": [{ "id": "0", "filename": file.name, "file_size": file.bytes.len() }] });
+        let response = self
+            .send(Method::POST, &route, &path, Some(body), &[])
+            .await?;
+        let value = Self::json_body(response, &self.token).await?;
+        let (url, uploaded) = upload_target(&value)
+            .ok_or_else(|| RestError::Message("Discord did not return an upload slot.".into()))?;
+        let put = self
+            .http
+            .put(&url)
+            .header(reqwest::header::CONTENT_TYPE, file.mime.clone())
+            .body(file.bytes.clone())
+            .send()
+            .await
+            .map_err(|_| RestError::Message("The file upload failed.".into()))?;
+        if !put.status().is_success() {
+            return Err(RestError::Message(format!(
+                "The file upload failed ({}).",
+                put.status().as_u16()
+            )));
+        }
+        Ok(uploaded)
     }
 
     /// Favorites and Lark pin lists. Only fields 15 and 500 are sent, so other settings stay put.
@@ -3177,6 +3233,16 @@ fn sticker_picker_url(id: &str, format: i32) -> Option<String> {
 #[cfg(test)]
 mod messaging_search {
     use super::*;
+
+    #[test]
+    fn upload_target_only_trusts_discord_buckets() {
+        let ok = json!({ "attachments": [{ "id": 0, "upload_url": "https://discord-attachments-uploads-prd.storage.googleapis.com/abc?sig=1", "upload_filename": "abc/clip.mp4" }] });
+        assert_eq!(upload_target(&ok).unwrap().1, "abc/clip.mp4");
+        let bad = json!({ "attachments": [{ "upload_url": "https://evil.example/x", "upload_filename": "x" }] });
+        assert!(upload_target(&bad).is_none());
+        let http = json!({ "attachments": [{ "upload_url": "http://discord-attachments-uploads-prd.storage.googleapis.com/x", "upload_filename": "x" }] });
+        assert!(upload_target(&http).is_none());
+    }
 
     #[test]
     fn app_commands_keep_choices_limits_and_subcommands() {

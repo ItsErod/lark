@@ -429,6 +429,7 @@ pub fn run() {
             reaction_users,
             search_app_commands,
             invoke_command,
+            upload_interaction_file,
             open_discord_page,
             interface_status,
             interface_check,
@@ -2916,6 +2917,27 @@ async fn invoke_command(
     rest(&state)
         .await?
         .post_interaction(payload)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn upload_interaction_file(
+    state: State<'_, Shared>,
+    channel_id: String,
+    file: FileIn,
+) -> Result<String, String> {
+    if file.bytes.len() > 25 * 1024 * 1024 {
+        return Err("That file is over 25 MB.".into());
+    }
+    let file = lark_core::discord::rest::OutFile {
+        name: file.name,
+        mime: file.mime,
+        bytes: file.bytes,
+    };
+    rest(&state)
+        .await?
+        .upload_interaction_file(&channel_id, &file)
         .await
         .map_err(|err| err.to_string())
 }
