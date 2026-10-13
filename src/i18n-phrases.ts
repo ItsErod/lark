@@ -63,6 +63,7 @@ export const phrases: Record<string, readonly [string, string, string, string]> 
   "Bot": ["Bot", "Bot", "Bot", "Bot"],
   "Bots and apps": ["Bots et applications", "Bots y aplicaciones", "Bots und Apps", "Bots e aplicativos"],
   "Browse": ["Parcourir", "Explorar", "Durchsuchen", "Procurar"],
+  "Built-in": ["Intégrée", "Integrada", "Mitgeliefert", "Integrada"],
   "CSS and JSON carry the same colours. Frosted uses the system material on macOS and Windows, and stays opaque elsewhere. Themes do not blur or animate the message list.": [
     "Le CSS et le JSON portent les mêmes couleurs. Givré utilise le matériau du système sur macOS et Windows, et reste opaque ailleurs. Les thèmes ne floutent ni n’animent la liste des messages.",
     "CSS y JSON llevan los mismos colores. Esmerilado usa el material del sistema en macOS y Windows, y se queda opaco en los demás. Los temas no desenfocan ni animan la lista de mensajes.",
@@ -500,7 +501,9 @@ export const phrases: Record<string, readonly [string, string, string, string]> 
   "Replies": ["Réponses", "Respuestas", "Antworten", "Respostas"],
   "Reply chain": ["Chaîne de réponses", "Cadena de respuestas", "Antwortkette", "Cadeia de respostas"],
   "Require 2FA for moderator actions": ["Exiger la 2FA pour les actions de modération", "Exigir 2FA para acciones de moderación", "2FA für Moderationsaktionen verlangen", "Exigir 2FA para ações de moderação"],
+  "Reload": ["Recharger", "Recargar", "Neu laden", "Recarregar"],
   "Reset": ["Réinitialiser", "Restablecer", "Zurücksetzen", "Redefinir"],
+"Reset to built-in UI": ["Revenir à l’interface intégrée", "Volver a la interfaz integrada", "Zur mitgelieferten Oberfläche zurück", "Voltar à interface integrada"],
   "Restart to finish the update.": ["Redémarrez pour terminer la mise à jour.", "Reinicia para terminar la actualización.", "Starte neu, um das Update abzuschließen.", "Reinicie para concluir a atualização."],
   "Restart to update": ["Redémarrer pour mettre à jour", "Reiniciar para actualizar", "Neu starten zum Aktualisieren", "Reiniciar para atualizar"],
   "Retry": ["Réessayer", "Reintentar", "Erneut versuchen", "Tentar novamente"],
@@ -631,6 +634,7 @@ export const phrases: Record<string, readonly [string, string, string, string]> 
   "Source language": ["Langue source", "Idioma de origen", "Ausgangssprache", "Idioma de origem"],
   "Spoiler": ["Spoiler", "Spoiler", "Spoiler", "Spoiler"],
   "Spoiler channel": ["Salon spoiler", "Canal de spoiler", "Spoiler-Kanal", "Canal de spoiler"],
+  "Stable": ["Stable", "Estable", "Stabil", "Estável"],
   "Start": ["Démarrer", "Iniciar", "Starten", "Iniciar"],
   "Start stage": ["Démarrer la scène", "Iniciar escenario", "Bühne starten", "Iniciar palco"],
   "Stop": ["Arrêter", "Detener", "Stopp", "Parar"],
@@ -723,6 +727,7 @@ export const phrases: Record<string, readonly [string, string, string, string]> 
   "Uninstall": ["Désinstaller", "Desinstalar", "Deinstallieren", "Desinstalar"],
   "Up": ["Haut", "Arriba", "Hoch", "Cima"],
   "Update": ["Mettre à jour", "Actualizar", "Aktualisieren", "Atualizar"],
+  "Update ready, reload": ["Mise à jour prête, recharger", "Actualización lista, recargar", "Update bereit, neu laden", "Atualização pronta, recarregar"],
   "Updates install from the macOS and Windows apps.": [
     "Les mises à jour s’installent depuis les applications macOS et Windows.",
     "Las actualizaciones se instalan desde las apps de macOS y Windows.",
