@@ -1,3 +1,4 @@
+pub mod aec;
 pub mod browser_handoff;
 pub mod gateway;
 pub mod guild_admin;

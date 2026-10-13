@@ -13,7 +13,8 @@ use tokio::sync::{mpsc as async_mpsc, watch};
 
 use crate::soundboard::SoundMix;
 
-use super::noise::{FirAec, NoiseSuppressor, SpectralSuppressor};
+use super::aec::EchoControl;
+use super::noise::{NoiseSuppressor, SpectralSuppressor};
 use super::voice::{decrypt_voice, encrypt_audio, voice_active, CipherMode, OPUS_SILENCE};
 use super::voice_dave::DaveCall;
 use super::voice_io::DeviceStreams;
@@ -142,7 +143,7 @@ pub struct VoiceAudio {
     /// 100 is unity. 0 is silence. 200 is twice as loud.
     pub input_volume: u8,
     pub output_volume: u8,
-    /// `standard` is RNNoise. `high` is the spectral suppressor and FIR echo filter.
+    /// `standard` is RNNoise. `high` is the spectral suppressor. Echo cancellation is separate.
     pub noise_quality: String,
 }
 
@@ -169,17 +170,6 @@ pub fn noise_quality_high(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone)]
-pub struct AecState {
-    coeff: f32,
-}
-
-impl Default for AecState {
-    fn default() -> Self {
-        Self { coeff: 0.0 }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct AgcState {
     gain: f32,
 }
@@ -199,25 +189,6 @@ pub fn apply_input_gain(frame: &mut [f32], volume: u8) {
     for sample in frame.iter_mut() {
         *sample = (*sample * gain).clamp(-1.0, 1.0);
     }
-}
-
-/// One-tap echo canceller. `reference` is the playback mix for this frame.
-pub fn apply_aec(frame: &mut [f32], reference: &[f32], state: &mut AecState) {
-    let count = frame.len().min(reference.len());
-    if count == 0 {
-        return;
-    }
-    let mut power = 1.0e-4;
-    for sample in reference.iter().take(count) {
-        power += sample * sample;
-    }
-    for index in 0..count {
-        let echo = state.coeff * reference[index];
-        let err = frame[index] - echo;
-        state.coeff += 0.5 * err * reference[index] / power;
-        frame[index] = err.clamp(-1.0, 1.0);
-    }
-    state.coeff = state.coeff.clamp(-2.0, 2.0);
 }
 
 /// Lifts a quiet voice toward a steady level the default activity gate can hear.
@@ -267,7 +238,8 @@ pub struct Playback {
     pub rate: u32,
     pub channels: u16,
     pub output_gain: f32,
-    pub last_render: Vec<f32>,
+    /// Speaker mix at 48 kHz, in the order it was sent to the device.
+    far_ref: VecDeque<f32>,
     /// Guild soundboard for the speakers. Not a remote voice stream.
     local: VecDeque<f32>,
 }
@@ -290,7 +262,7 @@ impl Playback {
             rate: SAMPLE_RATE,
             channels: 2,
             output_gain: 1.0,
-            last_render: Vec::new(),
+            far_ref: VecDeque::new(),
             local: VecDeque::new(),
         }
     }
@@ -304,6 +276,24 @@ impl Playback {
             let extra = self.local.len() - LOCAL_CAP;
             self.local.drain(..extra);
         }
+    }
+
+    /// Remember the 48 kHz mix that is about to be played. The capture thread
+    /// drains this as the AEC3 far-end reference.
+    fn push_far(&mut self, samples: &[f32]) {
+        const CAP: usize = SAMPLE_RATE as usize;
+        for sample in samples {
+            let sample = if sample.is_finite() { *sample } else { 0.0 };
+            self.far_ref.push_back(sample);
+        }
+        if self.far_ref.len() > CAP {
+            let extra = self.far_ref.len() - CAP;
+            self.far_ref.drain(..extra);
+        }
+    }
+
+    fn drain_far_ref(&mut self) -> Vec<f32> {
+        self.far_ref.drain(..).collect()
     }
 
     /// Mono PCM at the output device rate. Deafened output is silence, and the
@@ -346,13 +336,7 @@ impl Playback {
                 *sample = (*sample * gain).clamp(-1.0, 1.0);
             }
         }
-        let mut echo = mixed.clone();
-        if echo.len() > FRAME_SAMPLES {
-            echo.truncate(FRAME_SAMPLES);
-        } else {
-            echo.resize(FRAME_SAMPLES, 0.0);
-        }
-        self.last_render = echo;
+        self.push_far(&mixed);
         if rate == SAMPLE_RATE && src_frames == device_frames {
             mixed
         } else {
@@ -552,8 +536,7 @@ fn run_media(args: MediaArgs) {
     let mut pending: HashMap<u32, VecDeque<Vec<u8>>> = HashMap::new();
     let mut denoiser = NoiseSuppressor::new();
     let mut spectral = SpectralSuppressor::new();
-    let mut aec = AecState::default();
-    let mut fir = FirAec::new();
+    let mut echo = EchoControl::new();
     let mut agc = AgcState::default();
 
     loop {
@@ -591,8 +574,7 @@ fn run_media(args: MediaArgs) {
                 &controls,
                 &mut denoiser,
                 &mut spectral,
-                &mut aec,
-                &mut fir,
+                &mut echo,
                 &mut agc,
                 &mut encoder,
                 &mut pcm,
@@ -629,8 +611,7 @@ fn produce_frame(
     controls: &VoiceAudio,
     denoiser: &mut NoiseSuppressor,
     spectral: &mut SpectralSuppressor,
-    aec: &mut AecState,
-    fir: &mut FirAec,
+    echo: &mut EchoControl,
     agc: &mut AgcState,
     encoder: &mut Option<OpusEncoder>,
     pcm: &mut [i16],
@@ -664,21 +645,19 @@ fn produce_frame(
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
     apply_input_gain(&mut owned, controls.input_volume);
     let high = noise_quality_high(&controls.noise_quality);
-    if controls.echo_cancellation && have_audio {
-        let reference = args
-            .playback
-            .lock()
-            .ok()
-            .map(|play| play.last_render.clone())
-            .unwrap_or_default();
-        let mut reference = reference;
-        if reference.len() < FRAME_SAMPLES {
-            reference.resize(FRAME_SAMPLES, 0.0);
-        }
-        if high {
-            fir.process(&mut owned, &reference[..FRAME_SAMPLES]);
+    // The speaker mix is the far-end reference. AEC3 runs before AGC, RNNoise,
+    // and Opus so a call on speakers does not feed the mic back into the encode.
+    let reference = args
+        .playback
+        .lock()
+        .ok()
+        .map(|mut play| play.drain_far_ref())
+        .unwrap_or_default();
+    if controls.echo_cancellation {
+        if have_audio {
+            echo.process(&mut owned, &reference);
         } else {
-            apply_aec(&mut owned, &reference[..FRAME_SAMPLES], aec);
+            echo.push_render(&reference);
         }
     }
     if controls.agc && have_audio {
@@ -1228,16 +1207,29 @@ mod tests {
     }
 
     #[test]
-    fn echo_cancellation_removes_a_matching_reference() {
-        let reference = vec![0.4; 64];
-        let mut state = AecState::default();
-        let mut frame = reference.clone();
-        for _ in 0..12 {
-            frame.clone_from(&reference);
-            apply_aec(&mut frame, &reference, &mut state);
-        }
-        let energy: f32 = frame.iter().map(|sample| sample * sample).sum();
-        assert!(energy < 1.0, "energy {energy}");
+    fn render_records_the_speaker_mix_as_the_echo_reference() {
+        let mut play = Playback::new();
+        push_speaker(&mut play, 1, "a", &[0.25; FRAME_SAMPLES]);
+        let mixed = play.render(FRAME_SAMPLES, &HashMap::new());
+        let far = play.drain_far_ref();
+        assert_eq!(far, mixed);
+        assert!(far.iter().all(|sample| (*sample - 0.25).abs() < 0.001));
+
+        play.deafened = true;
+        push_speaker(&mut play, 1, "a", &[0.8; FRAME_SAMPLES]);
+        let silent = play.render(FRAME_SAMPLES, &HashMap::new());
+        let far = play.drain_far_ref();
+        assert!(silent.iter().all(|sample| *sample == 0.0));
+        assert!(far.iter().all(|sample| *sample == 0.0));
+
+        play.deafened = false;
+        play.rate = 44_100;
+        push_speaker(&mut play, 1, "a", &[0.5; 4_800]);
+        let device = play.render(441, &HashMap::new());
+        let far = play.drain_far_ref();
+        let src_frames = (441u64 * u64::from(SAMPLE_RATE) / 44_100) as usize;
+        assert_eq!(device.len(), 441);
+        assert_eq!(far.len(), src_frames);
     }
 
     #[test]
