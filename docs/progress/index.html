@@ -2018,14 +2018,14 @@
         link.rel = "noreferrer";
         link.textContent = "Release page";
         body.append(link);
-        const notes = releaseNotes(entry.notes);
-        if (notes) body.append(notes);
         if (String(entry.version || "").toLowerCase() === "v3.0.0") {
           const archive = document.createElement("div");
           archive.id = "archive-3";
           archive.className = "archive";
           body.append(archive);
         }
+        const notes = releaseNotes(entry.notes);
+        if (notes) body.append(notes);
         details.append(summary, body);
         li.append(details);
         return li;
@@ -2461,10 +2461,7 @@
         meta.className = "meta";
         const ref = pr.head && pr.head.ref ? pr.head.ref : "";
         meta.textContent = (pr.user && pr.user.login ? pr.user.login + " · " : "") + ref;
-        const eta = document.createElement("p");
-        eta.className = "eta";
-        eta.textContent = "ETA —";
-        card.append(titles, pill, meta, eta);
+        card.append(titles, pill, meta);
         return card;
       }
 
