@@ -905,6 +905,12 @@ html.is-game-mode *::after {
 .voice-hud-channel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .voice-hud-state { flex: none; font-size: 11px; font-weight: 700; color: var(--ok); letter-spacing: 0.02em; }
 .voice-hud-state.is-muted { color: var(--danger); }
+.voice-hud-meta { display: flex; gap: 8px; margin: 2px 4px 0; min-width: 0; font-size: 11px; font-weight: 650; color: var(--muted); }
+.voice-hud-link, .voice-hud-game { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-hud-link { font-variant-numeric: tabular-nums; }
+.voice-hud-link.is-excellent, .voice-hud-link.is-good { color: var(--ok); }
+.voice-hud-link.is-fair { color: var(--idle); }
+.voice-hud-link.is-poor { color: var(--danger); }
 .voice-hud-people { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .voice-hud-person, .voice-hud-empty, .voice-hud-more { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 1px 4px; border-radius: 6px; }
 .voice-hud-empty, .voice-hud-more { color: var(--muted); font-size: 12px; }

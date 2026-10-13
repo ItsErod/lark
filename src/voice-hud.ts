@@ -1,5 +1,5 @@
 import type { PerfSample } from "./perf";
-import { participantsIn, type VoiceRoster } from "./voice";
+import { linkQuality, participantsIn, type LinkQuality, type VoiceRoster } from "./voice";
 
 export const VOICE_HUD_LIMIT = 8;
 
@@ -40,6 +40,28 @@ export interface VoiceHudView extends VoiceHudFrame {
   stats: PerfSample | null;
   opacity: number;
   clickThrough: boolean;
+  /** Round-trip voice ping. Null until the voice server answers. */
+  pingMs?: number | null;
+  /** Front-most game, when detection has a name. */
+  game?: string;
+}
+
+/** Status on the HUD bar. Deafen is its own word so it is not shown as mute. */
+export function hudStatus(view: Pick<VoiceHudFrame, "inCall" | "status" | "selfMuted" | "selfDeafened">): string {
+  if (!view.inCall) return "Not in a call";
+  if (view.status === "connecting") return "Connecting";
+  if (view.status === "reconnecting") return "Reconnecting";
+  if (view.selfDeafened) return "Deafened";
+  if (view.selfMuted) return "Muted";
+  return "Live";
+}
+
+/** Ping and quality for the HUD. Empty until a ping exists, so the line stays out of the way. */
+export function hudLinkLine(pingMs: number | null | undefined): { text: string; quality: LinkQuality | "" } {
+  if (typeof pingMs !== "number" || !Number.isFinite(pingMs) || pingMs < 0) return { text: "", quality: "" };
+  const ms = Math.max(0, Math.round(pingMs));
+  const quality = linkQuality(ms);
+  return { text: quality ? `${ms} ms · ${quality}` : `${ms} ms`, quality };
 }
 
 const idle = (): VoiceHudFrame => ({

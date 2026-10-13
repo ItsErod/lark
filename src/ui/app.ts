@@ -11223,6 +11223,8 @@ class LarkApp {
       stats: this.shownPerf(),
       opacity: this.config.voice.overlay_opacity,
       clickThrough: this.config.voice.overlay_click_through,
+      pingMs: this.voice ? this.voiceDetails.pingMs : null,
+      game: this.detectedGame ?? "",
     };
   }
 
