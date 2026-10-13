@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeConfig } from "./config";
-import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeClips, sanitizeGuildSounds, sanitizeSoundToggles, soundHotkeyIsGlobal } from "./soundboard";
+import { acceptHeardSound, clipForHotkey, hearSoundKey, parseSoundEffect, playableClipIds, playableGuildSounds, sanitizeClips, sanitizeGuildSounds, sanitizeSoundToggles, soundHotkeyIsGlobal } from "./soundboard";
 
 describe("soundboard", () => {
   it("keeps a short list of wav clips and drops a duplicate hotkey", () => {
@@ -50,5 +50,28 @@ describe("soundboard", () => {
     expect(playableGuildSounds(sounds, { "100000000000000201": true }, false).map((sound) => sound.id)).toEqual(["100000000000000201"]);
     expect(playableGuildSounds(sounds, {}, true)).toEqual([]);
     expect(playableClipIds([{ id: "horn" }, { id: "bell" }], { bell: false })).toEqual(["horn"]);
+  });
+
+  it("hears a guild sound in this channel and skips a repeat or a deafen", () => {
+    const effect = parseSoundEffect({
+      channelId: "100000000000000026",
+      userId: "100000000000000003",
+      soundId: "100000000000000201",
+      volume: 1.4,
+    });
+    expect(effect).toEqual({
+      channelId: "100000000000000026",
+      userId: "100000000000000003",
+      soundId: "100000000000000201",
+      volume: 1,
+    });
+    expect(parseSoundEffect({ channelId: "100000000000000026", emoji: { name: "🔥" } })).toBeNull();
+    const key = hearSoundKey(effect!.userId, effect!.soundId);
+    expect(acceptHeardSound(effect!, "100000000000000026", false, 2_000, undefined)).toBe(true);
+    expect(acceptHeardSound(effect!, "100000000000000026", true, 2_000, undefined)).toBe(false);
+    expect(acceptHeardSound(effect!, "100000000000000099", false, 2_000, undefined)).toBe(false);
+    expect(acceptHeardSound(effect!, "100000000000000026", false, 2_000, 1_000)).toBe(false);
+    expect(acceptHeardSound(effect!, "100000000000000026", false, 3_000, 1_000)).toBe(true);
+    expect(key).toBe("100000000000000003:100000000000000201");
   });
 });

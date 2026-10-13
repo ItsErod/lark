@@ -164,6 +164,14 @@ pub enum ClientEvent {
         stream_key: String,
     },
     VoiceState(ClientVoiceState),
+    /// Someone played a guild soundboard sound. The file is played locally.
+    Soundboard {
+        channel_id: String,
+        guild_id: String,
+        user_id: String,
+        sound_id: String,
+        volume: f64,
+    },
     VoiceStates {
         guild_id: String,
         states: Vec<ClientVoiceState>,
@@ -1399,6 +1407,12 @@ fn handle_dispatch(
             }
             false
         }
+        "VOICE_CHANNEL_EFFECT_SEND" => {
+            if let Some(event) = soundboard_effect(data) {
+                emit(event);
+            }
+            false
+        }
         "THREAD_CREATE" | "THREAD_UPDATE" => {
             if let Ok(channel) = serde_json::from_value::<DiscordChannel>(data.clone()) {
                 let guild_id = json_str(data, "guild_id");
@@ -1502,6 +1516,23 @@ fn emit_guild_shell(
     emit(ClientEvent::GuildAccess {
         access: access_from_guild(guild, user_id, my_roles),
     });
+}
+
+/// A soundboard play. Emoji-only effects have no sound id and are ignored.
+fn soundboard_effect(data: &Value) -> Option<ClientEvent> {
+    let sound_id = json_str(data, "sound_id");
+    let channel_id = json_str(data, "channel_id");
+    if !crate::soundboard::guild_sound_id_ok(&sound_id) || !crate::soundboard::guild_sound_id_ok(&channel_id) {
+        return None;
+    }
+    let volume = data.get("sound_volume").and_then(|value| value.as_f64()).unwrap_or(1.0);
+    Some(ClientEvent::Soundboard {
+        channel_id,
+        guild_id: json_str(data, "guild_id"),
+        user_id: json_str(data, "user_id"),
+        sound_id,
+        volume: volume.clamp(0.0, 1.0),
+    })
 }
 
 fn json_str(value: &Value, key: &str) -> String {
@@ -1915,6 +1946,27 @@ mod tests {
         });
         let mut left = Vec::new();
         handle_dispatch("VOICE_STATE_UPDATE", &leave, Some(2), &mut session, &mut |event| left.push(event));
+        let effect = json!({
+            "channel_id": "100000000000000026",
+            "guild_id": "100000000000000010",
+            "user_id": "100000000000000003",
+            "sound_id": "100000000000000201",
+            "sound_volume": 1.4
+        });
+        let mut heard = Vec::new();
+        handle_dispatch("VOICE_CHANNEL_EFFECT_SEND", &effect, Some(3), &mut session, &mut |event| heard.push(event));
+        match &heard[0] {
+            ClientEvent::Soundboard { sound_id, volume, channel_id, .. } => {
+                assert_eq!(sound_id, "100000000000000201");
+                assert_eq!(channel_id, "100000000000000026");
+                assert!((volume - 1.0).abs() < 0.001);
+            }
+            other => panic!("expected a soundboard effect, got {other:?}"),
+        }
+        let emoji = json!({ "channel_id": "100000000000000026", "emoji": { "name": "🔥" } });
+        let mut skipped = Vec::new();
+        handle_dispatch("VOICE_CHANNEL_EFFECT_SEND", &emoji, Some(4), &mut session, &mut |event| skipped.push(event));
+        assert!(skipped.is_empty());
         match &left[0] {
             ClientEvent::VoiceState(state) => {
                 assert!(state.channel_id.is_empty());

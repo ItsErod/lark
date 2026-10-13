@@ -14,18 +14,21 @@ const MAX_SAMPLES: usize = SAMPLE_RATE as usize * MAX_SECONDS as usize;
 #[derive(Debug, Default)]
 pub struct SoundMix {
     tracks: Vec<VecDeque<f32>>,
-    /// Guild soundboard. A second source beside the local WAV clips.
+    /// Guild soundboard mixed into the outgoing frame. Kept for local tests.
     guild: VecDeque<f32>,
+    /// Guild sounds for the speakers. Not mixed into the microphone.
+    hear: Vec<VecDeque<f32>>,
 }
 
 impl SoundMix {
     pub fn new() -> Self {
-        Self { tracks: Vec::new(), guild: VecDeque::new() }
+        Self { tracks: Vec::new(), guild: VecDeque::new(), hear: Vec::new() }
     }
 
     pub fn clear(&mut self) {
         self.tracks.clear();
         self.guild.clear();
+        self.hear.clear();
     }
 
     /// Queue a guild sound. Local clips stay on `push`.
@@ -35,6 +38,35 @@ impl SoundMix {
         }
         let room = MAX_SAMPLES.saturating_sub(self.guild.len());
         self.guild.extend(pcm.into_iter().take(room));
+    }
+
+    /// Queue a guild sound for speaker playback. This does not enter `mix_into`.
+    pub fn push_hear(&mut self, pcm: Vec<f32>) {
+        if pcm.is_empty() {
+            return;
+        }
+        if self.hear.len() >= MAX_TRACKS {
+            self.hear.remove(0);
+        }
+        self.hear.push(VecDeque::from(pcm.into_iter().take(MAX_SAMPLES).collect::<Vec<_>>()));
+    }
+
+    /// Overlapping speaker sounds, up to `count` samples. Empty when nothing is queued.
+    pub fn take_hear(&mut self, count: usize) -> Vec<f32> {
+        let longest = self.hear.iter().map(|track| track.len()).max().unwrap_or(0);
+        let count = count.min(longest);
+        if count == 0 {
+            return Vec::new();
+        }
+        let mut out = vec![0f32; count];
+        for track in &mut self.hear {
+            for sample in out.iter_mut() {
+                let Some(extra) = track.pop_front() else { break };
+                *sample = (*sample + extra).clamp(-1.0, 1.0);
+            }
+        }
+        self.hear.retain(|track| !track.is_empty());
+        out
     }
 
     /// Legacy placeholder. Guild playback uses the downloaded file, not this tone.
@@ -399,5 +431,25 @@ mod tests {
         mix.clear();
         let mut again = vec![0.0; 2];
         assert!(!mix.mix_into(&mut again));
+    }
+
+    #[test]
+    fn heard_guild_audio_stays_off_the_microphone() {
+        let mut mix = SoundMix::new();
+        mix.push(vec![0.1]);
+        mix.push_hear(vec![0.4, 0.4]);
+        mix.push_hear(vec![0.2, 0.2, 0.2]);
+        let mut frame = vec![0.0; 2];
+        assert!(mix.mix_into(&mut frame));
+        assert!((frame[0] - 0.1).abs() < 0.001);
+        assert_eq!(frame[1], 0.0);
+        let heard = mix.take_hear(8);
+        assert_eq!(heard.len(), 3);
+        assert!((heard[0] - 0.6).abs() < 0.001);
+        assert!((heard[2] - 0.2).abs() < 0.001);
+        assert!(mix.take_hear(8).is_empty());
+        mix.push_hear(vec![0.3]);
+        mix.clear();
+        assert!(mix.take_hear(4).is_empty());
     }
 }

@@ -315,7 +315,7 @@ import {
 import { isHeldRequest } from "../message-requests";
 import { loadThreadsUi, threadsNow } from "./lazy-threads";
 import { writeClipboard } from "../clipboard";
-import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
+import { acceptHeardSound, clipForHotkey, hearSoundKey, parseSoundEffect, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
 import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, isDefaultAvatar, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, preferAvatar, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
@@ -762,6 +762,7 @@ class LarkApp {
   private gearOpen = false;
   private activitiesOpen = false;
   private soundboardOpen = false;
+  private heardSounds = new Map<string, number>();
   private micMenuOpen = false;
   private moreOpen = false;
   private voiceMenu: { userId: string; x: number; y: number } | null = null;
@@ -3174,8 +3175,30 @@ class LarkApp {
       strip,
     );
     panel.append(line, details, actions);
+    if (this.soundboardOpen) panel.append(this.soundboardPanel());
     if (this.deviceMenu) panel.append(this.deviceMenuPop());
     return panel;
+  }
+
+  private soundboardPanel(): HTMLElement {
+    const board = el("div", "voice-board");
+    board.setAttribute("role", "menu");
+    board.setAttribute("aria-label", "Soundboard");
+    const deafened = Boolean(this.voice?.deafened);
+    if (deafened) {
+      board.append(el("p", "hint", "Soundboard is off while you are deafened."));
+      return board;
+    }
+    const sounds = playableGuildSounds(this.guildSounds, this.soundToggles, false);
+    board.append(el("span", "hint", "Server sounds"));
+    if (!sounds.length) board.append(el("p", "hint", "No server sounds."));
+    for (const sound of sounds) {
+      const button = el("button", "text-button", sound.name);
+      button.type = "button";
+      button.addEventListener("click", () => void this.playGuildSound(sound.id));
+      board.append(button);
+    }
+    return board;
   }
 
   private userAudioRow(): HTMLElement {
@@ -7150,11 +7173,14 @@ class LarkApp {
         this.paintVoice();
         return;
       }
-      if (this.voiceMenu || this.gearOpen || this.activitiesOpen) {
+      if (this.voiceMenu || this.gearOpen || this.activitiesOpen || this.soundboardOpen) {
         this.voiceMenu = null;
         this.gearOpen = false;
         this.activitiesOpen = false;
+        const board = this.soundboardOpen;
+        this.soundboardOpen = false;
         this.paintVoiceFloats();
+        if (board) this.paintChannels();
         return;
       }
       if (this.popout) {
@@ -8848,6 +8874,8 @@ class LarkApp {
       this.syncCallMembers();
       this.paintChannels();
       this.paintVoice();
+    } else if (event.kind === "soundboard") {
+      this.onSoundEffect(event);
     } else if (event.kind === "voiceSpeaking" && event.userId) {
       const epoch = Number((event as { epoch?: number }).epoch ?? 0);
       if (epoch && epoch !== this.voiceEpoch) return;
@@ -9431,6 +9459,8 @@ class LarkApp {
     this.micMenuOpen = false;
     this.moreOpen = false;
     this.voiceMenu = null;
+    if (this.soundboardOpen && this.voice?.guildId) void this.loadGuildSounds(this.voice.guildId);
+    this.paintChannels();
     this.paintVoice();
   }
 
@@ -10895,8 +10925,10 @@ class LarkApp {
       const listed = await invoke<unknown>("fetch_soundboard", { guildId });
       this.guildSounds = sanitizeGuildSounds(listed, guildId);
       this.paintVoice();
+      if (this.soundboardOpen) this.paintChannels();
     } catch {
       this.guildSounds = [];
+      if (this.soundboardOpen) this.paintChannels();
     }
   }
 
@@ -10905,15 +10937,32 @@ class LarkApp {
     if (!soundEnabled(this.soundToggles, id)) return;
     const sound = this.guildSounds.find((item) => item.id === id);
     if (!sound) return;
-    if (this.demo) {
-      this.toast("Soundboard", sound.name);
-      return;
-    }
+    this.noteHeardSound(this.meId(), sound.id);
+    if (this.demo) return;
     try {
       await invoke("play_guild_sound", { channelId: this.voice.channelId, soundId: sound.id, guildId: sound.guildId, volume: sound.volume });
     } catch (err) {
       this.toast("Soundboard", err instanceof Error ? err.message : "Couldn't play that sound.");
     }
+  }
+
+  private noteHeardSound(userId: string, soundId: string) {
+    this.heardSounds.set(hearSoundKey(userId, soundId), Date.now());
+    if (this.heardSounds.size <= 32) return;
+    const cutoff = Date.now() - 5_000;
+    for (const [key, at] of this.heardSounds) {
+      if (at < cutoff) this.heardSounds.delete(key);
+    }
+  }
+
+  private onSoundEffect(payload: unknown) {
+    const effect = parseSoundEffect(payload);
+    if (!effect || !this.voice) return;
+    const recent = this.heardSounds.get(hearSoundKey(effect.userId, effect.soundId));
+    if (!acceptHeardSound(effect, this.voice.channelId, Boolean(this.voice.deafened), Date.now(), recent)) return;
+    this.noteHeardSound(effect.userId, effect.soundId);
+    if (this.demo) return;
+    void invoke("hear_guild_sound", { soundId: effect.soundId, volume: effect.volume }).catch(() => undefined);
   }
 
   private async inviteToCall() {
@@ -11449,15 +11498,18 @@ class LarkApp {
 
   private dismissVoiceFloats(event: PointerEvent) {
     if (event.button !== 0) return;
-    if (!this.voiceMenu && !this.gearOpen && !this.activitiesOpen) return;
+    if (!this.voiceMenu && !this.gearOpen && !this.activitiesOpen && !this.soundboardOpen) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest(".voice-menu, .voice-gear, .voice-pop, .voice-bar, .share-dialog, .share-popover, .share-layer, [data-voice-gear]")) return;
+    if (target.closest(".voice-menu, .voice-gear, .voice-pop, .voice-bar, .voice-board, .voice-panel, .share-dialog, .share-popover, .share-layer, [data-voice-gear]")) return;
     this.voiceMenu = null;
     this.gearOpen = false;
     this.activitiesOpen = false;
+    const board = this.soundboardOpen;
+    this.soundboardOpen = false;
     this.paintVoiceFloats();
-    if (this.callSurface === "split") this.paintVoice();
+    if (board) this.paintChannels();
+    else if (this.callSurface === "split") this.paintVoice();
   }
 
   private paintVoiceFloats() {

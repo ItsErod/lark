@@ -377,6 +377,7 @@ export const phrases: Record<string, readonly [string, string, string, string]> 
     "Noch keine gespeicherten Spiele. Starte eins oder schalte Spiele erkennen weiter oben ein.",
     "Ainda não há jogos salvos. Inicie um, ou ative Detectar jogos acima.",
   ],
+  "No server sounds.": ["Aucun son de serveur.", "No hay sonidos del servidor.", "Keine Servertöne.", "Nenhum som do servidor."],
   "No server folders yet. Counts stay on this device.": [
     "Pas encore de dossiers de serveurs. Les compteurs restent sur cet appareil.",
     "Aún no hay carpetas de servidores. Los recuentos se quedan en este dispositivo.",
