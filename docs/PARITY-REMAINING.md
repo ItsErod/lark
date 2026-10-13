@@ -61,5 +61,6 @@ The earlier gap list (agent artifact `overnight-gaps.md`, after [#180](https://g
 | Theme swatches on store install rows. | [#202](https://github.com/ItsErod/lark/pull/202) |
 | Pause GIF and sticker autoplay. | [#204](https://github.com/ItsErod/lark/pull/204) |
 | In-app reduced motion: System, Reduce, or Allow. | [#205](https://github.com/ItsErod/lark/pull/205) |
+| Speaker echo cancellation is WebRTC AEC3 on the playback mix, before RNNoise. | [#225](https://github.com/ItsErod/lark/pull/225) |
 
 Also on main since v3.0.3, outside that gap list: Mono store themes ([#190](https://github.com/ItsErod/lark/pull/190), [#192](https://github.com/ItsErod/lark/pull/192), [#197](https://github.com/ItsErod/lark/pull/197)), the optional Minimal Mono dashboard ([#201](https://github.com/ItsErod/lark/pull/201)), and a local stats page for play time, voice, and usage ([#206](https://github.com/ItsErod/lark/pull/206)). Pull-request CI now runs clippy, rustfmt, eslint, and native tests ([#193](https://github.com/ItsErod/lark/pull/193)), with a release test gate ([#195](https://github.com/ItsErod/lark/pull/195)) and a perf check that fails on a large regression versus main ([#196](https://github.com/ItsErod/lark/pull/196)). Those are build gates, not user-facing Discord gaps.
