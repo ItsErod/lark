@@ -153,6 +153,32 @@ pub fn sample_load(os: &str) -> HardwareReading {
     sample_machine(os, false)
 }
 
+/// Foreground game only. Skips CPU, RAM, and GPU so a clip name check stays off the hotkey.
+pub fn sample_game(os: &str) -> Option<String> {
+    match os {
+        "macos" => {
+            let foreground = macos_foreground();
+            let processes = process_lines(&capture(
+                "/bin/ps",
+                &["-ax", "-o", "comm="],
+                Duration::from_secs(2),
+            ));
+            pick_game(foreground.as_deref(), &processes)
+        }
+        "windows" => {
+            #[cfg(windows)]
+            {
+                return hardware_win::foreground_game();
+            }
+            #[cfg(not(windows))]
+            {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn sample_machine(os: &str, full: bool) -> HardwareReading {
     match os {
         "macos" => sample_macos(full),
@@ -1150,6 +1176,7 @@ mod tests {
     #[test]
     fn empty_reading_has_no_line() {
         assert_eq!(status_line(&HardwareReading::default()), None);
+        assert_eq!(sample_game("linux"), None);
     }
 
     #[test]

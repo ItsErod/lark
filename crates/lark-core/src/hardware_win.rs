@@ -35,6 +35,11 @@ pub(super) fn gpu_name() -> Option<String> {
     prefer_gpu(names)
 }
 
+pub(super) fn foreground_game() -> Option<String> {
+    let (foreground, processes) = processes();
+    pick_game(foreground.as_deref(), &processes)
+}
+
 pub(super) fn sample() -> HardwareReading {
     let memory = memory();
     let (foreground, processes) = processes();

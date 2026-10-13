@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CLIP_DRAG,
+  clampTrim,
   clipAttachAction,
+  clipDisplayTitle,
   clipPlaybackBlock,
   compressCopy,
   DEFAULT_UPLOAD_LIMIT,
@@ -15,6 +17,7 @@ import {
   NITRO_LIMIT,
   parseCompressMode,
   renamedClipName,
+  trimPresets,
   trimRange,
   uploadLimitBytes,
   videoBitrate,
@@ -81,6 +84,22 @@ describe("clip library", () => {
     expect(trimRange(12_000, 1, 4)).toEqual({ startMs: 1000, endMs: 4000 });
     expect(trimRange(12_000, 8, 4)).toMatch(/after the start/);
     expect(trimRange(12_000, 20, 22)).toMatch(/past the end/);
+    expect(clampTrim(30, 28, 28.05, "end")).toEqual({ startSec: 28, endSec: 28.1 });
+    expect(clampTrim(30, 10, 4, "start").endSec).toBeGreaterThan(clampTrim(30, 10, 4, "start").startSec);
+  });
+
+  it("titles a clip after the game and offers a short trim", () => {
+    expect(clipDisplayTitle("lark-clip-overwatch-2-20261013-040000Z.mp4")).toBe("Overwatch 2");
+    expect(clipDisplayTitle("lark-clip-grand-theft-auto-v-20261013-040000Z-2.mp4")).toBe("Grand Theft Auto V");
+    expect(clipDisplayTitle("lark-clip-20261013-040000Z.mp4")).toBe("Saved clip");
+    expect(clipDisplayTitle("lark-clip-demo-booth.mp4")).toBe("Demo Booth");
+    expect(clipDisplayTitle("lark-clip-demo-booth-trim.mp4")).toBe("Demo Booth trim");
+    expect(trimPresets(30_000)).toEqual([
+      { label: "Last 15s", startSec: 15, endSec: 30 },
+      { label: "Drop first 5s", startSec: 5, endSec: 30 },
+    ]);
+    expect(trimPresets(8_000)).toEqual([{ label: "Drop first 5s", startSec: 5, endSec: 8 }]);
+    expect(trimPresets(4_000)).toEqual([]);
   });
 
   it("shows demo clips with duration, size, and a date, including one over the default limit", () => {

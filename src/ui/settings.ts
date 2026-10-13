@@ -184,7 +184,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "clips.capture", section: "clips", label: "Game Mode capture", description: "Keep a buffer of the main display without sharing your screen.", keywords: "record hotkey" },
   { id: "clips.folder", section: "clips", label: "Clips folder", description: "Saved clips stay on this computer until you attach one.", keywords: "directory path" },
   { id: "clips.compress", section: "clips", label: "When a clip is over the upload limit", description: "Always compress, ask first, or keep the original. The original stays in the clips folder.", keywords: "h264 aac nitro encode" },
-  { id: "clips.library", section: "clips", label: "Clip library", description: "Clips saved on this computer. Open the Clips view to play, trim, and send them.", keywords: "library replay video" },
+  { id: "clips.library", section: "clips", label: "Clip library", description: "Gallery of clips saved on this computer. Play, trim, and share one to the open channel.", keywords: "library gallery replay video share trim" },
   { id: "gaming.mode", section: "gaming", label: "Game Mode", description: "Pause animations, skip prefetch, and slow the polls Lark already runs.", keywords: "performance" },
   { id: "gaming.detect", section: "gaming", label: "Detect games", description: "Watch the front app a few times a minute. GPU sensors stay off.", keywords: "foreground" },
   { id: "gaming.hardware", section: "gaming", label: "Hardware in status", description: "GPU, CPU temperature, and the current game as your Discord custom status.", keywords: "sensors" },

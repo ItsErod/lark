@@ -26,6 +26,8 @@ describe("clips", () => {
       expect(note).toContain("Overwatch 2");
       expect(note).toContain("Deadlock");
       expect(note).toContain("does not hook");
+      expect(note).toContain("gallery");
+      expect(note).toContain("Share sends");
       expect(note).toContain("screen share");
       expect(note).toContain("Game Mode");
       expect(note).toContain("clips folder");
