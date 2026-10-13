@@ -135,7 +135,7 @@ import {
   type StoreItem,
 } from "../store";
 import { storeSwatches } from "./store-swatches";
-import { emojiCdnUrl } from "../render/content";
+import { renderEmojiPicker } from "./emoji-picker";
 import { buildViewMessage, type ViewMessage } from "../render/message";
 import { fpsFromMarks, FrameClock, noteFpsMark } from "../frame";
 import {
@@ -741,6 +741,8 @@ class LarkApp {
   private statTimer = 0;
   private statQueue: StatNote[] = [];
   private statusEmoji = "";
+  private statusEmojiId: string | null = null;
+  private statusEmojiAnimated = false;
   private statusClearAt: number | null = null;
   private directory: Record<string, Person> = {};
   private wireProfile: WireProfile | null = null;
@@ -9750,6 +9752,11 @@ class LarkApp {
     this.serverEditor = serverEditor;
     this.wireProfile = this.wireProfile?.id === person.id ? this.wireProfile : null;
     this.paintPopout();
+    if (statusPicker && this.premiumType > 0 && this.guildId) {
+      void this.ensureEmojis().then(() => {
+        if (this.statusOpen && this.popout?.id === person.id) this.paintPopout();
+      });
+    }
     if (this.demo) return;
     const userId = person.id;
     const guildId = this.guildId;
@@ -14118,6 +14125,7 @@ class LarkApp {
       self: person.id === this.meId(),
       statusPicker: this.statusOpen && person.id === this.meId(),
       roles: roles.length ? roles : (sample ? this.late!.sampleRoles() : []),
+      statusEmojis: this.statusOpen && person.id === this.meId() ? this.statusEmojiSource() : undefined,
       placement: this.profileFull ? "full" : "modal",
       serverEditor: this.serverEditor && person.id === this.meId(),
       details: details ? {
@@ -15485,51 +15493,25 @@ class LarkApp {
   }
 
   private emojiPicker(onPick: (emoji: string, emojiId?: string | null, animated?: boolean, name?: string) => void): HTMLElement {
-    const picker = el("div", "picker");
-    const input = el("input");
-    input.placeholder = "Find emoji";
-    input.setAttribute("aria-label", "Find emoji");
-    input.value = this.emojiQuery;
-    const unicode = el("div", "picker-row");
-    const custom = el("div", "picker-row");
-    const fill = (query: string) => {
-      clear(unicode);
-      clear(custom);
-      const needle = query.trim().toLowerCase();
-      const ranked = frecency(this.emojiUses, Date.now()).map((item) => item.emoji).filter((emoji) => !emoji.includes(":"));
-      const glyphs = [...ranked, ...EMOJI.filter((emoji) => !ranked.includes(emoji))];
-      for (const emoji of glyphs) {
-        const button = el("button", "icon-button", emoji);
-        button.type = "button";
-        button.addEventListener("click", () => onPick(emoji));
-        unicode.append(button);
-        if (unicode.childElementCount >= 16) break;
-      }
-      const server = (this.guildId ? this.guildEmojis[this.guildId] : []) ?? [];
-      for (const emoji of server) {
-        if (needle && !emoji.name.toLowerCase().includes(needle)) continue;
-        const button = el("button", "icon-button");
-        button.type = "button";
-        button.title = `:${emoji.name}:`;
-        const url = emojiCdnUrl(emoji.id, emoji.animated);
-        if (url) {
-          const img = el("img", "emoji");
-          img.alt = emoji.name;
-          img.src = url;
-          button.append(img);
-        } else button.textContent = emoji.name;
-        button.addEventListener("click", () => onPick(emoji.name, emoji.id, emoji.animated, emoji.name));
-        custom.append(button);
-        if (custom.childElementCount >= 48) break;
-      }
-    };
-    input.addEventListener("input", () => {
-      this.emojiQuery = input.value;
-      fill(input.value);
+    return renderEmojiPicker({
+      query: this.emojiQuery,
+      unicode: EMOJI,
+      recent: frecency(this.emojiUses, Date.now()).map((item) => item.emoji).filter((emoji) => !emoji.includes(":")),
+      server: (this.guildId ? this.guildEmojis[this.guildId] : []) ?? [],
+      allowServer: true,
+      onQuery: (value) => {
+        this.emojiQuery = value;
+      },
+      onPick,
     });
-    fill(this.emojiQuery);
-    picker.append(input, unicode, custom);
-    return picker;
+  }
+
+  private statusEmojiSource() {
+    return {
+      recent: frecency(this.emojiUses, Date.now()).map((item) => item.emoji).filter((emoji) => !emoji.includes(":")),
+      server: (this.guildId ? this.guildEmojis[this.guildId] : []) ?? [],
+      allowServer: this.premiumType > 0,
+    };
   }
 
   private insertEmoji(emoji: string, emojiId?: string | null, animated?: boolean, name?: string) {
@@ -16241,7 +16223,7 @@ class LarkApp {
     return true;
   }
 
-  private setStatus(status: NonNullable<Person["status"]>, custom: string, source: "user" | "plugin" = "user", extra?: { emoji: string; clearAfter: ClearAfter }) {
+  private setStatus(status: NonNullable<Person["status"]>, custom: string, source: "user" | "plugin" = "user", extra?: { emoji: string; emojiId?: string | null; animated?: boolean; clearAfter: ClearAfter }) {
     if (!publishActivity(this.hookOn("incognito"), this.pack.privacy.incognitoHideActivity, source)) return;
     if (source === "user") {
       this.hardware = noteHardwareEdit(this.hardware, custom);
@@ -16249,9 +16231,13 @@ class LarkApp {
       this.rememberHardware();
     }
     const emoji = extra?.emoji ?? (source === "user" ? this.statusEmoji : "");
+    const emojiId = extra ? (extra.emojiId ?? null) : this.statusEmojiId;
+    const animated = extra ? Boolean(extra.animated && emojiId) : this.statusEmojiAnimated;
     const clearAt = extra ? clearAfterAt(extra.clearAfter, Date.now()) : this.statusClearAt;
     if (source === "user" && extra) {
       this.statusEmoji = emoji;
+      this.statusEmojiId = emojiId;
+      this.statusEmojiAnimated = animated;
       this.statusClearAt = clearAt;
     }
     const changed = this.me.status !== status || (this.me.custom ?? "") !== custom || (extra ? this.me.statusEmoji !== emoji || this.me.statusClearAt !== clearAt : false);
@@ -16265,7 +16251,7 @@ class LarkApp {
     } else if (changed) {
       const wireStatus = status === "invisible" ? "invisible" : status;
       const pending = extra
-        ? invoke("set_custom_status", { status: wireStatus, custom, emoji, expiresAt: clearAt, game: this.presenceGame() })
+        ? invoke("set_custom_status", { status: wireStatus, custom, emoji, emojiId, animated, expiresAt: clearAt, game: this.presenceGame() })
         : invoke("set_presence", { status: wireStatus, custom, game: this.presenceGame() });
       if (source === "plugin" && this.hardware.enabled && custom === this.hardware.owned) {
         this.hardwarePushFailed = true;

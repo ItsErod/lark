@@ -113,6 +113,23 @@
   box-shadow: var(--focus-ring);
 }
 
+#app .profile-status-picker .picker {
+  width: 100%;
+  margin-top: var(--space-1);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+#app .profile-status-picker .picker input {
+  border-radius: var(--radius-xs);
+}
+
+#app .status-emoji-toggle {
+  min-width: 36px;
+}
+
 #app .profile-actions .primary,
 #app .profile-actions .ghost,
 #app .profile-actions .text-button {

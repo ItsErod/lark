@@ -2420,6 +2420,8 @@ pub fn custom_status_payload(
     status: &str,
     custom: &str,
     emoji: &str,
+    emoji_id: Option<&str>,
+    animated: bool,
     expires_at: Option<i64>,
     game: &str,
 ) -> String {
@@ -2435,6 +2437,10 @@ pub fn custom_status_payload(
         .collect::<String>()
         .trim()
         .to_string();
+    let emoji_id = emoji_id
+        .map(str::trim)
+        .filter(|id| snowflake_ok(id))
+        .map(|id| id.to_string());
     let activities = if custom.trim().is_empty() && emoji.is_empty() {
         Vec::<serde_json::Value>::new()
     } else {
@@ -2444,7 +2450,11 @@ pub fn custom_status_payload(
             "state": custom.trim(),
         });
         if !emoji.is_empty() {
-            activity["emoji"] = serde_json::json!({ "name": emoji, "id": null, "animated": false });
+            activity["emoji"] = serde_json::json!({
+                "name": emoji,
+                "id": emoji_id,
+                "animated": emoji_id.is_some() && animated,
+            });
         }
         if let Some(end) = expires_at.filter(|ms| *ms > 0) {
             activity["timestamps"] = serde_json::json!({ "end": end });
@@ -3026,6 +3036,8 @@ mod tests {
             "online",
             "At the desk",
             "😀",
+            None,
+            false,
             Some(1_700_000_000_000),
             "",
         ))
@@ -3039,8 +3051,40 @@ mod tests {
             payload["d"]["activities"][0]["timestamps"]["end"],
             1_700_000_000_000_i64
         );
-        let cleared: serde_json::Value =
-            serde_json::from_str(&custom_status_payload("idle", "", "", None, "")).unwrap();
+        let cleared: serde_json::Value = serde_json::from_str(&custom_status_payload(
+            "idle", "", "", None, false, None, "",
+        ))
+        .unwrap();
+        let custom_emoji: serde_json::Value = serde_json::from_str(&custom_status_payload(
+            "online",
+            "",
+            "lark",
+            Some("100000000000000099"),
+            true,
+            None,
+            "",
+        ))
+        .unwrap();
+        assert_eq!(
+            custom_emoji["d"]["activities"][0]["emoji"]["id"],
+            "100000000000000099"
+        );
+        assert_eq!(
+            custom_emoji["d"]["activities"][0]["emoji"]["animated"],
+            true
+        );
+        let refused: serde_json::Value = serde_json::from_str(&custom_status_payload(
+            "online",
+            "",
+            "lark",
+            Some("nope"),
+            true,
+            None,
+            "",
+        ))
+        .unwrap();
+        assert!(refused["d"]["activities"][0]["emoji"]["id"].is_null());
+        assert_eq!(refused["d"]["activities"][0]["emoji"]["animated"], false);
         assert!(cleared["d"]["activities"].as_array().unwrap().is_empty());
         let playing: serde_json::Value =
             serde_json::from_str(&presence_payload("online", "At the desk", "Hades II")).unwrap();
