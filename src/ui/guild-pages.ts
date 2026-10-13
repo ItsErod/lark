@@ -560,6 +560,26 @@ function paintPerks(host: GuildSettingsHost, guildId: string, stack: HTMLElement
   }).catch((err) => fail(host, err, "Couldn't load boosts"));
 }
 
+function directoryButton(host: GuildSettingsHost, guildId: string, onInstalled?: () => void): HTMLButtonElement {
+  const button = el("button", "ghost", "Browse the App Directory");
+  button.type = "button";
+  button.addEventListener("click", () => {
+    void import("./app-directory-view").then(({ openAppDirectory }) => {
+      openAppDirectory({
+        invoke: (command, args) => host.invoke(command, args),
+        toast: (title, detail) => host.toast(title, detail),
+        guildId,
+        guildName: host.guild().name,
+        onInstalled: () => {
+          host.toast("Installed", "The app was added to this server.");
+          onInstalled?.();
+        },
+      });
+    });
+  });
+  return button;
+}
+
 function linkButton(label: string, url: string): HTMLButtonElement {
   const button = el("button", "ghost", label);
   button.type = "button";
@@ -939,8 +959,8 @@ function paintRoleEditor(host: GuildSettingsHost, guildId: string, role: ReturnT
     if (tab === "display") paintRoleDisplay(host, guildId, role, body, reload);
     else if (tab === "permissions") paintRolePerms(host, guildId, role, body);
     else if (tab === "links") {
-      body.append(el("p", "hint", "Linked roles are granted when a member connects an app on Discord."));
-      body.append(linkButton("Open the App Directory", DISCORD_LINKS.apps));
+      body.append(el("p", "hint", "Linked roles are granted when a member connects an app."));
+      body.append(directoryButton(host, guildId));
     } else paintRoleMembers(host, guildId, role, body);
   };
   const close = el("button", "ghost", "Close");
@@ -1253,8 +1273,9 @@ function paintAccess(host: GuildSettingsHost, guildId: string, stack: HTMLElemen
 function paintIntegrations(host: GuildSettingsHost, guildId: string, stack: HTMLElement) {
   stack.append(heading("Integrations", "Webhooks, channels this server follows, and bots."));
   const box = card(el("p", "hint", "Loading integrations…"));
-  stack.append(box);
-  const reload = () => {
+  let reload = () => {};
+  stack.append(directoryButton(host, guildId, () => reload()), box);
+  reload = () => {
     void Promise.all([
       call<unknown>(host, { op: "list_webhooks", guildId }).catch(() => []),
       call<unknown>(host, { op: "list_integrations", guildId }).catch(() => []),

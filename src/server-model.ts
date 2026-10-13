@@ -321,7 +321,7 @@ export function headerMenuItems(level: number | null, flags: ContextFlags = {}):
     { id: "create-channel", label: "Create Channel" },
     { id: "create-category", label: "Create Category" },
     { id: "create-event", label: "Create Event" },
-    { id: "apps", label: "App Directory", hint: "Opens Discord" },
+    { id: "apps", label: "App Directory" },
     { id: "hide-muted", label: flags.hideMuted ? "Show Muted Channels" : "Hide Muted Channels" },
     { id: "notifications", label: "Notification Settings", children: notifyChildren("guild-notify") },
     { id: "privacy", label: "Privacy Settings" },

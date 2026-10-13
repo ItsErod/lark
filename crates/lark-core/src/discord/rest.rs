@@ -15,6 +15,10 @@ use crate::ratelimit::{
 };
 use crate::redact::redact;
 
+use super::directory::{
+    self, parse_categories as parse_directory_categories, parse_page as parse_directory_page,
+    DirectoryCategory, DirectoryPage, InstallPlan, InstallResult,
+};
 use super::discover::{
     self, parse_categories, parse_guild, parse_page, DiscoverCategory, DiscoverGuild, DiscoverJoin,
     DiscoverPage, JoinOutcome,
@@ -2786,6 +2790,77 @@ impl DiscordRest {
             .send_json(Method::GET, &route, "gifs", &path, None)
             .await?;
         Ok(gifs_from_value(&value))
+    }
+
+    pub async fn directory_categories(&self) -> Result<Vec<DirectoryCategory>, RestError> {
+        let path = directory::categories_path();
+        let route = route_key("GET", "/application-directory-static/categories", "apps");
+        let value = self
+            .send_json(Method::GET, &route, "apps", path, None)
+            .await?;
+        Ok(parse_directory_categories(&value))
+    }
+
+    pub async fn directory_search(
+        &self,
+        query: &str,
+        category_id: Option<i64>,
+        guild_id: Option<&str>,
+        page: u32,
+    ) -> Result<DirectoryPage, RestError> {
+        let page = page.clamp(1, 1_000);
+        let path = directory::search_path(query, category_id, guild_id, page)
+            .map_err(RestError::Message)?;
+        let route = route_key("GET", "/application-directory-static/search", "apps");
+        let value = self
+            .send_json(Method::GET, &route, "apps", &path, None)
+            .await?;
+        Ok(parse_directory_page(&value, page))
+    }
+
+    pub async fn install_application(
+        &self,
+        application_id: &str,
+        guild_id: &str,
+        permissions: &str,
+        scopes: &[String],
+        custom_install_url: &str,
+        custom_install_blocked: bool,
+    ) -> Result<InstallResult, RestError> {
+        let plan = directory::plan_install(
+            application_id,
+            guild_id,
+            permissions,
+            scopes,
+            custom_install_url,
+            custom_install_blocked,
+        );
+        let InstallPlan::Authorize {
+            permissions,
+            scopes,
+        } = plan
+        else {
+            return Ok(match plan {
+                InstallPlan::Link { url, reason } => InstallResult::Link { url, reason },
+                InstallPlan::Authorize { .. } => InstallResult::Failed {
+                    message: "Could not install that app.".into(),
+                },
+            });
+        };
+        let path =
+            directory::authorize_path(application_id, &scopes).map_err(RestError::Message)?;
+        let body = directory::authorize_body(guild_id, &permissions).map_err(RestError::Message)?;
+        let route = route_key("POST", "/oauth2/authorize", "apps");
+        let response = self
+            .send(Method::POST, &route, &path, Some(body), &[])
+            .await?;
+        let status = response.status().as_u16();
+        let text = redact(&response.text().await.unwrap_or_default(), &[&self.token]);
+        Ok(directory::interpret_install(
+            status,
+            &text,
+            &directory::captcha_fallback(application_id, guild_id, &permissions, &scopes),
+        ))
     }
 
     pub async fn guild_stickers(
