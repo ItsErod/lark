@@ -13,6 +13,7 @@
  *   and `__larkRevealSpoilers` still override when set.
  * - C: `blockedIds()` from `src/social.ts`. `globalThis.__larkBlockedIds` is included too.
  */
+import { needsForm, parseFormOptions, subcommandPaths, type FormOption } from "../slash-options";
 import { developerMode, showEmbeds, showSpoilers, type DisplaySource } from "../display-flags";
 import { bookmarkMenuLabel } from "../pack/bookmarks";
 import { reminderMenuLabel } from "../reminders";
@@ -592,12 +593,7 @@ function safeCall(fn: () => unknown): unknown {
   }
 }
 
-export interface SlashOption {
-  name: string;
-  description: string;
-  type: number;
-  required: boolean;
-}
+export type SlashOption = FormOption;
 
 export interface SlashCommand {
   id: string;
@@ -612,7 +608,8 @@ export interface SlashCommand {
 export type SlashAction =
   | { op: "send"; text: string }
   | { op: "gif"; query: string }
-  | { op: "app"; command: SlashCommand; args: string; targetId?: string | null };
+  | { op: "app"; command: SlashCommand; args: string; targetId?: string | null }
+  | { op: "form"; command: SlashCommand };
 
 const BUILT_INS: { name: string; description: string; run: (args: string) => SlashAction }[] = [
   { name: "gif", description: "Open the GIF picker", run: (args) => ({ op: "gif", query: args }) },
@@ -681,10 +678,10 @@ export function slashSuggestions(query: string): { token: string; label: string;
   }
   for (const command of slashCommandsOf(1)) {
     if (needle && !command.name.toLowerCase().includes(needle)) continue;
-    const ready = !command.options.some((option) => option.required) || Boolean(args);
-    const action: SlashAction = { op: "app", command, args };
+    const ready = !needsForm(command) || (Boolean(args) && !subcommandPaths(command).length);
+    const action: SlashAction = ready ? { op: "app", command, args } : { op: "form", command };
     hits.push({
-      token: ready ? slashToken(action) : `/${command.name} `,
+      token: slashToken(action),
       label: `/${command.name}`,
       hint: command.description || "App command",
     });
@@ -801,19 +798,7 @@ export function commandsFromPayload(payload: unknown): SlashCommand[] {
     const applicationId = stringField(record, "applicationId", "application_id");
     const name = typeof record.name === "string" ? record.name : "";
     if (!id || !applicationId || !name) continue;
-    const options = Array.isArray(record.options) ? record.options.flatMap((option) => {
-      if (!option || typeof option !== "object") return [];
-      const row = option as Record<string, unknown>;
-      const optionName = typeof row.name === "string" ? row.name : "";
-      if (!optionName) return [];
-      const optionType = typeof row.type === "number" ? row.type : typeof row.typeId === "number" ? row.typeId : 3;
-      return [{
-        name: optionName,
-        description: typeof row.description === "string" ? row.description : "",
-        type: optionType,
-        required: row.required === true,
-      }];
-    }) : [];
+    const options = parseFormOptions(record.options);
     commands.push({
       id,
       applicationId,
