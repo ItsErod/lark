@@ -157,8 +157,10 @@ export function coerceFormValue(option: FormOption, raw: string | number | boole
       const id = String(raw).trim().replace(/^<[@#]?[!&]?(\d+)>$/, "$1");
       return SNOWFLAKE.test(id) ? id : null;
     }
-    case OPTION.ATTACHMENT:
-      return null;
+    case OPTION.ATTACHMENT: {
+      const slot = String(raw);
+      return /^\d{1,2}$/.test(slot) ? slot : null;
+    }
     default: {
       const text = String(raw);
       if (option.choices?.length) {
@@ -175,8 +177,7 @@ export function coerceFormValue(option: FormOption, raw: string | number | boole
 /** Plain-language problem with one field, or "" when it is fine. */
 export function fieldProblem(option: FormOption, raw: string | number | boolean | undefined): string {
   const empty = raw === undefined || raw === "";
-  if (option.type === OPTION.ATTACHMENT) return option.required ? "Attachments aren't supported yet. Run this one in Discord." : "";
-  if (empty) return option.required ? "Required" : "";
+  if (empty) return option.required ? (option.type === OPTION.ATTACHMENT ? "Choose a file" : "Required") : "";
   if (coerceFormValue(option, raw) !== null) return "";
   if (option.type === OPTION.INTEGER) return "Enter a whole number" + range(option);
   if (option.type === OPTION.NUMBER) return "Enter a number" + range(option);
@@ -236,8 +237,15 @@ function envelope(type: number, command: FormCommand, target: Target, options: R
   return body;
 }
 
+/** A file already uploaded through POST /channels/{id}/attachments, referenced by slot id. */
+export interface UploadedFile {
+  id: string;
+  filename: string;
+  uploadedFilename: string;
+}
+
 /** Application command (type 2) payload from form values, or null when a field is invalid. */
-export function formInteractionBody(command: FormCommand, path: string[], values: FormValues, target: Target): Record<string, unknown> | null {
+export function formInteractionBody(command: FormCommand, path: string[], values: FormValues, target: Target, uploads: UploadedFile[] = []): Record<string, unknown> | null {
   if (!command.id || !command.applicationId || !target.channelId) return null;
   const fields = fieldsFor(command, path);
   if (Object.keys(formProblems(fields, values)).length) return null;
@@ -247,9 +255,14 @@ export function formInteractionBody(command: FormCommand, path: string[], values
     if (raw === undefined || raw === "") continue;
     const value = coerceFormValue(field, raw);
     if (value === null) return null;
+    if (field.type === OPTION.ATTACHMENT && !uploads.some((file) => file.id === value)) return null;
     leaf.push({ type: field.type, name: field.name, value });
   }
-  return envelope(2, command, target, wrapPath(command, path, leaf), nonce());
+  const body = envelope(2, command, target, wrapPath(command, path, leaf), nonce());
+  if (uploads.length) {
+    (body.data as Record<string, unknown>).attachments = uploads.map((file) => ({ id: file.id, filename: file.filename, uploaded_filename: file.uploadedFilename }));
+  }
+  return body;
 }
 
 /** Autocomplete (type 4) payload: current values plus the focused field as typed text. */
