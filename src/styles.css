@@ -1316,6 +1316,11 @@ button.guild-row:hover { background: var(--hover); }
 .voice-chat-form { display: flex; gap: 6px; padding: 8px; }
 .voice-chat-form input { flex: 1; }
 .watch-frame, .camera-preview, .stream-preview-video { width: 100%; max-height: 180px; background: #000; border-radius: 8px; }
+.voice-media > .camera-preview,
+.voice-media > .voice-camera {
+  position: absolute; inset: 0; width: 100%; height: 100%; max-height: none;
+  object-fit: cover; border-radius: 0; pointer-events: none; background: #000;
+}
 .camera-preview-slot, .stream-preview { min-height: 72px; }
 [data-hide-names="1"] .voice-user-name, [data-hide-names="1"] .voice-tile-name { visibility: hidden; }
 .voice-stage.is-focus { display: grid; }

@@ -1,6 +1,7 @@
 import { channelIsBehind, firstUnreadId, mergeIncoming, outgoingNonce, sameOutgoing, sameReaction, shouldGroup, typingLine } from "../chat";
 import { composedError, spoilerUploadName } from "../compose";
 import { reportCrash } from "../crash";
+import { snapCameraFps, snapCameraHeight } from "../camera-quality";
 import { defaultConfig, sanitizeConfig } from "../config";
 import { ARCHIVE, CRIT, booth, history, ME, NORTHWIND, channels as demoChannels, dms as demoDms, guilds as demoGuilds, pageMessages, people, pins as demoPins } from "../demo/data";
 import { benchHistory, benchPeople } from "../bench/corpus";
@@ -874,6 +875,8 @@ class LarkApp {
   private micPreview: MediaStream | null = null;
   private cameraStream: MediaStream | null = null;
   private cameraTimer = 0;
+  private cameraStop: (() => void) | null = null;
+  private cameraGen = 0;
   private cpalInputs: string[] = [];
   private cpalOutputs: string[] = [];
   private shareOn = false;
@@ -6800,6 +6803,34 @@ class LarkApp {
     const deviceActions = el("div", "settings-actions");
     deviceActions.append(listDevices, copyDiag);
     devices.append(deviceActions);
+    const camera = this.late!.settingCard("Camera");
+    camera.append(el("p", "setting-help", "720p at 30 fps is the default. The GPU encodes it when this computer has a hardware encoder, and a software encoder is the fallback. Lark steps the picture down when packets are being lost, then back up when the link clears."));
+    camera.append(this.segmentRow(
+      "voice.camera.quality",
+      "Resolution",
+      "360p, 480p, 720p, or 1080p.",
+      ["360", "480", "720", "1080"],
+      { "360": "360p", "480": "480p", "720": "720p", "1080": "1080p" },
+      String(snapCameraHeight(this.config.voice.camera_height)),
+      (value) => {
+        this.config.voice.camera_height = snapCameraHeight(Number(value));
+        this.persist();
+        if (this.cameraOn) void this.startCameraSend();
+      },
+    ));
+    camera.append(this.segmentRow(
+      "voice.camera.fps",
+      "Frame rate",
+      "15 or 30. 30 matches a Discord camera.",
+      ["15", "30"],
+      { "15": "15", "30": "30" },
+      String(snapCameraFps(this.config.voice.camera_fps)),
+      (value) => {
+        this.config.voice.camera_fps = snapCameraFps(Number(value));
+        this.persist();
+        if (this.cameraOn) void this.startCameraSend();
+      },
+    ));
     const ring = this.late!.settingCard("Speaking ring");
     ring.append(this.speakRingRow());
     const share = this.late!.settingCard("Screen share");
@@ -6844,7 +6875,7 @@ class LarkApp {
         this.persist();
       },
     ));
-    wrap.append(input, hud, devices, ring, share);
+    wrap.append(input, hud, devices, camera, ring, share);
     this.appendVoiceLab(wrap);
     this.appendSoundboard(wrap);
     return wrap;
@@ -12248,58 +12279,33 @@ class LarkApp {
   }
 
   private async startCameraSend() {
+    this.stopCameraSend();
+    const gen = this.cameraGen;
     if (!navigator.mediaDevices?.getUserMedia) {
       this.toast("Camera", "This window cannot open a camera.");
       this.cameraOn = false;
       return;
     }
-    this.stopCameraSend();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: this.config.voice.video_device ? { deviceId: { exact: this.config.voice.video_device } } : true,
-        audio: false,
+      const { openCameraSend } = await import("../camera-send");
+      if (gen !== this.cameraGen || !this.cameraOn) return;
+      const handle = await openCameraSend({
+        deviceId: this.config.voice.video_device,
+        height: this.config.voice.camera_height,
+        fps: this.config.voice.camera_fps,
+        send: !this.demo && Boolean(this.voice),
+        lossPct: () => this.voiceDetails.lossPct ?? 0,
+        invoke: (cmd, args) => invoke(cmd, args),
+        onFrame: (stream) => this.attachCameraPreview(stream),
       });
-      this.cameraStream = stream;
-      const video = document.createElement("video");
-      video.muted = true;
-      video.playsInline = true;
-      video.srcObject = stream;
-      await video.play();
-      const canvas = document.createElement("canvas");
-      canvas.width = 320;
-      canvas.height = 176;
-      const ctx = canvas.getContext("2d");
-      const tick = () => {
-        if (!this.cameraOn || !this.cameraStream || !ctx) return;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        if (!this.demo && this.voice) {
-          void invoke("push_camera_frame", { width: canvas.width, height: canvas.height, rgba: Array.from(frame.data) }).catch(() => undefined);
-        }
-        const previewSlot = document.querySelector("[data-camera-test]");
-        if (previewSlot && !previewSlot.querySelector("video")) {
-          const preview = document.createElement("video");
-          preview.className = "camera-preview";
-          preview.muted = true;
-          preview.playsInline = true;
-          preview.autoplay = true;
-          preview.srcObject = stream;
-          previewSlot.replaceChildren(preview);
-        }
-        const slot = document.querySelector(".voice-tile.is-video[data-voice-user=\"" + this.meId() + "\"] .voice-media");
-        if (slot && !slot.querySelector("video")) {
-          const preview = document.createElement("video");
-          preview.className = "camera-preview";
-          preview.muted = true;
-          preview.playsInline = true;
-          preview.autoplay = true;
-          preview.srcObject = stream;
-          slot.replaceChildren(preview);
-        }
-      };
-      tick();
-      this.cameraTimer = window.setInterval(tick, 1000 / 15);
+      if (gen !== this.cameraGen || !this.cameraOn) {
+        handle.stop();
+        return;
+      }
+      this.cameraStream = handle.stream;
+      this.cameraStop = () => handle.stop();
     } catch (err) {
+      if (gen !== this.cameraGen) return;
       if (this.demo) return;
       this.cameraOn = false;
       this.toast("Camera", err instanceof Error ? err.message : "Couldn't open the camera.");
@@ -12308,10 +12314,30 @@ class LarkApp {
   }
 
   private stopCameraSend() {
+    this.cameraGen += 1;
+    this.cameraStop?.();
+    this.cameraStop = null;
     window.clearInterval(this.cameraTimer);
     this.cameraTimer = 0;
     this.cameraStream?.getTracks().forEach((track) => track.stop());
     this.cameraStream = null;
+  }
+
+  private attachCameraPreview(stream: MediaStream) {
+    const mount = (slot: Element) => {
+      if (slot.querySelector("video")) return;
+      const preview = document.createElement("video");
+      preview.className = "camera-preview";
+      preview.muted = true;
+      preview.playsInline = true;
+      preview.autoplay = true;
+      preview.srcObject = stream;
+      slot.replaceChildren(preview);
+    };
+    const test = document.querySelector("[data-camera-test]");
+    if (test) mount(test);
+    const slot = document.querySelector(`.voice-tile.is-video[data-voice-user="${this.meId()}"] .voice-media`);
+    if (slot) mount(slot);
   }
 
   private watchMicLevel() {

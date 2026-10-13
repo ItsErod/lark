@@ -179,6 +179,8 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "voice.input", section: "voice", label: "Input device", description: "Microphone Lark stores for the call.", keywords: "mic capture" },
   { id: "voice.output", section: "voice", label: "Output device", description: "Speakers or headphones for the call.", keywords: "playback" },
   { id: "voice.camera", section: "voice", label: "Camera", description: "Camera Lark opens for the preview and for video in a call.", keywords: "video webcam" },
+  { id: "voice.camera.quality", section: "voice", label: "Camera resolution", description: "360p, 480p, 720p, or 1080p. 720p is the default.", keywords: "720p 1080p hd video quality" },
+  { id: "voice.camera.fps", section: "voice", label: "Camera frame rate", description: "15 or 30 frames per second. 30 is the default.", keywords: "fps 30 15" },
   { id: "voice.diagnostics", section: "voice", label: "Copy voice diagnostics", description: "Handshake steps, close codes, and packet counters for a voice call.", keywords: "debug log export dave udp" },
   { id: "voice.speak", section: "voice", label: "Speaking ring", description: "The ring around an avatar while someone is speaking. Discord green is the default.", keywords: "color colour picker speak ring" },
   { id: "messages.saved", section: "messages", label: "Saved messages", description: "Bookmarks kept on this device. Discord pins are unchanged.", keywords: "bookmarks" },
