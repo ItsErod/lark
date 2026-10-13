@@ -1079,6 +1079,7 @@ mod tests {
         assert_eq!(after, vec![0.0, 0.0]);
     }
 
+    #[test]
     fn input_gain_unity_is_unchanged_and_half_scales() {
         let mut frame = vec![0.5, -0.5];
         apply_input_gain(&mut frame, 100);
