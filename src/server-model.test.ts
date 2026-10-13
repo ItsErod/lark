@@ -4,10 +4,13 @@ import {
   GUILD_SETTINGS_PAGES,
   automodBody,
   boostProgress,
+  categoryChannelIds,
+  categoryContextItems,
   channelContextItems,
   channelIsPrivate,
   channelLink,
   channelNotifyBody,
+  channelsNotifyBody,
   clampBitrate,
   clampChannelName,
   clampSlowmode,
@@ -69,18 +72,53 @@ describe("server menus and channel tools", () => {
       "Create Category",
       "Create Event",
       "Move to",
-      "Copy Server ID",
+    ]);
+    expect(serverContextItems().some((item) => item.id === "copy-id")).toBe(false);
+    expect(serverContextItems({ developerMode: true }).at(-1)?.label).toBe("Copy Server ID");
+    expect(serverContextItems({ muted: true, hideMuted: true }).map((item) => item.label)).toEqual(
+      expect.arrayContaining(["Unmute Server", "Show Muted Channels"]),
+    );
+    expect(serverContextItems().find((item) => item.id === "mute")?.children).toBeUndefined();
+    expect(serverContextItems().find((item) => item.id === "notifications")?.children?.map((item) => item.id)).toEqual([
+      "guild-notify:all",
+      "guild-notify:mentions",
+      "guild-notify:mute",
     ]);
     expect(headerMenuItems(2).some((item) => item.label.includes("Level 2"))).toBe(true);
     expect(headerMenuItems(null).some((item) => item.id === "apps")).toBe(true);
+    expect(headerMenuItems(null).some((item) => item.id === "boost")).toBe(true);
   });
 
   it("builds channel and category menus", () => {
     const ids = channelContextItems("text").map((item) => item.id);
+    expect(ids).toContain("mark-read");
     expect(ids).toContain("favorite");
+    expect(ids).toContain("invite");
     expect(ids).toContain("pin-top");
+    expect(ids).toContain("copy-link");
+    expect(ids).toContain("mute");
+    expect(ids).toContain("notifications");
+    expect(ids).toContain("edit");
     expect(ids).toContain("duplicate");
+    expect(ids).not.toContain("copy-id");
+    expect(ids).not.toContain("move:category");
+    expect(channelContextItems("text", { developerMode: true, muted: true }).at(-1)).toMatchObject({ id: "copy-id", label: "Copy Channel ID" });
+    expect(channelContextItems("text", { muted: true }).find((item) => item.id === "mute")?.label).toBe("Unmute Channel");
     expect(channelContextItems("text").find((item) => item.id === "delete")?.danger).toBe(true);
+    const voice = channelContextItems("voice").map((item) => item.id);
+    expect(voice).toEqual(expect.arrayContaining(["join-quiet", "open-chat", "hide-names", "set-status"]));
+    expect(voice).not.toContain("move:category");
+    expect(categoryContextItems().map((item) => item.id)).toEqual(["mute", "notifications", "edit", "delete"]);
+    expect(categoryContextItems({ muted: true }).find((item) => item.id === "mute")?.label).toBe("Unmute Category");
+    expect(categoryChannelIds(
+      [
+        { id: "cat", parentId: null },
+        { id: "text", parentId: "cat" },
+        { id: "voice", parentId: "cat" },
+        { id: "other", parentId: "else" },
+      ],
+      "cat",
+    )).toEqual(["cat", "text", "voice"]);
   });
 
   it("locks a channel @everyone cannot view", () => {
@@ -95,6 +133,10 @@ describe("server menus and channel tools", () => {
     });
     expect(channelNotifyBody("12345678901234567", "mute")).toMatchObject({
       channel_overrides: { "12345678901234567": { muted: true, message_notifications: 3 } },
+    });
+    expect(channelsNotifyBody(["11111111111111111", "22222222222222222"], "mute").channel_overrides).toMatchObject({
+      "11111111111111111": { muted: true },
+      "22222222222222222": { muted: true },
     });
     expect(guildNotifyBody("all")).toEqual({ muted: false, message_notifications: 0 });
     expect(guildNotifyBody("mute")).toEqual({ muted: true });

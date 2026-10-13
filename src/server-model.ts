@@ -125,12 +125,25 @@ export function hideMutedChannel(input: {
 
 /** Channel override integers the Discord client writes: 1 all, 2 mentions, 3 nothing. */
 export function channelNotifyBody(channelId: string, level: NotifyLevel): Record<string, unknown> {
+  return { channel_overrides: { [channelId]: channelOverride(level) } };
+}
+
+/** One settings patch for a category and the channels inside it. */
+export function channelsNotifyBody(channelIds: string[], level: NotifyLevel): Record<string, unknown> {
+  const channel_overrides: Record<string, unknown> = {};
+  for (const channelId of channelIds) {
+    if (!channelId) continue;
+    channel_overrides[channelId] = channelOverride(level);
+  }
+  return { channel_overrides };
+}
+
+function channelOverride(level: NotifyLevel): Record<string, unknown> {
   const messageNotifications = level === "all" ? 1 : level === "mentions" ? 2 : 3;
-  const override =
-    level === "mute"
-      ? { muted: true, message_notifications: messageNotifications, mute_config: { selected_time_window: -1, end_time: null } }
-      : { muted: false, message_notifications: messageNotifications };
-  return { channel_overrides: { [channelId]: override } };
+  if (level === "mute") {
+    return { muted: true, message_notifications: messageNotifications, mute_config: { selected_time_window: -1, end_time: null } };
+  }
+  return { muted: false, message_notifications: messageNotifications };
 }
 
 /** Guild default: 0 all messages, 1 only mentions. Mute is the guild flag. */
@@ -273,13 +286,20 @@ export function guildCreateBody(name: string, templateId: string): Record<string
   return { name: clean, channels: template.channels };
 }
 
-export function serverContextItems(): MenuEntry[] {
-  return [
+export interface ContextFlags {
+  developerMode?: boolean;
+  muted?: boolean;
+  hideMuted?: boolean;
+  hideNames?: boolean;
+}
+
+export function serverContextItems(flags: ContextFlags = {}): MenuEntry[] {
+  const items: MenuEntry[] = [
     { id: "mark-read", label: "Mark As Read" },
     { id: "invite", label: "Invite People" },
-    { id: "mute", label: "Mute Server", children: notifyChildren("guild-notify") },
+    { id: "mute", label: flags.muted ? "Unmute Server" : "Mute Server" },
     { id: "notifications", label: "Notification Settings", children: notifyChildren("guild-notify") },
-    { id: "hide-muted", label: "Hide Muted Channels" },
+    { id: "hide-muted", label: flags.hideMuted ? "Show Muted Channels" : "Hide Muted Channels" },
     { id: "settings", label: "Server Settings" },
     { id: "privacy", label: "Privacy Settings" },
     { id: "profile", label: "Per-server Profile" },
@@ -287,11 +307,12 @@ export function serverContextItems(): MenuEntry[] {
     { id: "create-category", label: "Create Category" },
     { id: "create-event", label: "Create Event" },
     { id: "move", label: "Move to", children: [] },
-    { id: "copy-id", label: "Copy Server ID" },
   ];
+  if (flags.developerMode) items.push({ id: "copy-id", label: "Copy Server ID" });
+  return items;
 }
 
-export function headerMenuItems(level: number | null): MenuEntry[] {
+export function headerMenuItems(level: number | null, flags: ContextFlags = {}): MenuEntry[] {
   const boost = level == null ? "Server Boost" : `Server Boost · Level ${level}`;
   return [
     { id: "boost", label: boost, hint: "Opens Discord" },
@@ -301,7 +322,7 @@ export function headerMenuItems(level: number | null): MenuEntry[] {
     { id: "create-category", label: "Create Category" },
     { id: "create-event", label: "Create Event" },
     { id: "apps", label: "App Directory", hint: "Opens Discord" },
-    { id: "hide-muted", label: "Hide Muted Channels" },
+    { id: "hide-muted", label: flags.hideMuted ? "Show Muted Channels" : "Hide Muted Channels" },
     { id: "notifications", label: "Notification Settings", children: notifyChildren("guild-notify") },
     { id: "privacy", label: "Privacy Settings" },
     { id: "profile", label: "Edit Per-server Profile" },
@@ -321,14 +342,22 @@ export function withMoveTargets(items: MenuEntry[], folders: IdName[], looseLabe
   return items.map((item) => (item.id === "move" ? { ...item, children } : item));
 }
 
-export function channelContextItems(kind: string): MenuEntry[] {
-  const items: MenuEntry[] = [
-    { id: "mark-read", label: "Mark as Read" },
+export function channelContextItems(kind: string, flags: ContextFlags = {}): MenuEntry[] {
+  const voice = kind === "voice" || kind === "stage";
+  const items: MenuEntry[] = [{ id: "mark-read", label: "Mark As Read" }];
+  if (voice) {
+    items.push(
+      { id: "join-quiet", label: "Join Without Entrance Sound" },
+      { id: "open-chat", label: "Open Chat" },
+      { id: "hide-names", label: flags.hideNames ? "Show Names" : "Hide Names" },
+    );
+  }
+  items.push(
     { id: "favorite", label: "Favorite" },
     { id: "invite", label: "Invite" },
     { id: "pin-top", label: "Pin Channel to Top" },
     { id: "copy-link", label: "Copy Link" },
-    { id: "mute", label: "Mute Channel" },
+    { id: "mute", label: flags.muted ? "Unmute Channel" : "Mute Channel" },
     { id: "notifications", label: "Notification Settings", children: notifyChildren("notify") },
     { id: "move", label: "Move", children: [
       { id: "move:up", label: "Up" },
@@ -336,22 +365,32 @@ export function channelContextItems(kind: string): MenuEntry[] {
     ] },
     { id: "edit", label: "Edit Channel" },
     { id: "duplicate", label: "Duplicate Channel" },
-    { id: "delete", label: "Delete Channel", danger: true },
-    { id: "copy-id", label: "Copy Channel ID" },
-  ];
-  if (kind === "voice" || kind === "stage") {
-    items.find((item) => item.id === "move")?.children?.push({ id: "move:category", label: "Change Category" });
-  }
+  );
+  if (voice) items.push({ id: "set-status", label: "Set Channel Status" });
+  items.push({ id: "delete", label: "Delete Channel", danger: true });
+  if (flags.developerMode) items.push({ id: "copy-id", label: "Copy Channel ID" });
   return items;
 }
 
-export function categoryContextItems(): MenuEntry[] {
+export function categoryContextItems(flags: ContextFlags = {}): MenuEntry[] {
   return [
-    { id: "mute", label: "Mute Category" },
+    { id: "mute", label: flags.muted ? "Unmute Category" : "Mute Category" },
     { id: "notifications", label: "Notification Settings", children: notifyChildren("notify") },
     { id: "edit", label: "Edit Category" },
     { id: "delete", label: "Delete Category", danger: true },
   ];
+}
+
+/** The category plus every channel nested under it. Threads stay with their parent. */
+export function categoryChannelIds(
+  channels: { id: string; parentId?: string | null }[],
+  categoryId: string,
+): string[] {
+  const ids = [categoryId];
+  for (const channel of channels) {
+    if (channel.id !== categoryId && channel.parentId === categoryId) ids.push(channel.id);
+  }
+  return ids;
 }
 
 export function folderMoveItems(folders: IdName[], currentId: string): MenuEntry[] {
