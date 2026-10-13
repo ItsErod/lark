@@ -42,23 +42,23 @@ What changed:
 
 Initial message load is higher because that timer now includes the first layout. It used to start after an earlier shell paint. Cold start, which is the time until the message is actually on screen, is lower. Channel switch stayed within the noise of the 7–12 ms samples. Scroll stays on the display refresh.
 
-A later pass, recorded 13 Oct 2026 on the same class of machine (Linux, Chromium, viewport 1280×800, five runs, median), was rebased onto main after offline search, smart notifications, the clip gallery, server navigation keys, streamer invite redaction, store search, voice HUD quality, incoming-call ringing, the muted-talk banner, and the extra Mono store themes had landed. Those features stay. Main's cold start on that tree was 148.8 ms. After this pass:
+A later pass, recorded 13 Oct 2026 on the same class of machine (Linux, Chromium, viewport 1280×800, five runs, median), was rebased onto main after offline search, smart notifications, the clip gallery, server navigation keys, streamer invite redaction, store search, voice HUD quality, incoming-call ringing, the muted-talk banner, and the extra Mono store themes had landed. Those features stay. Main's cold start on that tree was 148.8 ms. The after column below was measured again once contrast themes and the HUD mute hotkeys were on the branch too.
 
 | Metric | Before (main) | After |
 | --- | ---: | ---: |
-| Cold start to first interactive | 148.8 ms | 140.9 ms |
-| Channel switch | 7.9 ms | 6.3 ms |
-| Initial message load | 44.9 ms | 37.7 ms |
+| Cold start to first interactive | 148.8 ms | 131.7 ms |
+| Channel switch | 7.9 ms | 6.4 ms |
+| Initial message load | 44.9 ms | 36.3 ms |
 | Scroll FPS | 62 | 61 |
 | Input latency | 0.2 ms | 0.2 ms |
 | Idle memory | 4.3 MB | 3.8 MB |
-| Idle CPU | 0.6% | 0.6% |
-| JS bundle | 1,111,422 bytes | 1,124,731 bytes |
+| Idle CPU | 0.6% | 0.5% |
+| JS bundle | 1,111,422 bytes | 1,125,497 bytes |
 | CSS bundle | 99,768 bytes | 99,768 bytes |
 
-Cold-start samples before were 176.4, 148.5, 141.2, 148.8, and 168.9 ms. After were 166.1, 143.7, 132.7, 138.5, and 140.9 ms. Channel-switch samples after were 6.5, 4.8, 6.3, 6.3, and 8.6 ms. Message-load samples after were 45.9, 39.1, 37.7, 37.7, and 36.6 ms. Idle memory sat between 3.76 and 3.86 MB on every run. One main idle-CPU sample spiked to 63.9% while the other four stayed near 0.6%. The table uses the median.
+Cold-start samples before were 176.4, 148.5, 141.2, 148.8, and 168.9 ms. After were 175.4, 128.5, 131.7, 131.8, and 131.6 ms. Channel-switch samples after were 6.4, 5.9, 6.2, 6.5, and 7.0 ms. Message-load samples after were 49.3, 35.0, 34.6, 36.3, and 36.7 ms. Idle memory sat between 3.76 and 3.86 MB on every run. One main idle-CPU sample spiked to 63.9% while the other four stayed near 0.6%. The table uses the median.
 
-The counted JS total is higher because split chunks are still summed. The first-paint files are smaller: `main` is 791,754 bytes and the shared `hud` chunk is 30,912 bytes. On main those were 841,372 and 110,799 bytes. The phrase catalog (81,264 bytes) and the late client chunk (36,542 bytes) load after the sample.
+The counted JS total is higher because split chunks are still summed. The first-paint files are smaller: `main` is 792,520 bytes and the shared `hud` chunk is 30,912 bytes. On main those were 841,372 and 110,799 bytes. The phrase catalog (81,264 bytes) and the late client chunk (36,542 bytes) load after the sample.
 
 What this pass changed:
 
