@@ -358,7 +358,7 @@ export class LarkApp {
   toastWrap!: HTMLElement;
   updateBannerEl!: HTMLElement;
   interfaceToastEl!: HTMLElement;
-  updates: UpdateState = initialUpdateState("3.0.5", true);
+  updates: UpdateState = initialUpdateState("3.0.6", true);
   interfaceUi: InterfaceUi = initialInterfaceUi();
   updateTimer = 0;
   interfaceTimer = 0;
