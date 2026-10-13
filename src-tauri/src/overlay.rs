@@ -81,7 +81,14 @@ fn classify_hotkey(keys: &Hotkeys, shortcut: &Shortcut) -> Option<OverlayHotkey>
 
 /// Register HUD, Game Mode, mute, and deafen on the one shortcut handler.
 /// Mute and deafen are last so an existing overlay chord keeps its job.
-pub fn sync_hotkeys(app: &AppHandle, voice: &str, perf: &str, game: &str, mute: &str, deafen: &str) {
+pub fn sync_hotkeys(
+    app: &AppHandle,
+    voice: &str,
+    perf: &str,
+    game: &str,
+    mute: &str,
+    deafen: &str,
+) {
     let next = Hotkeys {
         voice: parse_global(voice),
         perf: parse_global(perf),
@@ -123,7 +130,10 @@ fn chords(keys: Hotkeys) -> [Option<Shortcut>; 5] {
 }
 
 fn hotkeys_contain(keys: Hotkeys, shortcut: Shortcut) -> bool {
-    chords(keys).into_iter().flatten().any(|slot| slot == shortcut)
+    chords(keys)
+        .into_iter()
+        .flatten()
+        .any(|slot| slot == shortcut)
 }
 
 #[cfg(test)]
@@ -149,10 +159,7 @@ mod tests {
             classify_hotkey(&keys, &parsed("mod+shift+d")),
             Some(OverlayHotkey::Deafen)
         );
-        assert_eq!(
-            classify_hotkey(&keys, &parsed("mod+shift+alt+m")),
-            None
-        );
+        assert_eq!(classify_hotkey(&keys, &parsed("mod+shift+alt+m")), None);
     }
 }
 
