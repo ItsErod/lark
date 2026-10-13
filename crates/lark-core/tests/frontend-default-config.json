@@ -123,6 +123,7 @@
     "desktop_notifications": true,
     "message_sound": false,
     "call_sound": true,
+    "pause_gif": false,
     "unread_badge": true,
     "email_notifications": false,
     "share_activity": true,
