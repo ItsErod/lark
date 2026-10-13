@@ -4,6 +4,8 @@ import { commandCatalog, matchCommands } from "./palette";
 describe("command palette", () => {
   it("includes actions beyond channel jumps", () => {
     const ids = commandCatalog().map((item) => item.id);
+    expect(ids).toContain("local-search");
+    expect(matchCommands("offline", commandCatalog()).some((item) => item.id === "local-search")).toBe(true);
     expect(ids).toContain("split");
     expect(ids).toContain("theme");
     expect(ids).toContain("themes");
