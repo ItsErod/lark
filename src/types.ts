@@ -28,6 +28,8 @@ export interface Shortcuts {
   next_unread: string;
   previous_channel: string;
   next_channel: string;
+  previous_server: string;
+  next_server: string;
   edit_last: string;
   toggle_mute: string;
   toggle_deafen: string;

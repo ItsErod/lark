@@ -29,6 +29,8 @@ export function defaultConfig(): AppConfig {
       next_unread: "alt+shift+down",
       previous_channel: "alt+up",
       next_channel: "alt+down",
+      previous_server: "mod+alt+arrowup",
+      next_server: "mod+alt+arrowdown",
       edit_last: "arrowup",
       toggle_mute: "mod+shift+alt+m",
       toggle_deafen: "mod+shift+d",

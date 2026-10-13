@@ -153,6 +153,26 @@ export function layoutRail(guildIds: string[], folders: GuildFolder[]): RailEntr
   return entries;
 }
 
+/** Servers in rail order, including the ones inside a folder. */
+export function orderedGuildIds(guildIds: string[], folders: GuildFolder[]): string[] {
+  const ids: string[] = [];
+  for (const entry of layoutRail(guildIds, folders)) {
+    if (entry.kind === "guild") ids.push(entry.guildId);
+    else ids.push(...entry.guildIds);
+  }
+  return ids;
+}
+
+/** Home is null and sits first. The step wraps. */
+export function cycleServer(ids: readonly (string | null)[], current: string | null, delta: number): string | null {
+  if (!ids.length || delta === 0) return current;
+  const index = ids.indexOf(current);
+  const size = ids.length;
+  const start = index < 0 ? (delta > 0 ? -1 : 0) : index;
+  const next = ((start + delta) % size + size) % size;
+  return ids[next] ?? current;
+}
+
 export function isNewerSnowflake(messageId: string, lastRead: string): boolean {
   if (!messageId) return false;
   if (!lastRead) return true;
