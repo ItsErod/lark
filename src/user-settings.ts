@@ -48,7 +48,7 @@ export const DISCORD_KEYBINDS = [
   { id: "toggle_sticker_picker", label: "Toggle sticker picker", description: "Open or close the sticker picker in the composer.", default: "mod+s", keywords: "sticker" },
   { id: "scroll_chat_up", label: "Scroll chat up", description: "Scroll the message list up.", default: "pageup", keywords: "page up" },
   { id: "scroll_chat_down", label: "Scroll chat down", description: "Scroll the message list down.", default: "pagedown", keywords: "page down" },
-  { id: "create_or_join_server", label: "Create or join a server", description: "Opens Discord to create or join a server.", default: "mod+shift+n", keywords: "guild" },
+  { id: "create_or_join_server", label: "Create or join a server", description: "Open the in-app Add Server window.", default: "mod+shift+n", keywords: "guild" },
   { id: "answer_call", label: "Answer incoming call", description: "Focus a direct-message call, or join the direct message you have open.", default: "mod+enter", keywords: "accept" },
   { id: "decline_call", label: "Decline incoming call", description: "Leave a direct message or group call.", default: "mod+shift+escape", keywords: "reject" },
   { id: "create_group", label: "Create a private group", description: "Start a group direct message.", default: "mod+shift+t", keywords: "group dm" },
