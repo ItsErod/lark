@@ -39,6 +39,18 @@ toggle_call = "mod+shift+v"
 [notifications]
 default = "all"                # all | mentions | mute
 keywords = ["wordmark"]
+# Alert keywords and people still notify when a channel is muted.
+# Add the word, the person, or the channel id to blocked to stop that.
+alert_keywords = []
+people = []
+blocked = []
+
+# Local clock. Non-critical alerts are suppressed or saved for one summary.
+[notifications.quiet]
+enabled = false
+start = "22:00"                # HH:MM on this computer
+end = "07:00"
+mode = "batch"                 # suppress | batch
 
 # Example overrides. Replace the ids with a server or channel from your account.
 [notifications.guilds.100000000000000011]

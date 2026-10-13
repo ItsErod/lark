@@ -106,14 +106,12 @@ impl Config {
         self.clips.fps = crate::clip_rate::snap_fps(self.clips.fps);
         self.clips.resolution = crate::clip_rate::snap_resolution(self.clips.resolution);
         self.clips.buffer_sec = crate::clip_rate::snap_buffer_sec(self.clips.buffer_sec);
-        self.notifications.keywords = self
-            .notifications
-            .keywords
-            .into_iter()
-            .map(|word| word.trim().to_string())
-            .filter(|word| !word.is_empty() && word.len() <= 40)
-            .take(20)
-            .collect();
+        self.notifications.keywords = normalize_words(self.notifications.keywords);
+        self.notifications.alert_keywords = normalize_alert_list(self.notifications.alert_keywords);
+        self.notifications.people = normalize_alert_list(self.notifications.people);
+        self.notifications.blocked = normalize_alert_list(self.notifications.blocked);
+        self.notifications.quiet.start = normalize_clock(&self.notifications.quiet.start, "22:00");
+        self.notifications.quiet.end = normalize_clock(&self.notifications.quiet.end, "07:00");
         self.desktop.frame_cap = if self.desktop.frame_cap == 0 {
             0
         } else {
@@ -295,6 +293,40 @@ impl Default for NotifyLevel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QuietMode {
+    Suppress,
+    Batch,
+}
+
+impl Default for QuietMode {
+    fn default() -> Self {
+        Self::Batch
+    }
+}
+
+/// Local quiet window. Times are `HH:MM` on this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct QuietHours {
+    pub enabled: bool,
+    pub start: String,
+    pub end: String,
+    pub mode: QuietMode,
+}
+
+impl Default for QuietHours {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            start: "22:00".into(),
+            end: "07:00".into(),
+            mode: QuietMode::Batch,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Notifications {
@@ -302,6 +334,10 @@ pub struct Notifications {
     pub guilds: BTreeMap<String, NotifyOverride>,
     pub channels: BTreeMap<String, NotifyOverride>,
     pub keywords: Vec<String>,
+    pub quiet: QuietHours,
+    pub alert_keywords: Vec<String>,
+    pub people: Vec<String>,
+    pub blocked: Vec<String>,
 }
 
 impl Default for Notifications {
@@ -311,6 +347,10 @@ impl Default for Notifications {
             guilds: BTreeMap::new(),
             channels: BTreeMap::new(),
             keywords: Vec::new(),
+            quiet: QuietHours::default(),
+            alert_keywords: Vec::new(),
+            people: Vec::new(),
+            blocked: Vec::new(),
         }
     }
 }
@@ -990,6 +1030,62 @@ fn normalize_clips(clips: Vec<SoundClip>) -> Vec<SoundClip> {
     out
 }
 
+fn normalize_words(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .map(|word| word.trim().to_string())
+        .filter(|word| !word.is_empty() && word.len() <= 40)
+        .take(20)
+        .collect()
+}
+
+fn normalize_clock(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if is_clock(trimmed) {
+        trimmed.to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn is_clock(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 5 || bytes[2] != b':' {
+        return false;
+    }
+    let Ok(hour) = std::str::from_utf8(&bytes[0..2]) else {
+        return false;
+    };
+    let Ok(minute) = std::str::from_utf8(&bytes[3..5]) else {
+        return false;
+    };
+    matches!(
+        (hour.parse::<u8>(), minute.parse::<u8>()),
+        (Ok(hour), Ok(minute)) if hour < 24 && minute < 60
+    )
+}
+
+fn normalize_alert_list(values: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for value in values {
+        let word = value.trim();
+        let len = word.chars().count();
+        if len < 2 || len > 40 || word.contains("mfa.") {
+            continue;
+        }
+        let key = word.to_lowercase();
+        if !seen.insert(key) {
+            continue;
+        }
+        out.push(word.to_string());
+        if out.len() == 20 {
+            break;
+        }
+    }
+    out
+}
+
 fn is_hex_color(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 7
@@ -1561,6 +1657,8 @@ mod tests {
         let cfg = parse_config(example_config_text()).unwrap();
         assert_eq!(cfg.appearance.theme, "discord");
         assert_eq!(cfg.appearance.channel_list, ChannelList::Left);
+        assert!(!cfg.notifications.quiet.enabled);
+        assert_eq!(cfg.notifications.quiet.mode, QuietMode::Batch);
         assert_eq!(cfg.notifications.default, NotifyLevel::All);
         assert_eq!(
             cfg.notifications
@@ -1599,6 +1697,38 @@ mod tests {
         let on = parse_config("[privacy]\nstreamer = true\nstreamer_auto = true\n").unwrap();
         assert!(on.privacy.streamer);
         assert!(on.privacy.streamer_auto);
+    }
+
+    #[test]
+    fn quiet_hours_default_when_missing_and_a_bad_clock_falls_back() {
+        let cfg = parse_config("[notifications]\ndefault = \"mentions\"\n").unwrap();
+        assert!(!cfg.notifications.quiet.enabled);
+        assert_eq!(cfg.notifications.quiet.start, "22:00");
+        assert_eq!(cfg.notifications.quiet.end, "07:00");
+        assert_eq!(cfg.notifications.quiet.mode, QuietMode::Batch);
+        assert!(cfg.notifications.people.is_empty());
+        let custom = parse_config(
+            r#"
+[notifications]
+alert_keywords = ["ship"]
+people = ["Ada", "ada", "a", "mfa.abcdefghijklmnopqrstuvwxyz"]
+blocked = ["100000000000000025"]
+
+[notifications.quiet]
+enabled = true
+start = "9:00"
+end = "17:00"
+mode = "suppress"
+"#,
+        )
+        .unwrap();
+        assert!(custom.notifications.quiet.enabled);
+        assert_eq!(custom.notifications.quiet.start, "22:00");
+        assert_eq!(custom.notifications.quiet.end, "17:00");
+        assert_eq!(custom.notifications.quiet.mode, QuietMode::Suppress);
+        assert_eq!(custom.notifications.alert_keywords, vec!["ship".to_string()]);
+        assert_eq!(custom.notifications.people, vec!["Ada".to_string()]);
+        assert_eq!(custom.notifications.blocked, vec!["100000000000000025".to_string()]);
     }
 
     #[test]

@@ -418,6 +418,7 @@ html.is-panic body > * { visibility: hidden !important; }
 .plugin-card .hint { margin: 0; }
 .bookmark-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
 .bookmark-row { text-align: left; border: 1px solid var(--line); background: var(--bg-1); border-radius: 10px; padding: 8px 10px; color: var(--text); }
+.missed-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 12px; }
 .bookmark-row strong { display: block; }
 .schedule-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .picker {
@@ -636,7 +637,7 @@ html.is-panic body > * { visibility: hidden !important; }
 .slider-line, .color-line { display: flex; align-items: center; gap: 10px; }
 .slider-line input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .slider-value { min-width: 2.5ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
-.settings-layer select, .color-hex, .settings-layer .setting-card input[type="text"], .settings-layer .setting-card input[type="search"] {
+.settings-layer select, .color-hex, .settings-layer .setting-card input[type="text"], .settings-layer .setting-card input[type="search"], .settings-layer .setting-card input[type="time"] {
   width: 100%; background: var(--bg-0); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; color: var(--text);
 }
 .color-line input[type="color"] {

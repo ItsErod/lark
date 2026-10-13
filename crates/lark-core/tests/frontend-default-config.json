@@ -41,7 +41,16 @@
     },
     "keywords": [
       "wordmark"
-    ]
+    ],
+    "quiet": {
+      "enabled": false,
+      "start": "22:00",
+      "end": "07:00",
+      "mode": "batch"
+    },
+    "alert_keywords": [],
+    "people": [],
+    "blocked": []
   },
   "plugins": {
     "enabled": []

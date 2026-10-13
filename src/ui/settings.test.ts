@@ -81,6 +81,8 @@ expect(searchSettings("check for updates").some((hit) => hit.id === "updates.che
     expect(searchSettings("canary").some((hit) => hit.id === "updates.channel")).toBe(true);
     expect(searchSettings("built-in").some((hit) => hit.id === "updates.reset")).toBe(true);
     expect(searchSettings("uninstall").some((hit) => hit.id === "plugins.store")).toBe(true);
+    expect(searchSettings("quiet hours").some((hit) => hit.id === "notifications.quiet")).toBe(true);
+    expect(searchSettings("missed").some((hit) => hit.id === "notifications.missed")).toBe(true);
   });
 
   it("accepts a later section without dropping the built-in pages", () => {

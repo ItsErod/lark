@@ -11,6 +11,22 @@ import { bindEmojiLoader, expandShortcodes, rememberEmoji, frecency, EMOJI, setC
 import { applyMention, mentionHits, mentionQuery, plainPreview, type MentionHit } from "../mentions";
 import { bumpsUnread, effectiveLevel, shouldDesktopNotify } from "../notify";
 import {
+  MISSED_KEY,
+  MISSED_SEEN_KEY,
+  cleanAlertList,
+  clockMinutes,
+  digestLines,
+  digestSummary,
+  dropChannel,
+  inQuietHours,
+  matchAlert,
+  planNotification,
+  releaseHeld,
+  rememberMissed,
+  sanitizeMissed,
+  type MissedNote,
+} from "../smart-notify";
+import {
   FOLDER_COLORS,
   FOLDER_STORAGE_KEY,
   FolderSync,
@@ -670,6 +686,9 @@ class LarkApp {
   private qrWatching = false;
   private connection = "Demo";
   private focused = true;
+  private missed: MissedNote[] = [];
+  private missedSeen = 0;
+  private quietOn = false;
   private typingSent = 0;
   private me: Person = { id: ME, name: "You", status: "online" };
   private liveGuilds: Guild[] = [];
@@ -1026,6 +1045,8 @@ class LarkApp {
     } catch {
       this.reminders = [];
     }
+    this.loadMissed();
+    this.quietOn = inQuietHours(this.config.notifications.quiet, new Date());
     void this.pullSaved();
     void this.hydrateDrafts();
     try {
@@ -1168,6 +1189,7 @@ class LarkApp {
       this.focused = await win.isFocused();
       await win.onFocusChanged(({ payload }) => {
         this.focused = payload;
+        if (payload) this.surfaceMissed("focus");
       });
       await win.onResized(() => {
         void win.isMinimized().then((minimized) => this.noteShareVisibility(minimized || document.hidden));
@@ -3513,6 +3535,11 @@ class LarkApp {
     }
     const started = performance.now();
     this.channelId = id;
+    const missed = dropChannel(this.missed, id);
+    if (missed.length !== this.missed.length) {
+      this.missed = missed;
+      this.saveMissed();
+    }
     this.error = null;
     this.reply = null;
     this.editing = null;
@@ -6031,8 +6058,151 @@ class LarkApp {
     card.append(grid);
     const notificationPages = this.settingsNow();
     if (notificationPages) card.append(...notificationPages.notificationExtras(this.settingsHost()));
-    wrap.append(card);
+    wrap.append(card, this.quietCard(), this.alertCard(), this.missedCard());
     return wrap;
+  }
+
+  private quietCard(): HTMLElement {
+    const quiet = this.config.notifications.quiet;
+    const card = settingCard("Quiet hours");
+    card.append(this.switchRow(
+      "notifications.quiet",
+      "Quiet hours",
+      "Uses this computer's clock. Mentions, direct messages, and keyword or person alerts still come through. A mute still blocks ordinary messages.",
+      quiet.enabled,
+      (value) => {
+        this.config.notifications.quiet.enabled = value;
+        this.quietOn = inQuietHours(this.config.notifications.quiet, new Date());
+        this.persist();
+      },
+    ));
+    card.append(this.clockRow("notifications.quiet.start", "Start", "When the window begins.", quiet.start, (value) => {
+      this.config.notifications.quiet.start = value;
+      this.persist();
+    }));
+    card.append(this.clockRow("notifications.quiet.end", "End", "When the window ends. A later start runs through midnight.", quiet.end, (value) => {
+      this.config.notifications.quiet.end = value;
+      this.persist();
+    }));
+    card.append(this.segmentRow(
+      "notifications.quiet.mode",
+      "Non-critical alerts",
+      "Suppress drops them. Batch saves them and sends one summary when the window ends or you come back.",
+      ["suppress", "batch"],
+      { suppress: "Suppress", batch: "Batch" },
+      quiet.mode,
+      (value) => {
+        this.config.notifications.quiet.mode = value === "suppress" ? "suppress" : "batch";
+        this.persist();
+      },
+    ));
+    return card;
+  }
+
+  private alertCard(): HTMLElement {
+    const card = settingCard("Alerts");
+    card.append(el("p", "setting-help", "A match notifies you even when the channel is muted. Add the word, the person, or the channel id to Blocked to stop that."));
+    card.append(this.commaRow(
+      "notifications.alerts",
+      "Alert keywords",
+      "Words, separated by commas.",
+      this.config.notifications.alert_keywords,
+      (next) => {
+        this.config.notifications.alert_keywords = next;
+      },
+    ));
+    card.append(this.commaRow(
+      "notifications.people",
+      "People",
+      "Exact display names or user ids.",
+      this.config.notifications.people,
+      (next) => {
+        this.config.notifications.people = next;
+      },
+    ));
+    card.append(this.commaRow(
+      "notifications.blocked",
+      "Blocked",
+      "These never break a mute.",
+      this.config.notifications.blocked,
+      (next) => {
+        this.config.notifications.blocked = next;
+      },
+    ));
+    return card;
+  }
+
+  private missedCard(): HTMLElement {
+    const card = settingCard("Missed");
+    card.dataset.setting = "notifications.missed";
+    const lines = digestLines(this.missed);
+    if (!lines.length) {
+      card.append(el("p", "setting-help", "Nothing missed. Lark keeps this list on this device while you are away or in quiet hours."));
+      return card;
+    }
+    const summary = digestSummary(this.missed);
+    card.append(el("p", "setting-help", `${summary.title}. Kept on this device. Opening a channel clears it.`));
+    const list = el("div", "missed-list");
+    for (const line of lines) {
+      const button = el("button", "bookmark-row");
+      button.type = "button";
+      button.append(el("strong", "", this.maskText(line.name)), el("span", "", `${line.count} message${line.count === 1 ? "" : "s"}`));
+      button.addEventListener("click", () => this.openMissed(line.channelId));
+      list.append(button);
+    }
+    card.append(list);
+    const clear = el("button", "text-button", "Clear");
+    clear.type = "button";
+    clear.addEventListener("click", () => {
+      this.missed = [];
+      this.missedSeen = Date.now();
+      this.saveMissed();
+      if (this.settings) this.renderSettings();
+    });
+    card.append(clear);
+    return card;
+  }
+
+  private clockRow(id: string, label: string, description: string, value: string, onChange: (value: string) => void): HTMLElement {
+    const input = el("input");
+    input.type = "time";
+    input.value = value;
+    input.setAttribute("aria-label", label);
+    input.addEventListener("change", () => {
+      if (clockMinutes(input.value) === null) {
+        input.value = value;
+        return;
+      }
+      onChange(input.value);
+      this.quietOn = inQuietHours(this.config.notifications.quiet, new Date());
+    });
+    return settingRow(id, label, description, input);
+  }
+
+  private commaRow(id: string, label: string, description: string, current: readonly string[], apply: (next: string[]) => void): HTMLElement {
+    const input = el("input");
+    input.type = "text";
+    input.value = current.join(", ");
+    input.setAttribute("aria-label", label);
+    input.addEventListener("change", () => {
+      apply(cleanAlertList(input.value));
+      this.persist();
+      if (this.settings) this.renderSettings();
+    });
+    return settingRow(id, label, description, input, true);
+  }
+
+  private openMissed(channelId: string) {
+    const guildId = this.guildForChannel(channelId);
+    if (guildId) {
+      this.guildId = guildId;
+      this.friendsOpen = false;
+    } else if (this.dms().some((channel) => channel.id === channelId)) {
+      this.guildId = null;
+      this.friendsOpen = false;
+    }
+    this.closeSettings();
+    void this.openChannel(channelId);
   }
 
   private paneShortcuts(): HTMLElement {
@@ -7551,6 +7721,106 @@ class LarkApp {
     toast.append(el("strong", "", title), el("span", "", body));
     this.toastWrap.append(toast);
     window.setTimeout(() => toast.remove(), 4200);
+  }
+
+  private loadMissed() {
+    try {
+      this.missed = sanitizeMissed(JSON.parse(localStorage.getItem(MISSED_KEY) ?? "[]"));
+    } catch {
+      this.missed = [];
+    }
+    const seen = Number(localStorage.getItem(MISSED_SEEN_KEY) ?? "0");
+    this.missedSeen = Number.isFinite(seen) ? seen : 0;
+  }
+
+  private saveMissed() {
+    localStorage.setItem(MISSED_KEY, JSON.stringify(this.missed));
+    localStorage.setItem(MISSED_SEEN_KEY, String(this.missedSeen));
+  }
+
+  private deliverAlert(message: RawMessage, level: NotifyLevel, mentionsMe: boolean, direct: boolean, body: string): boolean {
+    const quiet = inQuietHours(this.config.notifications.quiet, new Date());
+    if (this.quietOn && !quiet) {
+      this.quietOn = false;
+      this.surfaceMissed("quiet");
+    } else {
+      this.quietOn = quiet;
+    }
+    const rules = this.config.notifications;
+    const matched = matchAlert({
+      content: message.content,
+      authorId: message.authorId,
+      authorName: message.authorName,
+      channelId: message.channelId,
+      keywords: rules.alert_keywords,
+      people: rules.people,
+      blocked: rules.blocked,
+    });
+    const plan = planNotification({
+      fromMe: message.authorId === this.meId(),
+      windowFocused: this.focused,
+      sameChannel: message.channelId === this.channelId,
+      desktopEnabled: this.config.preferences.desktop_notifications !== false,
+      level,
+      mentionsMe,
+      direct,
+      quiet,
+      quietMode: rules.quiet.mode,
+      alert: matched.kind !== null,
+      blocked: matched.blocked,
+      away: !this.focused || document.hidden || this.away.away,
+    });
+    if (plan.record && message.id) {
+      const channel = this.channelById(message.channelId);
+      this.missed = rememberMissed(this.missed, {
+        id: message.id,
+        channelId: message.channelId,
+        channel: this.hideDirect() && direct ? "Direct message" : (channel?.name || (direct ? "Direct message" : "Channel")),
+        author: this.maskText(message.authorName),
+        preview: body,
+        at: Date.now(),
+        reason: plan.reason,
+        held: plan.action === "hold",
+      });
+      this.saveMissed();
+    }
+    if (plan.action !== "send") return false;
+    void this.notify(this.streamerOn() && direct ? "Direct message" : this.maskText(message.authorName), body);
+    if (this.config.preferences.message_sound) playSoftTone("message");
+    return true;
+  }
+
+  private tickSmartNotify() {
+    const quiet = inQuietHours(this.config.notifications.quiet, new Date());
+    const ended = this.quietOn && !quiet;
+    this.quietOn = quiet;
+    if (ended) this.surfaceMissed("quiet");
+  }
+
+  private surfaceMissed(kind: "focus" | "quiet") {
+    const held = this.missed.filter((item) => item.held);
+    const desktop = this.config.preferences.desktop_notifications !== false;
+    let announced = false;
+    if (held.length && desktop) {
+      const summary = digestSummary(held);
+      void this.notify("Quiet hours", summary.body || summary.title);
+      this.missed = releaseHeld(this.missed);
+      this.missedSeen = Date.now();
+      this.saveMissed();
+      announced = true;
+    } else if (held.length) {
+      this.missed = releaseHeld(this.missed);
+      this.saveMissed();
+    }
+    const fresh = this.missed.filter((item) => item.at > this.missedSeen);
+    if (!announced && (kind === "focus" || this.focused) && fresh.length) {
+      const summary = digestSummary(fresh);
+      this.toast(summary.title, summary.body || "Open Notifications for the list.");
+      this.missedSeen = Date.now();
+      this.saveMissed();
+      announced = true;
+    }
+    if (announced && this.settings && this.section === "notifications") this.renderSettings();
   }
 
   private async notify(title: string, body: string) {
@@ -9207,12 +9477,9 @@ class LarkApp {
         direct,
       });
       const body = this.notifyBody(message, direct);
-      if (alreadyNotified && this.config.preferences.desktop_notifications !== false) {
-        void this.notify(this.streamerOn() && direct ? "Direct message" : this.maskText(message.authorName), body);
-        if (this.config.preferences.message_sound) playSoftTone("message");
-      }
-      this.considerKeyword(message, level, mentionsMe, alreadyNotified);
-    this.considerPattern(message, level, alreadyNotified);
+      const sent = this.deliverAlert(message, level, mentionsMe, direct, body);
+      this.considerKeyword(message, level, mentionsMe, alreadyNotified || sent);
+      this.considerPattern(message, level, alreadyNotified || sent);
       if (viewing) {
         if (follow) this.pinnedToBottom = true;
         this.nearBottom = this.pinnedToBottom;
@@ -14459,6 +14726,7 @@ class LarkApp {
 
   private considerKeyword(message: RawMessage, level: NotifyLevel, mentionsMe: boolean, alreadyNotified: boolean) {
     if (!this.hookOn("keywords")) return;
+    if (inQuietHours(this.config.notifications.quiet, new Date())) return;
     const words = wordsFor(this.pack.keywordGlobal, this.pack.keywordChannels, message.channelId);
     const hit = firstHit(message.content, words);
     if (!shouldKeywordNotify({
@@ -14478,6 +14746,7 @@ class LarkApp {
 
   private considerPattern(message: RawMessage, level: NotifyLevel, alreadyNotified: boolean) {
     if (!this.hookOn("patternNotify") || !this.pack.highlightNotify) return;
+    if (inQuietHours(this.config.notifications.quiet, new Date())) return;
     const guildId = message.guildId || this.guildForChannel(message.channelId) || "";
     const hit = patternHit(message.content, patternsFor(this.pack.highlightPatterns, this.pack.highlightGuilds, guildId));
     if (!shouldPatternNotify({
@@ -14638,6 +14907,7 @@ class LarkApp {
 
   private tickPlugins() {
     this.tickReminders();
+    this.tickSmartNotify();
     if (this.view !== "app") return;
     this.tickAway();
     this.tickPlaying();

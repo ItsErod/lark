@@ -2,7 +2,17 @@ export type Density = "cozy" | "compact" | "irc";
 export type FontFamily = "inter" | "system" | "serif" | "mono";
 export type ChannelList = "left" | "right" | "hidden";
 export type NotifyLevel = "all" | "mentions" | "mute";
+/** Non-critical alerts during the quiet window are dropped or saved for one summary. */
+export type QuietMode = "suppress" | "batch";
 export type OsName = "macos" | "windows" | "linux" | "other";
+
+/** Local clock window. `start` and `end` are `HH:MM` in the computer's time zone. */
+export interface QuietHours {
+  enabled: boolean;
+  start: string;
+  end: string;
+  mode: QuietMode;
+}
 
 export interface NotifyOverride {
   level?: NotifyLevel;
@@ -66,6 +76,14 @@ export interface AppConfig {
     guilds: Record<string, NotifyOverride>;
     channels: Record<string, NotifyOverride>;
     keywords: string[];
+    /** Local quiet window. Off until the user turns it on. */
+    quiet: QuietHours;
+    /** Words that notify even when the channel is muted, unless blocked. */
+    alert_keywords: string[];
+    /** Display names or user ids that notify even when the channel is muted. */
+    people: string[];
+    /** Keywords, people, or channel ids that never break a mute. */
+    blocked: string[];
   };
   plugins: { enabled: string[] };
   voice: {
