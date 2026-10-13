@@ -72,9 +72,11 @@ jobs:
           if-no-files-found: ignore
       - name: Post the perf summary
         if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if [ -s perf-summary.md ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file perf-summary.md
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "$GH_REPO" --body-file perf-summary.md
           fi
