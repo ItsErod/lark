@@ -69,7 +69,8 @@
   color: var(--color-fg);
 }
 
-#app .voice-panel .icon-button.is-live {
+#app .voice-panel .icon-button.is-live,
+#app .voice-panel .icon-button.is-on {
   color: var(--color-fg);
   background: color-mix(in srgb, var(--color-fg) 10%, transparent);
 }

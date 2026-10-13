@@ -53,6 +53,7 @@ export const paths = {
   panels: "M4 5h16v14H4zM9 5v14M15 5v14",
   message: "M5 6h14v9H8l-3 3V6z",
   mic: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6",
+  echo: "M7 15a5 5 0 0 1 0-6M12 17a8 8 0 0 1 0-10",
   micOff: "M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V6a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 11M12 18v3M9 21h6M3 3l18 18",
   headphones: "M4 13a8 8 0 0 1 16 0M4 13v6a2 2 0 0 0 2 2h2v-8H6a2 2 0 0 0-2 2zM20 13v6a2 2 0 0 1-2 2h-2v-8h2a2 2 0 0 1 2 2z",
   headphonesOff: "M4 13a8 8 0 0 1 12.3-6.7M20 13v6a2 2 0 0 1-2 2h-2v-8h2M4 13v6a2 2 0 0 0 2 2h2v-8H6M3 3l18 18",
