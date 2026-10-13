@@ -7,6 +7,7 @@ import "./design-profile.css";
 import "./design-voice.css";
 import "./design-chrome.css";
 import { installCrashHandlers, reportCrash } from "./crash";
+import { notifyInterfaceBoot } from "./interface-update";
 import { mount } from "./ui/app";
 import { mountCallPopout } from "./ui/call-popout";
 
@@ -26,6 +27,7 @@ if (root instanceof HTMLElement) {
   try {
     if (new URLSearchParams(location.search).has("popout")) mountCallPopout(root);
     else mount(root);
+    notifyInterfaceBoot();
   } catch (error) {
     reportCrash(error);
   }

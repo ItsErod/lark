@@ -778,6 +778,7 @@ html.is-game-mode *::after {
 .update-banner strong { font-size: 14px; }
 .update-banner p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
 .update-banner-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.interface-toast { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 8px 8px 12px; background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px; }
 .update-progress { height: 4px; border-radius: 99px; background: var(--bg-0); overflow: hidden; }
 .update-progress > span { display: block; height: 100%; background: var(--accent); }
 

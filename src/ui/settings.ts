@@ -67,7 +67,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
   { id: "language", label: "Language & Time", group: "app", description: "Language and 12-hour or 24-hour time." },
   { id: "window", label: "Window", group: "app", description: "Tray, login, and how fast the window paints." },
   { id: "advanced", label: "Advanced", group: "app", description: "Developer Mode shows ids on messages and menus." },
-  { id: "updates", label: "Updates", group: "app", description: "Automatic updates for the macOS and Windows apps." },
+  { id: "updates", label: "Updates", group: "app", description: "Automatic updates for the macOS and Windows apps, and signed interface bundles." },
   { id: "voice", label: "Voice & Video", group: "lark", description: "Input mode, the speaking ring, noise suppression, devices, and the in-game HUD." },
   { id: "messages", label: "Messages", group: "lark", description: "Saved messages, reminders, and scheduled sends on this device." },
   { id: "privacy", label: "Privacy", group: "lark", description: "Streamer mode hides personal info on this screen." },
@@ -195,6 +195,10 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "updates.version", section: "updates", label: "Current version", description: "The version of Lark running on this computer.", keywords: "version about" },
   { id: "updates.auto", section: "updates", label: "Automatically install updates", description: "Download a new version in the background and install it when it is ready. A voice call finishes first.", keywords: "updater auto update" },
   { id: "updates.check", section: "updates", label: "Check for updates", description: "Look for a Lark update now.", keywords: "version update check now" },
+  { id: "updates.channel", section: "updates", label: "Interface channel", description: "Stable or Canary. Canary gets each interface build. Stable gets a promoted build.", keywords: "canary stable hot update channel" },
+  { id: "updates.ui", section: "updates", label: "Interface build", description: "The interface loaded in this window. Built-in is the one packaged with the app.", keywords: "ui build hot bundle" },
+  { id: "updates.interface", section: "updates", label: "Check interface", description: "Look for an interface bundle now.", keywords: "interface check now hot update" },
+  { id: "updates.reset", section: "updates", label: "Reset to built-in UI", description: "Drop the downloaded interface and load the one packaged with Lark.", keywords: "builtin built-in rollback reset" },
 ];
 
 const extraSections: SettingsSectionMeta[] = [];
