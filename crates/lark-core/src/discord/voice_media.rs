@@ -676,6 +676,8 @@ fn send_opus(args: &MediaArgs, opus: &[u8], seq: &mut u16, timestamp: &mut u32, 
     let header = rtp_header(*seq, *timestamp, args.ssrc);
     if let Ok(packet) = encrypt_voice(args.mode, &args.key, &header, &sealed, *nonce) {
         let _ = args.outbound.send(VoiceWire::Packet(packet));
+    } else if let Ok(mut log) = args.log.lock() {
+        log.encrypt_fail = log.encrypt_fail.saturating_add(1);
     }
     *seq = seq.wrapping_add(1);
     *timestamp = timestamp.wrapping_add(FRAME_SAMPLES as u32);
@@ -719,33 +721,54 @@ fn stereo_from_mono(mono: &[f32], pcm: &mut [i16]) {
     }
 }
 
+fn note_drop(log: &Mutex<VoiceLog>, slot: fn(&mut VoiceLog) -> &mut u64) {
+    if let Ok(mut guard) = log.lock() {
+        let counter = slot(&mut guard);
+        *counter = counter.saturating_add(1);
+    }
+}
+
 fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratch: &mut [i16], packet: Vec<u8>) {
-    let Some(ssrc) = rtp_ssrc(&packet) else { return };
+    let Some(ssrc) = rtp_ssrc(&packet) else {
+        note_drop(&args.log, |log| &mut log.not_rtp);
+        return;
+    };
     if ssrc == 0 || ssrc == args.ssrc {
+        note_drop(&args.log, |log| &mut log.own_ssrc);
         return;
     }
-    let Ok(transport) = decrypt_voice(args.mode, &args.key, &packet) else { return };
+    let Ok(transport) = decrypt_voice(args.mode, &args.key, &packet) else {
+        note_drop(&args.log, |log| &mut log.transport_fail);
+        return;
+    };
     if transport.is_empty() {
+        note_drop(&args.log, |log| &mut log.empty_frame);
         return;
     }
     let opus = match &args.dave {
         Some(dave) => {
-            let user_id = args
-                .ssrc_users
-                .lock()
-                .ok()
-                .and_then(|map| map.get(&ssrc).cloned())
-                .and_then(|id| id.parse::<u64>().ok())
-                .unwrap_or(0);
-            let Ok(mut call) = dave.lock() else { return };
-            match call.open_opus(user_id, &transport) {
-                Ok(plain) => plain,
-                Err(()) => {
-                    drop(call);
-                    if let Ok(mut log) = args.log.lock() {
-                        log.dave_open_fail = log.dave_open_fail.saturating_add(1);
-                    }
+            if transport.as_slice() == OPUS_SILENCE {
+                transport
+            } else {
+                let user_id = args
+                    .ssrc_users
+                    .lock()
+                    .ok()
+                    .and_then(|map| map.get(&ssrc).cloned())
+                    .and_then(|id| id.parse::<u64>().ok())
+                    .unwrap_or(0);
+                if user_id == 0 {
+                    note_drop(&args.log, |log| &mut log.dave_no_user);
                     return;
+                }
+                let Ok(mut call) = dave.lock() else { return };
+                match call.open_opus(user_id, &transport) {
+                    Ok(plain) => plain,
+                    Err(()) => {
+                        drop(call);
+                        note_drop(&args.log, |log| &mut log.dave_open_fail);
+                        return;
+                    }
                 }
             }
         }
@@ -766,7 +789,10 @@ fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratc
     let Some(incoming) = decoders.get_mut(&ssrc) else { return };
     if let (Some(expected), Some(seq)) = (incoming.next_seq, seq) {
         match packets_to_conceal(expected, seq) {
-            None => return,
+            None => {
+                note_drop(&args.log, |log| &mut log.late_packet);
+                return;
+            }
             Some(missed) => {
                 for _ in 0..missed {
                     if let Some(pcm) = decode_mono(&mut incoming.decoder, None, scratch) {
@@ -782,6 +808,8 @@ fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratc
     incoming.last = Instant::now();
     if let Some(pcm) = decode_mono(&mut incoming.decoder, Some(opus.as_slice()), scratch) {
         deliver(args, ssrc, &pcm);
+    } else {
+        note_drop(&args.log, |log| &mut log.opus_decode_fail);
     }
 }
 

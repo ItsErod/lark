@@ -4,7 +4,7 @@
  * A check runs on startup and every 30 minutes. With automatic install on,
  * the bytes download in the background. Restart installs and relaunches.
  * An active voice call holds that install until the call ends. Later skips
- * this version until a newer one is published or Check now is used.
+ * this version until a newer one is published or Check for updates is used.
  */
 
 export const UPDATE_CHECK_MS = 30 * 60 * 1000;
@@ -262,6 +262,7 @@ export function updateBanner(state: UpdateState): UpdateBanner | null {
   const title = `Lark ${version} is ready`;
   let status = "";
   if (state.phase === "downloading") status = progressLabel(state.received, state.total);
+  else if (state.phase === "ready") status = "Restart to finish the update.";
   else if (state.phase === "deferred") status = "The update installs when the call ends.";
   else if (state.phase === "installing") status = "Restarting…";
   return {
@@ -276,7 +277,7 @@ export function updateBanner(state: UpdateState): UpdateBanner | null {
 export function updatesStatus(state: UpdateState): string {
   const version = state.offer?.version;
   if (version && state.skippedVersion === version && state.phase !== "installing") {
-    return `Lark ${version} was skipped. Check now to install it.`;
+    return `Lark ${version} was skipped. Check for updates to install it.`;
   }
   switch (state.phase) {
     case "checking":

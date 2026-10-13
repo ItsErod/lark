@@ -3,7 +3,11 @@ import {
   applyMoreAction,
   applyUserMix,
   applyVoiceState,
+  defaultAvatarUrl,
   defaultCallView,
+  isDefaultAvatar,
+  keepAvatar,
+  preferAvatar,
   hydrateMix,
   joinVoiceTarget,
   memberVoiceBody,
@@ -69,6 +73,24 @@ describe("voice roster", () => {
     expect(kept.sharing).toBe(false);
     expect(kept.volume).toBe(80);
     expect(participantsIn(roster, guild, other)).toHaveLength(0);
+  });
+
+  it("keeps a real avatar and falls back to Discord's default picture", () => {
+    const roster: VoiceRoster = {};
+    const real = "https://cdn.discordapp.com/avatars/3/face.png";
+    const priya = "100000000000000009";
+    const fallback = defaultAvatarUrl(priya);
+    expect(fallback).toContain("/embed/avatars/");
+    expect(isDefaultAvatar(fallback)).toBe(true);
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "3", name: "Jonah", avatarUrl: real });
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: "3", avatarUrl: fallback });
+    expect(participantsIn(roster, guild, booth)[0].avatarUrl).toBe(real);
+    applyVoiceState(roster, { guildId: guild, channelId: booth, userId: priya, name: "Priya" });
+    expect(participantsIn(roster, guild, booth).find((person) => person.userId === priya)?.avatarUrl).toBe(fallback);
+    expect(keepAvatar(fallback, real)).toBe(real);
+    expect(preferAvatar(null, null, priya)).toBe(fallback);
+    replaceGuildVoice(roster, guild, [{ guildId: guild, channelId: booth, userId: "3", name: "Jonah", avatarUrl: fallback }]);
+    expect(participantsIn(roster, guild, booth).find((person) => person.userId === "3")?.avatarUrl).toBe(real);
   });
 
   it("keeps a local mute separate from the volume slider", () => {

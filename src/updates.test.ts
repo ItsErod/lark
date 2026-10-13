@@ -76,6 +76,7 @@ describe("update checks", () => {
     expect(done.effect).toBe("install");
     const banner = updateBanner({ ...done.state, phase: "ready" });
     expect(banner?.title).toBe("Lark 3.0.1 is ready");
+    expect(banner?.status).toBe("Restart to finish the update.");
     expect(banner?.notes).toContain("Voice calls stay up");
     expect(banner?.showActions).toBe(true);
   });

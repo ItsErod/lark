@@ -720,6 +720,39 @@ pub fn avatar_url(user_id: &str, avatar: &Option<String>) -> Option<String> {
     ))
 }
 
+pub fn guild_avatar_url(guild_id: &str, user_id: &str, avatar: &Option<String>) -> Option<String> {
+    let hash = avatar.as_deref()?;
+    if !snowflake_ok(guild_id) || !snowflake_ok(user_id) || !asset_hash_ok(hash) {
+        return None;
+    }
+    let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+    Some(format!(
+        "https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/avatars/{hash}.{ext}?size=64"
+    ))
+}
+
+/// Discord's default picture. Index is `(user_id >> 22) % 6`.
+pub fn default_avatar_url(user_id: &str) -> Option<String> {
+    if !snowflake_ok(user_id) {
+        return None;
+    }
+    let id = user_id.parse::<u64>().ok()?;
+    let index = (id >> 22) % 6;
+    Some(format!("https://cdn.discordapp.com/embed/avatars/{index}.png"))
+}
+
+/// User avatar, then the guild member avatar, then the default for that id.
+pub fn voice_avatar_url(
+    guild_id: &str,
+    user_id: &str,
+    user_avatar: &Option<String>,
+    member_avatar: &Option<String>,
+) -> Option<String> {
+    avatar_url(user_id, user_avatar)
+        .or_else(|| guild_avatar_url(guild_id, user_id, member_avatar))
+        .or_else(|| default_avatar_url(user_id))
+}
+
 pub fn banner_url(user_id: &str, banner: &Option<String>) -> Option<String> {
     let hash = banner.as_deref()?;
     if !snowflake_ok(user_id) || !asset_hash_ok(hash) {
@@ -1455,6 +1488,10 @@ pub fn blocked_user_ids(relationships: &serde_json::Value) -> Vec<String> {
 }
 
 pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
+    profile_from_guild(value, None)
+}
+
+pub fn profile_from_guild(value: &serde_json::Value, guild_id: Option<&str>) -> Option<ClientProfile> {
     let user = value.get("user")?;
     let id = user.get("id").and_then(|item| item.as_str()).unwrap_or("");
     if !snowflake_ok(id) {
@@ -1466,10 +1503,7 @@ pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
         .and_then(|item| item.as_str())
         .filter(|name| !name.is_empty());
     let name = global.unwrap_or(if username.is_empty() { "Unknown" } else { username.as_str() }).to_string();
-    let avatar = user
-        .get("avatar")
-        .and_then(|item| item.as_str())
-        .map(|hash| hash.to_string());
+    let avatar = hash_field(user.get("avatar"));
     let profile = value.get("user_profile");
     let banner = profile
         .and_then(|item| item.get("banner"))
@@ -1492,6 +1526,8 @@ pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
         .and_then(|item| item.as_u64())
         .or_else(|| user.get("accent_color").and_then(|item| item.as_u64()));
     let guild_member = value.get("guild_member");
+    let member_avatar = hash_field(guild_member.and_then(|item| item.get("avatar")));
+    let guild_for_avatar = guild_id.unwrap_or("").trim();
     let nick = guild_member
         .and_then(|item| item.get("nick"))
         .and_then(|item| item.as_str())
@@ -1547,7 +1583,7 @@ pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
         id: id.to_string(),
         name,
         username,
-        avatar_url: avatar_url(id, &avatar),
+        avatar_url: voice_avatar_url(guild_for_avatar, id, &avatar, &member_avatar),
         banner_url: banner_url(id, &banner),
         accent: accent_raw.and_then(|color| color_hex(color as u32)),
         bio,
@@ -1599,13 +1635,13 @@ pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Opt
     } else {
         String::new()
     };
-    let avatar = user
-        .and_then(|item| item.get("avatar"))
-        .and_then(|v| v.as_str())
-        .map(|hash| hash.to_string());
+    let avatar = hash_field(user.and_then(|item| item.get("avatar")));
+    let member_avatar = hash_field(member.and_then(|item| item.get("avatar")));
     let guild_id = first_str(&[value.get("guild_id")]);
+    let guild_id = if guild_id.is_empty() { fallback_guild.to_string() } else { guild_id };
     Some(ClientVoiceState {
-        guild_id: if guild_id.is_empty() { fallback_guild.to_string() } else { guild_id },
+        avatar_url: voice_avatar_url(&guild_id, &user_id, &avatar, &member_avatar),
+        guild_id,
         channel_id: value.get("channel_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         user_id,
         session_id: value.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -1614,21 +1650,12 @@ pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Opt
         server_mute: value.get("mute").and_then(|v| v.as_bool()).unwrap_or(false),
         server_deaf: value.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false),
         self_stream: value.get("self_stream").and_then(|v| v.as_bool()).unwrap_or(false),
-        avatar_url: avatar_url_from_hash(&value_user_id(value, user), &avatar),
         name,
     })
 }
 
-fn value_user_id(value: &serde_json::Value, user: Option<&serde_json::Value>) -> String {
-    let direct = value.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
-    if !direct.is_empty() {
-        return direct.to_string();
-    }
-    user.and_then(|item| item.get("id")).and_then(|v| v.as_str()).unwrap_or("").to_string()
-}
-
-fn avatar_url_from_hash(user_id: &str, avatar: &Option<String>) -> Option<String> {
-    avatar_url(user_id, avatar)
+fn hash_field(value: Option<&serde_json::Value>) -> Option<String> {
+    value.and_then(|item| item.as_str()).filter(|hash| !hash.is_empty()).map(|hash| hash.to_string())
 }
 
 fn first_str(values: &[Option<&serde_json::Value>]) -> String {
@@ -2473,6 +2500,36 @@ mod tests {
         assert!(states[0].self_mute);
         assert!(states[0].server_deaf);
         assert!(states[0].avatar_url.as_deref().unwrap().contains("/avatars/100000000000000002/a1b2c3d4.png"));
+        let guild_face = serde_json::json!({
+            "guild_id": "100000000000000010",
+            "channel_id": "100000000000000026",
+            "user_id": "100000000000000003",
+            "member": {
+                "avatar": "a_guildface",
+                "user": {"id": "100000000000000003", "username": "jonah", "avatar": null}
+            }
+        });
+        let guild_avatar = parse_voice_state(&guild_face, "100000000000000010").unwrap();
+        assert!(guild_avatar.avatar_url.as_deref().unwrap().contains("/guilds/100000000000000010/users/100000000000000003/avatars/a_guildface.gif"));
+        let bare = serde_json::json!({
+            "guild_id": "100000000000000010",
+            "channel_id": "100000000000000026",
+            "user_id": "100000000000000004"
+        });
+        let fallback = parse_voice_state(&bare, "100000000000000010").unwrap();
+        let index = (100000000000000004u64 >> 22) % 6;
+        assert!(fallback.avatar_url.as_deref().unwrap().contains(&format!("/embed/avatars/{index}.png")));
+        let user_wins = serde_json::json!({
+            "guild_id": "100000000000000010",
+            "channel_id": "100000000000000026",
+            "user_id": "100000000000000003",
+            "member": {
+                "avatar": "guildonly",
+                "user": {"id": "100000000000000003", "username": "jonah", "avatar": "userface"}
+            }
+        });
+        let preferred = parse_voice_state(&user_wins, "").unwrap();
+        assert!(preferred.avatar_url.as_deref().unwrap().contains("/avatars/100000000000000003/userface.png"));
         let left = serde_json::json!({
             "guild_id": "100000000000000010",
             "channel_id": null,

@@ -9,9 +9,9 @@
     "F": { "done": true, "finishedAt": "2026-10-12T15:14:41-04:00" }
   },
   "tracks": {
-    "starter": { "done": false, "finishedAt": null },
-    "privacy": { "done": false, "finishedAt": null },
-    "chat": { "done": false, "finishedAt": null },
-    "media": { "done": false, "finishedAt": null }
+    "starter": { "done": true, "finishedAt": "2026-10-12T17:02:01-04:00" },
+    "privacy": { "done": true, "finishedAt": "2026-10-12T15:59:12-04:00" },
+    "chat": { "done": true, "finishedAt": "2026-10-12T16:19:45-04:00" },
+    "media": { "done": true, "finishedAt": "2026-10-12T16:41:16-04:00" }
   }
 }

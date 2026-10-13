@@ -334,8 +334,12 @@ where
             received = udp_recv.recv(&mut packet) => {
                 if let Ok(size) = received {
                     let datagram = &packet[..size];
+                    let stream = crate::discord::voice_log::rtp_stream(datagram);
                     if let Ok(mut guard) = log.lock() {
-                        guard.note_udp_in(size, crate::discord::voice_log::rtp_seq(datagram));
+                        guard.note_udp_in(size, stream.map(|(id, _)| id), stream.map(|(_, seq)| seq));
+                    }
+                    if crate::discord::voice::is_rtcp(datagram) {
+                        continue;
                     }
                     if is_camera_rtp(datagram) {
                         let users = ssrc_users.lock().map(|guard| guard.clone()).unwrap_or_default();
@@ -348,7 +352,11 @@ where
                         }
                     } else if size > 12 {
                         if let Some(inbound) = inbound_tx.as_ref() {
-                            let _ = inbound.try_send(datagram.to_vec());
+                            if inbound.try_send(datagram.to_vec()).is_err() {
+                                if let Ok(mut guard) = log.lock() {
+                                    guard.queue_full = guard.queue_full.saturating_add(1);
+                                }
+                            }
                         }
                     }
                 }
