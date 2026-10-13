@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeConfig } from "./config";
 import {
+  GAME_CHANNEL_PX,
+  GAME_RAIL_PX,
+  SHELL_CHANNEL_PX,
+  SHELL_RAIL_PX,
+  compactGameChrome,
+  gameShellWidths,
   pollInterval,
   profileFromBase,
   resolveGame,
@@ -114,6 +120,7 @@ describe("game mode", () => {
     expect(config.desktop.detect_games).toBe(true);
     expect(config.shortcuts.toggle_perf_overlay).toBe("mod+shift+p");
     expect(config.shortcuts.toggle_game_mode).toBe("mod+shift+g");
+    expect(config.voice.overlay_click_through).toBe(true);
     expect(config.games.Hades).toEqual({
       ptt: true,
       ptt_key: "v",
@@ -127,6 +134,28 @@ describe("game mode", () => {
       detect_games: false,
       perf_overlay: true,
       game_mode: true,
+    });
+  });
+
+  it("tucks chrome during a call or a detected game, and leaves it alone otherwise", () => {
+    expect(compactGameChrome({ gameMode: false, inCall: true, gameDetected: true })).toBe(false);
+    expect(compactGameChrome({ gameMode: true, inCall: false, gameDetected: false })).toBe(false);
+    expect(compactGameChrome({ gameMode: true, inCall: true, gameDetected: false })).toBe(true);
+    expect(compactGameChrome({ gameMode: true, inCall: false, gameDetected: true })).toBe(true);
+    expect(gameShellWidths({ compact: false, showRail: true, channelHidden: false, membersPx: 240 })).toEqual({
+      railPx: SHELL_RAIL_PX,
+      channelPx: SHELL_CHANNEL_PX,
+      membersPx: 240,
+    });
+    expect(gameShellWidths({ compact: true, showRail: true, channelHidden: false, membersPx: 320 })).toEqual({
+      railPx: GAME_RAIL_PX,
+      channelPx: GAME_CHANNEL_PX,
+      membersPx: 0,
+    });
+    expect(gameShellWidths({ compact: true, showRail: false, channelHidden: true, membersPx: 240 })).toEqual({
+      railPx: 0,
+      channelPx: 0,
+      membersPx: 0,
     });
   });
 });

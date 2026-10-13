@@ -50,6 +50,36 @@ export function shouldPreload(gameMode: boolean): boolean {
   return !gameMode;
 }
 
+/** Usual shell columns. Game Mode only narrows these while chrome is tucked. */
+export const SHELL_RAIL_PX = 56;
+export const SHELL_CHANNEL_PX = 240;
+/** Icon rail. Still wide enough to hit a server. */
+export const GAME_RAIL_PX = 40;
+/** Channel names and the voice panel. Mute stays on the wrapped row. */
+export const GAME_CHANNEL_PX = 200;
+
+/**
+ * Tuck the member list and narrow the rail and channel list only while Game
+ * Mode is on and a call is up or a game is in front. Idle Game Mode keeps
+ * the usual columns. Chat stays the flexible column either way.
+ */
+export function compactGameChrome(input: { gameMode: boolean; inCall: boolean; gameDetected: boolean }): boolean {
+  return input.gameMode && (input.inCall || input.gameDetected);
+}
+
+export function gameShellWidths(input: {
+  compact: boolean;
+  showRail: boolean;
+  channelHidden: boolean;
+  membersPx: number;
+}): { railPx: number; channelPx: number; membersPx: number } {
+  return {
+    railPx: input.showRail ? (input.compact ? GAME_RAIL_PX : SHELL_RAIL_PX) : 0,
+    channelPx: input.channelHidden ? 0 : (input.compact ? GAME_CHANNEL_PX : SHELL_CHANNEL_PX),
+    membersPx: input.compact ? 0 : Math.max(0, input.membersPx),
+  };
+}
+
 export function cleanGameName(name: string): string | null {
   let out = "";
   let pending = false;

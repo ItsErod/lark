@@ -398,3 +398,37 @@
 #app .popout.status-menu {
   left: 68px;
 }
+
+/* Game Mode. Members drop out of the grid. The rail and channel list shrink.
+   Chat keeps the flexible column. Voice actions wrap so mute stays reachable. */
+
+#app[data-game-chrome="on"] .rail {
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+
+#app[data-game-chrome="on"] .rail-button,
+#app[data-game-chrome="on"] .server-button {
+  width: 40px;
+  height: 32px;
+}
+
+#app[data-game-chrome="on"] .server-face {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+}
+
+#app[data-game-chrome="on"] .channel-head,
+#app[data-game-chrome="on"] .chat-head {
+  min-height: 32px;
+}
+
+#app[data-game-chrome="on"] .voice-panel-actions {
+  flex-wrap: wrap;
+}
+
+#app[data-game-chrome="on"][data-narrow="on"] .channels {
+  left: 40px;
+  width: min(280px, calc(100% - 56px));
+}
