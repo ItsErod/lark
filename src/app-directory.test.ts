@@ -1,3 +1,4 @@
+import { appSource } from "./app-source.dev";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
@@ -74,10 +75,10 @@ describe("app directory", () => {
   });
 
   it("loads the directory when server settings ask for it", () => {
-    const appSource = readFileSync("src/ui/app.ts", "utf8");
+    const appText = appSource();
     const pages = readFileSync("src/ui/guild-pages.ts", "utf8");
-    expect(appSource).not.toMatch(/from ["']\.\/app-directory-view["']/);
-    expect(appSource).toContain('import("./app-directory-view")');
+    expect(appText).not.toMatch(/from ["']\.\/app-directory-view["']/);
+    expect(appText).toContain('import("./app-directory-view")');
     expect(pages).not.toMatch(/from ["']\.\/app-directory-view["']/);
     expect(pages).toContain('import("./app-directory-view")');
     expect(pages).not.toContain("discord.com/application-directory");

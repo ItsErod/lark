@@ -1,3 +1,4 @@
+import { appSource } from "./app-source.dev";
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildViewMessage } from "./render/message";
@@ -114,8 +115,8 @@ describe("channel history", () => {
   });
 
   it("paints messages before the history fetch, and defers members and prefetch", () => {
-    const source = readFileSync("src/ui/app.ts", "utf8");
-    const open = source.slice(source.indexOf("private async openChannel"), source.indexOf("private finishChannelChrome"));
+    const source = appSource();
+    const open = source.slice(source.indexOf("  async openChannel("), source.indexOf("  finishChannelChrome("));
     const paintAt = open.indexOf("this.paintMessages()");
     const awaitAt = open.indexOf("await this.reconcileChannel");
     expect(paintAt).toBeGreaterThan(0);
@@ -125,7 +126,7 @@ describe("channel history", () => {
     expect(open).not.toContain("this.prefetchAround");
     expect(open).not.toContain("this.loadThreads");
     expect(open).toContain("initialHistory");
-    const chrome = source.slice(source.indexOf("private finishChannelChrome"), source.indexOf("private async reconcileChannel"));
+    const chrome = source.slice(source.indexOf("  finishChannelChrome("), source.indexOf("  async reconcileChannel("));
     expect(chrome.indexOf("this.paintMembers()")).toBeGreaterThan(0);
     expect(chrome).toContain("this.prefetchAround");
     expect(chrome).toContain("this.loadThreads");

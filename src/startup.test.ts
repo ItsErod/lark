@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { appSource } from "./app-source.dev";
 import { describe, expect, it } from "vitest";
 import { CHANNEL_GATEWAY_GRACE_MS } from "./guilds";
 import {
@@ -63,17 +63,17 @@ describe("startup splash", () => {
   });
 
   it("shows the shell when the splash ends, and cannot hold the splash forever", () => {
-    const source = readFileSync("src/ui/app.ts", "utf8");
-    const finish = source.slice(source.indexOf("private finishStartup"), source.indexOf("private hideSplash"));
+    const source = appSource();
+    const finish = source.slice(source.indexOf("  finishStartup("), source.indexOf("  hideSplash("));
     const revealAt = finish.indexOf("this.revealShell()");
     const openAt = finish.indexOf("this.openChannel(id)");
     expect(revealAt).toBeGreaterThan(0);
     expect(openAt).toBeGreaterThan(revealAt);
     expect(finish).toContain("this.clearSplashCap()");
     expect(finish).toContain("force");
-    const begin = source.slice(source.indexOf("private beginStartup"), source.indexOf("private showPreviewSplash"));
+    const begin = source.slice(source.indexOf("  beginStartup("), source.indexOf("  showPreviewSplash("));
     expect(begin).toContain("this.armSplashCap()");
-    const open = source.slice(source.indexOf("private async openChannel"), source.indexOf("private finishChannelChrome"));
+    const open = source.slice(source.indexOf("  async openChannel("), source.indexOf("  finishChannelChrome("));
     expect(open.indexOf("this.revealShell()")).toBeGreaterThan(0);
     expect(open.indexOf("this.revealShell()")).toBeLessThan(open.indexOf("this.paintMessages()"));
     expect(source).toContain("SPLASH_CAP_MS");
