@@ -470,6 +470,7 @@ import { createMutedProbe, type MutedProbe } from "../muted-probe";
 import { renderMutedTalk } from "./muted-talk-view";
 import { takeAudioHotkey } from "../audio-hotkey";
 import type { ProfileActionSlot, ProfileRole, WireProfile } from "./profile";
+import type { ProfileTabId } from "./profile-tabs";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
   applyUserChrome,
@@ -720,6 +721,7 @@ class LarkApp {
   private closedDms = new Set<string>();
   private profilePanelOpen = false;
   private profileFull = false;
+  private profileTab: ProfileTabId = "about";
   private serverEditor = false;
   private socialMenusBound = false;
   private friendTick = 0;
@@ -9784,6 +9786,7 @@ class LarkApp {
     this.popout = person;
     this.statusOpen = statusPicker;
     this.profileFull = false;
+    this.profileTab = "about";
     this.serverEditor = serverEditor;
     this.wireProfile = this.wireProfile?.id === person.id ? this.wireProfile : null;
     this.paintPopout();
@@ -14168,6 +14171,7 @@ class LarkApp {
       roles: roles.length ? roles : (sample ? this.late!.sampleRoles() : []),
       statusEmojis: this.statusOpen && person.id === this.meId() ? this.statusEmojiSource() : undefined,
       placement: this.profileFull ? "full" : "modal",
+      profileTab: this.profileTab,
       serverEditor: this.serverEditor && person.id === this.meId(),
       details: details ? {
         id: personalLine(details.id, this.streamerOn()),
@@ -14182,6 +14186,7 @@ class LarkApp {
         mutualNames,
         mutualGuilds: details.mutualGuilds?.length ?? 0,
         mutualFriends: details.mutualFriends ?? 0,
+        mutualFriendsList: (details.mutualFriendsList ?? []).map((friend) => ({ id: friend.id, name: this.maskText(friend.name) })),
         joinedAt: details.joinedAt,
         badges: (details.badges ?? []).map((badge) => ({ ...badge, description: this.maskText(badge.description) })),
         widgets: (details.widgets ?? []).map((widget) => ({ ...widget, name: this.maskText(widget.name) })),
@@ -14192,6 +14197,7 @@ class LarkApp {
         this.popout = null;
         this.statusOpen = false;
         this.profileFull = false;
+        this.profileTab = "about";
         this.serverEditor = false;
         this.wireProfile = null;
         this.paintPopout();
@@ -14209,7 +14215,15 @@ class LarkApp {
       onWatchStream: spot?.sharing || person.rich?.live ? () => this.watchFriend(person.id) : undefined,
       onOpenFull: this.profileFull ? undefined : () => {
         this.profileFull = true;
+        this.profileTab = "about";
         this.paintPopout();
+      },
+      onBack: this.profileFull ? () => {
+        this.profileFull = false;
+        this.paintPopout();
+      } : undefined,
+      onProfileTab: (tab) => {
+        this.profileTab = tab;
       },
       onSaveServerProfile: (nick, bio, avatar) => void this.saveServerProfile(nick, bio, avatar),
       slots: this.profileSlots(person),
@@ -17770,6 +17784,7 @@ class LarkApp {
         mutualNames: [],
         mutualGuilds: details.mutualGuilds?.length ?? 0,
         mutualFriends: details.mutualFriends ?? 0,
+        mutualFriendsList: (details.mutualFriendsList ?? []).map((friend) => ({ id: friend.id, name: this.maskText(friend.name) })),
         joinedAt: details.joinedAt,
         badges: details.badges ?? [],
         widgets: details.widgets ?? [],
