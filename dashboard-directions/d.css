@@ -1,0 +1,8 @@
+/* D · Tiles. Four equal panels. No friend rows. */
+.title-a, .tabs-a, .meta-a,
+.title-b, .meta-b,
+.title-c, .meta-c,
+.roster, .now, .stage, .feed { display: none; }
+
+.body { display: block; min-height: 0; }
+.tiles { height: calc(900px - 48px); }

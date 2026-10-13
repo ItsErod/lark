@@ -1,0 +1,6 @@
+/* A · Roster. Friend list with an Active Now column. */
+.title-b, .title-c, .title-d,
+.meta-b, .meta-c, .meta-d,
+.stage, .feed, .tiles { display: none; }
+
+.body { grid-template-columns: minmax(0, 1fr) 300px; }

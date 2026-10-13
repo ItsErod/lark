@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>__TITLE__</title>
+  <link rel="stylesheet" href="fonts.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="__CSS__">
+</head>
+<body class="dir-__DIR__">
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="i-lark" viewBox="0 0 24 24"><path fill="currentColor" d="M3.2 13.4c1.8-5.4 6-7.6 10.2-7.2-.2 2.8-.8 4.6-2.8 6.2 2.8.1 5.4-.8 7.6-2.6-.8 4.6-4.6 7.6-9.4 7.4-1.8 0-3.5-.6-4.7-1.7 1.1.2 2.4-.2 3.4-.9-2.3.1-4.2.7-4.3-1.2z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m16 16 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="9" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 19c.6-2.4 2.4-4 5-4s4.4 1.6 5 4M16.2 15c1.8.3 3 1.4 3.6 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6 11a6 6 0 0 0 12 0M12 17v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-phones" viewBox="0 0 24 24"><path d="M4 13v2a2 2 0 0 0 2 2h1v-6H6a6 6 0 0 1 12 0h-1v6h1a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8 5.6 18.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <div class="app">
+    <nav class="rail" aria-label="Servers">
+      <button class="server home active" type="button" aria-current="page" aria-label="Home"><i class="pip"></i><svg class="icon" viewBox="0 0 24 24"><use href="#i-lark"/></svg></button>
+      <div class="rail-rule"></div>
+      <button class="server" type="button" aria-label="Northwind">N</button>
+      <button class="server" type="button" aria-label="Night Market">NM<span class="mention">1</span></button>
+    </nav>
+
+    <aside class="dms">
+      <div class="search"><svg class="icon" viewBox="0 0 24 24"><use href="#i-search"/></svg>Find or start a conversation</div>
+      <button class="friends-btn" type="button"><svg class="icon" viewBox="0 0 24 24"><use href="#i-people"/></svg>Friends<span class="badge">2</span></button>
+      <div class="dm-label">Direct messages</div>
+      <button class="dm unread" type="button"><span class="av">MC<span class="dot live"></span></span><span class="copy"><strong>Maya Chen</strong><em>the type is still too loose</em></span></button>
+      <button class="dm" type="button"><span class="av">JA<span class="dot on"></span></span><span class="copy"><strong>Jonah Adler</strong><em>queueing deadlock</em></span></button>
+      <button class="dm" type="button"><span class="av">PS<span class="dot on"></span></span><span class="copy"><strong>Priya Shah</strong><em>sent a file</em></span></button>
+      <button class="dm" type="button"><span class="av">ST<span class="dot on"></span></span><span class="copy"><strong>Studio</strong><em>Maya started sharing</em></span></button>
+
+      <footer class="user">
+        <div class="me">
+          <span class="avatar">EP<span class="dot on"></span></span>
+          <span><strong>Ethan Park</strong><em>Online</em></span>
+        </div>
+        <div class="user-tools">
+          <button class="icon-btn" type="button" aria-label="Mute"><svg class="icon" viewBox="0 0 24 24"><use href="#i-mic"/></svg></button>
+          <button class="icon-btn" type="button" aria-label="Deafen"><svg class="icon" viewBox="0 0 24 24"><use href="#i-phones"/></svg></button>
+          <button class="icon-btn" type="button" aria-label="Settings"><svg class="icon" viewBox="0 0 24 24"><use href="#i-gear"/></svg></button>
+        </div>
+      </footer>
+    </aside>
+
+    <main class="dash">
+      <header class="head">
+        <h1 class="title-a">Friends</h1>
+        <div class="tabs tabs-a" role="tablist">
+          <button class="tab on" type="button">Online</button>
+          <button class="tab" type="button">All</button>
+          <button class="tab" type="button">Pending<span class="count">2</span></button>
+          <button class="tab add" type="button">Add Friend</button>
+        </div>
+        <span class="head-meta meta-a">4 online</span>
+
+        <h1 class="title-b">Now</h1>
+        <span class="head-meta meta-b">Maya is live in Northwind</span>
+
+        <h1 class="title-c">Activity</h1>
+        <span class="head-meta meta-c">Today</span>
+
+        <h1 class="title-d">Now</h1>
+        <span class="head-meta meta-d">4 online · 2 requests</span>
+      </header>
+
+      <div class="body">
+        <section class="roster" aria-label="Online friends">
+          <div class="group">Online — 4</div>
+          <button class="friend" type="button"><span class="av">MC<span class="dot live"></span></span><span class="copy"><strong>Maya Chen</strong><em>Live · design-crit · Northwind</em></span><span class="tag">NW</span></button>
+          <button class="friend" type="button"><span class="av">JA<span class="dot on"></span></span><span class="copy"><strong>Jonah Adler</strong><em>Playing Deadlock · 1:12:04</em></span></button>
+          <button class="friend" type="button"><span class="av">PS<span class="dot on"></span></span><span class="copy"><strong>Priya Shah</strong><em>Listening to Nala Sinephro · 2:18</em></span></button>
+          <button class="friend" type="button"><span class="av">SO<span class="dot on"></span></span><span class="copy"><strong>Sam Okonkwo</strong><em>Online</em></span></button>
+          <div class="group">Idle — 1</div>
+          <button class="friend" type="button"><span class="av">AR<span class="dot idle"></span></span><span class="copy"><strong>Alex Ruiz</strong><em>Idle · Night Market</em></span><span class="tag">NM</span></button>
+        </section>
+
+        <aside class="now" aria-label="Active now">
+          <h2>Active now</h2>
+          <article class="card">
+            <div class="wire" aria-hidden="true">
+              <div class="wire-top"><span>design-crit</span><span>Live</span></div>
+              <div class="wire-body"><span class="w-nav"></span><span class="w-hero"></span><span class="w-line"></span><span class="w-line short"></span></div>
+            </div>
+            <div class="meta">
+              <strong>Maya Chen</strong>
+              <span>Sharing in Northwind</span>
+              <div class="actions"><button class="btn" type="button">Watch</button></div>
+            </div>
+          </article>
+          <article class="card">
+            <div class="game" aria-hidden="true">Deadlock</div>
+            <div class="meta">
+              <strong>Jonah Adler</strong>
+              <span>In a match · 1:12:04</span>
+            </div>
+          </article>
+        </aside>
+
+        <section class="stage" aria-label="Maya Chen is sharing">
+          <div class="wire" aria-hidden="true">
+            <div class="wire-top"><span>Northwind · design-crit</span><span>12:04</span></div>
+            <div class="wire-body"><span class="w-nav"></span><span class="w-hero"></span><span class="w-line"></span><span class="w-line short"></span></div>
+          </div>
+          <div class="stage-cap">
+            <div class="who">
+              <span class="kicker">Live</span>
+              <strong>Maya Chen</strong>
+              <span>Sharing design-crit</span>
+            </div>
+            <button class="btn" type="button">Watch</button>
+            <div class="film" aria-label="Also online">
+              <div class="person"><span class="av">JA<span class="dot on"></span></span><b>Deadlock · 1:12</b></div>
+              <div class="person"><span class="av">PS<span class="dot on"></span></span><b>Listening</b></div>
+              <div class="person"><span class="av">SO<span class="dot on"></span></span><b>Online</b></div>
+              <div class="person"><span class="av">AR<span class="dot idle"></span></span><b>Idle</b></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="feed" aria-label="Activity">
+          <article class="event"><time>2m</time><span class="av">MC<span class="dot live"></span></span><span class="copy"><strong>Maya Chen</strong> <span>started sharing design-crit in Northwind</span></span><span class="actions"><button class="btn" type="button">Watch</button></span></article>
+          <article class="event"><time>14m</time><span class="av">JA<span class="dot on"></span></span><span class="copy"><strong>Jonah Adler</strong> <span>started Deadlock</span></span><span class="actions"><span class="tag">1:12:04</span></span></article>
+          <article class="event"><time>18m</time><span class="av">PS<span class="dot on"></span></span><span class="copy"><strong>Priya Shah</strong> <span>is listening to Nala Sinephro</span></span><span class="actions"><span class="tag">2:18</span></span></article>
+          <article class="event"><time>1h</time><span class="av">ST<span class="dot on"></span></span><span class="copy"><strong>Studio</strong> <span>Maya started sharing in the group</span></span><span class="actions"><button class="btn ghost" type="button">Open</button></span></article>
+          <article class="event"><time>1h</time><span class="av">RS</span><span class="copy"><strong>Rio Santos</strong> <span>sent you a friend request</span></span><span class="actions"><button class="btn" type="button">Accept</button><button class="btn ghost" type="button">Ignore</button></span></article>
+          <article class="event"><time>3h</time><span class="av">LK</span><span class="copy"><strong>Leah Kim</strong> <span>sent you a friend request</span></span><span class="actions"><button class="btn" type="button">Accept</button><button class="btn ghost" type="button">Ignore</button></span></article>
+        </section>
+
+        <section class="tiles" aria-label="Now">
+          <article class="tile">
+            <div class="visual wire" aria-hidden="true">
+              <div class="wire-top"><span>design-crit</span><span>Live</span></div>
+              <div class="wire-body"><span class="w-nav"></span><span class="w-hero"></span><span class="w-line"></span><span class="w-line short"></span></div>
+            </div>
+            <div class="foot"><span class="av">MC<span class="dot live"></span></span><span class="copy"><strong>Maya Chen</strong><span>Sharing in Northwind</span></span><button class="btn" type="button">Watch</button></div>
+          </article>
+          <article class="tile">
+            <div class="visual game" aria-hidden="true">Deadlock</div>
+            <div class="foot"><span class="av">JA<span class="dot on"></span></span><span class="copy"><strong>Jonah Adler</strong><span>In a match</span></span><span class="tag">1:12:04</span></div>
+          </article>
+          <article class="tile">
+            <div class="visual listen" aria-hidden="true"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span>Nala Sinephro · Space 1.8</span></div>
+            <div class="foot"><span class="av">PS<span class="dot on"></span></span><span class="copy"><strong>Priya Shah</strong><span>Listening</span></span><span class="tag">2:18</span></div>
+          </article>
+          <article class="tile">
+            <div class="visual req">
+              <div class="kicker">Requests</div>
+              <div class="req-row"><span class="av">RS</span><span class="copy"><strong>Rio Santos</strong><span>Incoming</span></span><button class="btn" type="button">Accept</button></div>
+              <div class="req-row"><span class="av">LK</span><span class="copy"><strong>Leah Kim</strong><span>Incoming</span></span><button class="btn" type="button">Accept</button></div>
+            </div>
+            <div class="foot"><span class="copy"><strong>2 pending</strong><span>Friend requests</span></span><button class="btn ghost" type="button">Review</button></div>
+          </article>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

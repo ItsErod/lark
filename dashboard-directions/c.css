@@ -1,0 +1,8 @@
+/* C · Feed. One activity list. No second column. */
+.title-a, .tabs-a, .meta-a,
+.title-b, .meta-b,
+.title-d, .meta-d,
+.roster, .now, .stage, .tiles { display: none; }
+
+.body { display: block; }
+.feed { display: block; }

@@ -1,0 +1,8 @@
+/* B · Stage. One live share fills Home. Everyone else is a caption on it. */
+.title-a, .tabs-a, .meta-a,
+.title-c, .title-d,
+.meta-c, .meta-d,
+.roster, .now, .feed, .tiles { display: none; }
+
+.body { display: block; }
+.stage { height: calc(900px - 48px - 32px); }
