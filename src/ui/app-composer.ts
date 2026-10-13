@@ -1,3 +1,5 @@
+import { externalLink } from "./guild-settings";
+import { bindComponentContext } from "./bot-components";
 import { bindSlashFormContext, openSlashForm } from "./slash-form";
 import { outgoingNonce, sameReaction } from "../chat";
 import { composedError, spoilerUploadName } from "../compose";
@@ -160,6 +162,15 @@ export const composerMethods = defineMethods({
         this.toast("Apps", err instanceof Error ? err.message : "Discord refused the command.");
       });
     });
+    bindComponentContext(() => ({
+      demo: this.demo,
+      invoke,
+      toast: (title, body) => this.toast(title, body),
+      openUrl: (url) => externalLink(this.cleanOutgoing(url)),
+      people: () => (this.guildId ? this.membersByGuild[this.guildId] ?? [] : []).map((person) => ({ id: person.id, name: person.name })),
+      channels: () => (this.guildId ? this.channelsOf(this.guildId) : []).map((channel) => ({ id: channel.id, name: channel.name, kind: channel.kind })),
+      roles: () => (this.guildId ? this.rolesByGuild[this.guildId] ?? [] : []).map((role) => ({ id: role.id, name: role.name })),
+    }));
     bindSlashFormContext(() => ({
       channelId: this.channelId,
       guildId: this.guildId,

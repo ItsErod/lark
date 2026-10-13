@@ -1,3 +1,4 @@
+import { deliverInteractionResult, deliverModal } from "./bot-components";
 import { deliverAutocomplete } from "./slash-form";
 import { mergeIncoming, sameOutgoing, sameReaction } from "../chat";
 import { ARCHIVE, history, ME, pageMessages } from "../demo/data";
@@ -435,6 +436,15 @@ export const gatewayMethods = defineMethods({
       emoji?: string;
       added?: boolean;
     };
+    if (event.kind === "modal") {
+      deliverModal(payload as Record<string, unknown>, { channelId: this.channelId, guildId: this.guildId });
+      return;
+    }
+    if (event.kind === "interactionResult") {
+      const result = payload as { nonce?: string; ok?: boolean };
+      if (result.nonce) deliverInteractionResult(result.nonce, result.ok !== false);
+      return;
+    }
     if (event.kind === "autocomplete") {
       const hit = payload as { nonce?: string; choices?: unknown };
       if (hit.nonce) deliverAutocomplete(hit.nonce, hit.choices);
@@ -726,6 +736,7 @@ export const gatewayMethods = defineMethods({
           reactions?: RawMessage["reactions"];
           mentionIds?: string[];
           mentionUsers?: RawMessage["mentionUsers"];
+          components?: unknown;
         };
         if (typeof patch.content === "string") {
           this.noteLoggedEdit(message, message.content, patch.content);
@@ -739,6 +750,7 @@ export const gatewayMethods = defineMethods({
         if (patch.reactions) message.reactions = patch.reactions;
         if (patch.mentionIds) message.mentionIds = patch.mentionIds;
         if (patch.mentionUsers) message.mentionUsers = patch.mentionUsers;
+        if (patch.components !== undefined) message.components = Array.isArray(patch.components) && patch.components.length ? patch.components : undefined;
         this.absorbMessage(message);
         if (event.channelId === this.channelId) {
           this.msgSig = "";
