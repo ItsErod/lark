@@ -41,6 +41,12 @@
       }
       .voice-hud-state { flex: none; font-size: 11px; font-weight: 700; color: #23a55a; letter-spacing: 0.02em; }
       .voice-hud-state.is-muted { color: #f23f43; }
+      .voice-hud-meta { display: flex; gap: 8px; margin: 2px 4px 0; min-width: 0; font-size: 11px; font-weight: 650; color: #949ba4; }
+      .voice-hud-link, .voice-hud-game { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .voice-hud-link { font-variant-numeric: tabular-nums; }
+      .voice-hud-link.is-excellent, .voice-hud-link.is-good { color: #23a55a; }
+      .voice-hud-link.is-fair { color: #f0b232; }
+      .voice-hud-link.is-poor { color: #f23f43; }
       .voice-hud-people { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
       .voice-hud-person, .voice-hud-empty, .voice-hud-more {
         display: flex;

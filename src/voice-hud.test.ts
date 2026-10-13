@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyVoiceState, applyUserMix, replaceGuildVoice, setSpeaking, type VoiceRoster } from "./voice";
-import { voiceHudFrame } from "./voice-hud";
+import { hudLinkLine, hudStatus, voiceHudFrame } from "./voice-hud";
 
 const guild = "100000000000000010";
 const booth = "100000000000000026";
@@ -60,6 +60,18 @@ describe("voice HUD", () => {
     expect(frame.people[0]).toMatchObject({ userId: "1", muted: true, deafened: true, speaking: false });
     expect(frame.people.some((person) => person.userId === "4" && person.speaking)).toBe(true);
     expect(frame.selfDeafened).toBe(true);
+  });
+
+  it("names deafen, mute, and the ping bucket without a line before a ping", () => {
+    expect(hudStatus({ inCall: false, status: "idle", selfMuted: false, selfDeafened: false })).toBe("Not in a call");
+    expect(hudStatus({ inCall: true, status: "connected", selfMuted: true, selfDeafened: true })).toBe("Deafened");
+    expect(hudStatus({ inCall: true, status: "connected", selfMuted: true, selfDeafened: false })).toBe("Muted");
+    expect(hudStatus({ inCall: true, status: "connected", selfMuted: false, selfDeafened: false })).toBe("Live");
+    expect(hudLinkLine(null)).toEqual({ text: "", quality: "" });
+    expect(hudLinkLine(42)).toEqual({ text: "42 ms · Excellent", quality: "Excellent" });
+    expect(hudLinkLine(150.4).quality).toBe("Good");
+    expect(hudLinkLine(250).quality).toBe("Fair");
+    expect(hudLinkLine(900).quality).toBe("Poor");
   });
 
   it("treats a local mute as silence on the HUD", () => {

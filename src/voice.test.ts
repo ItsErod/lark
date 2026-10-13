@@ -169,12 +169,18 @@ describe("voice roster", () => {
     expect(micLevel([1, -1, 1, -1])).toBe(100);
     const details = voiceLinkDetails({ pingMs: 42.2, endpoint: "wss://c-ord.discord.gg/?v=8", mode: "aead_aes256_gcm_rtpsize" });
     expect(details.pingMs).toBe(42);
+    expect(voiceDetailLine(details, "connected")).toContain("Excellent");
     expect(voiceDetailLine(details, "connected")).toContain("Ping 42 ms");
     expect(voiceDetailLine(details, "connected")).toContain("c-ord.discord.gg");
     expect(voiceDetailLine(details, "connected")).not.toContain("aead_");
     const timeout = "Voice server did not answer; missing session, endpoint";
     expect(voiceDetailLine(details, "reconnecting", timeout)).toBe(timeout);
     expect(voiceDetailLine(details, "connected", timeout)).toContain("Connected");
+    expect(voiceDetailLine(details, "connected", timeout)).toContain("Excellent");
+    expect(voiceDetailLine(voiceLinkDetails({ pingMs: 150 }), "connected")).toContain("Good");
+    expect(voiceDetailLine(voiceLinkDetails({ pingMs: 240 }), "reconnecting")).toContain("Fair");
+    expect(voiceDetailLine(voiceLinkDetails({ pingMs: 400 }), "connecting")).toContain("Poor");
+    expect(voiceDetailLine(voiceLinkDetails({}), "connecting")).not.toContain("Excellent");
   });
 
   it("keeps the participant volume menu inside the voice surface", () => {

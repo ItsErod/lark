@@ -366,14 +366,26 @@ export function voiceLinkDetails(input: { pingMs?: number | null; endpoint?: str
   return { pingMs: ping, endpoint, mode };
 }
 
+export type LinkQuality = "Excellent" | "Good" | "Fair" | "Poor";
+
+/** Discord-style buckets for a voice ping. Empty until a finite ping arrives. */
+export function linkQuality(pingMs: number | null | undefined): LinkQuality | "" {
+  if (typeof pingMs !== "number" || !Number.isFinite(pingMs) || pingMs < 0) return "";
+  if (pingMs < 100) return "Excellent";
+  if (pingMs < 200) return "Good";
+  if (pingMs < 300) return "Fair";
+  return "Poor";
+}
+
 export function voiceDetailLine(details: VoiceLinkDetails, status: string, error = ""): string {
   const problem = error.trim();
   if (problem && status !== "connected") return problem;
   const ping = details.pingMs === null ? "Ping —" : `Ping ${details.pingMs} ms`;
+  const quality = linkQuality(details.pingMs);
   const server = details.endpoint ? details.endpoint.replace(/^wss:\/\//, "").replace(/\/.*$/, "") : "Voice server —";
   const mode = details.mode && !details.mode.startsWith("aead_") && !details.mode.startsWith("xsalsa20") ? details.mode : "";
   const state = status === "connected" ? "Connected" : status === "reconnecting" ? "Reconnecting" : "Connecting";
-  return [state, ping, server, mode].filter(Boolean).join(" · ");
+  return [state, quality, ping, server, mode].filter(Boolean).join(" · ");
 }
 
 export const VOICE_CHANNEL_MENU = [

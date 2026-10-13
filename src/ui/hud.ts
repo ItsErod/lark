@@ -1,5 +1,5 @@
 import { emptyPerfSample, perfRows } from "../perf";
-import type { VoiceHudView } from "../voice-hud";
+import { hudLinkLine, hudStatus, type VoiceHudView } from "../voice-hud";
 import { colorFor, el, icon, initials, paths } from "./dom";
 
 export function renderVoiceHud(host: HTMLElement, view: VoiceHudView): void {
@@ -19,11 +19,29 @@ function hudCard(view: VoiceHudView): HTMLElement {
   bar.setAttribute("data-tauri-drag-region", "");
   const title = view.enabled ? (view.inCall ? view.channel || "Voice" : "Voice HUD") : "Performance";
   bar.append(el("strong", "voice-hud-channel", title));
-  if (view.enabled) bar.append(el("span", `voice-hud-state${view.selfMuted ? " is-muted" : ""}`, statusLine(view)));
+  if (view.enabled) {
+    const muted = view.selfDeafened || view.selfMuted;
+    bar.append(el("span", `voice-hud-state${muted ? " is-muted" : ""}`, hudStatus(view)));
+  }
   card.append(bar);
+  const meta = metaLine(view);
+  if (meta) card.append(meta);
   if (view.enabled && view.inCall) card.append(peopleList(view));
   if (view.perf) card.append(perfBlock(view));
   return card;
+}
+
+function metaLine(view: VoiceHudView): HTMLElement | null {
+  const link = view.enabled && view.inCall ? hudLinkLine(view.pingMs) : { text: "", quality: "" as const };
+  const game = (view.game ?? "").replace(/\s+/g, " ").trim();
+  if (!link.text && !game) return null;
+  const row = el("p", "voice-hud-meta");
+  if (link.text) {
+    const quality = link.quality ? ` is-${link.quality.toLowerCase()}` : "";
+    row.append(el("span", `voice-hud-link${quality}`, link.text));
+  }
+  if (game) row.append(el("span", "voice-hud-game", game));
+  return row;
 }
 
 function peopleList(view: VoiceHudView): HTMLElement {
@@ -53,14 +71,6 @@ function perfBlock(view: VoiceHudView): HTMLElement {
     list.append(el("dt", "", row.label), el("dd", "", row.value));
   }
   return list;
-}
-
-function statusLine(view: VoiceHudView): string {
-  if (!view.inCall) return "Not in a call";
-  if (view.status === "connecting") return "Connecting";
-  if (view.status === "reconnecting") return "Reconnecting";
-  if (view.selfMuted) return "Muted";
-  return "Live";
 }
 
 function avatar(name: string, id: string, avatarUrl: string | null): HTMLElement {
