@@ -37,6 +37,8 @@ export const SHIPPED_THEMES: ThemeMeta[] = [
   { id: "mono-contrast", title: "Mono contrast", blurb: "White on black, 7:1" },
   { id: "mono-blue", title: "Mono blue", blurb: "Zinc with a muted steel accent" },
   { id: "mono-sage", title: "Mono sage", blurb: "Zinc with a muted sage accent" },
+  { id: "mono-arena", title: "Mono arena", blurb: "Neutral black, dusty crimson" },
+  { id: "mono-signal", title: "Mono signal", blurb: "Neutral black, muted brass" },
   { id: "daylight", title: "Daylight", blurb: "Warm paper" },
   { id: "ink-contrast", title: "Ink contrast", blurb: "Bright-room black" },
 ];

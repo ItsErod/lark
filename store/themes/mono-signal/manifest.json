@@ -1,0 +1,12 @@
+{
+  "id": "mono-signal",
+  "name": "Mono signal",
+  "description": "A restrained HUD. Neutral black, one muted brass accent.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "bolt",
+  "changelog": "Store release. Restrained HUD brass on Minimal Mono. Installed from the store, not bundled with the app."
+}

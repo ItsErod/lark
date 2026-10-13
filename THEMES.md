@@ -28,6 +28,8 @@ Themes are not part of the app download. The files live in `store/themes/<id>/`.
 | `mono-contrast` | Minimal Mono at high contrast. White type on black, white accent, text pairs at least 7:1. |
 | `mono-blue` | Minimal Mono zinc with one muted steel-blue accent. |
 | `mono-sage` | Minimal Mono zinc with one muted sage accent. |
+| `mono-arena` | A quiet competitive lobby. Neutral black, one dusty crimson accent. |
+| `mono-signal` | A restrained HUD. Neutral black, one muted brass accent. |
 | `daylight` | Warm paper. |
 | `ink-contrast` | The earlier bright-room black. `high-contrast` is the stricter one. |
 

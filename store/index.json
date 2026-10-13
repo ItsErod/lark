@@ -1372,6 +1372,28 @@
       ]
     },
     {
+      "id": "mono-arena",
+      "name": "Mono arena",
+      "description": "A quiet competitive lobby. Neutral black, one dusty crimson accent.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "dark",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "bolt",
+      "changelog": "Store release. Restrained arena colours on Minimal Mono. Installed from the store, not bundled with the app.",
+      "sha256": "50049e93768d18d3951a76c1d2392de62a63a0efc1a80035246c7edac5104179",
+      "bytes": 1059,
+      "file": "themes/mono-arena/theme.css",
+      "download": "downloads/mono-arena.zip",
+      "swatches": [
+        "#09090b",
+        "#0c0c0e",
+        "#c48989",
+        "#f4f4f5"
+      ]
+    },
+    {
       "id": "mono-blue",
       "name": "Mono blue",
       "description": "Minimal Mono with one muted steel-blue accent.",
@@ -1500,6 +1522,28 @@
         "#09090b",
         "#0c0c0e",
         "#8eae98",
+        "#f4f4f5"
+      ]
+    },
+    {
+      "id": "mono-signal",
+      "name": "Mono signal",
+      "description": "A restrained HUD. Neutral black, one muted brass accent.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "dark",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "bolt",
+      "changelog": "Store release. Restrained HUD brass on Minimal Mono. Installed from the store, not bundled with the app.",
+      "sha256": "c7712b5dc0ec2a120b407a46571586d97bc9e537f340c44b7bcf53bcadbd648a",
+      "bytes": 1058,
+      "file": "themes/mono-signal/theme.css",
+      "download": "downloads/mono-signal.zip",
+      "swatches": [
+        "#09090b",
+        "#0c0c0e",
+        "#c6a56e",
         "#f4f4f5"
       ]
     },
