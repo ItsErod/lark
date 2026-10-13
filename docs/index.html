@@ -106,23 +106,47 @@
     <h1>Lark</h1>
     <p class="lede">An unofficial desktop client for one Discord account. Plugins and themes stay in the store, out of the download.</p>
     <div class="downloads" id="downloads">
-      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_x64-setup.exe">
+      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.6/Lark_3.0.6_x64-setup.exe">
         <span>Windows</span>
         <strong>Download EXE</strong>
-        <code>Lark_3.0.5_x64-setup.exe</code>
+        <code>Lark_3.0.6_x64-setup.exe</code>
       </a>
-      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_universal.dmg">
+      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.6/Lark_3.0.6_universal.dmg">
         <span>macOS</span>
         <strong>Download DMG</strong>
-        <code>Lark_3.0.5_universal.dmg</code>
+        <code>Lark_3.0.6_universal.dmg</code>
       </a>
     </div>
-    <p class="note" id="release-note">Current release v3.0.5</p>
+    <p class="note" id="release-note">Current release v3.0.6</p>
 
     <h2>Version history</h2>
     <p class="history-lead">Notes below are the published GitHub release text. Earlier releases are on the <a href="progress/#history">progress page</a>.</p>
     <div class="history" id="history">
-      <details open data-tag="v3.0.5">
+      <details open data-tag="v3.0.6">
+        <summary>v3.0.6 <span>Oct 13, 2026</span></summary>
+        <p>Slash commands with options get a proper form, bot buttons, select menus and pop-up forms work, slash commands can attach files, and clips can leave out game sound or the microphone.</p>
+        <h3>Added</h3>
+        <ul>
+          <li>Slash commands that take options open a Minimal Mono form above the message box, with text, number, true/false, and user, role and channel pickers, subcommands, and the bot's suggestions as you type. Send stays off until every required field is valid. (<a href="https://github.com/ItsErod/lark/pull/255">#255</a>, <a href="https://github.com/ItsErod/lark/pull/256">#256</a>)</li>
+          <li>Bot messages show working buttons and select menus, and bots can open pop-up forms. Messages update when a bot changes its buttons after a click. (<a href="https://github.com/ItsErod/lark/pull/257">#257</a>, <a href="https://github.com/ItsErod/lark/pull/258">#258</a>)</li>
+          <li>Slash commands that take a file can attach one, up to 25 MB. (<a href="https://github.com/ItsErod/lark/pull/259">#259</a>)</li>
+          <li>Settings → Clips has Game and system audio and Microphone switches. With the microphone off, the clip recorder never opens it. (<a href="https://github.com/ItsErod/lark/pull/261">#261</a>)</li>
+        </ul>
+        <h3>Changed</h3>
+        <ul>
+          <li>Saved clips carry a mixed Game + Microphone track first, so players and Discord play your voice too, plus separate Game and Microphone tracks for editing. (<a href="https://github.com/ItsErod/lark/pull/262">#262</a>)</li>
+          <li>The website and progress page show v3.0.5 and list work merged on main after it. (<a href="https://github.com/ItsErod/lark/pull/254">#254</a>, <a href="https://github.com/ItsErod/lark/pull/260">#260</a>)</li>
+        </ul>
+        <h3>Fixed</h3>
+        <ul>
+          <li>Clips shared to Discord or opened in a player no longer lose the microphone. (<a href="https://github.com/ItsErod/lark/pull/262">#262</a>)</li>
+        </ul>
+        <h3>Removed</h3>
+        <ul>
+          <li>Nothing was removed in this release.</li>
+        </ul>
+      </details>
+      <details data-tag="v3.0.5">
         <summary>v3.0.5 <span>Oct 13, 2026</span></summary>
         <p>Right-click menus for servers and channels, Discover and the App Directory inside Lark, 720p camera video, speaker echo cancellation, and full profiles. Game Mode now tucks the side columns during a call or a game, and the interface code is split into smaller modules.</p>
         <h3>Added</h3>
@@ -486,11 +510,11 @@
           minute: "2-digit",
           timeZoneName: "short"
         }) : "";
-        note.textContent = "Current release " + (release.tag_name || "v3.0.5") + (when ? " · " + when : "");
+        note.textContent = "Current release " + (release.tag_name || "v3.0.6") + (when ? " · " + when : "");
         prependRelease(release);
       })
       .catch(() => {
-        note.textContent = "Current release v3.0.5";
+        note.textContent = "Current release v3.0.6";
       });
   </script>
 </body>

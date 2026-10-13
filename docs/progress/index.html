@@ -437,15 +437,15 @@
           <p id="now-eta" class="eta" hidden>ETA —</p>
         </div>
         <div id="downloads" class="downloads">
-          <a class="dl" href="https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_x64-setup.exe">
+          <a class="dl" href="https://github.com/ItsErod/lark/releases/download/v3.0.6/Lark_3.0.6_x64-setup.exe">
             <span class="dl-kicker">Windows</span>
             <span class="dl-title">Download EXE</span>
-            <span class="dl-file">Lark_3.0.5_x64-setup.exe</span>
+            <span class="dl-file">Lark_3.0.6_x64-setup.exe</span>
           </a>
-          <a class="dl mac" href="https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_universal.dmg">
+          <a class="dl mac" href="https://github.com/ItsErod/lark/releases/download/v3.0.6/Lark_3.0.6_universal.dmg">
             <span class="dl-kicker">macOS</span>
             <span class="dl-title">Download DMG</span>
-            <span class="dl-file">Lark_3.0.5_universal.dmg</span>
+            <span class="dl-file">Lark_3.0.6_universal.dmg</span>
           </a>
         </div>
       </div>
@@ -466,19 +466,19 @@
       <div class="section-head">
         <div>
           <h2 id="roadmap-title">Roadmap</h2>
-          <p id="roadmap-lead">v3.0.5 is the current download. It sends camera video at up to 720p, cancels speaker echo with AEC3, opens Discover, the App Directory, and Home search inside Lark, and adds full profiles, emoji statuses, and store theme previews. The interface code is now split into modules. Main also has a slash command options form plus bot buttons, select menus, and modals, which ship in the next release.</p>
+          <p id="roadmap-lead">v3.0.6 is the current download. Slash commands with options open a form, bot buttons, select menus, and pop-up forms work, slash commands can attach files, and clips can leave out game sound or the microphone and save separate game and mic tracks.</p>
         </div>
       </div>
       <ol class="roadmap">
         <li id="roadmap-current-row" class="is-shipped">
-          <span class="roadmap-ver" id="roadmap-current-ver">3.0.5</span>
-          <span class="roadmap-name" id="roadmap-current-name">720p camera, AEC3 echo cancellation, in-app Discover and App Directory, Home search, full profiles, emoji status, theme previews, app.ts split</span>
+          <span class="roadmap-ver" id="roadmap-current-ver">3.0.6</span>
+          <span class="roadmap-name" id="roadmap-current-name">Slash command options form, bot buttons, select menus and modals, slash attachments, clip audio switches and tracks</span>
           <span class="roadmap-state" id="roadmap-current-state">Shipped</span>
         </li>
         <li id="roadmap-main-row">
           <span class="roadmap-ver">On main</span>
-          <span class="roadmap-name" id="roadmap-main-name">Slash command options form, bot buttons, select menus and modals</span>
-          <span class="roadmap-state" id="roadmap-main-state">Merged, not released</span>
+          <span class="roadmap-name" id="roadmap-main-name">Nothing merged after 3.0.6 yet</span>
+          <span class="roadmap-state" id="roadmap-main-state">Paused</span>
         </li>
       </ol>
     </section>
@@ -631,7 +631,7 @@
     let workStatus = { streams: {}, tracks: {} };
     const SEEN_KEY = "lark30-progress-seen-v1";
     const LIMIT_KEY = "lark30-progress-limit-v1";
-    const FALLBACK_TAG = "v3.0.5";
+    const FALLBACK_TAG = "v3.0.6";
     const EXE_PATTERN = /^Lark_.*_x64-setup\.exe$/;
     const DMG_PATTERN = /^Lark_.*_universal\.dmg$/;
     const STATUS_LABEL = { coding: "Coding", review: "In review", merged: "Merged", done: "Done" };
@@ -3155,11 +3155,11 @@
         ver.textContent = tag.replace(/^v/i, "");
         state.textContent = Number.isFinite(published) ? "Shipped " + formatStamp(published) : "Shipped";
         if (row) row.classList.add("is-shipped");
-        if (tag.toLowerCase() === "v3.0.5") {
-          if (name) name.textContent = "720p camera, AEC3 echo cancellation, in-app Discover and App Directory, Home search, full profiles, emoji status, theme previews, app.ts split";
-          if (lead) lead.textContent = "v3.0.5 is the current download. It sends camera video at up to 720p, cancels speaker echo with AEC3, opens Discover, the App Directory, and Home search inside Lark, and adds full profiles, emoji statuses, and store theme previews. The interface code is now split into modules. Main also has a slash command options form plus bot buttons, select menus, and modals, which ship in the next release.";
-          if (mainName) mainName.textContent = "Slash command options form, bot buttons, select menus and modals";
-          if (onMain) onMain.textContent = "Merged, not released";
+        if (tag.toLowerCase() === "v3.0.6") {
+          if (name) name.textContent = "Slash command options form, bot buttons, select menus and modals, slash attachments, clip audio switches and tracks";
+          if (lead) lead.textContent = "v3.0.6 is the current download. Slash commands with options open a form, bot buttons, select menus, and pop-up forms work, slash commands can attach files, and clips can leave out game sound or the microphone and save separate game and mic tracks.";
+          if (mainName) mainName.textContent = "Nothing merged after 3.0.6 yet";
+          if (onMain) onMain.textContent = "Paused";
           return;
         }
         if (name) name.textContent = "Published release. Notes are in the version history.";

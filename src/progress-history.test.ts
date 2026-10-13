@@ -106,14 +106,14 @@ describe("version history", () => {
     expect(html).not.toContain('id="streams"');
     expect(html).toContain('id="now-list"');
     expect(html).toContain('id="downloads"');
-    expect(html).toContain("v3.0.5 is the current download");
-    expect(html).toContain("720p camera, AEC3 echo cancellation, in-app Discover and App Directory, Home search, full profiles, emoji status, theme previews, app.ts split");
-    expect(html).toContain("Slash command options form, bot buttons, select menus and modals");
-    expect(html).toContain("Lark_3.0.5_x64-setup.exe");
-    expect(html).toContain("Lark_3.0.5_universal.dmg");
+    expect(html).toContain("v3.0.6 is the current download");
+    expect(html).toContain("Slash command options form, bot buttons, select menus and modals, slash attachments, clip audio switches and tracks");
+    expect(html).toContain("Nothing merged after 3.0.6 yet");
+    expect(html).toContain("Lark_3.0.6_x64-setup.exe");
+    expect(html).toContain("Lark_3.0.6_universal.dmg");
     expect(html).toContain("/^Lark_.*_x64-setup\\.exe$/");
     expect(html).toContain("/^Lark_.*_universal\\.dmg$/");
-    expect(html).not.toContain("Lark_3.0.4_x64-setup.exe");
+    expect(html).not.toContain("Lark_3.0.5_x64-setup.exe");
     expect(html).not.toContain("3.0.2, then a dashboard");
     expect(html).toContain('archive.id = "archive-3"');
     expect(html).toContain("#09090b");
@@ -153,14 +153,14 @@ describe("version history", () => {
     expect(carried.entries[1].notes).toContain("Fixed");
   });
 
-  it("prints the published 3.0.5 notes on the marketing page", () => {
-    expect(home).toContain("Current release v3.0.5");
-    expect(home).toContain("https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_x64-setup.exe");
-    expect(home).toContain("https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_universal.dmg");
+  it("prints the published 3.0.6 notes on the marketing page", () => {
+    expect(home).toContain("Current release v3.0.6");
+    expect(home).toContain("https://github.com/ItsErod/lark/releases/download/v3.0.6/Lark_3.0.6_x64-setup.exe");
+    expect(home).toContain("https://github.com/ItsErod/lark/releases/download/v3.0.6/Lark_3.0.6_universal.dmg");
     expect(home).toContain("Quiet hours, keyword and person alerts, and a missed-message digest.");
     expect(home).toContain("Offline search across messages already loaded on this device");
     expect(home).toContain("A local stats page for play time, voice, messages, clips, and the last 14 days.");
-    expect(home).toContain('<details open data-tag="v3.0.5">');
+    expect(home).toContain('<details open data-tag="v3.0.6">');
     expect(home).toContain("<h3>Added</h3>");
     expect(home).toContain("<h3>Changed</h3>");
     expect(home).toContain("<h3>Fixed</h3>");
