@@ -3152,6 +3152,16 @@ class LarkApp {
     );
     if (this.config.voice.noise_suppression) noise.classList.add("is-on");
     noise.title = "Lark noise suppression (RNNoise)";
+    noise.dataset.voiceNoise = "1";
+    const echo = this.iconButton(
+      this.echoCancellation ? "Echo cancellation on" : "Echo cancellation off",
+      paths.echo,
+      () => this.toggleEchoCancellation(),
+      false,
+    );
+    if (this.echoCancellation) echo.classList.add("is-on");
+    echo.title = "Echo cancellation";
+    echo.dataset.voiceEcho = "1";
     const hangup = this.iconButton("Disconnect", paths.hangup, () => this.leaveVoice(), false);
     hangup.classList.add("is-disconnect");
     const strip = this.iconButton(
@@ -3166,6 +3176,7 @@ class LarkApp {
       activity,
       sounds,
       noise,
+      echo,
       this.iconButton(session.muted ? "Unmute" : "Mute", session.muted ? paths.micOff : paths.mic, () => this.toggleMute(), Boolean(session.muted)),
       this.deviceChevron("Input device", () => this.toggleDeviceMenu("input")),
       this.iconButton(session.deafened ? "Undeafen" : "Deafen", session.deafened ? paths.headphonesOff : paths.headphones, () => this.toggleDeafen(), Boolean(session.deafened)),
@@ -9439,7 +9450,16 @@ class LarkApp {
     this.persist();
     this.pushVoiceAudio();
     this.paintChannels();
-    this.toast("Noise suppression", this.config.voice.noise_suppression ? "RNNoise is on." : "RNNoise is off.");
+    this.paintVoiceFloats();
+  }
+
+  private toggleEchoCancellation() {
+    this.ensureVoicePrefs();
+    this.echoCancellation = !this.echoCancellation;
+    this.storeVoicePrefs();
+    this.pushVoiceProcessing();
+    this.paintChannels();
+    this.paintVoiceFloats();
   }
 
   private toggleActivities() {
