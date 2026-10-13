@@ -448,6 +448,7 @@ import {
   toggleComposerPanel,
   type SlashCommand,
 } from "./composer-tools";
+import { remoteSearchCall, searchNote, searchPlace, searchPlaceholder, searchUsers } from "../home-search";
 import type { ActiveCardModel, FriendRowModel, PendingRowModel } from "./friends";
 import { callKeyAction } from "../keybind-actions";
 import {
@@ -13691,7 +13692,7 @@ class LarkApp {
     clear(overlay);
     const card = el("div", "switcher-card");
     const input = el("input");
-    input.placeholder = "Search — from: mentions: has: before: after: in: pinned:";
+    input.placeholder = searchPlaceholder(searchPlace(this.guildId, this.channelId));
     input.setAttribute("aria-label", "Search messages");
     const results = el("div", "switcher-results");
     let timer = 0;
@@ -13713,22 +13714,28 @@ class LarkApp {
     };
     const render = () => {
       const query = input.value.trim();
-      const ctx = this.renderContext();
+      const place = searchPlace(this.guildId, this.channelId);
+      input.placeholder = searchPlaceholder(place);
+      const ctx = this.searchDirectory();
       const resolved = resolveSearch(parseSearchQuery(query), { users: ctx.users, channels: ctx.channels, meId: this.meId() });
       const local = this.localSearch(query);
-      const unmatched = resolved.unresolved.length ? `Couldn't match ${resolved.unresolved.join(", ")}.` : "";
-      const idle = "Filters: from:, mentions:, has:, before:, after:, in:, pinned:";
-      show(local, !query ? idle : unmatched);
-      if (!hasSearchCriteria(resolved) || this.demo) return;
-      const guildId = this.guildId;
-      const channelId = this.channelId;
-      if (!guildId && !channelId) return;
+      const criteria = hasSearchCriteria(resolved);
+      const note = (phase: "local" | "remote" | "fallback") => searchNote({
+        place,
+        query,
+        hasCriteria: criteria,
+        unresolved: resolved.unresolved,
+        phase,
+      });
+      show(local, note("local"));
+      if (!criteria || this.demo) return;
+      const call = remoteSearchCall(this.guildId, this.channelId);
       window.clearTimeout(timer);
       const token = ++this.searchToken;
       timer = window.setTimeout(() => {
         void invoke<RawMessage[]>("search_filtered", {
-          guildId: guildId || null,
-          channelId: guildId ? null : channelId,
+          guildId: call.guildId,
+          channelId: call.channelId,
           search: {
             content: resolved.content,
             authorIds: resolved.authorIds,
@@ -13743,9 +13750,9 @@ class LarkApp {
           if (token !== this.searchToken || !this.searchOpen) return;
           const hits = messages.map(normalizeMessage);
           for (const message of hits) this.absorbMessage(message);
-          show(hits, unmatched);
+          show(hits, note("remote"));
         }).catch(() => {
-          if (token === this.searchToken) show(local, unmatched || "Discord search missed. Showing loaded messages.");
+          if (token === this.searchToken) show(local, note("fallback"));
         });
       }, 280);
     };
@@ -13771,8 +13778,13 @@ class LarkApp {
     input.focus();
   }
 
-  private localSearch(query: string): RawMessage[] {
+  private searchDirectory() {
     const ctx = this.renderContext();
+    return { ...ctx, users: searchUsers(ctx.users, this.friends) };
+  }
+
+  private localSearch(query: string): RawMessage[] {
+    const ctx = this.searchDirectory();
     const resolved = resolveSearch(parseSearchQuery(query), { users: ctx.users, channels: ctx.channels, meId: this.meId() });
     if (!hasSearchCriteria(resolved)) return [];
     const pools = this.demo ? Object.values(history).flat() : Object.values(this.pages).flat();
