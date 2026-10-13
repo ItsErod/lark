@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
@@ -293,6 +294,8 @@ pub enum ClientEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         saved_at: Option<String>,
     },
+    /// A voice handshake step for the diagnostics log. Not forwarded to the shell.
+    VoiceStep { step: String },
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -361,7 +364,7 @@ struct Session {
     user_id: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GatewayCommand {
     VoiceState {
         guild_id: Option<String>,
@@ -490,6 +493,108 @@ fn lazy_guild_payload(guild_id: &str, channel_id: &str, ranges: &[(u32, u32)]) -
     .to_string()
 }
 
+/// Outbound gateway commands. Discord ignores opcode 4 that arrives before
+/// identify or resume, and a dropped socket does not keep the frame. Commands
+/// wait here until READY or RESUMED, and the last voice join is sent again
+/// after each reconnect.
+#[derive(Debug, Default)]
+struct GatewayOut {
+    identified: bool,
+    held: VecDeque<GatewayCommand>,
+    voice: Option<GatewayCommand>,
+}
+
+impl GatewayOut {
+    fn begin_socket(&mut self) {
+        self.identified = false;
+    }
+
+    fn accept(&mut self, command: GatewayCommand) -> Vec<GatewayCommand> {
+        self.note_voice(&command);
+        if self.identified {
+            vec![command]
+        } else {
+            if self.held.len() >= 32 {
+                self.held.pop_front();
+            }
+            self.held.push_back(command);
+            Vec::new()
+        }
+    }
+
+    fn identified(&mut self) -> Vec<GatewayCommand> {
+        let first = !self.identified;
+        self.identified = true;
+        let mut out: Vec<GatewayCommand> = self.held.drain(..).collect();
+        if first {
+            if let Some(join) = self.voice.clone() {
+                if !out.iter().any(|command| command == &join) {
+                    out.push(join);
+                }
+            }
+        }
+        out
+    }
+
+    fn note_voice(&mut self, command: &GatewayCommand) {
+        match command {
+            GatewayCommand::VoiceState { channel_id: Some(_), .. }
+            | GatewayCommand::VoiceStateVideo { channel_id: Some(_), .. } => {
+                self.voice = Some(command.clone());
+            }
+            GatewayCommand::VoiceState { channel_id: None, .. }
+            | GatewayCommand::VoiceStateVideo { channel_id: None, .. } => {
+                self.voice = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn voice_command_step(command: &GatewayCommand) -> Option<String> {
+    match command {
+        GatewayCommand::VoiceState { guild_id, channel_id: Some(_), .. }
+        | GatewayCommand::VoiceStateVideo { guild_id, channel_id: Some(_), .. } => {
+            if guild_id.as_deref().unwrap_or("").trim().is_empty() {
+                Some("op4 sent call".to_string())
+            } else {
+                Some("op4 sent".to_string())
+            }
+        }
+        GatewayCommand::VoiceState { channel_id: None, .. }
+        | GatewayCommand::VoiceStateVideo { channel_id: None, .. } => Some("op4 sent leave".to_string()),
+        _ => None,
+    }
+}
+
+fn endpoint_host(endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_start_matches("wss://").trim_start_matches("ws://");
+    let host = trimmed.split('/').next().unwrap_or(trimmed);
+    let host = host.split(':').next().unwrap_or(host);
+    let host: String = host.chars().take(80).collect();
+    if host.is_empty() { "voice".to_string() } else { host }
+}
+
+async fn write_gateway_commands<S>(
+    write: &mut S,
+    commands: Vec<GatewayCommand>,
+    emit: &mut impl FnMut(ClientEvent),
+) -> bool
+where
+    S: futures_util::Sink<Message> + Unpin,
+{
+    for command in commands {
+        if let Some(step) = voice_command_step(&command) {
+            emit(ClientEvent::VoiceStep { step });
+        }
+        let payload = gateway_command_payload(&command);
+        if write.send(Message::Text(payload)).await.is_err() {
+            return false;
+        }
+    }
+    true
+}
+
 pub async fn run_gateway<F>(
     token: String,
     mut shutdown: watch::Receiver<bool>,
@@ -505,6 +610,7 @@ pub async fn run_gateway<F>(
     let mut intents: Option<u64> = None;
     let mut dropped_content_intent = false;
     let mut dropped_presence_intent = false;
+    let mut pending = GatewayOut::default();
 
     loop {
         if *shutdown.borrow() {
@@ -528,6 +634,7 @@ pub async fn run_gateway<F>(
             intents,
             &mut shutdown,
             &mut outbound,
+            &mut pending,
             &mut emit,
             &mut backoff_secs,
         )
@@ -645,6 +752,7 @@ async fn connect_once<F>(
     intents: Option<u64>,
     shutdown: &mut watch::Receiver<bool>,
     outbound: &mut mpsc::UnboundedReceiver<GatewayCommand>,
+    pending: &mut GatewayOut,
     emit: &mut F,
     backoff_secs: &mut u64,
 ) -> Result<SessionEnd, String>
@@ -656,6 +764,7 @@ where
         .await
         .map_err(|err| super::rest::explain_transport(&redact(&err.to_string(), &[token])))?;
     let (mut write, mut read) = socket.split();
+    pending.begin_socket();
     let mut heartbeat_every: Option<Duration> = None;
     let mut next_heartbeat: Option<Instant> = None;
     let mut ack_pending = false;
@@ -678,8 +787,8 @@ where
             }
             command = outbound.recv() => {
                 if let Some(command) = command {
-                    let payload = gateway_command_payload(&command);
-                    if write.send(Message::Text(payload)).await.is_err() {
+                    let queued = pending.accept(command);
+                    if !write_gateway_commands(&mut write, queued, emit).await {
                         return Ok(reconnect("The gateway write failed."));
                     }
                 }
@@ -794,6 +903,10 @@ where
                                 }
                                 let dispatch_name = incoming.name.clone().unwrap_or_default();
                                 if handle_dispatch(&dispatch_name, &incoming.data, incoming.seq, session, emit) {
+                                    let queued = pending.identified();
+                                    if !write_gateway_commands(&mut write, queued, emit).await {
+                                        return Ok(reconnect("The gateway write failed."));
+                                    }
                                     *backoff_secs = 1;
                                     let seq = session.as_ref().and_then(|current| current.seq).unwrap_or(0);
                                     gateway_log(&format!("{dispatch_name} seq={seq}"));
@@ -1393,17 +1506,38 @@ fn handle_dispatch(
             let endpoint = json_str(data, "endpoint");
             let token = json_str(data, "token");
             if !endpoint.is_empty() && !token.is_empty() {
+                let host = endpoint_host(&endpoint);
+                emit(ClientEvent::VoiceStep { step: format!("server update {host}") });
                 emit(ClientEvent::VoiceServer {
                     guild_id: json_str(data, "guild_id"),
                     endpoint,
                     token,
                 });
+            } else if endpoint.is_empty() {
+                emit(ClientEvent::VoiceStep { step: "server update missing endpoint".into() });
+            } else {
+                emit(ClientEvent::VoiceStep { step: "server update missing token".into() });
             }
             false
         }
         "VOICE_STATE_UPDATE" => {
-            if let Some(state) = parse_voice_state(data, "") {
-                emit(ClientEvent::VoiceState(state));
+            match parse_voice_state(data, "") {
+                Some(state) => {
+                    let mine = session.as_ref().is_some_and(|current| current.user_id == state.user_id);
+                    if mine {
+                        let step = if state.session_id.is_empty() {
+                            "state update missing session"
+                        } else {
+                            "state update"
+                        };
+                        emit(ClientEvent::VoiceStep { step: step.into() });
+                    }
+                    emit(ClientEvent::VoiceState(state));
+                }
+                None if data.get("user_id").is_some() || data.get("member").is_some() => {
+                    emit(ClientEvent::VoiceStep { step: "state update dropped".into() });
+                }
+                None => {}
             }
             false
         }
@@ -1536,11 +1670,15 @@ fn soundboard_effect(data: &Value) -> Option<ClientEvent> {
 }
 
 fn json_str(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+    match value.get(key) {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .map(|id| id.to_string())
+            .or_else(|| number.as_i64().map(|id| id.to_string()))
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -1975,6 +2113,113 @@ mod tests {
             }
             _ => panic!("expected voice state"),
         }
+    }
+
+    #[test]
+    fn voice_join_waits_for_ready_and_replays_after_reconnect() {
+        let mut gate = GatewayOut::default();
+        let presence = GatewayCommand::Presence {
+            status: "online".into(),
+            custom: String::new(),
+            game: String::new(),
+        };
+        let join = GatewayCommand::VoiceState {
+            guild_id: Some("100".into()),
+            channel_id: Some("200".into()),
+            mute: false,
+            deaf: false,
+        };
+        assert!(gate.accept(presence.clone()).is_empty());
+        assert!(gate.accept(join.clone()).is_empty());
+        assert_eq!(gate.identified(), vec![presence, join.clone()]);
+        assert!(gate.identified().is_empty(), "ready twice does not send the join again");
+        gate.begin_socket();
+        assert_eq!(gate.identified(), vec![join]);
+
+        let leave = GatewayCommand::VoiceState {
+            guild_id: Some("100".into()),
+            channel_id: None,
+            mute: false,
+            deaf: false,
+        };
+        gate.begin_socket();
+        assert!(gate.accept(leave.clone()).is_empty());
+        assert_eq!(gate.identified(), vec![leave]);
+        gate.begin_socket();
+        assert!(gate.identified().is_empty(), "a leave is not replayed");
+    }
+
+    #[test]
+    fn voice_steps_name_op4_state_and_server() {
+        let call = GatewayCommand::VoiceState {
+            guild_id: None,
+            channel_id: Some("200".into()),
+            mute: false,
+            deaf: false,
+        };
+        assert_eq!(voice_command_step(&call).as_deref(), Some("op4 sent call"));
+        let guild = GatewayCommand::VoiceState {
+            guild_id: Some("100".into()),
+            channel_id: Some("200".into()),
+            mute: true,
+            deaf: false,
+        };
+        assert_eq!(voice_command_step(&guild).as_deref(), Some("op4 sent"));
+
+        let mut events = Vec::new();
+        let mut session = Some(Session {
+            id: "s".into(),
+            seq: Some(1),
+            user_id: "42".into(),
+        });
+        handle_dispatch(
+            "VOICE_STATE_UPDATE",
+            &json!({"user_id": 42, "channel_id": 7, "guild_id": 9, "session_id": "abc"}),
+            Some(2),
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::VoiceStep { step } if step == "state update")));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::VoiceState(state) if state.user_id == "42" && state.channel_id == "7" && state.guild_id == "9" && state.session_id == "abc"
+        )));
+        events.clear();
+        handle_dispatch(
+            "VOICE_STATE_UPDATE",
+            &json!({"user_id": "99", "channel_id": "7", "session_id": "other"}),
+            Some(3),
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        assert!(events.iter().all(|event| !matches!(event, ClientEvent::VoiceStep { .. })));
+        events.clear();
+        handle_dispatch(
+            "VOICE_SERVER_UPDATE",
+            &json!({"guild_id": 9, "endpoint": "c-ord.discord.gg:443", "token": "secret-token"}),
+            Some(4),
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::VoiceStep { step } if step == "server update c-ord.discord.gg")));
+        match events.iter().find(|event| matches!(event, ClientEvent::VoiceServer { .. })) {
+            Some(ClientEvent::VoiceServer { token, endpoint, guild_id }) => {
+                assert_eq!(guild_id, "9");
+                assert_eq!(endpoint, "c-ord.discord.gg:443");
+                assert_eq!(token, "secret-token");
+            }
+            _ => panic!("expected voice server"),
+        }
+        events.clear();
+        handle_dispatch(
+            "VOICE_SERVER_UPDATE",
+            &json!({"endpoint": null, "token": "secret-token"}),
+            Some(5),
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        assert!(events.iter().any(|event| matches!(event, ClientEvent::VoiceStep { step } if step == "server update missing endpoint")));
+        assert!(events.iter().all(|event| !matches!(event, ClientEvent::VoiceServer { .. })));
     }
 
     #[test]

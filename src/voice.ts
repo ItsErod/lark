@@ -366,7 +366,9 @@ export function voiceLinkDetails(input: { pingMs?: number | null; endpoint?: str
   return { pingMs: ping, endpoint, mode };
 }
 
-export function voiceDetailLine(details: VoiceLinkDetails, status: string): string {
+export function voiceDetailLine(details: VoiceLinkDetails, status: string, error = ""): string {
+  const problem = error.trim();
+  if (problem && status !== "connected") return problem;
   const ping = details.pingMs === null ? "Ping —" : `Ping ${details.pingMs} ms`;
   const server = details.endpoint ? details.endpoint.replace(/^wss:\/\//, "").replace(/\/.*$/, "") : "Voice server —";
   const mode = details.mode && !details.mode.startsWith("aead_") && !details.mode.startsWith("xsalsa20") ? details.mode : "";

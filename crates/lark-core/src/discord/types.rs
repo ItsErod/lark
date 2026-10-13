@@ -1642,7 +1642,7 @@ pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Opt
     Some(ClientVoiceState {
         avatar_url: voice_avatar_url(&guild_id, &user_id, &avatar, &member_avatar),
         guild_id,
-        channel_id: value.get("channel_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        channel_id: json_text(value.get("channel_id")),
         user_id,
         session_id: value.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         self_mute: value.get("self_mute").and_then(|v| v.as_bool()).unwrap_or(false),
@@ -1658,13 +1658,26 @@ fn hash_field(value: Option<&serde_json::Value>) -> Option<String> {
     value.and_then(|item| item.as_str()).filter(|hash| !hash.is_empty()).map(|hash| hash.to_string())
 }
 
+fn json_text(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(text)) => text.clone(),
+        Some(serde_json::Value::Number(number)) => number
+            .as_u64()
+            .map(|id| id.to_string())
+            .or_else(|| number.as_i64().map(|id| id.to_string()))
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 fn first_str(values: &[Option<&serde_json::Value>]) -> String {
     values
         .iter()
-        .find_map(|value| value.and_then(|item| item.as_str()))
-        .filter(|text| !text.is_empty())
-        .unwrap_or("")
-        .to_string()
+        .find_map(|value| {
+            let text = json_text(*value);
+            if text.is_empty() { None } else { Some(text) }
+        })
+        .unwrap_or_default()
 }
 
 /// One GUILD_MEMBERS_CHUNK. Later chunks are merged by the shell.
