@@ -1,3 +1,4 @@
+import { appSource } from "./app-source.dev";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
@@ -47,7 +48,7 @@ describe("discover screen", () => {
 
   it("explains a captcha join as a link-out and loads the screen on demand", () => {
     expect(captchaNote()).toContain("does not solve captchas");
-    const app = readFileSync("src/ui/app.ts", "utf8");
+    const app = appSource();
     expect(app).not.toMatch(/from ["']\.\/discover-view["']/);
     expect(app).toContain('import("./discover-view")');
     const settings = readFileSync("src/ui/guild-settings.ts", "utf8");
