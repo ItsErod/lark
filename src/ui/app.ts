@@ -140,6 +140,8 @@ import { buildViewMessage, type ViewMessage } from "../render/message";
 import { fpsFromMarks, FrameClock, noteFpsMark } from "../frame";
 import {
   cleanGameName,
+  compactGameChrome,
+  gameShellWidths,
   pollInterval,
   profileFromBase,
   resolveGame,
@@ -1895,22 +1897,35 @@ class LarkApp {
     this.root.style.setProperty("--ui-size", `${appearance.font_size}px`);
     if (appearance.font_family === "inter") this.root.style.removeProperty("font-family");
     else this.root.style.fontFamily = fontStack(appearance.font_family);
-    const rail = appearance.show_server_rail ? "56px" : "0px";
-    const channelW = appearance.channel_list === "hidden" ? "0px" : "240px";
     const dmSidebar = !this.guildId && !this.friendsOpen && this.currentChannelIsDm();
     const homeFeed = this.dashboardHome();
     const dashDock = this.dashboardOpen && !homeFeed;
-    const members = !this.narrow && (dashDock || (appearance.show_member_list && (this.guildId || dmSidebar))) ? (dashDock ? "320px" : "240px") : "0px";
+    const compact = compactGameChrome({
+      gameMode: this.gameMode,
+      inCall: Boolean(this.voice),
+      gameDetected: Boolean(this.detectedGame),
+    });
+    this.root.dataset.gameChrome = compact ? "on" : "off";
+    const membersWanted = !compact && !this.narrow && (dashDock || (appearance.show_member_list && (this.guildId || dmSidebar)));
+    const widths = gameShellWidths({
+      compact,
+      showRail: appearance.show_server_rail,
+      channelHidden: appearance.channel_list === "hidden",
+      membersPx: membersWanted ? (dashDock ? 320 : 240) : 0,
+    });
+    const rail = `${widths.railPx}px`;
+    const channelW = `${widths.channelPx}px`;
+    const members = `${widths.membersPx}px`;
     this.rail.hidden = !appearance.show_server_rail;
     this.channelPane.hidden = appearance.channel_list === "hidden" && !this.drawer;
-    this.membersEl.hidden = members === "0px" && !(this.narrow && dashDock);
+    this.membersEl.hidden = widths.membersPx === 0 && !(this.narrow && dashDock && !compact);
     const callSplit = this.callSurface === "split";
     if (this.stage) {
       this.stage.classList.toggle("is-split", Boolean(this.splitId) && !this.narrow && !callSplit);
       this.splitPane.hidden = !this.splitId || this.narrow || callSplit;
     }
     if (this.narrow) {
-      if (dashDock) {
+      if (dashDock && !compact) {
         this.shell.style.gridTemplateColumns = `${rail} minmax(0, 1fr) 220px`;
         this.shell.style.gridTemplateAreas = `"rail chat members"`;
       } else {
@@ -6724,7 +6739,7 @@ class LarkApp {
     const hudKey = formatShortcut(this.config.shortcuts.toggle_voice_overlay, this.platform.os);
     const perfKey = formatShortcut(this.config.shortcuts.toggle_perf_overlay, this.platform.os);
     const hud = this.late!.settingCard("In-game voice HUD");
-    hud.append(el("p", "setting-help", "A small always-on-top window on macOS and Windows. It uses the same voice roster as the channel list. It stays off until you turn it on."));
+    hud.append(el("p", "setting-help", "A small always-on-top window on macOS and Windows. It uses the same voice roster as the channel list. It stays off until you turn it on. Click through starts on, so the window does not take the mouse from a game."));
     hud.append(this.switchRow("voice.hud", "Show voice HUD", `${hudKey} shows and hides it, including while a game is focused.`, this.overlayOn(), (value) => {
       this.setVoiceOverlay(value, false);
     }));
@@ -7118,10 +7133,10 @@ class LarkApp {
 
   private paneGaming(): HTMLElement {
     const wrap = el("div", "settings-stack");
-    wrap.append(this.late!.settingHead("Gaming", "Game Mode eases resource use while a game is in front. Each game can keep its own voice and overlay defaults."));
+    wrap.append(this.late!.settingHead("Gaming", "Game Mode tucks the side columns during a call or while a game is in front, and eases resource use. Chat stays on screen. Each game can keep its own voice and overlay defaults."));
     const mode = this.late!.settingCard("Game Mode");
     const gameKey = formatShortcut(this.config.shortcuts.toggle_game_mode, this.platform.os);
-    mode.append(this.switchRow("gaming.mode", "Game Mode", `${gameKey} toggles it, including while a game is focused. Animations pause, channels you have not opened are not prefetched, and the existing polls slow down.`, this.gameMode, (value) => {
+    mode.append(this.switchRow("gaming.mode", "Game Mode", `${gameKey} toggles it, including while a game is focused. In a call, or while a game is in front, the member list hides and the rail and channel list shrink. Chat, the composer, and mute stay reachable. Animations pause, unopened channels are not prefetched, and the existing polls slow down. Speaking stays a static mark.`, this.gameMode, (value) => {
       this.setGameMode(value, false);
     }));
     mode.append(this.switchRow("gaming.detect", "Detect games", "The check looks at the front app a few times a minute and does not read GPU sensors. Turning it off stops that check.", this.config.desktop.detect_games, (value) => {
@@ -10951,6 +10966,7 @@ class LarkApp {
     this.stageRaised = false;
     if (target.callKind === "stage") this.stageTopic = channel.topic ?? this.stageTopic;
     this.syncCallMembers();
+    this.applyAppearance();
     this.paintChannels();
     this.paintVoice();
     if (options?.quiet) this.toast("Voice", "Joined without the entrance sound.");
@@ -11018,6 +11034,7 @@ class LarkApp {
     this.voiceMenu = null;
     this.pttHeld = false;
     if (!this.demo) void invoke("leave_voice").catch(() => undefined);
+    this.applyAppearance();
     this.paintVoice();
     this.paintChannels();
   }
@@ -11435,6 +11452,7 @@ class LarkApp {
     }
     this.armFps();
     this.publishVoiceHud();
+    if (this.shell) this.applyAppearance();
     if (modeChanged && this.view === "app") {
       this.msgSig = "";
       this.paintMessages();

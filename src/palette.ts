@@ -19,7 +19,7 @@ export function commandCatalog(): CommandItem[] {
     { id: "call", label: "Toggle call view", hint: "Open the call grid, or return to the text channel", keywords: "voice call grid split popout" },
     { id: "voice-hud", label: "Toggle voice HUD", hint: "Who is talking, on top of a game", keywords: "voice hud overlay speaking mute game" },
     { id: "perf-overlay", label: "Toggle performance overlay", hint: "RAM, CPU, and FPS on the voice HUD", keywords: "performance overlay fps cpu ram stats game" },
-    { id: "game-mode", label: "Toggle Game Mode", hint: "Pause animations and ease polling", keywords: "game mode performance battery overlay" },
+    { id: "game-mode", label: "Toggle Game Mode", hint: "Tuck side columns during a call or a game", keywords: "game mode performance battery overlay chrome" },
     { id: "members", label: "Toggle member list", hint: "People in this server", keywords: "members users" },
     { id: "irc", label: "Toggle IRC layout", hint: "One line per message", keywords: "irc compact density" },
     { id: "pins", label: "Pinned messages", hint: "This channel", keywords: "pins saved" },
