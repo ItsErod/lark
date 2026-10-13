@@ -1,0 +1,38 @@
+/* Lark theme: Mono light. Minimal Mono store theme. White surfaces, black type, black accent. */
+:root {
+  color-scheme: light;
+  --bg-0: #fafafa;
+  --bg-1: #f4f4f5;
+  --bg-2: #ffffff;
+  --bg-3: #f4f4f5;
+  --bg-4: #e4e4e7;
+  --bg-panel: #ffffff;
+  --hover: #f4f4f5;
+  --selected: #e4e4e7;
+  --message-hover: #f4f4f5;
+  --line: #d4d4d8;
+  --text: #18181b;
+  --muted: #3f3f46;
+  --faint: #52525b;
+  --heading: #09090b;
+  --accent: #18181b;
+  --accent-ink: #fafafa;
+  --accent-soft: rgba(24, 24, 27, 0.08);
+  --ok: #0f7a52;
+  --idle: #9a4708;
+  --busy: #be123c;
+  --danger: #be123c;
+  --speak: #0f7a52;
+  --mention-bg: #e4e4e7;
+  --mention-fg: #18181b;
+  --highlight: #f4f4f5;
+  --highlight-bar: #18181b;
+  --link: #27272a;
+  --pill: #18181b;
+  --scrollbar: #d4d4d8;
+  --scrollbar-hover: #a1a1aa;
+  --shadow: 0 0 0 1px rgba(9, 9, 11, 0.12);
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}

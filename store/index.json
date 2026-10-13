@@ -1372,6 +1372,72 @@
       ]
     },
     {
+      "id": "mono-graphite",
+      "name": "Mono graphite",
+      "description": "Warm graphite surfaces with a warm-white accent.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "dark",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "palette",
+      "changelog": "Store release. Warm graphite Minimal Mono. Installed from the store, not bundled with the app.",
+      "sha256": "a28d0bf21f5a08878beeb4aea63b5120ba00d35bc4f24a64f1ff19942e0b07e5",
+      "bytes": 1066,
+      "file": "themes/mono-graphite/theme.css",
+      "download": "downloads/mono-graphite.zip",
+      "swatches": [
+        "#161513",
+        "#23211e",
+        "#f4f0ea",
+        "#f4f0ea"
+      ]
+    },
+    {
+      "id": "mono-light",
+      "name": "Mono light",
+      "description": "White surfaces, black type, and a black accent.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "light",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "sun",
+      "changelog": "Store release. Light Minimal Mono. Installed from the store, not bundled with the app.",
+      "sha256": "b27b073d884bef165d0e83e3455a80134448bd9ba39c724a3eeb381ea20445e7",
+      "bytes": 1050,
+      "file": "themes/mono-light/theme.css",
+      "download": "downloads/mono-light.zip",
+      "swatches": [
+        "#fafafa",
+        "#ffffff",
+        "#18181b",
+        "#18181b"
+      ]
+    },
+    {
+      "id": "mono-oled",
+      "name": "Mono OLED",
+      "description": "True black Minimal Mono. A white accent, and unused pixels stay off.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "dark",
+      "minLark": "2.4.0",
+      "entry": "theme.css",
+      "icon": "moon",
+      "changelog": "Store release. Pure black surfaces and a white accent. Installed from the store, not bundled with the app.",
+      "sha256": "8ba3f2d7b60b98dbcaf2861ae11af158286ac6b63981e3fe1104714d6a526a12",
+      "bytes": 1056,
+      "file": "themes/mono-oled/theme.css",
+      "download": "downloads/mono-oled.zip",
+      "swatches": [
+        "#000000",
+        "#000000",
+        "#fafafa",
+        "#f4f4f5"
+      ]
+    },
+    {
       "id": "nord",
       "name": "Nord",
       "description": "Polar night and frost.",

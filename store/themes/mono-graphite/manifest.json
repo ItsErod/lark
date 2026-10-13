@@ -1,0 +1,12 @@
+{
+  "id": "mono-graphite",
+  "name": "Mono graphite",
+  "description": "Warm graphite surfaces with a warm-white accent.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "palette",
+  "changelog": "Store release. Warm graphite Minimal Mono. Installed from the store, not bundled with the app."
+}
