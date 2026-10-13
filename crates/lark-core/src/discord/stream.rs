@@ -35,7 +35,12 @@ impl StreamKind {
 }
 
 /// `guild:{guild}:{channel}:{user}` or `call:{channel}:{user}`.
-pub fn stream_key(kind: StreamKind, guild_id: Option<&str>, channel_id: &str, user_id: &str) -> String {
+pub fn stream_key(
+    kind: StreamKind,
+    guild_id: Option<&str>,
+    channel_id: &str,
+    user_id: &str,
+) -> String {
     match kind {
         StreamKind::Guild => format!(
             "guild:{}:{}:{}",
@@ -50,12 +55,18 @@ pub fn stream_key(kind: StreamKind, guild_id: Option<&str>, channel_id: &str, us
 pub fn parse_stream_key(key: &str) -> Option<(StreamKind, String, String, String)> {
     let parts: Vec<&str> = key.split(':').collect();
     match parts.as_slice() {
-        ["guild", guild, channel, user] if !channel.is_empty() && !user.is_empty() => {
-            Some((StreamKind::Guild, (*guild).to_string(), (*channel).to_string(), (*user).to_string()))
-        }
-        ["call", channel, user] if !channel.is_empty() && !user.is_empty() => {
-            Some((StreamKind::Call, String::new(), (*channel).to_string(), (*user).to_string()))
-        }
+        ["guild", guild, channel, user] if !channel.is_empty() && !user.is_empty() => Some((
+            StreamKind::Guild,
+            (*guild).to_string(),
+            (*channel).to_string(),
+            (*user).to_string(),
+        )),
+        ["call", channel, user] if !channel.is_empty() && !user.is_empty() => Some((
+            StreamKind::Call,
+            String::new(),
+            (*channel).to_string(),
+            (*user).to_string(),
+        )),
         _ => None,
     }
 }
@@ -131,7 +142,10 @@ pub fn parse_stream_dispatch(name: &str, data: &serde_json::Value) -> Option<Str
     match name {
         "STREAM_CREATE" => Some(StreamDispatch::Create {
             stream_key,
-            paused: data.get("paused").and_then(|v| v.as_bool()).unwrap_or(false),
+            paused: data
+                .get("paused")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             region: json_string(data, "region"),
         }),
         "STREAM_SERVER_UPDATE" => {
@@ -149,7 +163,10 @@ pub fn parse_stream_dispatch(name: &str, data: &serde_json::Value) -> Option<Str
         }
         "STREAM_UPDATE" => Some(StreamDispatch::Update {
             stream_key,
-            paused: data.get("paused").and_then(|v| v.as_bool()).unwrap_or(false),
+            paused: data
+                .get("paused")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         }),
         "STREAM_DELETE" => Some(StreamDispatch::Delete { stream_key }),
         _ => None,
@@ -157,7 +174,10 @@ pub fn parse_stream_dispatch(name: &str, data: &serde_json::Value) -> Option<Str
 }
 
 fn json_string(data: &serde_json::Value, key: &str) -> String {
-    data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    data.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +201,11 @@ impl CodecSupport {
     /// H.264 is the encode path. The others are offered when this machine can
     /// decode them, which the watch path does through the browser.
     pub fn watch() -> Self {
-        Self { vp8: true, vp9: true, av1: true }
+        Self {
+            vp8: true,
+            vp9: true,
+            av1: true,
+        }
     }
 }
 
@@ -240,10 +264,14 @@ pub fn stream_codecs(support: CodecSupport) -> Vec<VideoCodec> {
 }
 
 pub fn h264_codec() -> VideoCodec {
-    stream_codecs(CodecSupport { vp8: false, vp9: false, av1: false })
-        .into_iter()
-        .find(|codec| codec.name == "H264")
-        .expect("H.264 is always offered")
+    stream_codecs(CodecSupport {
+        vp8: false,
+        vp9: false,
+        av1: false,
+    })
+    .into_iter()
+    .find(|codec| codec.name == "H264")
+    .expect("H.264 is always offered")
 }
 
 pub fn stream_identify(
@@ -269,7 +297,12 @@ pub fn stream_identify(
     serde_json::json!({ "op": 0, "d": data }).to_string()
 }
 
-pub fn stream_select_protocol(address: &str, port: u16, mode: CipherMode, support: CodecSupport) -> String {
+pub fn stream_select_protocol(
+    address: &str,
+    port: u16,
+    mode: CipherMode,
+    support: CodecSupport,
+) -> String {
     let codecs: Vec<serde_json::Value> = stream_codecs(support)
         .into_iter()
         .map(|codec| {
@@ -349,7 +382,12 @@ pub struct VideoSpan {
 }
 
 /// Voice opcode 12. One fixed-resolution video stream at rid 100.
-pub fn video_attributes(audio_ssrc: u32, video_ssrc: u32, rtx_ssrc: u32, span: VideoSpan) -> String {
+pub fn video_attributes(
+    audio_ssrc: u32,
+    video_ssrc: u32,
+    rtx_ssrc: u32,
+    span: VideoSpan,
+) -> String {
     serde_json::json!({
         "op": OP_VIDEO,
         "d": {
@@ -394,7 +432,13 @@ pub struct RtpPacket {
     pub payload: Vec<u8>,
 }
 
-pub fn video_header(sequence: u16, timestamp: u32, ssrc: u32, payload_type: u8, marker: bool) -> [u8; 12] {
+pub fn video_header(
+    sequence: u16,
+    timestamp: u32,
+    ssrc: u32,
+    payload_type: u8,
+    marker: bool,
+) -> [u8; 12] {
     let mut header = rtp_header(sequence, timestamp, ssrc);
     header[1] = payload_type & 0x7f;
     if marker {
@@ -481,7 +525,14 @@ pub fn packetize_h264(
             continue;
         }
         let marker_nal = index == last;
-        packets.extend(packetize_nal(nal, ssrc, payload_type, sequence, timestamp, marker_nal));
+        packets.extend(packetize_nal(
+            nal,
+            ssrc,
+            payload_type,
+            sequence,
+            timestamp,
+            marker_nal,
+        ));
     }
     packets
 }
@@ -610,8 +661,13 @@ pub fn video_timestamp_step(fps: u8) -> u32 {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RtcpFeedback {
-    Pli { media_ssrc: u32 },
-    Nack { media_ssrc: u32, sequences: Vec<u16> },
+    Pli {
+        media_ssrc: u32,
+    },
+    Nack {
+        media_ssrc: u32,
+        sequences: Vec<u16>,
+    },
 }
 
 pub fn build_pli(sender_ssrc: u32, media_ssrc: u32) -> Vec<u8> {
@@ -684,7 +740,10 @@ pub fn parse_rtcp(packet: &[u8]) -> Vec<RtcpFeedback> {
                     cursor += 4;
                 }
                 if !sequences.is_empty() {
-                    out.push(RtcpFeedback::Nack { media_ssrc: media, sequences });
+                    out.push(RtcpFeedback::Nack {
+                        media_ssrc: media,
+                        sequences,
+                    });
                 }
             }
         }
@@ -695,7 +754,12 @@ pub fn parse_rtcp(packet: &[u8]) -> Vec<RtcpFeedback> {
 
 /// RTCP uses the first 8 bytes as additional data, then the same AEAD tag and
 /// 4-byte nonce suffix as voice RTP.
-pub fn encrypt_rtcp(mode: CipherMode, key: &[u8; 32], packet: &[u8], nonce: u32) -> Result<Vec<u8>, ()> {
+pub fn encrypt_rtcp(
+    mode: CipherMode,
+    key: &[u8; 32],
+    packet: &[u8],
+    nonce: u32,
+) -> Result<Vec<u8>, ()> {
     if packet.len() < 8 {
         return Err(());
     }
@@ -717,7 +781,13 @@ pub fn decrypt_rtcp(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<V
     Ok(full)
 }
 
-fn open_rtcp(mode: CipherMode, key: &[u8; 32], header: &[u8], cipher_text: &[u8], counter: &[u8; 4]) -> Result<Vec<u8>, ()> {
+fn open_rtcp(
+    mode: CipherMode,
+    key: &[u8; 32],
+    header: &[u8],
+    cipher_text: &[u8],
+    counter: &[u8; 4],
+) -> Result<Vec<u8>, ()> {
     use aes_gcm::aead::{Aead, Payload};
     use aes_gcm::{Aes256Gcm, KeyInit, Nonce as AesNonce};
     use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -727,7 +797,13 @@ fn open_rtcp(mode: CipherMode, key: &[u8; 32], header: &[u8], cipher_text: &[u8]
             raw[..4].copy_from_slice(counter);
             let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| ())?;
             cipher
-                .decrypt(AesNonce::from_slice(&raw), Payload { msg: cipher_text, aad: header })
+                .decrypt(
+                    AesNonce::from_slice(&raw),
+                    Payload {
+                        msg: cipher_text,
+                        aad: header,
+                    },
+                )
                 .map_err(|_| ())
         }
         CipherMode::XChaCha20Poly1305RtpSize => {
@@ -735,14 +811,26 @@ fn open_rtcp(mode: CipherMode, key: &[u8; 32], header: &[u8], cipher_text: &[u8]
             raw[..4].copy_from_slice(counter);
             let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| ())?;
             cipher
-                .decrypt(XNonce::from_slice(&raw), Payload { msg: cipher_text, aad: header })
+                .decrypt(
+                    XNonce::from_slice(&raw),
+                    Payload {
+                        msg: cipher_text,
+                        aad: header,
+                    },
+                )
                 .map_err(|_| ())
         }
         _ => Err(()),
     }
 }
 
-pub fn encrypt_rtp(mode: CipherMode, key: &[u8; 32], header: &[u8], payload: &[u8], nonce: u32) -> Result<Vec<u8>, ()> {
+pub fn encrypt_rtp(
+    mode: CipherMode,
+    key: &[u8; 32],
+    header: &[u8],
+    payload: &[u8],
+    nonce: u32,
+) -> Result<Vec<u8>, ()> {
     encrypt_voice(mode, key, header, payload, nonce)
 }
 
@@ -791,8 +879,13 @@ pub fn output_size(preset: SharePreset, source_w: u32, source_h: u32) -> (u32, u
     if source_w == 0 || source_h == 0 {
         return (width, height);
     }
-    let scale = (width as f32 / source_w as f32).min(height as f32 / source_h as f32).min(1.0);
-    even_size(((source_w as f32) * scale).round() as u32, ((source_h as f32) * scale).round() as u32)
+    let scale = (width as f32 / source_w as f32)
+        .min(height as f32 / source_h as f32)
+        .min(1.0);
+    even_size(
+        ((source_w as f32) * scale).round() as u32,
+        ((source_h as f32) * scale).round() as u32,
+    )
 }
 
 fn even_size(width: u32, height: u32) -> (u32, u32) {
@@ -819,10 +912,14 @@ pub fn share_bitrate(width: u32, height: u32, fps: u8) -> u32 {
         (2160, 30, 15_000_000),
         (2160, 60, 20_000_000),
     ];
-    if let Some((_, _, bitrate)) = TABLE.iter().find(|(row, rate, _)| *row == height && *rate == fps) {
+    if let Some((_, _, bitrate)) = TABLE
+        .iter()
+        .find(|(row, rate, _)| *row == height && *rate == fps)
+    {
         return *bitrate;
     }
-    let reference = 4_500_000u64 * u64::from(width.max(2)) * u64::from(height.max(2)) / (1920 * 1080);
+    let reference =
+        4_500_000u64 * u64::from(width.max(2)) * u64::from(height.max(2)) / (1920 * 1080);
     let scaled = reference * u64::from(fps) / 30;
     scaled.clamp(800_000, 25_000_000) as u32
 }
@@ -842,18 +939,27 @@ pub fn adapt_preset(preset: SharePreset, game_mode: bool) -> (SharePreset, Optio
     let _game_mode = game_mode;
     let next = step_down(preset);
     if next == preset {
-        return (preset, Some("720p at 15 fps is as low as this stream goes.".into()));
+        return (
+            preset,
+            Some("720p at 15 fps is as low as this stream goes.".into()),
+        );
     }
     let from = preset_label(preset);
     let to = preset_label(next);
     (
         next,
-        Some(format!("The encoder or uplink could not hold {from}, so this stream dropped to {to}.")),
+        Some(format!(
+            "The encoder or uplink could not hold {from}, so this stream dropped to {to}."
+        )),
     )
 }
 
 fn step_down(preset: SharePreset) -> SharePreset {
-    let height = if preset.height == 0 { 2160 } else { preset.height };
+    let height = if preset.height == 0 {
+        2160
+    } else {
+        preset.height
+    };
     let fps = snap_share_fps(preset.fps);
     if fps == 60 {
         return SharePreset { height, fps: 30 };
@@ -868,9 +974,15 @@ fn step_down(preset: SharePreset) -> SharePreset {
         _ => 720,
     };
     if shorter == height {
-        SharePreset { height: 720, fps: 15 }
+        SharePreset {
+            height: 720,
+            fps: 15,
+        }
     } else {
-        SharePreset { height: shorter, fps: 60 }
+        SharePreset {
+            height: shorter,
+            fps: 60,
+        }
     }
 }
 
@@ -964,13 +1076,18 @@ mod tests {
             "STREAM_CREATE",
             &serde_json::json!({"stream_key": "guild:1:2:3", "paused": false, "region": "us-east"}),
         );
-        assert!(matches!(create, Some(StreamDispatch::Create { paused: false, .. })));
+        assert!(matches!(
+            create,
+            Some(StreamDispatch::Create { paused: false, .. })
+        ));
         let server = parse_stream_dispatch(
             "STREAM_SERVER_UPDATE",
             &serde_json::json!({"stream_key": "guild:1:2:3", "endpoint": "a.discord.media:443", "token": "tok", "guild_id": "1"}),
         );
         match server {
-            Some(StreamDispatch::Server { endpoint, token, .. }) => {
+            Some(StreamDispatch::Server {
+                endpoint, token, ..
+            }) => {
                 assert_eq!(endpoint, "a.discord.media:443");
                 assert_eq!(token, "tok");
             }
@@ -982,11 +1099,17 @@ mod tests {
         )
         .is_none());
         assert!(matches!(
-            parse_stream_dispatch("STREAM_UPDATE", &serde_json::json!({"stream_key": "call:2:3", "paused": true})),
+            parse_stream_dispatch(
+                "STREAM_UPDATE",
+                &serde_json::json!({"stream_key": "call:2:3", "paused": true})
+            ),
             Some(StreamDispatch::Update { paused: true, .. })
         ));
         assert!(matches!(
-            parse_stream_dispatch("STREAM_DELETE", &serde_json::json!({"stream_key": "call:2:3"})),
+            parse_stream_dispatch(
+                "STREAM_DELETE",
+                &serde_json::json!({"stream_key": "call:2:3"})
+            ),
             Some(StreamDispatch::Delete { .. })
         ));
     }
@@ -1000,7 +1123,12 @@ mod tests {
         assert!(identify.contains("\"rid\":\"100\""));
         let watch = stream_identify("10", "30", "sess", "tok", false);
         assert!(!watch.contains("\"streams\""));
-        let select = stream_select_protocol("203.0.113.8", 50_000, CipherMode::Aes256GcmRtpSize, CodecSupport::watch());
+        let select = stream_select_protocol(
+            "203.0.113.8",
+            50_000,
+            CipherMode::Aes256GcmRtpSize,
+            CodecSupport::watch(),
+        );
         assert!(select.contains("\"op\":1"));
         assert!(select.contains("aead_aes256_gcm_rtpsize"));
         for name in ["opus", "H264", "VP8", "VP9", "AV1"] {
@@ -1008,9 +1136,15 @@ mod tests {
         }
         assert!(select.contains("\"payload_type\":101"));
         assert!(select.contains("\"rtx_payload_type\":102"));
-        let h264_only = stream_codecs(CodecSupport { vp8: false, vp9: false, av1: false });
+        let h264_only = stream_codecs(CodecSupport {
+            vp8: false,
+            vp9: false,
+            av1: false,
+        });
         assert_eq!(h264_only.len(), 2);
-        assert!(h264_only.iter().any(|codec| codec.name == "H264" && codec.encode && codec.decode));
+        assert!(h264_only
+            .iter()
+            .any(|codec| codec.name == "H264" && codec.encode && codec.decode));
     }
 
     #[test]
@@ -1023,7 +1157,14 @@ mod tests {
         assert_ne!(video, rtx);
         let assigned = serde_json::json!({"ssrc": 50, "streams": [{"ssrc": 80, "rtx_ssrc": 81, "type": "video"}]});
         assert_eq!(ssrcs_from_ready(&assigned), Some((50, 80, 81)));
-        let span = VideoSpan { width: 1920, height: 1080, fps: 60, bitrate: 6_000_000, active: true, preset_height: 1080 };
+        let span = VideoSpan {
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            bitrate: 6_000_000,
+            active: true,
+            preset_height: 1080,
+        };
         let payload = video_attributes(audio, video, rtx, span);
         assert!(payload.contains("\"op\":12"));
         assert!(payload.contains("\"max_bitrate\":6000000"));
@@ -1070,7 +1211,8 @@ mod tests {
         assert_eq!(small[0].payload[0] & 0x1f, 7);
 
         let mode = CipherMode::Aes256GcmRtpSize;
-        let encrypted = encrypt_rtp(mode, &key(), &packets[0].header, &packets[0].payload, 4).unwrap();
+        let encrypted =
+            encrypt_rtp(mode, &key(), &packets[0].header, &packets[0].payload, 4).unwrap();
         let opened = super::super::voice::decrypt_voice(mode, &key(), &encrypted).unwrap();
         assert_eq!(opened, packets[0].payload);
     }
@@ -1079,7 +1221,10 @@ mod tests {
     fn rtcp_pli_and_nack_round_trip_under_the_same_aead() {
         let pli = build_pli(9, 77);
         assert_eq!(pli[1], 206);
-        assert!(matches!(parse_rtcp(&pli)[0], RtcpFeedback::Pli { media_ssrc: 77 }));
+        assert!(matches!(
+            parse_rtcp(&pli)[0],
+            RtcpFeedback::Pli { media_ssrc: 77 }
+        ));
         let nack = build_nack(9, 77, &[10, 12, 11, 40]);
         assert_eq!(nack[1], 205);
         match &parse_rtcp(&nack)[0] {
@@ -1106,7 +1251,10 @@ mod tests {
             let mut previous = 0;
             for fps in rates {
                 let bitrate = share_bitrate(width, height, fps);
-                assert!(bitrate > previous, "{height}p {fps} should exceed the slower rate");
+                assert!(
+                    bitrate > previous,
+                    "{height}p {fps} should exceed the slower rate"
+                );
                 previous = bitrate;
             }
         }
@@ -1114,7 +1262,10 @@ mod tests {
             let mut previous = 0;
             for height in heights {
                 let bitrate = share_bitrate(preset_size(height).0, height, fps);
-                assert!(bitrate > previous, "{height}p should exceed the smaller frame at {fps}");
+                assert!(
+                    bitrate > previous,
+                    "{height}p should exceed the smaller frame at {fps}"
+                );
                 previous = bitrate;
             }
         }
@@ -1130,19 +1281,46 @@ mod tests {
 
     #[test]
     fn adaptation_steps_down_and_ignores_game_mode() {
-        let start = SharePreset { height: 1080, fps: 60 };
+        let start = SharePreset {
+            height: 1080,
+            fps: 60,
+        };
         let (next, note) = adapt_preset(start, true);
-        assert_eq!(next, SharePreset { height: 1080, fps: 30 });
+        assert_eq!(
+            next,
+            SharePreset {
+                height: 1080,
+                fps: 30
+            }
+        );
         assert!(note.unwrap().contains("1080p at 30 fps"));
         let (again, _) = adapt_preset(next, false);
         assert_eq!(again.fps, 15);
-        let (dropped, _) = adapt_preset(SharePreset { height: 1080, fps: 15 }, true);
-        assert_eq!(dropped, SharePreset { height: 720, fps: 60 });
-        let floor = SharePreset { height: 720, fps: 15 };
+        let (dropped, _) = adapt_preset(
+            SharePreset {
+                height: 1080,
+                fps: 15,
+            },
+            true,
+        );
+        assert_eq!(
+            dropped,
+            SharePreset {
+                height: 720,
+                fps: 60
+            }
+        );
+        let floor = SharePreset {
+            height: 720,
+            fps: 15,
+        };
         let (stays, note) = adapt_preset(floor, true);
         assert_eq!(stays, floor);
         assert!(note.unwrap().contains("720p"));
-        assert_eq!(stream_frame_interval_ms(60, true), stream_frame_interval_ms(60, false));
+        assert_eq!(
+            stream_frame_interval_ms(60, true),
+            stream_frame_interval_ms(60, false)
+        );
         assert_eq!(stream_frame_interval_ms(30, true), 33);
         assert_eq!(stream_frame_interval_ms(15, false), 66);
         let profile = stream_encoder_profile(60);

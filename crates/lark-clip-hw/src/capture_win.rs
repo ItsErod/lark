@@ -49,8 +49,8 @@ use windows::Win32::Media::MediaFoundation::{
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_MULTITHREADED};
 use windows::Win32::System::Threading::{
-    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_BELOW_NORMAL,
-    THREAD_PRIORITY_NORMAL,
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL,
 };
 
 use crate::{HardwareProbe, LiveConfig, LivePacket};
@@ -163,7 +163,12 @@ impl Session {
             encoder,
             stream: config.stream,
             idr_every: if config.stream {
-                u64::from(if config.idr_interval == 0 { config.fps.max(1).saturating_mul(2) } else { config.idr_interval }).max(2)
+                u64::from(if config.idr_interval == 0 {
+                    config.fps.max(1).saturating_mul(2)
+                } else {
+                    config.idr_interval
+                })
+                .max(2)
             } else {
                 u64::from(config.fps.max(1))
             },
@@ -181,7 +186,10 @@ impl Session {
     }
 
     pub fn pull_audio(&mut self) -> Vec<f32> {
-        self.audio.as_ref().map(|audio| audio.pull()).unwrap_or_default()
+        self.audio
+            .as_ref()
+            .map(|audio| audio.pull())
+            .unwrap_or_default()
     }
 
     pub fn backend(&self) -> &'static str {
@@ -223,7 +231,11 @@ impl Session {
             return Err("The capture session has no display.".into());
         };
         let pts_ms = self.started.elapsed().as_millis() as u64;
-        let period = if self.stream { self.idr_every } else { u64::from(self.fps.max(1)) };
+        let period = if self.stream {
+            self.idr_every
+        } else {
+            u64::from(self.fps.max(1))
+        };
         let force_key = self.force_idr.swap(false, Ordering::Relaxed)
             || self.frame_index == 0
             || self.frame_index % period.max(1) == 0;
@@ -323,9 +335,11 @@ fn output_for(source: &str) -> Result<FoundOutput, String> {
     }
     let want = index.unwrap_or(0);
     let outputs = list_outputs()?;
-    outputs.into_iter().nth(want as usize).or_else(|| {
-        list_outputs().ok().and_then(|mut items| items.pop())
-    }).ok_or_else(|| "No display found.".into())
+    outputs
+        .into_iter()
+        .nth(want as usize)
+        .or_else(|| list_outputs().ok().and_then(|mut items| items.pop()))
+        .ok_or_else(|| "No display found.".into())
 }
 
 fn list_outputs() -> Result<Vec<FoundOutput>, String> {
@@ -338,8 +352,16 @@ fn list_outputs() -> Result<Vec<FoundOutput>, String> {
             let mut output_index = 0u32;
             while let Ok(output) = adapter.EnumOutputs(output_index) {
                 if let Ok(desc) = output.GetDesc() {
-                    let width = desc.DesktopCoordinates.right.saturating_sub(desc.DesktopCoordinates.left).max(0) as u32;
-                    let height = desc.DesktopCoordinates.bottom.saturating_sub(desc.DesktopCoordinates.top).max(0) as u32;
+                    let width = desc
+                        .DesktopCoordinates
+                        .right
+                        .saturating_sub(desc.DesktopCoordinates.left)
+                        .max(0) as u32;
+                    let height = desc
+                        .DesktopCoordinates
+                        .bottom
+                        .saturating_sub(desc.DesktopCoordinates.top)
+                        .max(0) as u32;
                     found.push(FoundOutput {
                         adapter: adapter.clone(),
                         output,
@@ -760,7 +782,11 @@ fn activate_encoder(
             let vendor = vendor_of(activate);
             if let Ok(transform) = activate.ActivateObject::<IMFTransform>() {
                 if prepare_transform(&transform, device, config, hevc).is_ok() {
-                    if !prefer.is_empty() && prefer != "auto" && vendor == prefer.as_str() && chosen.is_none() {
+                    if !prefer.is_empty()
+                        && prefer != "auto"
+                        && vendor == prefer.as_str()
+                        && chosen.is_none()
+                    {
                         chosen = Some((transform, vendor));
                     } else if fallback.is_none() {
                         fallback = Some((transform, vendor));
@@ -886,10 +912,12 @@ unsafe fn prepare_transform(
 
 unsafe fn apply_stream_codec(transform: &IMFTransform, config: &crate::LiveConfig) {
     use windows::Win32::Media::MediaFoundation::{
-        CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize, CODECAPI_AVEncMPVDefaultBPictureCount,
-        CODECAPI_AVLowLatencyMode, ICodecAPI,
+        CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVDefaultBPictureCount,
+        CODECAPI_AVEncMPVGOPSize, CODECAPI_AVLowLatencyMode, ICodecAPI,
     };
-    let Ok(codec) = transform.cast::<ICodecAPI>() else { return };
+    let Ok(codec) = transform.cast::<ICodecAPI>() else {
+        return;
+    };
     let gop = if config.idr_interval == 0 {
         config.fps.max(1).saturating_mul(2)
     } else {
@@ -901,7 +929,11 @@ unsafe fn apply_stream_codec(transform: &IMFTransform, config: &crate::LiveConfi
     let _ = set_codec_u32(&codec, &CODECAPI_AVEncMPVGOPSize, gop);
 }
 
-unsafe fn set_codec_u32(codec: &windows::Win32::Media::MediaFoundation::ICodecAPI, key: &windows::core::GUID, value: u32) -> Result<(), String> {
+unsafe fn set_codec_u32(
+    codec: &windows::Win32::Media::MediaFoundation::ICodecAPI,
+    key: &windows::core::GUID,
+    value: u32,
+) -> Result<(), String> {
     use windows::Win32::System::Variant::{VARIANT, VT_UI4};
     let mut variant = VARIANT::default();
     let inner = &mut *variant.Anonymous.Anonymous;
@@ -1091,16 +1123,23 @@ impl Wgc {
             use windows::Graphics::DirectX::DirectXPixelFormat;
             use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11DeviceFromDXGIDevice;
             use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
-            let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
-                .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let interop =
+                windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                    .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
             let item: GraphicsCaptureItem = interop
                 .CreateForWindow(window)
                 .map_err(|err| format!("Couldn't capture that window: {err}"))?;
-            let dxgi: IDXGIDevice = device.cast().map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let dxgi: IDXGIDevice = device
+                .cast()
+                .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
             let inspectable = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
                 .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
-            let winrt_device: IDirect3DDevice = inspectable.cast().map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
-            let size = item.Size().map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            let winrt_device: IDirect3DDevice = inspectable
+                .cast()
+                .map_err(|err| format!("Windows Graphics Capture is not available: {err}"))?;
+            let size = item
+                .Size()
+                .map_err(|err| format!("Couldn't capture that window: {err}"))?;
             let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
                 &winrt_device,
                 DirectXPixelFormat::B8G8R8A8UIntNormalized,
@@ -1108,10 +1147,14 @@ impl Wgc {
                 size,
             )
             .map_err(|err| format!("Couldn't capture that window: {err}"))?;
-            let session = pool.CreateCaptureSession(&item).map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            let session = pool
+                .CreateCaptureSession(&item)
+                .map_err(|err| format!("Couldn't capture that window: {err}"))?;
             let _ = session.SetIsBorderRequired(false);
             let _ = session.SetIsCursorCaptureEnabled(true);
-            session.StartCapture().map_err(|err| format!("Couldn't capture that window: {err}"))?;
+            session
+                .StartCapture()
+                .map_err(|err| format!("Couldn't capture that window: {err}"))?;
             Ok(Self { pool, session })
         }
     }

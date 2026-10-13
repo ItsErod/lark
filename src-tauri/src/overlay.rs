@@ -2,7 +2,9 @@
 
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 pub const LABEL: &str = "voice-overlay";

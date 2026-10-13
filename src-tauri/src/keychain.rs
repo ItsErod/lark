@@ -173,7 +173,11 @@ fn native_draft_key() -> Result<[u8; 32], String> {
         Err(keyring::Error::NoEntry) => {
             let mut key = lark_core::secretbox::random_key();
             let mut encoded = base64::engine::general_purpose::STANDARD.encode(key);
-            let saved = draft_entry().and_then(|entry| entry.set_password(&encoded).map_err(|err| store_error(&err)));
+            let saved = draft_entry().and_then(|entry| {
+                entry
+                    .set_password(&encoded)
+                    .map_err(|err| store_error(&err))
+            });
             encoded.zeroize();
             if let Err(err) = saved {
                 key.zeroize();

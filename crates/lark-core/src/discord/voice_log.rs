@@ -173,7 +173,11 @@ impl VoiceLog {
         };
         let mic = device_line(self.input_open, &self.input_error);
         let speakers = device_line(self.output_open, &self.output_error);
-        let opus = if self.opus_error.is_empty() { "ok".into() } else { self.opus_error.clone() };
+        let opus = if self.opus_error.is_empty() {
+            "ok".into()
+        } else {
+            self.opus_error.clone()
+        };
         let dave = if self.dave_version == 0 {
             "transport only".into()
         } else {
@@ -271,7 +275,10 @@ fn device_line(open: bool, error: &str) -> String {
     }
 }
 
-pub fn log_step(log: &impl std::ops::Deref<Target = std::sync::Mutex<VoiceLog>>, step: impl Into<String>) {
+pub fn log_step(
+    log: &impl std::ops::Deref<Target = std::sync::Mutex<VoiceLog>>,
+    step: impl Into<String>,
+) {
     if let Ok(mut guard) = log.lock() {
         guard.push(step);
     }
@@ -297,7 +304,10 @@ mod tests {
         assert!(text.contains("loss: 2"));
         assert!(text.contains("transport 3"));
         assert!(text.contains("ping_ms: 28"));
-        assert_eq!(rtp_seq(&[0x80, 0x00, 0x01, 0x02, 0, 0, 0, 0, 0, 0, 0, 1]), Some(258));
+        assert_eq!(
+            rtp_seq(&[0x80, 0x00, 0x01, 0x02, 0, 0, 0, 0, 0, 0, 0, 1]),
+            Some(258)
+        );
         assert!(rtp_stream(&[0x80, 200, 0, 6, 0, 0, 0, 1, 9, 9, 9, 9]).is_none());
         let mut wrapped = VoiceLog::default();
         wrapped.note_udp_in(10, Some(1), Some(10));
@@ -305,6 +315,9 @@ mod tests {
         wrapped.note_udp_in(10, Some(1), Some(8));
         wrapped.note_udp_in(10, Some(2), Some(100));
         wrapped.note_udp_in(10, Some(2), Some(40_000));
-        assert_eq!(wrapped.packets_lost, 0, "a sequence wrap is not packet loss");
+        assert_eq!(
+            wrapped.packets_lost, 0,
+            "a sequence wrap is not packet loss"
+        );
     }
 }

@@ -58,29 +58,56 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
     match req.op.trim() {
         "get_guild" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}?with_counts=true"), "GET /guilds/{guild.id}", guild)
+            get(
+                format!("/guilds/{guild}?with_counts=true"),
+                "GET /guilds/{guild.id}",
+                guild,
+            )
         }
         "patch_guild" => {
             snow(guild)?;
-            patch(format!("/guilds/{guild}"), "PATCH /guilds/{guild.id}", guild, body)
+            patch(
+                format!("/guilds/{guild}"),
+                "PATCH /guilds/{guild.id}",
+                guild,
+                body,
+            )
         }
         "delete_guild" => {
             snow(guild)?;
-            delete(format!("/guilds/{guild}"), "DELETE /guilds/{guild.id}", guild)
+            delete(
+                format!("/guilds/{guild}"),
+                "DELETE /guilds/{guild.id}",
+                guild,
+            )
         }
         "vanity" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/vanity-url"), "GET /guilds/{guild.id}/vanity-url", guild)
+            get(
+                format!("/guilds/{guild}/vanity-url"),
+                "GET /guilds/{guild.id}/vanity-url",
+                guild,
+            )
         }
         "create_channel" => {
             snow(guild)?;
-            let mut call = post(format!("/guilds/{guild}/channels"), "POST /guilds/{guild.id}/channels", guild, body)?;
+            let mut call = post(
+                format!("/guilds/{guild}/channels"),
+                "POST /guilds/{guild.id}/channels",
+                guild,
+                body,
+            )?;
             call.channel_shaped = true;
             Ok(call)
         }
         "patch_channel" => {
             snow(channel)?;
-            let mut call = patch(format!("/channels/{channel}"), "PATCH /channels/{channel.id}", channel, body);
+            let mut call = patch(
+                format!("/channels/{channel}"),
+                "PATCH /channels/{channel.id}",
+                channel,
+                body,
+            );
             if let Ok(call) = call.as_mut() {
                 call.channel_shaped = true;
             }
@@ -88,7 +115,11 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "delete_channel" => {
             snow(channel)?;
-            delete(format!("/channels/{channel}"), "DELETE /channels/{channel.id}", channel)
+            delete(
+                format!("/channels/{channel}"),
+                "DELETE /channels/{channel.id}",
+                channel,
+            )
         }
         "put_overwrite" => {
             snow(channel)?;
@@ -111,41 +142,80 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "list_guild_invites" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/invites"), "GET /guilds/{guild.id}/invites", guild)
+            get(
+                format!("/guilds/{guild}/invites"),
+                "GET /guilds/{guild.id}/invites",
+                guild,
+            )
         }
         "list_channel_invites" => {
             snow(channel)?;
-            get(format!("/channels/{channel}/invites"), "GET /channels/{channel.id}/invites", channel)
+            get(
+                format!("/channels/{channel}/invites"),
+                "GET /channels/{channel.id}/invites",
+                channel,
+            )
         }
         "create_invite" => {
             snow(channel)?;
-            post(format!("/channels/{channel}/invites"), "POST /channels/{channel.id}/invites", channel, body)
+            post(
+                format!("/channels/{channel}/invites"),
+                "POST /channels/{channel.id}/invites",
+                channel,
+                body,
+            )
         }
         "delete_invite" => {
             invite_code(extra)?;
-            delete(format!("/invites/{extra}"), "DELETE /invites/{code}", "invites")
+            delete(
+                format!("/invites/{extra}"),
+                "DELETE /invites/{code}",
+                "invites",
+            )
         }
         "list_roles" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/roles"), "GET /guilds/{guild.id}/roles", guild)
+            get(
+                format!("/guilds/{guild}/roles"),
+                "GET /guilds/{guild.id}/roles",
+                guild,
+            )
         }
         "create_role" => {
             snow(guild)?;
-            post(format!("/guilds/{guild}/roles"), "POST /guilds/{guild.id}/roles", guild, body)
+            post(
+                format!("/guilds/{guild}/roles"),
+                "POST /guilds/{guild.id}/roles",
+                guild,
+                body,
+            )
         }
         "patch_role" => {
             snow(guild)?;
             snow(role)?;
-            patch(format!("/guilds/{guild}/roles/{role}"), "PATCH /guilds/{guild.id}/roles/{role.id}", guild, body)
+            patch(
+                format!("/guilds/{guild}/roles/{role}"),
+                "PATCH /guilds/{guild.id}/roles/{role.id}",
+                guild,
+                body,
+            )
         }
         "delete_role" => {
             snow(guild)?;
             snow(role)?;
-            delete(format!("/guilds/{guild}/roles/{role}"), "DELETE /guilds/{guild.id}/roles/{role.id}", guild)
+            delete(
+                format!("/guilds/{guild}/roles/{role}"),
+                "DELETE /guilds/{guild.id}/roles/{role.id}",
+                guild,
+            )
         }
         "reorder_roles" => {
             snow(guild)?;
-            let roles = req.body.as_array().cloned().ok_or("Send the role order as a list.")?;
+            let roles = req
+                .body
+                .as_array()
+                .cloned()
+                .ok_or("Send the role order as a list.")?;
             patch_value(
                 format!("/guilds/{guild}/roles"),
                 "PATCH /guilds/{guild.id}/roles",
@@ -186,11 +256,19 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "search_members" => {
             snow(guild)?;
-            if extra.is_empty() || extra.len() > 32 || extra.chars().any(|ch| ch.is_control() || matches!(ch, '/' | '?' | '&' | '#')) {
+            if extra.is_empty()
+                || extra.len() > 32
+                || extra
+                    .chars()
+                    .any(|ch| ch.is_control() || matches!(ch, '/' | '?' | '&' | '#'))
+            {
                 return Err("Enter a name to search.".into());
             }
             get(
-                format!("/guilds/{guild}/members/search?query={}", query_escape(extra)),
+                format!(
+                    "/guilds/{guild}/members/search?query={}",
+                    query_escape(extra)
+                ),
                 "GET /guilds/{guild.id}/members/search",
                 guild,
             )
@@ -198,30 +276,57 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         "patch_member" => {
             snow(guild)?;
             snow(user)?;
-            patch(format!("/guilds/{guild}/members/{user}"), "PATCH /guilds/{guild.id}/members/{user.id}", guild, body)
+            patch(
+                format!("/guilds/{guild}/members/{user}"),
+                "PATCH /guilds/{guild.id}/members/{user.id}",
+                guild,
+                body,
+            )
         }
         "kick_member" => {
             snow(guild)?;
             snow(user)?;
-            delete(format!("/guilds/{guild}/members/{user}"), "DELETE /guilds/{guild.id}/members/{user.id}", guild)
+            delete(
+                format!("/guilds/{guild}/members/{user}"),
+                "DELETE /guilds/{guild.id}/members/{user.id}",
+                guild,
+            )
         }
         "prune" => {
             snow(guild)?;
-            post(format!("/guilds/{guild}/prune"), "POST /guilds/{guild.id}/prune", guild, body)
+            post(
+                format!("/guilds/{guild}/prune"),
+                "POST /guilds/{guild.id}/prune",
+                guild,
+                body,
+            )
         }
         "list_bans" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/bans?limit=100"), "GET /guilds/{guild.id}/bans", guild)
+            get(
+                format!("/guilds/{guild}/bans?limit=100"),
+                "GET /guilds/{guild.id}/bans",
+                guild,
+            )
         }
         "ban" => {
             snow(guild)?;
             snow(user)?;
-            put(format!("/guilds/{guild}/bans/{user}"), "PUT /guilds/{guild.id}/bans/{user.id}", guild, body)
+            put(
+                format!("/guilds/{guild}/bans/{user}"),
+                "PUT /guilds/{guild.id}/bans/{user.id}",
+                guild,
+                body,
+            )
         }
         "unban" => {
             snow(guild)?;
             snow(user)?;
-            delete(format!("/guilds/{guild}/bans/{user}"), "DELETE /guilds/{guild.id}/bans/{user.id}", guild)
+            delete(
+                format!("/guilds/{guild}/bans/{user}"),
+                "DELETE /guilds/{guild.id}/bans/{user.id}",
+                guild,
+            )
         }
         "audit_log" => {
             snow(guild)?;
@@ -242,34 +347,64 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "list_emojis" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/emojis"), "GET /guilds/{guild.id}/emojis", guild)
+            get(
+                format!("/guilds/{guild}/emojis"),
+                "GET /guilds/{guild.id}/emojis",
+                guild,
+            )
         }
         "create_emoji" => {
             snow(guild)?;
-            post(format!("/guilds/{guild}/emojis"), "POST /guilds/{guild.id}/emojis", guild, body)
+            post(
+                format!("/guilds/{guild}/emojis"),
+                "POST /guilds/{guild.id}/emojis",
+                guild,
+                body,
+            )
         }
         "delete_emoji" => {
             snow(guild)?;
             snow(extra)?;
-            delete(format!("/guilds/{guild}/emojis/{extra}"), "DELETE /guilds/{guild.id}/emojis/{emoji.id}", guild)
+            delete(
+                format!("/guilds/{guild}/emojis/{extra}"),
+                "DELETE /guilds/{guild.id}/emojis/{emoji.id}",
+                guild,
+            )
         }
         "list_stickers" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/stickers"), "GET /guilds/{guild.id}/stickers", guild)
+            get(
+                format!("/guilds/{guild}/stickers"),
+                "GET /guilds/{guild.id}/stickers",
+                guild,
+            )
         }
         "create_sticker" => sticker(guild, body, req),
         "delete_sticker" => {
             snow(guild)?;
             snow(extra)?;
-            delete(format!("/guilds/{guild}/stickers/{extra}"), "DELETE /guilds/{guild.id}/stickers/{sticker.id}", guild)
+            delete(
+                format!("/guilds/{guild}/stickers/{extra}"),
+                "DELETE /guilds/{guild.id}/stickers/{sticker.id}",
+                guild,
+            )
         }
         "list_sounds" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/soundboard-sounds"), "GET /guilds/{guild.id}/soundboard-sounds", guild)
+            get(
+                format!("/guilds/{guild}/soundboard-sounds"),
+                "GET /guilds/{guild.id}/soundboard-sounds",
+                guild,
+            )
         }
         "create_sound" => {
             snow(guild)?;
-            post(format!("/guilds/{guild}/soundboard-sounds"), "POST /guilds/{guild.id}/soundboard-sounds", guild, body)
+            post(
+                format!("/guilds/{guild}/soundboard-sounds"),
+                "POST /guilds/{guild.id}/soundboard-sounds",
+                guild,
+                body,
+            )
         }
         "delete_sound" => {
             snow(guild)?;
@@ -282,23 +417,44 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "list_webhooks" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/webhooks"), "GET /guilds/{guild.id}/webhooks", guild)
+            get(
+                format!("/guilds/{guild}/webhooks"),
+                "GET /guilds/{guild.id}/webhooks",
+                guild,
+            )
         }
         "list_channel_webhooks" => {
             snow(channel)?;
-            get(format!("/channels/{channel}/webhooks"), "GET /channels/{channel.id}/webhooks", channel)
+            get(
+                format!("/channels/{channel}/webhooks"),
+                "GET /channels/{channel.id}/webhooks",
+                channel,
+            )
         }
         "create_webhook" => {
             snow(channel)?;
-            post(format!("/channels/{channel}/webhooks"), "POST /channels/{channel.id}/webhooks", channel, body)
+            post(
+                format!("/channels/{channel}/webhooks"),
+                "POST /channels/{channel.id}/webhooks",
+                channel,
+                body,
+            )
         }
         "delete_webhook" => {
             snow(extra)?;
-            delete(format!("/webhooks/{extra}"), "DELETE /webhooks/{webhook.id}", "webhooks")
+            delete(
+                format!("/webhooks/{extra}"),
+                "DELETE /webhooks/{webhook.id}",
+                "webhooks",
+            )
         }
         "list_integrations" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/integrations"), "GET /guilds/{guild.id}/integrations", guild)
+            get(
+                format!("/guilds/{guild}/integrations"),
+                "GET /guilds/{guild.id}/integrations",
+                guild,
+            )
         }
         "delete_integration" => {
             snow(guild)?;
@@ -311,15 +467,28 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "list_followers" => {
             snow(channel)?;
-            get(format!("/channels/{channel}/followers"), "GET /channels/{channel.id}/followers", channel)
+            get(
+                format!("/channels/{channel}/followers"),
+                "GET /channels/{channel.id}/followers",
+                channel,
+            )
         }
         "list_automod" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/auto-moderation/rules"), "GET /guilds/{guild.id}/auto-moderation/rules", guild)
+            get(
+                format!("/guilds/{guild}/auto-moderation/rules"),
+                "GET /guilds/{guild.id}/auto-moderation/rules",
+                guild,
+            )
         }
         "create_automod" => {
             snow(guild)?;
-            post(format!("/guilds/{guild}/auto-moderation/rules"), "POST /guilds/{guild.id}/auto-moderation/rules", guild, body)
+            post(
+                format!("/guilds/{guild}/auto-moderation/rules"),
+                "POST /guilds/{guild.id}/auto-moderation/rules",
+                guild,
+                body,
+            )
         }
         "patch_automod" => {
             snow(guild)?;
@@ -342,36 +511,72 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
         }
         "list_templates" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/templates"), "GET /guilds/{guild.id}/templates", guild)
+            get(
+                format!("/guilds/{guild}/templates"),
+                "GET /guilds/{guild.id}/templates",
+                guild,
+            )
         }
         "create_template" => {
             snow(guild)?;
-            post(format!("/guilds/{guild}/templates"), "POST /guilds/{guild.id}/templates", guild, body)
+            post(
+                format!("/guilds/{guild}/templates"),
+                "POST /guilds/{guild.id}/templates",
+                guild,
+                body,
+            )
         }
         "create_from_template" => {
             invite_code(extra)?;
-            post(format!("/guilds/templates/{extra}"), "POST /guilds/templates/{code}", "templates", body)
+            post(
+                format!("/guilds/templates/{extra}"),
+                "POST /guilds/templates/{code}",
+                "templates",
+                body,
+            )
         }
         "create_guild" => post("/guilds".into(), "POST /guilds", "guilds", body),
         "get_widget" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/widget"), "GET /guilds/{guild.id}/widget", guild)
+            get(
+                format!("/guilds/{guild}/widget"),
+                "GET /guilds/{guild.id}/widget",
+                guild,
+            )
         }
         "patch_widget" => {
             snow(guild)?;
-            patch(format!("/guilds/{guild}/widget"), "PATCH /guilds/{guild.id}/widget", guild, body)
+            patch(
+                format!("/guilds/{guild}/widget"),
+                "PATCH /guilds/{guild.id}/widget",
+                guild,
+                body,
+            )
         }
         "get_profile" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/profile"), "GET /guilds/{guild.id}/profile", guild)
+            get(
+                format!("/guilds/{guild}/profile"),
+                "GET /guilds/{guild.id}/profile",
+                guild,
+            )
         }
         "patch_profile" => {
             snow(guild)?;
-            patch(format!("/guilds/{guild}/profile"), "PATCH /guilds/{guild.id}/profile", guild, body)
+            patch(
+                format!("/guilds/{guild}/profile"),
+                "PATCH /guilds/{guild.id}/profile",
+                guild,
+                body,
+            )
         }
         "get_verification" => {
             snow(guild)?;
-            get(format!("/guilds/{guild}/member-verification"), "GET /guilds/{guild.id}/member-verification", guild)
+            get(
+                format!("/guilds/{guild}/member-verification"),
+                "GET /guilds/{guild.id}/member-verification",
+                guild,
+            )
         }
         "patch_verification" => {
             snow(guild)?;
@@ -404,7 +609,11 @@ pub fn build_admin_call(req: &GuildAdminRequest) -> Result<BuiltCall, String> {
 fn sticker(guild: &str, body: Option<Value>, req: &GuildAdminRequest) -> Result<BuiltCall, String> {
     snow(guild)?;
     let bytes = decode_file(&req.file_base64)?;
-    let name = if req.file_name.trim().is_empty() { "sticker.png".into() } else { req.file_name.trim().to_string() };
+    let name = if req.file_name.trim().is_empty() {
+        "sticker.png".into()
+    } else {
+        req.file_name.trim().to_string()
+    };
     Ok(BuiltCall {
         method: Method::POST,
         route: "POST /guilds/{guild.id}/stickers".into(),
@@ -413,7 +622,11 @@ fn sticker(guild: &str, body: Option<Value>, req: &GuildAdminRequest) -> Result<
         body,
         file: Some(AdminUpload {
             name,
-            mime: if req.file_mime.trim().is_empty() { "image/png".into() } else { req.file_mime.trim().into() },
+            mime: if req.file_mime.trim().is_empty() {
+                "image/png".into()
+            } else {
+                req.file_mime.trim().into()
+            },
             bytes,
         }),
         channel_shaped: false,
@@ -429,7 +642,11 @@ fn snow(value: &str) -> Result<(), String> {
 }
 
 fn invite_code(value: &str) -> Result<(), String> {
-    if (2..=32).contains(&value.len()) && value.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+    if (2..=32).contains(&value.len())
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    {
         Ok(())
     } else {
         Err("That invite code is not valid.".into())
@@ -487,7 +704,13 @@ fn delete(path: String, route: &str, major: &str) -> Result<BuiltCall, String> {
 }
 
 fn post(path: String, route: &str, major: &str, body: Option<Value>) -> Result<BuiltCall, String> {
-    Ok(plain(Method::POST, path, route, major, body.or_else(|| Some(serde_json::json!({})))))
+    Ok(plain(
+        Method::POST,
+        path,
+        route,
+        major,
+        body.or_else(|| Some(serde_json::json!({}))),
+    ))
 }
 
 fn patch(path: String, route: &str, major: &str, body: Option<Value>) -> Result<BuiltCall, String> {
@@ -500,7 +723,13 @@ fn patch_value(path: String, route: &str, major: &str, body: Value) -> Result<Bu
 }
 
 fn put(path: String, route: &str, major: &str, body: Option<Value>) -> Result<BuiltCall, String> {
-    Ok(plain(Method::PUT, path, route, major, body.or_else(|| Some(serde_json::json!({})))))
+    Ok(plain(
+        Method::PUT,
+        path,
+        route,
+        major,
+        body.or_else(|| Some(serde_json::json!({}))),
+    ))
 }
 
 fn plain(method: Method, path: String, route: &str, major: &str, body: Option<Value>) -> BuiltCall {
@@ -567,11 +796,17 @@ mod tests {
 
         let mut search = req("search_members");
         search.extra = "Maya".into();
-        assert!(build_admin_call(&search).unwrap().path.contains("query=Maya"));
+        assert!(build_admin_call(&search)
+            .unwrap()
+            .path
+            .contains("query=Maya"));
 
         let mut vanity = req("delete_invite");
         vanity.extra = "northwind".into();
-        assert_eq!(build_admin_call(&vanity).unwrap().path, "/invites/northwind");
+        assert_eq!(
+            build_admin_call(&vanity).unwrap().path,
+            "/invites/northwind"
+        );
     }
 
     #[test]

@@ -142,11 +142,9 @@ impl RateLimiter {
     }
 
     pub fn observe_headers(&mut self, route: &str, headers: &RateHeaders, now_ms: u64) {
-        let bucket_id = headers
-            .bucket
-            .clone()
-            .unwrap_or_else(|| route.to_string());
-        self.route_bucket.insert(route.to_string(), bucket_id.clone());
+        let bucket_id = headers.bucket.clone().unwrap_or_else(|| route.to_string());
+        self.route_bucket
+            .insert(route.to_string(), bucket_id.clone());
         let reset_at = now_ms.saturating_add(headers.reset_after_ms);
         self.buckets.insert(
             bucket_id,
@@ -172,7 +170,8 @@ impl RateLimiter {
             .get(route)
             .cloned()
             .unwrap_or_else(|| route.to_string());
-        self.route_bucket.insert(route.to_string(), bucket_id.clone());
+        self.route_bucket
+            .insert(route.to_string(), bucket_id.clone());
         self.buckets.insert(
             bucket_id,
             Bucket {
@@ -394,7 +393,10 @@ mod tests {
         let route = route_key("GET", "/channels/{id}/messages", "7");
         limiter.observe_headers(&route, &headers("b", 0, 100), 0);
         assert_eq!(limiter.reserve(&route, 100), Decision::Allowed);
-        assert!(matches!(limiter.acquire(&route, 100), Decision::Wait { .. }));
+        assert!(matches!(
+            limiter.acquire(&route, 100),
+            Decision::Wait { .. }
+        ));
     }
 
     #[test]

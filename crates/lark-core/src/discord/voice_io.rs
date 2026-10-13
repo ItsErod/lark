@@ -49,7 +49,10 @@ impl DeviceStreams {
 
     pub fn sync(&mut self, input_name: &str, output_name: &str) {
         let now = Instant::now();
-        if self.input_name != input_name || (self.input.is_none() && now.duration_since(self.last_input) >= Duration::from_secs(2)) {
+        if self.input_name != input_name
+            || (self.input.is_none()
+                && now.duration_since(self.last_input) >= Duration::from_secs(2))
+        {
             self.input_name = input_name.to_string();
             self.last_input = now;
             prepare_audio_thread();
@@ -64,7 +67,10 @@ impl DeviceStreams {
                 }
             }
         }
-        if self.output_name != output_name || (self.output.is_none() && now.duration_since(self.last_output) >= Duration::from_secs(2)) {
+        if self.output_name != output_name
+            || (self.output.is_none()
+                && now.duration_since(self.last_output) >= Duration::from_secs(2))
+        {
             self.output_name = output_name.to_string();
             self.last_output = now;
             prepare_audio_thread();
@@ -113,7 +119,10 @@ fn prepare_audio_thread() {
 
 pub fn list_input_output() -> (Vec<String>, Vec<String>) {
     let host = cpal::default_host();
-    (device_names(host.input_devices().ok()), device_names(host.output_devices().ok()))
+    (
+        device_names(host.input_devices().ok()),
+        device_names(host.output_devices().ok()),
+    )
 }
 
 fn device_names(iter: Option<impl Iterator<Item = Device>>) -> Vec<String> {
@@ -131,7 +140,9 @@ fn device_names(iter: Option<impl Iterator<Item = Device>>) -> Vec<String> {
 
 fn wants_default(name: &str) -> bool {
     let name = name.trim();
-    name.is_empty() || name.eq_ignore_ascii_case("default") || name.to_ascii_lowercase().starts_with("default ")
+    name.is_empty()
+        || name.eq_ignore_ascii_case("default")
+        || name.to_ascii_lowercase().starts_with("default ")
 }
 
 /// Which listed device to open. `None` means the host default.
@@ -140,7 +151,11 @@ fn wants_default(name: &str) -> bool {
 /// closed both directions while the voice channel still joined. An unknown id
 /// follows the same path as Default: the communications endpoint when Windows
 /// has one, otherwise the host default.
-pub fn choose_listed_name<'a>(wanted: &str, names: &'a [String], communications: Option<&str>) -> Option<&'a str> {
+pub fn choose_listed_name<'a>(
+    wanted: &str,
+    names: &'a [String],
+    communications: Option<&str>,
+) -> Option<&'a str> {
     let wanted = wanted.trim();
     if !wants_default(wanted) {
         if let Some(found) = names.iter().find(|name| name.as_str() == wanted) {
@@ -148,7 +163,10 @@ pub fn choose_listed_name<'a>(wanted: &str, names: &'a [String], communications:
         }
     }
     let communications = communications?;
-    names.iter().find(|name| name.as_str() == communications).map(|name| name.as_str())
+    names
+        .iter()
+        .find(|name| name.as_str() == communications)
+        .map(|name| name.as_str())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +177,12 @@ pub enum DeviceChoice {
 
 /// Enumeration failure still keeps the host default. Dropping the fallback
 /// left the microphone and speakers closed together.
-pub fn device_choice(wanted: &str, names: &[String], communications: Option<&str>, enumerated: bool) -> DeviceChoice {
+pub fn device_choice(
+    wanted: &str,
+    names: &[String],
+    communications: Option<&str>,
+    enumerated: bool,
+) -> DeviceChoice {
     if enumerated && choose_listed_name(wanted, names, communications).is_some() {
         DeviceChoice::Listed
     } else {
@@ -167,15 +190,27 @@ pub fn device_choice(wanted: &str, names: &[String], communications: Option<&str
     }
 }
 
-fn pick_device(wanted: &str, devices: Result<impl Iterator<Item = Device>, cpal::DevicesError>, fallback: Option<Device>, input: bool) -> Option<Device> {
+fn pick_device(
+    wanted: &str,
+    devices: Result<impl Iterator<Item = Device>, cpal::DevicesError>,
+    fallback: Option<Device>,
+    input: bool,
+) -> Option<Device> {
     let listed = match devices {
         Ok(iter) => iter.collect::<Vec<_>>(),
         Err(_) => Vec::new(),
     };
-    let names: Vec<String> = listed.iter().filter_map(|device| device.name().ok()).filter(|name| !name.is_empty()).collect();
+    let names: Vec<String> = listed
+        .iter()
+        .filter_map(|device| device.name().ok())
+        .filter(|name| !name.is_empty())
+        .collect();
     let communications = communications_name(input);
     if let Some(chosen) = choose_listed_name(wanted, &names, communications.as_deref()) {
-        if let Some(index) = listed.iter().position(|device| device.name().ok().as_deref() == Some(chosen)) {
+        if let Some(index) = listed
+            .iter()
+            .position(|device| device.name().ok().as_deref() == Some(chosen))
+        {
             return listed.into_iter().nth(index);
         }
     }
@@ -222,10 +257,18 @@ fn stream_attempts(preferred: Option<cpal::SupportedStreamConfig>) -> Vec<Stream
         });
     };
     if let Some(supported) = preferred {
-        push(supported.sample_format(), supported.sample_rate().0, supported.channels());
+        push(
+            supported.sample_format(),
+            supported.sample_rate().0,
+            supported.channels(),
+        );
     }
     for (rate, channels, kind) in shared_mode_fallbacks() {
-        let format = if kind == "f32" { SampleFormat::F32 } else { SampleFormat::I16 };
+        let format = if kind == "f32" {
+            SampleFormat::F32
+        } else {
+            SampleFormat::I16
+        };
         push(format, rate, channels);
     }
     out
@@ -233,7 +276,13 @@ fn stream_attempts(preferred: Option<cpal::SupportedStreamConfig>) -> Vec<Stream
 
 fn open_input(wanted: &str, capture: Arc<Mutex<CaptureBuf>>) -> Result<Stream, String> {
     let host = cpal::default_host();
-    let device = pick_device(wanted, host.input_devices(), host.default_input_device(), true).ok_or_else(|| "No microphone".to_string())?;
+    let device = pick_device(
+        wanted,
+        host.input_devices(),
+        host.default_input_device(),
+        true,
+    )
+    .ok_or_else(|| "No microphone".to_string())?;
     let mut last = "No supported microphone format".to_string();
     for attempt in stream_attempts(device.default_input_config().ok()) {
         let channels = attempt.config.channels;
@@ -243,14 +292,25 @@ fn open_input(wanted: &str, capture: Arc<Mutex<CaptureBuf>>) -> Result<Stream, S
             buf.samples.clear();
         }
         let built = match attempt.format {
-            SampleFormat::F32 => build_input::<f32>(&device, &attempt.config, channels, capture.clone()),
-            SampleFormat::I16 => build_input::<i16>(&device, &attempt.config, channels, capture.clone()),
-            SampleFormat::U16 => build_input::<u16>(&device, &attempt.config, channels, capture.clone()),
-            SampleFormat::I32 => build_input::<i32>(&device, &attempt.config, channels, capture.clone()),
-            SampleFormat::F64 => build_input::<f64>(&device, &attempt.config, channels, capture.clone()),
+            SampleFormat::F32 => {
+                build_input::<f32>(&device, &attempt.config, channels, capture.clone())
+            }
+            SampleFormat::I16 => {
+                build_input::<i16>(&device, &attempt.config, channels, capture.clone())
+            }
+            SampleFormat::U16 => {
+                build_input::<u16>(&device, &attempt.config, channels, capture.clone())
+            }
+            SampleFormat::I32 => {
+                build_input::<i32>(&device, &attempt.config, channels, capture.clone())
+            }
+            SampleFormat::F64 => {
+                build_input::<f64>(&device, &attempt.config, channels, capture.clone())
+            }
             other => Err(format!("Unsupported microphone format {other}")),
         };
-        match built.and_then(|stream| stream.play().map(|_| stream).map_err(|err| err.to_string())) {
+        match built.and_then(|stream| stream.play().map(|_| stream).map_err(|err| err.to_string()))
+        {
             Ok(stream) => return Ok(stream),
             Err(err) => last = err,
         }
@@ -258,9 +318,19 @@ fn open_input(wanted: &str, capture: Arc<Mutex<CaptureBuf>>) -> Result<Stream, S
     Err(last)
 }
 
-fn open_output(wanted: &str, playback: Arc<Mutex<Playback>>, volumes: Arc<Mutex<HashMap<String, f32>>>) -> Result<Stream, String> {
+fn open_output(
+    wanted: &str,
+    playback: Arc<Mutex<Playback>>,
+    volumes: Arc<Mutex<HashMap<String, f32>>>,
+) -> Result<Stream, String> {
     let host = cpal::default_host();
-    let device = pick_device(wanted, host.output_devices(), host.default_output_device(), false).ok_or_else(|| "No speakers".to_string())?;
+    let device = pick_device(
+        wanted,
+        host.output_devices(),
+        host.default_output_device(),
+        false,
+    )
+    .ok_or_else(|| "No speakers".to_string())?;
     let mut last = "No supported speaker format".to_string();
     for attempt in stream_attempts(device.default_output_config().ok()) {
         let channels = attempt.config.channels.max(1);
@@ -270,14 +340,45 @@ fn open_output(wanted: &str, playback: Arc<Mutex<Playback>>, volumes: Arc<Mutex<
             play.channels = channels;
         }
         let built = match attempt.format {
-            SampleFormat::F32 => build_output::<f32>(&device, &attempt.config, channels, playback.clone(), volumes.clone()),
-            SampleFormat::I16 => build_output::<i16>(&device, &attempt.config, channels, playback.clone(), volumes.clone()),
-            SampleFormat::U16 => build_output::<u16>(&device, &attempt.config, channels, playback.clone(), volumes.clone()),
-            SampleFormat::I32 => build_output::<i32>(&device, &attempt.config, channels, playback.clone(), volumes.clone()),
-            SampleFormat::F64 => build_output::<f64>(&device, &attempt.config, channels, playback.clone(), volumes.clone()),
+            SampleFormat::F32 => build_output::<f32>(
+                &device,
+                &attempt.config,
+                channels,
+                playback.clone(),
+                volumes.clone(),
+            ),
+            SampleFormat::I16 => build_output::<i16>(
+                &device,
+                &attempt.config,
+                channels,
+                playback.clone(),
+                volumes.clone(),
+            ),
+            SampleFormat::U16 => build_output::<u16>(
+                &device,
+                &attempt.config,
+                channels,
+                playback.clone(),
+                volumes.clone(),
+            ),
+            SampleFormat::I32 => build_output::<i32>(
+                &device,
+                &attempt.config,
+                channels,
+                playback.clone(),
+                volumes.clone(),
+            ),
+            SampleFormat::F64 => build_output::<f64>(
+                &device,
+                &attempt.config,
+                channels,
+                playback.clone(),
+                volumes.clone(),
+            ),
             other => Err(format!("Unsupported speaker format {other}")),
         };
-        match built.and_then(|stream| stream.play().map(|_| stream).map_err(|err| err.to_string())) {
+        match built.and_then(|stream| stream.play().map(|_| stream).map_err(|err| err.to_string()))
+        {
             Ok(stream) => return Ok(stream),
             Err(err) => last = err,
         }
@@ -285,7 +386,12 @@ fn open_output(wanted: &str, playback: Arc<Mutex<Playback>>, volumes: Arc<Mutex<
     Err(last)
 }
 
-fn build_input<T>(device: &Device, config: &StreamConfig, channels: u16, capture: Arc<Mutex<CaptureBuf>>) -> Result<Stream, String>
+fn build_input<T>(
+    device: &Device,
+    config: &StreamConfig,
+    channels: u16,
+    capture: Arc<Mutex<CaptureBuf>>,
+) -> Result<Stream, String>
 where
     T: cpal::SizedSample,
     f32: cpal::FromSample<T>,
@@ -326,7 +432,9 @@ where
     f32: cpal::FromSample<T>,
 {
     let width = usize::from(channels.max(1));
-    let Ok(mut buf) = capture.try_lock() else { return };
+    let Ok(mut buf) = capture.try_lock() else {
+        return;
+    };
     for frame in data.chunks(width) {
         let mut sum = 0f32;
         for sample in frame {
@@ -339,14 +447,21 @@ where
     }
 }
 
-fn fill_output<T>(data: &mut [T], channels: u16, playback: &Mutex<Playback>, volumes: &Mutex<HashMap<String, f32>>)
-where
+fn fill_output<T>(
+    data: &mut [T],
+    channels: u16,
+    playback: &Mutex<Playback>,
+    volumes: &Mutex<HashMap<String, f32>>,
+) where
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let width = usize::from(channels.max(1));
     let frames = data.len() / width;
     let mixed = if let Ok(mut play) = playback.try_lock() {
-        let vols = volumes.try_lock().map(|guard| guard.clone()).unwrap_or_default();
+        let vols = volumes
+            .try_lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
         play.render(frames, &vols)
     } else {
         vec![0.0; frames]
@@ -374,9 +489,13 @@ fn communications_name(_input: bool) -> Option<String> {
 #[cfg(windows)]
 fn communications_name(input: bool) -> Option<String> {
     use windows_sys::core::GUID;
-    use windows_sys::Win32::Media::Audio::{eCapture, eCommunications, eRender, MMDeviceEnumerator};
-    use windows_sys::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ};
+    use windows_sys::Win32::Media::Audio::{
+        eCapture, eCommunications, eRender, MMDeviceEnumerator,
+    };
     use windows_sys::Win32::System::Com::StructuredStorage::{PropVariantClear, PROPVARIANT};
+    use windows_sys::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
+    };
     use windows_sys::Win32::System::Variant::VT_LPWSTR;
 
     // mmdeviceapi.h. windows-sys 0.59 exposes the CLSID and roles, not the COM methods.
@@ -394,22 +513,50 @@ fn communications_name(input: bool) -> Option<String> {
     }
     #[repr(C)]
     struct IUnknownVtbl {
-        query_interface: unsafe extern "system" fn(*mut core::ffi::c_void, *const GUID, *mut *mut core::ffi::c_void) -> i32,
+        query_interface: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            *const GUID,
+            *mut *mut core::ffi::c_void,
+        ) -> i32,
         add_ref: unsafe extern "system" fn(*mut core::ffi::c_void) -> u32,
         release: unsafe extern "system" fn(*mut core::ffi::c_void) -> u32,
     }
     #[repr(C)]
     struct EnumeratorVtbl {
         base: IUnknownVtbl,
-        enum_audio_endpoints: unsafe extern "system" fn(*mut core::ffi::c_void, i32, u32, *mut *mut core::ffi::c_void) -> i32,
-        get_default_audio_endpoint: unsafe extern "system" fn(*mut core::ffi::c_void, i32, i32, *mut *mut core::ffi::c_void) -> i32,
-        get_device: unsafe extern "system" fn(*mut core::ffi::c_void, *const u16, *mut *mut core::ffi::c_void) -> i32,
+        enum_audio_endpoints: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            i32,
+            u32,
+            *mut *mut core::ffi::c_void,
+        ) -> i32,
+        get_default_audio_endpoint: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            i32,
+            i32,
+            *mut *mut core::ffi::c_void,
+        ) -> i32,
+        get_device: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            *const u16,
+            *mut *mut core::ffi::c_void,
+        ) -> i32,
     }
     #[repr(C)]
     struct DeviceVtbl {
         base: IUnknownVtbl,
-        activate: unsafe extern "system" fn(*mut core::ffi::c_void, *const GUID, u32, *mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> i32,
-        open_property_store: unsafe extern "system" fn(*mut core::ffi::c_void, u32, *mut *mut core::ffi::c_void) -> i32,
+        activate: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            *const GUID,
+            u32,
+            *mut core::ffi::c_void,
+            *mut *mut core::ffi::c_void,
+        ) -> i32,
+        open_property_store: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            u32,
+            *mut *mut core::ffi::c_void,
+        ) -> i32,
         get_id: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut u16) -> i32,
         get_state: unsafe extern "system" fn(*mut core::ffi::c_void, *mut u32) -> i32,
     }
@@ -418,8 +565,16 @@ fn communications_name(input: bool) -> Option<String> {
         base: IUnknownVtbl,
         get_count: unsafe extern "system" fn(*mut core::ffi::c_void, *mut u32) -> i32,
         get_at: unsafe extern "system" fn(*mut core::ffi::c_void, u32, *mut PropertyKey) -> i32,
-        get_value: unsafe extern "system" fn(*mut core::ffi::c_void, *const PropertyKey, *mut PROPVARIANT) -> i32,
-        set_value: unsafe extern "system" fn(*mut core::ffi::c_void, *const PropertyKey, *const PROPVARIANT) -> i32,
+        get_value: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            *const PropertyKey,
+            *mut PROPVARIANT,
+        ) -> i32,
+        set_value: unsafe extern "system" fn(
+            *mut core::ffi::c_void,
+            *const PropertyKey,
+            *const PROPVARIANT,
+        ) -> i32,
         commit: unsafe extern "system" fn(*mut core::ffi::c_void) -> i32,
     }
 
@@ -449,7 +604,12 @@ fn communications_name(input: bool) -> Option<String> {
         let flow = if input { eCapture } else { eRender };
         let enum_vtbl = *(enumerator as *const *const EnumeratorVtbl);
         let mut device: *mut core::ffi::c_void = std::ptr::null_mut();
-        let hr = ((*enum_vtbl).get_default_audio_endpoint)(enumerator, flow, eCommunications, &mut device);
+        let hr = ((*enum_vtbl).get_default_audio_endpoint)(
+            enumerator,
+            flow,
+            eCommunications,
+            &mut device,
+        );
         if hr < 0 || device.is_null() {
             release(enumerator);
             return None;
@@ -496,7 +656,9 @@ fn wide_to_string(ptr: *const u16) -> Option<String> {
         if len == 0 {
             return None;
         }
-        Some(String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len)))
+        Some(String::from_utf16_lossy(std::slice::from_raw_parts(
+            ptr, len,
+        )))
     }
 }
 
@@ -511,24 +673,38 @@ mod tests {
     #[test]
     fn a_browser_id_uses_the_communications_device() {
         let listed = names(&["Speakers (Realtek Audio)", "Headset (Realtek Audio)"]);
-        let chosen = choose_listed_name("a1b2c3d4browser", &listed, Some("Headset (Realtek Audio)"));
+        let chosen =
+            choose_listed_name("a1b2c3d4browser", &listed, Some("Headset (Realtek Audio)"));
         assert_eq!(chosen, Some("Headset (Realtek Audio)"));
     }
 
     #[test]
     fn an_exact_device_name_wins_over_the_communications_role() {
         let listed = names(&["Speakers (Realtek Audio)", "Headset (Realtek Audio)"]);
-        let chosen = choose_listed_name("Speakers (Realtek Audio)", &listed, Some("Headset (Realtek Audio)"));
+        let chosen = choose_listed_name(
+            "Speakers (Realtek Audio)",
+            &listed,
+            Some("Headset (Realtek Audio)"),
+        );
         assert_eq!(chosen, Some("Speakers (Realtek Audio)"));
     }
 
     #[test]
     fn default_prefers_communications_and_otherwise_the_host_default() {
         let listed = names(&["Speakers (Realtek Audio)", "Headset (Realtek Audio)"]);
-        assert_eq!(choose_listed_name("", &listed, Some("Headset (Realtek Audio)")), Some("Headset (Realtek Audio)"));
-        assert_eq!(choose_listed_name("default", &listed, Some("Headset (Realtek Audio)")), Some("Headset (Realtek Audio)"));
+        assert_eq!(
+            choose_listed_name("", &listed, Some("Headset (Realtek Audio)")),
+            Some("Headset (Realtek Audio)")
+        );
+        assert_eq!(
+            choose_listed_name("default", &listed, Some("Headset (Realtek Audio)")),
+            Some("Headset (Realtek Audio)")
+        );
         assert_eq!(choose_listed_name("default Speakers", &listed, None), None);
-        assert_eq!(device_choice("a1b2c3d4browser", &[], None, false), DeviceChoice::HostDefault);
+        assert_eq!(
+            device_choice("a1b2c3d4browser", &[], None, false),
+            DeviceChoice::HostDefault
+        );
         assert_eq!(
             device_choice("Headset (Realtek Audio)", &listed, None, true),
             DeviceChoice::Listed
@@ -538,8 +714,12 @@ mod tests {
     #[test]
     fn shared_mode_fallbacks_cover_float_and_pcm() {
         let fallbacks = shared_mode_fallbacks();
-        assert!(fallbacks.iter().any(|item| item.0 == 48_000 && item.1 == 2 && item.2 == "f32"));
-        assert!(fallbacks.iter().any(|item| item.0 == 44_100 && item.2 == "i16"));
+        assert!(fallbacks
+            .iter()
+            .any(|item| item.0 == 48_000 && item.1 == 2 && item.2 == "f32"));
+        assert!(fallbacks
+            .iter()
+            .any(|item| item.0 == 44_100 && item.2 == "i16"));
         assert!(fallbacks.iter().any(|item| item.0 == 96_000));
     }
 }

@@ -1,21 +1,21 @@
 pub mod browser_handoff;
 pub mod gateway;
+pub mod guild_admin;
+pub mod noise;
 pub mod page;
 pub mod remote_auth;
 pub mod rest;
 pub mod shell;
-pub mod types;
-pub mod noise;
-pub mod voice;
-pub mod voice_dave;
-pub mod voice_io;
-pub mod voice_log;
 pub mod stream;
 pub mod stream_link;
-pub mod voice_link;
-pub mod voice_media;
+pub mod types;
+pub mod voice;
 pub mod voice_camera;
-pub mod guild_admin;
+pub mod voice_dave;
+pub mod voice_io;
+pub mod voice_link;
+pub mod voice_log;
+pub mod voice_media;
 
 pub use gateway::{
     gateway_command_payload, intents_without_message_content, run_gateway, ClientEvent,

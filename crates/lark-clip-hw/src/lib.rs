@@ -5,10 +5,10 @@
 //! when a clip is saved. If either encoder cannot start, the caller uses ffmpeg or
 //! the built-in encoder instead.
 
-#[cfg(target_os = "macos")]
-mod capture_mac;
 #[cfg(windows)]
 mod audio_win;
+#[cfg(target_os = "macos")]
+mod capture_mac;
 #[cfg(windows)]
 mod capture_win;
 #[cfg(windows)]

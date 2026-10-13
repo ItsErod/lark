@@ -22,7 +22,11 @@ pub struct SoundMix {
 
 impl SoundMix {
     pub fn new() -> Self {
-        Self { tracks: Vec::new(), guild: VecDeque::new(), hear: Vec::new() }
+        Self {
+            tracks: Vec::new(),
+            guild: VecDeque::new(),
+            hear: Vec::new(),
+        }
     }
 
     pub fn clear(&mut self) {
@@ -48,7 +52,9 @@ impl SoundMix {
         if self.hear.len() >= MAX_TRACKS {
             self.hear.remove(0);
         }
-        self.hear.push(VecDeque::from(pcm.into_iter().take(MAX_SAMPLES).collect::<Vec<_>>()));
+        self.hear.push(VecDeque::from(
+            pcm.into_iter().take(MAX_SAMPLES).collect::<Vec<_>>(),
+        ));
     }
 
     /// Overlapping speaker sounds, up to `count` samples. Empty when nothing is queued.
@@ -61,7 +67,9 @@ impl SoundMix {
         let mut out = vec![0f32; count];
         for track in &mut self.hear {
             for sample in out.iter_mut() {
-                let Some(extra) = track.pop_front() else { break };
+                let Some(extra) = track.pop_front() else {
+                    break;
+                };
                 *sample = (*sample + extra).clamp(-1.0, 1.0);
             }
         }
@@ -73,7 +81,9 @@ impl SoundMix {
     pub fn guild_tone() -> Vec<f32> {
         let count = SAMPLE_RATE as usize / 5;
         (0..count)
-            .map(|index| ((index as f32) * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin() * 0.2)
+            .map(|index| {
+                ((index as f32) * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin() * 0.2
+            })
             .collect()
     }
 
@@ -92,14 +102,18 @@ impl SoundMix {
         let mut played = false;
         for track in &mut self.tracks {
             for sample in frame.iter_mut() {
-                let Some(extra) = track.pop_front() else { break };
+                let Some(extra) = track.pop_front() else {
+                    break;
+                };
                 *sample = (*sample + extra).clamp(-1.0, 1.0);
                 played = true;
             }
         }
         self.tracks.retain(|track| !track.is_empty());
         for sample in frame.iter_mut() {
-            let Some(extra) = self.guild.pop_front() else { break };
+            let Some(extra) = self.guild.pop_front() else {
+                break;
+            };
             *sample = (*sample + extra).clamp(-1.0, 1.0);
             played = true;
         }
@@ -123,9 +137,12 @@ pub fn decode_wav_mono(bytes: &[u8]) -> Result<Vec<f32>, String> {
     let mut data: Option<&[u8]> = None;
     while offset + 8 <= bytes.len() {
         let id = &bytes[offset..offset + 4];
-        let size = read_u32(bytes, offset + 4).ok_or_else(|| "That WAV file is incomplete.".to_string())? as usize;
+        let size = read_u32(bytes, offset + 4)
+            .ok_or_else(|| "That WAV file is incomplete.".to_string())? as usize;
         let start = offset + 8;
-        let end = start.checked_add(size).ok_or_else(|| "That WAV file is incomplete.".to_string())?;
+        let end = start
+            .checked_add(size)
+            .ok_or_else(|| "That WAV file is incomplete.".to_string())?;
         if end > bytes.len() {
             return Err("That WAV file is incomplete.".into());
         }
@@ -226,7 +243,11 @@ fn resample(input: &[f32], out_len: usize) -> Vec<f32> {
     }
     let mut out = Vec::with_capacity(out_len);
     let last = (input.len() - 1) as f32;
-    let scale = if out_len == 1 { 0.0 } else { last / (out_len - 1) as f32 };
+    let scale = if out_len == 1 {
+        0.0
+    } else {
+        last / (out_len - 1) as f32
+    };
     for index in 0..out_len {
         let pos = index as f32 * scale;
         let idx = pos.floor() as usize;
@@ -260,7 +281,10 @@ pub fn guild_sound_urls(sound_id: &str) -> Result<Vec<String>, String> {
 }
 
 /// Cache file for a downloaded guild sound. The id is the whole file name.
-pub fn guild_cache_path(dir: &std::path::Path, sound_id: &str) -> Result<std::path::PathBuf, String> {
+pub fn guild_cache_path(
+    dir: &std::path::Path,
+    sound_id: &str,
+) -> Result<std::path::PathBuf, String> {
     if !guild_sound_id_ok(sound_id) {
         return Err("That sound id is not a Discord snowflake.".into());
     }
@@ -318,11 +342,15 @@ fn decode_mp3_mono(bytes: &[u8]) -> Result<Vec<f32>, String> {
 }
 
 fn read_u16(bytes: &[u8], at: usize) -> Option<u16> {
-    bytes.get(at..at + 2).map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+    bytes
+        .get(at..at + 2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
 }
 
 fn read_u32(bytes: &[u8], at: usize) -> Option<u32> {
-    bytes.get(at..at + 4).map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+    bytes
+        .get(at..at + 4)
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
 }
 
 #[cfg(test)]
@@ -394,11 +422,17 @@ mod tests {
         assert!(guild_sound_urls("../x").is_err());
         assert!(guild_cache_path(std::path::Path::new("/tmp"), "../x").is_err());
         let urls = guild_sound_urls("100000000000000201").unwrap();
-        assert_eq!(urls[0], "https://cdn.discordapp.com/soundboard-sounds/100000000000000201");
+        assert_eq!(
+            urls[0],
+            "https://cdn.discordapp.com/soundboard-sounds/100000000000000201"
+        );
         assert!(guild_cdn_host("cdn.discordapp.com"));
         assert!(!guild_cdn_host("evil.example"));
         let path = guild_cache_path(std::path::Path::new("guild"), "100000000000000201").unwrap();
-        assert_eq!(path, std::path::PathBuf::from("guild/100000000000000201.bin"));
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("guild/100000000000000201.bin")
+        );
 
         let wav = wav_pcm16(48_000, 1, &[8_192, -8_192]);
         let pcm = decode_guild_audio(&wav).unwrap();

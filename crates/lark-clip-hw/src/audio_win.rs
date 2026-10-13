@@ -15,7 +15,9 @@ use windows::Win32::Media::Audio::{
     eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator,
     AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
 };
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
+};
 use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
 pub struct AudioPump {
@@ -36,7 +38,11 @@ impl AudioPump {
                 let _ = capture_loop(pid, &incoming, &stop_rx);
             })
             .map_err(|err| err.to_string())?;
-        Ok(Self { stop: stop_tx, samples, join: Some(join) })
+        Ok(Self {
+            stop: stop_tx,
+            samples,
+            join: Some(join),
+        })
     }
 
     pub fn pull(&self) -> Vec<f32> {
@@ -63,11 +69,19 @@ fn window_pid(source: &str) -> Option<u32> {
     unsafe {
         let mut pid = 0u32;
         GetWindowThreadProcessId(HWND(value as *mut std::ffi::c_void), Some(&mut pid));
-        if pid == 0 { None } else { Some(pid) }
+        if pid == 0 {
+            None
+        } else {
+            Some(pid)
+        }
     }
 }
 
-fn capture_loop(pid: Option<u32>, samples: &Mutex<Vec<f32>>, stop: &mpsc::Receiver<()>) -> Result<(), String> {
+fn capture_loop(
+    pid: Option<u32>,
+    samples: &Mutex<Vec<f32>>,
+    stop: &mpsc::Receiver<()>,
+) -> Result<(), String> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         if let Some(pid) = pid {
@@ -79,23 +93,38 @@ fn capture_loop(pid: Option<u32>, samples: &Mutex<Vec<f32>>, stop: &mpsc::Receiv
     }
 }
 
-unsafe fn device_loopback(samples: &Mutex<Vec<f32>>, stop: &mpsc::Receiver<()>) -> Result<(), String> {
-    let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
-        .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
+unsafe fn device_loopback(
+    samples: &Mutex<Vec<f32>>,
+    stop: &mpsc::Receiver<()>,
+) -> Result<(), String> {
+    let enumerator: IMMDeviceEnumerator =
+        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+            .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
     let device = enumerator
         .GetDefaultAudioEndpoint(eRender, eConsole)
         .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
     let client: IAudioClient = device
         .Activate(CLSCTX_ALL, None)
         .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
-    let format = client.GetMixFormat().map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
+    let format = client
+        .GetMixFormat()
+        .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
     client
-        .Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, format, None)
+        .Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_LOOPBACK,
+            0,
+            0,
+            format,
+            None,
+        )
         .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
     let capture: IAudioCaptureClient = client
         .GetService()
         .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
-    client.Start().map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
+    client
+        .Start()
+        .map_err(|err| format!("WASAPI loopback did not start: {err}"))?;
     let result = pump(&capture, format, samples, stop);
     let _ = client.Stop();
     CoTaskMemFree(Some(format as *const std::ffi::c_void));
@@ -111,10 +140,15 @@ struct LoopbackGate {
 #[implement(windows::Win32::Media::Audio::IActivateAudioInterfaceCompletionHandler)]
 struct ProcessLoopbackHandler(Arc<LoopbackGate>);
 
-impl windows::Win32::Media::Audio::IActivateAudioInterfaceCompletionHandler_Impl for ProcessLoopbackHandler_Impl {
+impl windows::Win32::Media::Audio::IActivateAudioInterfaceCompletionHandler_Impl
+    for ProcessLoopbackHandler_Impl
+{
     fn ActivateCompleted(
         &self,
-        operation: windows::core::Ref<'_, windows::Win32::Media::Audio::IActivateAudioInterfaceAsyncOperation>,
+        operation: windows::core::Ref<
+            '_,
+            windows::Win32::Media::Audio::IActivateAudioInterfaceAsyncOperation,
+        >,
     ) -> windows::core::Result<()> {
         unsafe {
             if let Some(operation) = operation.as_ref() {
@@ -139,13 +173,17 @@ impl windows::Win32::Media::Audio::IActivateAudioInterfaceCompletionHandler_Impl
     }
 }
 
-unsafe fn process_loopback(pid: u32, samples: &Mutex<Vec<f32>>, stop: &mpsc::Receiver<()>) -> Result<(), String> {
+unsafe fn process_loopback(
+    pid: u32,
+    samples: &Mutex<Vec<f32>>,
+    stop: &mpsc::Receiver<()>,
+) -> Result<(), String> {
     use windows::Win32::Media::Audio::{
-        ActivateAudioInterfaceAsync, AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-        AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-        AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-        IActivateAudioInterfaceCompletionHandler, PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
-        VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+        ActivateAudioInterfaceAsync, IActivateAudioInterfaceCompletionHandler,
+        AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_LOOPBACK,
+        AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDIOCLIENT_ACTIVATION_PARAMS,
+        AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK, AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS,
+        PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
     };
     use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
     use windows::Win32::System::Variant::VT_BLOB;
@@ -175,11 +213,20 @@ unsafe fn process_loopback(pid: u32, samples: &Mutex<Vec<f32>>, stop: &mpsc::Rec
         ready: Mutex::new(false),
         cv: Condvar::new(),
     });
-    let handler: IActivateAudioInterfaceCompletionHandler = ProcessLoopbackHandler(gate.clone()).into();
-    let _operation = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, &IAudioClient::IID, Some(&prop), &handler)
-        .map_err(|err| format!("Process loopback did not start: {err}"))?;
+    let handler: IActivateAudioInterfaceCompletionHandler =
+        ProcessLoopbackHandler(gate.clone()).into();
+    let _operation = ActivateAudioInterfaceAsync(
+        VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+        &IAudioClient::IID,
+        Some(&prop),
+        &handler,
+    )
+    .map_err(|err| format!("Process loopback did not start: {err}"))?;
 
-    let ready = gate.ready.lock().map_err(|_| "Process loopback did not start.".to_string())?;
+    let ready = gate
+        .ready
+        .lock()
+        .map_err(|_| "Process loopback did not start.".to_string())?;
     let (ready, wait) = gate
         .cv
         .wait_timeout(ready, Duration::from_secs(2))
@@ -194,13 +241,21 @@ unsafe fn process_loopback(pid: u32, samples: &Mutex<Vec<f32>>, stop: &mpsc::Rec
         .ok()
         .and_then(|mut slot| slot.take())
         .ok_or_else(|| "Process loopback returned no client.".to_string())?;
-    let format = client.GetMixFormat().map_err(|err| format!("Process loopback did not start: {err}"))?;
-    let flags = AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+    let format = client
+        .GetMixFormat()
+        .map_err(|err| format!("Process loopback did not start: {err}"))?;
+    let flags = AUDCLNT_STREAMFLAGS_LOOPBACK
+        | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+        | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
     client
         .Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 0, 0, format, None)
         .map_err(|err| format!("Process loopback did not start: {err}"))?;
-    let capture: IAudioCaptureClient = client.GetService().map_err(|err| format!("Process loopback did not start: {err}"))?;
-    client.Start().map_err(|err| format!("Process loopback did not start: {err}"))?;
+    let capture: IAudioCaptureClient = client
+        .GetService()
+        .map_err(|err| format!("Process loopback did not start: {err}"))?;
+    client
+        .Start()
+        .map_err(|err| format!("Process loopback did not start: {err}"))?;
     let result = pump(&capture, format, samples, stop);
     let _ = client.Stop();
     CoTaskMemFree(Some(format as *const std::ffi::c_void));
@@ -227,7 +282,10 @@ unsafe fn pump(
         let mut data = std::ptr::null_mut();
         let mut frames = 0u32;
         let mut flags = 0u32;
-        if capture.GetBuffer(&mut data, &mut frames, &mut flags, None, None).is_err() {
+        if capture
+            .GetBuffer(&mut data, &mut frames, &mut flags, None, None)
+            .is_err()
+        {
             continue;
         }
         if !data.is_null() && frames > 0 && flags & 0b10 == 0 {

@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use lark_clip_hw::{LiveConfig, LiveSession};
 use lark_core::discord::stream::{
-    adapt_preset, output_size, preset_bitrate, snap_share_fps, snap_share_height, stream_encoder_profile,
-    preferred_encoder, stream_frame_interval_ms, stream_key, SharePreset, StreamKind, VideoSpan,
+    adapt_preset, output_size, preferred_encoder, preset_bitrate, snap_share_fps,
+    snap_share_height, stream_encoder_profile, stream_frame_interval_ms, stream_key, SharePreset,
+    StreamKind, VideoSpan,
 };
 use lark_core::discord::stream_link::{maintain_stream, StreamHello, StreamLinkEvent};
 use lark_core::discord::GatewayCommand;
@@ -67,7 +68,10 @@ impl StreamHub {
         if let Ok(mut offers) = self.offers.lock() {
             offers.insert(
                 stream_key.to_string(),
-                Offer { endpoint: endpoint.to_string(), token: token.to_string() },
+                Offer {
+                    endpoint: endpoint.to_string(),
+                    token: token.to_string(),
+                },
             );
         }
         let _ = self.tick.send(self.tick.borrow().wrapping_add(1));
@@ -109,11 +113,17 @@ fn platform_sources() -> Vec<ShareSource> {
     let mut sources = Vec::new();
     if let Ok(monitors) = xcap::Monitor::all() {
         for (index, monitor) in monitors.iter().enumerate() {
-            let name = monitor.name().unwrap_or_else(|_| format!("Screen {}", index + 1));
+            let name = monitor
+                .name()
+                .unwrap_or_else(|_| format!("Screen {}", index + 1));
             let width = monitor.width().unwrap_or(0);
             let height = monitor.height().unwrap_or(0);
             let primary = monitor.is_primary().unwrap_or(false);
-            let label = if primary { format!("{name} (primary)") } else { name };
+            let label = if primary {
+                format!("{name} (primary)")
+            } else {
+                name
+            };
             let thumbnail = monitor.capture_image().ok().and_then(|image| {
                 let width = image.width();
                 let height = image.height();
@@ -139,7 +149,11 @@ fn platform_sources() -> Vec<ShareSource> {
                 continue;
             }
             let app = window.app_name().unwrap_or_default();
-            let name = if app.is_empty() { title.clone() } else { format!("{app} — {title}") };
+            let name = if app.is_empty() {
+                title.clone()
+            } else {
+                format!("{app} — {title}")
+            };
             let width = window.width().unwrap_or(0);
             let height = window.height().unwrap_or(0);
             if width < 32 || height < 32 {
@@ -197,12 +211,22 @@ pub async fn start_share(
     gateway: mpsc::UnboundedSender<GatewayCommand>,
     request: ShareStart,
 ) -> Result<(), String> {
-    if request.channel_id.is_empty() || request.session_id.is_empty() || request.user_id.is_empty() {
+    if request.channel_id.is_empty() || request.session_id.is_empty() || request.user_id.is_empty()
+    {
         return Err("Join a voice channel before sharing your screen.".into());
     }
     stop_publish(&hub, &gateway).await;
-    let kind = if request.guild_id.is_empty() { StreamKind::Call } else { StreamKind::Guild };
-    let key = stream_key(kind, Some(&request.guild_id), &request.channel_id, &request.user_id);
+    let kind = if request.guild_id.is_empty() {
+        StreamKind::Call
+    } else {
+        StreamKind::Guild
+    };
+    let key = stream_key(
+        kind,
+        Some(&request.guild_id),
+        &request.channel_id,
+        &request.user_id,
+    );
     let preset = SharePreset {
         height: snap_share_height(&request.resolution),
         fps: snap_share_fps(request.fps),
@@ -210,7 +234,14 @@ pub async fn start_share(
     let (width, height) = output_size(preset, request.source_width, request.source_height);
     let bitrate = preset_bitrate(preset, request.source_width, request.source_height);
     let profile = stream_encoder_profile(preset.fps);
-    let span = VideoSpan { width, height, fps: preset.fps, bitrate, active: true, preset_height: preset.height };
+    let span = VideoSpan {
+        width,
+        height,
+        fps: preset.fps,
+        bitrate,
+        active: true,
+        preset_height: preset.height,
+    };
     let _ = hub.quality.send(span);
     let _ = hub.paused.send(false);
     hub.force_idr.store(false, Ordering::Relaxed);
@@ -272,7 +303,11 @@ pub async fn start_share(
     gateway
         .send(GatewayCommand::StreamCreate {
             guild: !request.guild_id.is_empty(),
-            guild_id: if request.guild_id.is_empty() { None } else { Some(request.guild_id.clone()) },
+            guild_id: if request.guild_id.is_empty() {
+                None
+            } else {
+                Some(request.guild_id.clone())
+            },
             channel_id: request.channel_id.clone(),
         })
         .map_err(|_| "Gateway is closed.".to_string())?;
@@ -283,7 +318,11 @@ pub async fn start_share(
 
     let hello = StreamHello {
         endpoint: offer.endpoint,
-        server_id: if request.guild_id.is_empty() { request.channel_id.clone() } else { request.guild_id.clone() },
+        server_id: if request.guild_id.is_empty() {
+            request.channel_id.clone()
+        } else {
+            request.guild_id.clone()
+        },
         channel_id: request.channel_id,
         user_id: request.user_id,
         session_id: request.session_id,
@@ -316,20 +355,29 @@ pub async fn start_share(
     let force = hub.force_idr.clone();
     let cancel = stop_tx.subscribe();
     tauri::async_runtime::spawn(async move {
-        maintain_stream(hello, cancel, paused, quality, bridge_rx, audio_bridge_rx, force, move |event| {
-            let payload = match event {
-                StreamLinkEvent::Status { state, detail } => serde_json::json!({
-                    "kind": "screenShare",
-                    "state": state,
-                    "detail": detail,
-                }),
-                StreamLinkEvent::Frame { annex_b } => serde_json::json!({
-                    "kind": "streamFrame",
-                    "annexB": base64::engine::general_purpose::STANDARD.encode(annex_b),
-                }),
-            };
-            let _ = app_frames.emit("discord", payload);
-        })
+        maintain_stream(
+            hello,
+            cancel,
+            paused,
+            quality,
+            bridge_rx,
+            audio_bridge_rx,
+            force,
+            move |event| {
+                let payload = match event {
+                    StreamLinkEvent::Status { state, detail } => serde_json::json!({
+                        "kind": "screenShare",
+                        "state": state,
+                        "detail": detail,
+                    }),
+                    StreamLinkEvent::Frame { annex_b } => serde_json::json!({
+                        "kind": "streamFrame",
+                        "annexB": base64::engine::general_purpose::STANDARD.encode(annex_b),
+                    }),
+                };
+                let _ = app_frames.emit("discord", payload);
+            },
+        )
         .await;
     });
     let _ = profile;
@@ -392,7 +440,10 @@ fn capture_thread(
         }
         if quality.has_changed().unwrap_or(false) {
             let span = *quality.borrow_and_update();
-            preset = SharePreset { height: span.preset_height, fps: span.fps };
+            preset = SharePreset {
+                height: span.preset_height,
+                fps: span.fps,
+            };
             if let Ok(next) = open_at(preset) {
                 session = next;
             }
@@ -501,10 +552,19 @@ fn capture_thread(
     }
 }
 
-async fn wait_offer(hub: &StreamHub, key: &str, tick: &mut watch::Receiver<u64>) -> Result<Offer, String> {
+async fn wait_offer(
+    hub: &StreamHub,
+    key: &str,
+    tick: &mut watch::Receiver<u64>,
+) -> Result<Offer, String> {
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
-        if let Some(offer) = hub.offers.lock().ok().and_then(|offers| offers.get(key).cloned()) {
+        if let Some(offer) = hub
+            .offers
+            .lock()
+            .ok()
+            .and_then(|offers| offers.get(key).cloned())
+        {
             return Ok(offer);
         }
         if Instant::now() >= deadline {
@@ -530,19 +590,42 @@ pub async fn stop_publish(hub: &StreamHub, gateway: &mpsc::UnboundedSender<Gatew
     }
 }
 
-pub async fn set_paused(hub: &StreamHub, gateway: &mpsc::UnboundedSender<GatewayCommand>, paused: bool) {
+pub async fn set_paused(
+    hub: &StreamHub,
+    gateway: &mpsc::UnboundedSender<GatewayCommand>,
+    paused: bool,
+) {
     let _ = hub.paused.send(paused);
     let key = hub.active_key();
     if !key.is_empty() {
-        let _ = gateway.send(GatewayCommand::StreamSetPaused { stream_key: key, paused });
+        let _ = gateway.send(GatewayCommand::StreamSetPaused {
+            stream_key: key,
+            paused,
+        });
     }
 }
 
-pub fn set_quality(hub: &StreamHub, resolution: &str, fps: u8, source_w: u32, source_h: u32) -> VideoSpan {
-    let preset = SharePreset { height: snap_share_height(resolution), fps: snap_share_fps(fps) };
+pub fn set_quality(
+    hub: &StreamHub,
+    resolution: &str,
+    fps: u8,
+    source_w: u32,
+    source_h: u32,
+) -> VideoSpan {
+    let preset = SharePreset {
+        height: snap_share_height(resolution),
+        fps: snap_share_fps(fps),
+    };
     let (width, height) = output_size(preset, source_w, source_h);
     let bitrate = preset_bitrate(preset, source_w, source_h);
-    let span = VideoSpan { width, height, fps: preset.fps, bitrate, active: true, preset_height: preset.height };
+    let span = VideoSpan {
+        width,
+        height,
+        fps: preset.fps,
+        bitrate,
+        active: true,
+        preset_height: preset.height,
+    };
     let _ = hub.quality.send(span);
     span
 }
@@ -562,7 +645,9 @@ pub async fn watch_stream(
     }
     let mut offers = hub.tick.subscribe();
     gateway
-        .send(GatewayCommand::StreamWatch { stream_key: stream_key.clone() })
+        .send(GatewayCommand::StreamWatch {
+            stream_key: stream_key.clone(),
+        })
         .map_err(|_| "Gateway is closed.".to_string())?;
     let offer = wait_offer(&hub, &stream_key, &mut offers).await?;
     let (stop_tx, cancel) = watch::channel(false);
@@ -587,18 +672,27 @@ pub async fn watch_stream(
         bitrate: 2_500_000,
     };
     tauri::async_runtime::spawn(async move {
-        maintain_stream(hello, cancel, paused, quality, frames, audio, Arc::new(AtomicBool::new(false)), move |event| {
-            if let StreamLinkEvent::Frame { annex_b } = event {
-                let _ = app.emit(
-                    "discord",
-                    serde_json::json!({
-                        "kind": "streamFrame",
-                        "streamKey": stream_key,
-                        "annexB": base64::engine::general_purpose::STANDARD.encode(annex_b),
-                    }),
-                );
-            }
-        })
+        maintain_stream(
+            hello,
+            cancel,
+            paused,
+            quality,
+            frames,
+            audio,
+            Arc::new(AtomicBool::new(false)),
+            move |event| {
+                if let StreamLinkEvent::Frame { annex_b } = event {
+                    let _ = app.emit(
+                        "discord",
+                        serde_json::json!({
+                            "kind": "streamFrame",
+                            "streamKey": stream_key,
+                            "annexB": base64::engine::general_purpose::STANDARD.encode(annex_b),
+                        }),
+                    );
+                }
+            },
+        )
         .await;
     });
     Ok(())

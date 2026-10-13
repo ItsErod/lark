@@ -66,7 +66,10 @@ impl CameraInbox {
     }
 
     pub fn drain(&self) -> Vec<CameraFrame> {
-        self.frames.lock().map(|mut queue| queue.drain(..).collect()).unwrap_or_default()
+        self.frames
+            .lock()
+            .map(|mut queue| queue.drain(..).collect())
+            .unwrap_or_default()
     }
 
     pub fn notified(&self) -> impl std::future::Future<Output = ()> + '_ {
@@ -145,7 +148,9 @@ pub struct CameraReceiver {
 
 impl CameraReceiver {
     pub fn new() -> Self {
-        Self { assemblers: HashMap::new() }
+        Self {
+            assemblers: HashMap::new(),
+        }
     }
 
     /// Decrypt one datagram. `local_audio_ssrc` drops this client's own camera.
@@ -173,13 +178,20 @@ impl CameraReceiver {
             return None;
         }
         let marker = packet[1] & 0x80 != 0;
-        let unit = self.assemblers.entry(ssrc).or_default().push(&payload, marker)?;
+        let unit = self
+            .assemblers
+            .entry(ssrc)
+            .or_default()
+            .push(&payload, marker)?;
         let user_id = users
             .get(&ssrc)
             .cloned()
             .or_else(|| users.get(&ssrc.wrapping_sub(1)).cloned())
             .filter(|id| !id.is_empty())?;
-        Some(CameraPicture { user_id, annex_b: unit })
+        Some(CameraPicture {
+            user_id,
+            annex_b: unit,
+        })
     }
 }
 
@@ -193,7 +205,9 @@ fn packet_ssrc(packet: &[u8]) -> Option<u32> {
     if packet.len() < 12 || packet[0] >> 6 != 2 {
         return None;
     }
-    Some(u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]))
+    Some(u32::from_be_bytes([
+        packet[8], packet[9], packet[10], packet[11],
+    ]))
 }
 
 pub struct CameraSender {
@@ -239,7 +253,13 @@ impl CameraSender {
         Some(camera_attributes(audio_ssrc, active))
     }
 
-    pub fn take_packets(&mut self, mode: CipherMode, key: &[u8; 32], audio_ssrc: u32, inbox: &CameraInbox) -> Vec<Vec<u8>> {
+    pub fn take_packets(
+        &mut self,
+        mode: CipherMode,
+        key: &[u8; 32],
+        audio_ssrc: u32,
+        inbox: &CameraInbox,
+    ) -> Vec<Vec<u8>> {
         if !inbox.active() {
             let _ = inbox.drain();
             return Vec::new();
@@ -247,9 +267,19 @@ impl CameraSender {
         let frames = inbox.drain();
         let mut out = Vec::new();
         for frame in frames {
-            let Some(access) = self.encode(&frame) else { continue };
+            let Some(access) = self.encode(&frame) else {
+                continue;
+            };
             let step = camera_timestamp_step();
-            out.extend(seal_camera_access(&access, mode, key, audio_ssrc, &mut self.sequence, self.timestamp, &mut self.nonce));
+            out.extend(seal_camera_access(
+                &access,
+                mode,
+                key,
+                audio_ssrc,
+                &mut self.sequence,
+                self.timestamp,
+                &mut self.nonce,
+            ));
             self.timestamp = self.timestamp.wrapping_add(step);
         }
         out
@@ -288,7 +318,14 @@ impl CameraSender {
             return Some(());
         }
         let mut raw = std::ptr::null_mut();
-        let status = unsafe { lark_h264_open(&mut raw, CAMERA_WIDTH as i32, CAMERA_HEIGHT as i32, i32::from(CAMERA_FPS)) };
+        let status = unsafe {
+            lark_h264_open(
+                &mut raw,
+                CAMERA_WIDTH as i32,
+                CAMERA_HEIGHT as i32,
+                i32::from(CAMERA_FPS),
+            )
+        };
         if status != 0 || raw.is_null() {
             return None;
         }
@@ -304,7 +341,11 @@ impl CameraSender {
     }
 }
 
-fn rgba_to_planes(rgba: &[u8], width: usize, height: usize) -> Option<(Vec<u64>, Vec<u64>, Vec<u64>)> {
+fn rgba_to_planes(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+) -> Option<(Vec<u64>, Vec<u64>, Vec<u64>)> {
     if width < 16 || height < 16 || width % 2 != 0 || height % 2 != 0 {
         return None;
     }
@@ -385,7 +426,15 @@ mod tests {
         let access = [0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00, 0x11, 0x22];
         let mut sequence = 7u16;
         let mut nonce = 3u32;
-        let packets = seal_camera_access(&access, CipherMode::Aes256GcmRtpSize, &key(), 50, &mut sequence, 6_000, &mut nonce);
+        let packets = seal_camera_access(
+            &access,
+            CipherMode::Aes256GcmRtpSize,
+            &key(),
+            50,
+            &mut sequence,
+            6_000,
+            &mut nonce,
+        );
         assert_eq!(packets.len(), 1);
         assert_eq!(sequence, 8);
         assert_eq!(nonce, 4);
@@ -406,15 +455,35 @@ mod tests {
             pixel[3] = 255;
         }
         let mut sender = CameraSender::default();
-        let access = sender.encode(&CameraFrame { width: CAMERA_WIDTH, height: CAMERA_HEIGHT, rgba }).unwrap();
-        assert!(access.windows(3).any(|win| win == [0, 0, 1]) || access.windows(4).any(|win| win == [0, 0, 0, 1]));
+        let access = sender
+            .encode(&CameraFrame {
+                width: CAMERA_WIDTH,
+                height: CAMERA_HEIGHT,
+                rgba,
+            })
+            .unwrap();
+        assert!(
+            access.windows(3).any(|win| win == [0, 0, 1])
+                || access.windows(4).any(|win| win == [0, 0, 0, 1])
+        );
         let mut sequence = 0u16;
         let mut nonce = 0u32;
-        let packets = seal_camera_access(&access, CipherMode::Aes256GcmRtpSize, &key(), 9, &mut sequence, 0, &mut nonce);
+        let packets = seal_camera_access(
+            &access,
+            CipherMode::Aes256GcmRtpSize,
+            &key(),
+            9,
+            &mut sequence,
+            0,
+            &mut nonce,
+        );
         assert!(!packets.is_empty());
         let opened = decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packets[0]).unwrap();
         assert!(!opened.is_empty());
-        assert_ne!(&opened[..opened.len().min(3)], &[0xF8, 0xFF, 0xFE][..opened.len().min(3)]);
+        assert_ne!(
+            &opened[..opened.len().min(3)],
+            &[0xF8, 0xFF, 0xFE][..opened.len().min(3)]
+        );
     }
 
     #[test]
@@ -425,7 +494,15 @@ mod tests {
         access.extend_from_slice(&nal);
         let mut sequence = 1u16;
         let mut nonce = 9u32;
-        let packets = seal_camera_access(&access, CipherMode::Aes256GcmRtpSize, &key(), 50, &mut sequence, 0, &mut nonce);
+        let packets = seal_camera_access(
+            &access,
+            CipherMode::Aes256GcmRtpSize,
+            &key(),
+            50,
+            &mut sequence,
+            0,
+            &mut nonce,
+        );
         assert!(packets.len() > 1, "a large access unit has to fragment");
         let mut users = HashMap::new();
         users.insert(50, "222".to_string());
@@ -433,26 +510,47 @@ mod tests {
         let mut picture = None;
         for packet in &packets {
             assert!(is_camera_rtp(packet));
-            if let Some(next) = receiver.push(packet, CipherMode::Aes256GcmRtpSize, &key(), 7, &users) {
+            if let Some(next) =
+                receiver.push(packet, CipherMode::Aes256GcmRtpSize, &key(), 7, &users)
+            {
                 picture = Some(next);
             }
         }
         let picture = picture.expect("the marker packet rebuilds the access unit");
         assert_eq!(picture.user_id, "222");
-        assert!(picture.annex_b.windows(nal.len()).any(|win| win == nal.as_slice()));
+        assert!(picture
+            .annex_b
+            .windows(nal.len())
+            .any(|win| win == nal.as_slice()));
         let opus = crate::discord::voice::rtp_header(1, 960, 99);
         assert!(!is_camera_rtp(&opus));
-        assert!(receiver.push(&opus, CipherMode::Aes256GcmRtpSize, &key(), 7, &users).is_none());
+        assert!(receiver
+            .push(&opus, CipherMode::Aes256GcmRtpSize, &key(), 7, &users)
+            .is_none());
         let mut wrong = key();
         wrong[0] ^= 0xff;
-        assert!(CameraReceiver::new().push(&packets[0], CipherMode::Aes256GcmRtpSize, &wrong, 7, &users).is_none());
-        assert!(CameraReceiver::new().push(&packets[0], CipherMode::Aes256GcmRtpSize, &key(), 50, &users).is_none());
+        assert!(CameraReceiver::new()
+            .push(&packets[0], CipherMode::Aes256GcmRtpSize, &wrong, 7, &users)
+            .is_none());
+        assert!(CameraReceiver::new()
+            .push(
+                &packets[0],
+                CipherMode::Aes256GcmRtpSize,
+                &key(),
+                50,
+                &users
+            )
+            .is_none());
     }
 
     #[test]
     fn inbox_drops_a_frame_that_is_the_wrong_size() {
         let inbox = CameraInbox::new();
-        inbox.push(CameraFrame { width: 16, height: 16, rgba: vec![0; 16 * 16 * 4] });
+        inbox.push(CameraFrame {
+            width: 16,
+            height: 16,
+            rgba: vec![0; 16 * 16 * 4],
+        });
         assert!(inbox.drain().is_empty());
     }
 }

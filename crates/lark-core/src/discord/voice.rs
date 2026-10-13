@@ -53,7 +53,10 @@ impl CipherMode {
 pub fn choose_mode(offered: &[String]) -> Option<CipherMode> {
     const ORDER: &[(&str, CipherMode)] = &[
         ("aead_aes256_gcm_rtpsize", CipherMode::Aes256GcmRtpSize),
-        ("aead_xchacha20_poly1305_rtpsize", CipherMode::XChaCha20Poly1305RtpSize),
+        (
+            "aead_xchacha20_poly1305_rtpsize",
+            CipherMode::XChaCha20Poly1305RtpSize,
+        ),
     ];
     ORDER.iter().find_map(|(name, mode)| {
         if offered.iter().any(|item| item == name) {
@@ -107,7 +110,10 @@ pub fn encrypt_audio(
     nonce: u32,
     speaking: bool,
 ) -> Result<Vec<u8>, ()> {
-    if !matches!(mode, CipherMode::Aes256GcmRtpSize | CipherMode::XChaCha20Poly1305RtpSize) {
+    if !matches!(
+        mode,
+        CipherMode::Aes256GcmRtpSize | CipherMode::XChaCha20Poly1305RtpSize
+    ) {
         let header = rtp_header(sequence, timestamp, ssrc);
         return encrypt_voice(mode, key, &header, media, nonce);
     }
@@ -138,7 +144,10 @@ pub fn decrypt_voice(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<
     let (body, suffix) = packet.split_at(packet.len() - suffix_len);
     // RTP-size AEAD authenticates the fixed header, CSRCs, and the 4-byte
     // extension preamble. Extension elements ride inside the ciphertext.
-    let aead = matches!(mode, CipherMode::Aes256GcmRtpSize | CipherMode::XChaCha20Poly1305RtpSize);
+    let aead = matches!(
+        mode,
+        CipherMode::Aes256GcmRtpSize | CipherMode::XChaCha20Poly1305RtpSize
+    );
     let header_len = if aead {
         aead_aad_len(body).ok_or(())?
     } else {
@@ -243,7 +252,13 @@ fn seal(
             raw[..4].copy_from_slice(counter);
             let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| ())?;
             cipher
-                .encrypt(AesNonce::from_slice(&raw), Payload { msg: opus, aad: header })
+                .encrypt(
+                    AesNonce::from_slice(&raw),
+                    Payload {
+                        msg: opus,
+                        aad: header,
+                    },
+                )
                 .map_err(|_| ())
         }
         CipherMode::XChaCha20Poly1305RtpSize => {
@@ -251,7 +266,13 @@ fn seal(
             raw[..4].copy_from_slice(counter);
             let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| ())?;
             cipher
-                .encrypt(XNonce::from_slice(&raw), Payload { msg: opus, aad: header })
+                .encrypt(
+                    XNonce::from_slice(&raw),
+                    Payload {
+                        msg: opus,
+                        aad: header,
+                    },
+                )
                 .map_err(|_| ())
         }
         CipherMode::XSalsa20Poly1305Lite => {
@@ -285,7 +306,10 @@ fn open(
             cipher
                 .decrypt(
                     AesNonce::from_slice(&raw),
-                    Payload { msg: cipher_text, aad: header },
+                    Payload {
+                        msg: cipher_text,
+                        aad: header,
+                    },
                 )
                 .map_err(|_| ())
         }
@@ -296,7 +320,10 @@ fn open(
             cipher
                 .decrypt(
                     XNonce::from_slice(&raw),
-                    Payload { msg: cipher_text, aad: header },
+                    Payload {
+                        msg: cipher_text,
+                        aad: header,
+                    },
                 )
                 .map_err(|_| ())
         }
@@ -372,7 +399,10 @@ pub fn parse_ip_discovery(packet: &[u8]) -> Option<(String, u16)> {
 }
 
 pub fn voice_gateway_url(endpoint: &str) -> Option<String> {
-    let host = endpoint.trim().trim_end_matches('/').trim_end_matches(":443");
+    let host = endpoint
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches(":443");
     if host.is_empty() || host.contains('/') || host.contains(' ') {
         return None;
     }
@@ -423,7 +453,12 @@ pub fn speaking_payload(ssrc: u32, speaking: bool, priority: bool) -> String {
     .to_string()
 }
 
-pub fn voice_resume(server_id: &str, session_id: &str, token: &str, seq_ack: Option<i64>) -> String {
+pub fn voice_resume(
+    server_id: &str,
+    session_id: &str,
+    token: &str,
+    seq_ack: Option<i64>,
+) -> String {
     serde_json::json!({
         "op": 7,
         "d": {
@@ -463,7 +498,10 @@ pub fn voice_interval_from_hello(hello_ms: Option<u64>, ready_ms: Option<u64>) -
 
 /// Close codes that will not succeed on another attempt with the same client.
 pub fn voice_close_should_stop(code: u16) -> bool {
-    matches!(code, 4004 | 4011 | 4012 | 4014 | 4016 | 4017 | 4020 | 4021 | 4022)
+    matches!(
+        code,
+        4004 | 4011 | 4012 | 4014 | 4016 | 4017 | 4020 | 4021 | 4022
+    )
 }
 
 pub fn voice_close_error(code: u16, reason: &str) -> String {
@@ -578,7 +616,12 @@ pub fn voice_reconnect_delay_ms(attempt: u32) -> u64 {
     (1_000u64 << shift).min(20_000)
 }
 
-pub fn main_voice_state(guild_id: Option<&str>, channel_id: Option<&str>, mute: bool, deaf: bool) -> String {
+pub fn main_voice_state(
+    guild_id: Option<&str>,
+    channel_id: Option<&str>,
+    mute: bool,
+    deaf: bool,
+) -> String {
     serde_json::json!({
         "op": 4,
         "d": {
@@ -623,7 +666,14 @@ mod tests {
         let audio = main_voice_state(Some("1"), Some("2"), false, false);
         assert!(audio.contains("\"self_mute\":false"));
         assert!(!audio.contains("self_video"));
-        let video = main_voice_state_video(Some("1"), Some("2"), true, false, true, Some("2026-10-12T00:00:00.000Z"));
+        let video = main_voice_state_video(
+            Some("1"),
+            Some("2"),
+            true,
+            false,
+            true,
+            Some("2026-10-12T00:00:00.000Z"),
+        );
         assert!(video.contains("\"self_video\":true"));
         assert!(video.contains("request_to_speak_timestamp"));
         assert!(video.contains("\"op\":4"));
@@ -640,7 +690,10 @@ mod tests {
     #[test]
     fn prefers_aes_then_xchacha_and_rejects_removed_xsalsa() {
         assert_eq!(
-            choose_mode(&["aead_xchacha20_poly1305_rtpsize".into(), "xsalsa20_poly1305".into()]),
+            choose_mode(&[
+                "aead_xchacha20_poly1305_rtpsize".into(),
+                "xsalsa20_poly1305".into()
+            ]),
             Some(CipherMode::XChaCha20Poly1305RtpSize)
         );
         assert_eq!(
@@ -674,7 +727,13 @@ mod tests {
         ] {
             let packet = encrypt_voice(mode, &key(), &header, opus, 9).unwrap();
             assert!(packet.starts_with(&header));
-            assert_eq!(packet.windows(header.len()).filter(|win| *win == header).count(), 1);
+            assert_eq!(
+                packet
+                    .windows(header.len())
+                    .filter(|win| *win == header)
+                    .count(),
+                1
+            );
             if mode.suffix_len() == 4 {
                 assert_eq!(&packet[packet.len() - 4..], &9u32.to_be_bytes());
             }
@@ -698,7 +757,10 @@ mod tests {
         let opus = b"opus-after-the-extension";
         let mut plain = ext.to_vec();
         plain.extend_from_slice(opus);
-        for mode in [CipherMode::Aes256GcmRtpSize, CipherMode::XChaCha20Poly1305RtpSize] {
+        for mode in [
+            CipherMode::Aes256GcmRtpSize,
+            CipherMode::XChaCha20Poly1305RtpSize,
+        ] {
             let packet = encrypt_voice(mode, &key(), &aad, &plain, 7).unwrap();
             assert_eq!(aead_aad_len(&packet).unwrap(), aad.len());
             assert_eq!(extension_payload_len(&packet), 4);
@@ -708,23 +770,63 @@ mod tests {
         padded.extend_from_slice(&[0, 0, 3]);
         let mut padded_header = aad.clone();
         padded_header[0] |= 0x20;
-        let packet = encrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &padded_header, &padded, 8).unwrap();
-        assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(), opus);
+        let packet = encrypt_voice(
+            CipherMode::Aes256GcmRtpSize,
+            &key(),
+            &padded_header,
+            &padded,
+            8,
+        )
+        .unwrap();
+        assert_eq!(
+            decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(),
+            opus
+        );
         let mut marked = rtp_header(9, 960, 5);
         marked[0] |= 0x20;
         let odd = b"abc\xff";
-        let odd_packet = encrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &marked, odd, 11).unwrap();
-        assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &odd_packet).unwrap(), odd);
+        let odd_packet =
+            encrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &marked, odd, 11).unwrap();
+        assert_eq!(
+            decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &odd_packet).unwrap(),
+            odd
+        );
         assert!(is_rtcp(&[0x80, 200, 0, 1, 0, 0, 0, 1]));
         assert!(!is_rtcp(&header));
         assert!(opus_payload(&packet));
         assert!(!opus_payload(&[0x80, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]));
-        let packet = encrypt_audio(CipherMode::Aes256GcmRtpSize, &key(), 4, 960, 42, opus, 3, true).unwrap();
+        let packet = encrypt_audio(
+            CipherMode::Aes256GcmRtpSize,
+            &key(),
+            4,
+            960,
+            42,
+            opus,
+            3,
+            true,
+        )
+        .unwrap();
         assert_eq!(packet[0] & 0x10, 0x10);
         assert_eq!(extension_payload_len(&packet), 4);
-        assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(), opus);
-        let quiet = encrypt_audio(CipherMode::XChaCha20Poly1305RtpSize, &key(), 5, 1_920, 42, opus, 4, false).unwrap();
-        assert_eq!(decrypt_voice(CipherMode::XChaCha20Poly1305RtpSize, &key(), &quiet).unwrap(), opus);
+        assert_eq!(
+            decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(),
+            opus
+        );
+        let quiet = encrypt_audio(
+            CipherMode::XChaCha20Poly1305RtpSize,
+            &key(),
+            5,
+            1_920,
+            42,
+            opus,
+            4,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            decrypt_voice(CipherMode::XChaCha20Poly1305RtpSize, &key(), &quiet).unwrap(),
+            opus
+        );
     }
 
     #[test]
@@ -741,8 +843,14 @@ mod tests {
             parse_ip_discovery(&response).unwrap(),
             ("203.0.113.8".into(), 50_000)
         );
-        assert_eq!(voice_poll_slice(Duration::from_secs(41)), Duration::from_secs(1));
-        assert_eq!(voice_poll_slice(Duration::from_millis(200)), Duration::from_millis(200));
+        assert_eq!(
+            voice_poll_slice(Duration::from_secs(41)),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            voice_poll_slice(Duration::from_millis(200)),
+            Duration::from_millis(200)
+        );
         assert_eq!(
             voice_gateway_url("example.discord.gg:443").unwrap(),
             "wss://example.discord.gg/?v=8"
@@ -812,7 +920,9 @@ mod tests {
         let dave = voice_close_error(4017, "E2EE/DAVE protocol required");
         assert!(voice_error_should_stop(&dave));
         assert!(dave.contains("4017"));
-        assert!(!voice_error_should_stop(&voice_close_error(4015, "crashed")));
+        assert!(!voice_error_should_stop(&voice_close_error(
+            4015, "crashed"
+        )));
         assert!(!voice_opcode_ends_session(9));
         assert!(!voice_opcode_ends_session(13));
         assert!(!voice_opcode_ends_session(5));
@@ -820,7 +930,8 @@ mod tests {
 
     #[test]
     fn dave_frames_and_session_description_version() {
-        let description = serde_json::json!({"mode": "aead_aes256_gcm_rtpsize", "dave_protocol_version": 1});
+        let description =
+            serde_json::json!({"mode": "aead_aes256_gcm_rtpsize", "dave_protocol_version": 1});
         assert_eq!(dave_protocol_version(&description), 1);
         assert_eq!(dave_protocol_version(&serde_json::json!({})), 0);
         let frame = dave_key_package_frame(&[0xAA, 0xBB]);
@@ -833,10 +944,12 @@ mod tests {
         let invalid = dave_invalid_commit(32);
         assert!(invalid.contains("\"op\":31"));
         let mut binary = vec![0x00, 0x0A, 25, 9, 8];
-        assert_eq!(parse_dave_server_binary(&binary), Some((10, 25, &[9, 8][..])));
+        assert_eq!(
+            parse_dave_server_binary(&binary),
+            Some((10, 25, &[9, 8][..]))
+        );
         binary[2] = 26;
         assert!(parse_dave_server_binary(&binary).is_none());
         assert!(parse_dave_server_binary(&[1, 2]).is_none());
     }
-
 }
