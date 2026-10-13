@@ -107,6 +107,9 @@ pub enum ClientEvent {
         mention_ids: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         mention_users: Option<Vec<super::types::ClientMention>>,
+        /// Present when the bot edited its components; an empty array clears them.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        components: Option<Value>,
     },
     MessageDelete {
         channel_id: String,
@@ -1545,6 +1548,10 @@ fn handle_dispatch(
                 mention_users: data
                     .get("mentions")
                     .and_then(|_| client.as_ref().map(|message| message.mention_users.clone())),
+                components: data.get("components").map(|_| {
+                    super::types::client_components(data.get("components"))
+                        .unwrap_or_else(|| json!([]))
+                }),
             });
             false
         }

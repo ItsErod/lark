@@ -270,6 +270,10 @@ export interface RawMessage {
   callEnded?: string | null;
   forwarded?: { id: string; authorName: string; preview: string } | null;
   poll?: unknown;
+  /** Raw bot components (action rows, buttons, selects). */
+  components?: unknown;
+  applicationId?: string | null;
+  messageFlags?: number;
 }
 
 export interface Person {

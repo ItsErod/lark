@@ -1,3 +1,4 @@
+import { appendBotComponents } from "./bot-components";
 import { firstUnreadId, shouldGroup, typingLine } from "../chat";
 import { reportCrash } from "../crash";
 import { ARCHIVE, CRIT, history, channels as demoChannels, pageMessages } from "../demo/data";
@@ -817,6 +818,7 @@ export const messageMethods = defineMethods({
       });
       if (this.pickerFor === message.id) node.append(this.emojiPicker((emoji, emojiId) => this.toggleReaction(message, emoji, emojiId)));
       node.dataset.mid = message.id;
+      if (message.components) appendBotComponents(node.querySelector(".message-body"), message);
       this.bindMessageMenu(node, message);
       if (this.hookOn("userWhois")) this.watchMessageWhois(node, message);
       if (this.hookOn("emoteClone")) this.watchEmoteClone(node);
