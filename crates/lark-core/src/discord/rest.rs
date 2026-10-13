@@ -19,7 +19,7 @@ use super::guild_admin::{build_admin_call, GuildAdminRequest};
 use super::shell::{encode_guild_folders, invite_code_ok, invite_from_json, ClientFolder, ClientInvite};
 use super::types::{
     channel_to_client, friends_from_relationships, member_to_client, message_to_client,
-    profile_from_value, role_to_client, safe_file_name, snowflake_ok, validate_outgoing,
+    profile_from_guild, role_to_client, safe_file_name, snowflake_ok, validate_outgoing,
     ClientChannel, ClientEmoji, ClientMember, ClientMessage, ClientProfile, ClientRole,
     DiscordChannel, DiscordMember, DiscordMessage, DiscordRole, DiscordUser,
 };
@@ -374,7 +374,7 @@ impl DiscordRest {
         let value = self
             .send_json(Method::GET, &route, user_id, &path, None)
             .await?;
-        profile_from_value(&value)
+        profile_from_guild(&value, guild)
             .ok_or_else(|| RestError::Message("Could not read that profile".into()))
     }
 
