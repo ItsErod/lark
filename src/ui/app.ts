@@ -134,6 +134,7 @@ import {
   type StoreIndex,
   type StoreItem,
 } from "../store";
+import { storeSwatches } from "./store-swatches";
 import { emojiCdnUrl } from "../render/content";
 import { buildViewMessage, type ViewMessage } from "../render/message";
 import { fpsFromMarks, FrameClock, noteFpsMark } from "../frame";
@@ -6971,7 +6972,10 @@ class LarkApp {
         install.addEventListener("click", () => void this.installFromCatalog(item.id));
         const needs = larkVersionOk(item.minLark, APP_VERSION) ? "" : ` · Needs Lark ${item.minLark}`;
         const note = item.changelog ? ` · ${item.changelog}` : "";
-        results.append(this.late!.settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, install));
+        const row = this.late!.settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, install);
+        const swatches = storeSwatches(item.swatches);
+        if (swatches) row.querySelector(".setting-copy")?.append(swatches);
+        results.append(row);
       };
       if (browsed.plugins.length) results.append(el("h3", "", "Plugins"));
       for (const item of browsed.plugins) paintItem(item);
