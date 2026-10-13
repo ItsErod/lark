@@ -316,7 +316,7 @@ import { isHeldRequest } from "../message-requests";
 import { loadThreadsUi, threadsNow } from "./lazy-threads";
 import { writeClipboard } from "../clipboard";
 import { clipForHotkey, playableClipIds, playableGuildSounds, sanitizeGuildSounds, sanitizeSoundToggles, soundEnabled, soundHotkeyIsGlobal, type GuildSound } from "../soundboard";
-import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
+import { applyMoreAction, applyUserMix, applyVoiceState, browserMicConstraint, defaultCallView, hydrateMix, isDefaultAvatar, joinVoiceTarget, memberVoiceBody, micLevel, participantMenu, participantsIn, noiseQualityName, preferAvatar, readVoicePrefs, replaceGuildVoice, restingDesk, sanitizeInputProfiles, selectInputProfile, setSpeaking, toggleDeskDeafen, toggleDeskMute, VOICE_PREFS_KEY, voiceChannelLink, voiceChannelMenu, voiceDetailLine, voiceLinkDetails, writeVoicePrefs, type CallViewPrefs, type DeskAudio, type InputProfile, type ParticipantMenuAction, type VoiceParticipant, type VoiceRoster, type VoiceStateInput } from "../voice";
 import { voiceHudFrame, type VoiceHudView } from "../voice-hud";
 import { ACTIVITIES, activityById, isStageChannel, messagePreview, raiseHand, stageGroups, startStageBody, visibleCallTiles, watchEmbedUrl, watchVideoId, type StagePerson } from "../voice-stage";
 import { rowEstimate, sliceWindow, spanWindow, VIRTUAL_MIN, type SpanWindow } from "../virtual";
@@ -746,6 +746,7 @@ class LarkApp {
   private splitId: string | null = null;
   private voice: VoiceSession | null = null;
   private voiceRoster: VoiceRoster = {};
+  private voiceAvatarFetches = new Set<string>();
   private voiceEpoch = 0;
   private voiceJoinedAt = 0;
   private voiceConnectedAt = 0;
@@ -8184,6 +8185,7 @@ class LarkApp {
       this.directory[row.person.id] = row.person;
       this.userNames[row.person.id] = row.person.name;
     }
+    this.refreshVoicePortraits();
     this.memberPhase[guildId] = "done";
     if (this.guildId === guildId) this.paintMembers();
   }
@@ -8397,6 +8399,7 @@ class LarkApp {
       this.liveMembers = this.membersByGuild[guildId];
       this.paintMembers();
     }
+    this.refreshVoicePortraits();
     this.msgSig = "";
     if (this.view === "app" && this.channelId) this.paintMessages();
   }
@@ -8832,6 +8835,7 @@ class LarkApp {
     } else if (event.kind === "voiceStates" && event.guildId) {
       const states = ((event as { states?: VoiceStateInput[] }).states ?? []).map((state) => this.hydrateVoice(state, event.guildId ?? ""));
       replaceGuildVoice(this.voiceRoster, event.guildId, states);
+      this.refreshVoicePortraits();
       this.syncCallMembers();
       this.paintChannels();
       this.paintVoice();
@@ -8840,6 +8844,7 @@ class LarkApp {
       const state = this.hydrateVoice({ ...raw, guildId: String(raw.guildId ?? event.guildId ?? ""), userId: event.userId }, String(raw.guildId ?? ""));
       applyVoiceState(this.voiceRoster, state);
       if (state.name && state.name !== "Someone") this.userNames[state.userId] = state.name;
+      this.refreshVoicePortraits();
       this.syncCallMembers();
       this.paintChannels();
       this.paintVoice();
@@ -9773,7 +9778,7 @@ class LarkApp {
       channelId: state.channelId ?? "",
       userId: state.userId,
       name: state.name || known?.name || "",
-      avatarUrl: state.avatarUrl ?? known?.avatarUrl ?? null,
+      avatarUrl: preferAvatar(state.avatarUrl, known?.avatarUrl, state.userId),
       selfMute: Boolean(state.selfMute),
       selfDeaf: Boolean(state.selfDeaf),
       serverMute: Boolean(state.serverMute),
@@ -9797,8 +9802,54 @@ class LarkApp {
       const person = bucket.find((item) => item.id === id);
       if (person) return { name: person.name, avatarUrl: person.avatarUrl ?? null };
     }
+    const cached = this.directory[id];
+    if (cached?.name || cached?.avatarUrl) return { name: cached.name, avatarUrl: cached.avatarUrl ?? null };
     const name = this.userNames[id];
     return name ? { name, avatarUrl: null } : null;
+  }
+
+  /** Fill voice rows from the member cache, then fetch anyone still on a default picture. */
+  private refreshVoicePortraits() {
+    let changed = false;
+    for (const person of Object.values(this.voiceRoster)) {
+      if (!isDefaultAvatar(person.avatarUrl)) continue;
+      const known = this.knownPerson(person.userId);
+      const better = preferAvatar(known?.avatarUrl, null, person.userId);
+      if (!better || isDefaultAvatar(better) || better === person.avatarUrl) continue;
+      person.avatarUrl = better;
+      changed = true;
+    }
+    if (changed) {
+      this.syncCallMembers();
+      this.paintChannels();
+      this.paintVoice();
+    }
+    this.fetchMissingVoiceAvatars();
+  }
+
+  private fetchMissingVoiceAvatars() {
+    if (this.demo) return;
+    for (const person of Object.values(this.voiceRoster)) {
+      if (!isDefaultAvatar(person.avatarUrl) || this.voiceAvatarFetches.has(person.userId)) continue;
+      this.voiceAvatarFetches.add(person.userId);
+      const guildId = person.guildId || this.guildId || "";
+      void invoke<WireProfile>("fetch_profile", { userId: person.userId, guildId }).then((profile) => {
+        const avatar = preferAvatar(profile.avatarUrl, null, person.userId);
+        const current = Object.values(this.voiceRoster).find((item) => item.userId === person.userId);
+        if (!current || !avatar || isDefaultAvatar(avatar)) return;
+        current.avatarUrl = avatar;
+        const name = profile.nick || profile.name;
+        if (name && (current.name === "Someone" || !current.name)) current.name = name;
+        if (name) this.userNames[current.userId] = name;
+        const cached = this.directory[current.userId];
+        this.directory[current.userId] = { ...cached, id: current.userId, name: current.name, status: cached?.status ?? "offline", avatarUrl: avatar };
+        this.syncCallMembers();
+        this.paintChannels();
+        this.paintVoice();
+      }).catch(() => {
+        this.voiceAvatarFetches.delete(person.userId);
+      });
+    }
   }
 
   private async loadAudioDevices() {
