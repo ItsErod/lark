@@ -91,6 +91,30 @@ fn note(phase: &str, detail: &str) -> serde_json::Value {
     })
 }
 
+/// Open a profile URL that `public_profile` already built. The host is checked again.
+pub fn open_profile_https(url: &str) -> Result<(), String> {
+    if !profile_host_ok(url) {
+        return Err("That page is not a public profile.".into());
+    }
+    match system_browser(std::env::consts::OS) {
+        SystemBrowser::ShellExecute => shell_execute_https(url),
+        SystemBrowser::MacOpen => spawn_detached("open", url),
+        SystemBrowser::XdgOpen => spawn_detached("xdg-open", url),
+    }
+}
+
+fn profile_host_ok(url: &str) -> bool {
+    if url.chars().any(|ch| ch.is_control() || ch == '"' || ch == '\'' || ch == ' ') {
+        return false;
+    }
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let Some((host, path)) = rest.split_once('/') else { return false };
+    if host != "steamcommunity.com" && host != "overwatch.blizzard.com" {
+        return false;
+    }
+    !path.contains("..") && !path.contains('@') && !path.contains('\\')
+}
+
 /// Open the plugin store page and nothing else.
 pub fn open_exact_https(url: &str) -> Result<(), String> {
     if url != "https://itserod.github.io/lark/store/" {

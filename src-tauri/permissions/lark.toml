@@ -369,6 +369,16 @@ description = "Open the Lark store page in the system browser."
 commands.allow = ["open_store_page"]
 
 [[permission]]
+identifier = "allow-read-public-profile"
+description = "Read a public Steam community profile. No other host is requested."
+commands.allow = ["read_public_profile"]
+
+[[permission]]
+identifier = "allow-open-public-profile"
+description = "Open a public Steam or Overwatch career page in the system browser."
+commands.allow = ["open_public_profile"]
+
+[[permission]]
 identifier = "allow-interface-update"
 description = "Check, stage, reload, and roll back a signed interface bundle."
 commands.allow = [

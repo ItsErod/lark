@@ -5,6 +5,7 @@ mod keychain;
 mod login;
 mod overlay;
 mod paths;
+mod public_profile;
 mod refresh;
 mod store;
 mod ui_hot;
@@ -274,6 +275,8 @@ pub fn run() {
             uninstall_store_item,
             installed_store,
             open_store_page,
+            read_public_profile,
+            open_public_profile,
             join_voice,
             leave_voice,
             voice_diagnostics,
@@ -1114,6 +1117,20 @@ fn installed_store(state: State<'_, Shared>) -> Vec<store::InstalledRecord> {
 #[tauri::command]
 fn open_store_page() -> Result<(), String> {
     store::open_store_page()
+}
+
+#[tauri::command]
+async fn read_public_profile(kind: String, id: String) -> Result<String, String> {
+    if kind != "steam" {
+        return Err("That profile is opened in the browser. It is not downloaded.".into());
+    }
+    public_profile::read_steam_profile(&id).await
+}
+
+#[tauri::command]
+fn open_public_profile(kind: String, id: String) -> Result<(), String> {
+    let url = public_profile::public_page_url(&kind, &id)?;
+    browser_login::open_profile_https(&url)
 }
 
 #[derive(serde::Serialize)]

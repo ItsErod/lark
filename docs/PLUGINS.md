@@ -322,3 +322,16 @@ The plugin’s settings list the colour tokens already painted on the page.
 
 - **Copy** puts those names and values on the clipboard.
 - The theme file is not changed.
+
+## Game desks
+
+These stay in the store. They are off until you turn one on. The settings use the same Minimal Mono rows as the rest of Settings. None of them read a game or its memory. A card is inserted into the composer. It sends when you send it. **Desk** in the composer lists the same actions.
+
+## Session clock
+
+Start a timer for a game you name.
+
+- **Show on my status** writes a custom status like `Hades · 12m`, about once a minute.
+- **Replace a custom status** is off until you turn it on. A status you wrote stays.
+- Stopping the session clears that line only if it is still the one Lark wrote.
+- A session older than 12 hours is dropped.

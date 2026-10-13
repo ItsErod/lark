@@ -722,6 +722,22 @@
       "download": "downloads/send-later.zip"
     },
     {
+      "id": "session-clock",
+      "name": "Session clock",
+      "description": "Start a session timer and, if you ask, show it on your status. Nothing reads the game.",
+      "author": "Lark",
+      "version": "1.0.0",
+      "category": "games",
+      "minLark": "3.0.2",
+      "entry": "plugin.js",
+      "icon": "clock",
+      "changelog": "A clock you start yourself. The status line is optional and updates about once a minute.",
+      "sha256": "03bacfd44e87d860260aa9a248f5ae60191e204dc8d21ce4b3d36b0c05441cd3",
+      "bytes": 300,
+      "file": "plugins/session-clock/plugin.js",
+      "download": "downloads/session-clock.zip"
+    },
+    {
       "id": "show-connections",
       "name": "Show connections",
       "description": "Show linked accounts from one profile you open. Nothing is scanned.",
