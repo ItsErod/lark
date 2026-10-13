@@ -69,6 +69,19 @@ impl ClipBuffer {
         }
     }
 
+    pub fn set_window(&mut self, window_ms: u64) {
+        self.window_ms = window_ms.max(1_000);
+        if let Some(last) = self.frames.back().map(|frame| frame.at_ms) {
+            while self
+                .frames
+                .front()
+                .is_some_and(|front| front.at_ms + self.window_ms < last)
+            {
+                self.frames.pop_front();
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.frames.clear();
     }
@@ -355,8 +368,44 @@ fn accelerator_key(key: &str) -> String {
 }
 
 pub fn clip_file_name(unix_secs: u64) -> String {
+    clip_file_name_for(unix_secs, None)
+}
+
+/// `lark-clip-{game}-{stamp}.mp4` when a game is in front. The slug stays inside the clip name rules.
+pub fn clip_file_name_for(unix_secs: u64, game: Option<&str>) -> String {
     let (year, month, day, hour, minute, second) = civil_utc(unix_secs);
-    format!("lark-clip-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}Z.mp4")
+    let stamp = format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}Z");
+    match game.and_then(clip_slug) {
+        Some(slug) => format!("lark-clip-{slug}-{stamp}.mp4"),
+        None => format!("lark-clip-{stamp}.mp4"),
+    }
+}
+
+/// Canonical clip title for a foreground process. Overwatch is saved as Overwatch 2.
+pub fn clip_game_label(name: &str) -> Option<String> {
+    let detected = crate::hardware::pick_game(Some(name), &[name.to_string()])?;
+    Some(match detected.as_str() {
+        "Overwatch" => "Overwatch 2".to_string(),
+        other => other.to_string(),
+    })
+}
+
+fn clip_slug(label: &str) -> Option<String> {
+    let mut slug = String::new();
+    let mut dash = false;
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            dash = false;
+        } else if !dash && !slug.is_empty() {
+            slug.push('-');
+            dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() { None } else { Some(slug) }
 }
 
 /// New clips are `.mp4`. Older `.avi` names still attach.
@@ -842,6 +891,16 @@ mod tests {
     #[test]
     fn clip_names_are_utc_and_cannot_escape_the_folder() {
         assert_eq!(clip_file_name(0), "lark-clip-19700101-000000Z.mp4");
+        assert_eq!(
+            clip_file_name_for(0, Some("Overwatch 2")),
+            "lark-clip-overwatch-2-19700101-000000Z.mp4"
+        );
+        assert!(is_clip_name(&clip_file_name_for(0, Some("Grand Theft Auto V"))));
+        assert_eq!(clip_game_label("Overwatch.exe").as_deref(), Some("Overwatch 2"));
+        assert_eq!(clip_game_label("deadlock.exe").as_deref(), Some("Deadlock"));
+        assert_eq!(clip_game_label("cod.exe").as_deref(), Some("Call of Duty"));
+        assert_eq!(clip_game_label("GTA5.exe").as_deref(), Some("Grand Theft Auto V"));
+        assert_eq!(clip_game_label("Lark"), None);
         assert_eq!(
             clip_file_name(1_700_000_000),
             "lark-clip-20231114-221320Z.mp4"

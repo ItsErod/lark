@@ -172,6 +172,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "privacy.auto", section: "privacy", label: "Turn on while sharing or recording", description: "Follows screen share and the clip buffer. It does not look for other apps.", keywords: "auto capture" },
   { id: "clips.resolution", section: "clips", label: "Resolution", description: "720p, 1080p, 1440p, or 2160p. The default is 1440p.", keywords: "720 1080 1440 2160 quality" },
   { id: "clips.fps", section: "clips", label: "Frame rate", description: "60, 120, or 240 fps. Lark caps the rate when the display or encoder cannot hold it.", keywords: "fps 60 120 240" },
+  { id: "clips.buffer", section: "clips", label: "Replay length", description: "How far back the hotkey saves: 15 seconds, 30 seconds, 1 minute, 90 seconds, or 2 minutes.", keywords: "buffer 15 30 60 90 120 replay shadowplay" },
   { id: "clips.capture", section: "clips", label: "Game Mode capture", description: "Keep a buffer of the main display without sharing your screen.", keywords: "record hotkey" },
   { id: "clips.folder", section: "clips", label: "Clips folder", description: "Saved clips stay on this computer until you attach one.", keywords: "directory path" },
   { id: "clips.compress", section: "clips", label: "When a clip is over the upload limit", description: "Always compress, ask first, or keep the original. The original stays in the clips folder.", keywords: "h264 aac nitro encode" },

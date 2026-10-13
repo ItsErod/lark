@@ -175,7 +175,7 @@ import {
   stepHardware,
   type HardwareState,
 } from "../hardware";
-import { bytesFromBase64, clipBehaviorNote, CLIP_FPS_OPTIONS, CLIP_RESOLUTION_OPTIONS, sanitizeClipFps, sanitizeClipResolution } from "../clip";
+import { bytesFromBase64, clipBehaviorNote, CLIP_BUFFER_OPTIONS, CLIP_FPS_OPTIONS, CLIP_RESOLUTION_OPTIONS, sanitizeClipBuffer, sanitizeClipFps, sanitizeClipResolution } from "../clip";
 import {
   CLIP_DRAG,
   clipMime,
@@ -6461,6 +6461,19 @@ class LarkApp {
       `${sanitizeClipFps(this.config.clips.fps)} fps`,
       (value) => {
         this.config.clips.fps = sanitizeClipFps(Number.parseInt(value, 10));
+        return this.persist().then(() => this.pullClipStatus());
+      },
+    ));
+    const bufferLabels: Record<string, string> = { "15": "15s", "30": "30s", "60": "1m", "90": "90s", "120": "2m" };
+    card.append(this.segmentRow(
+      "clips.buffer",
+      "Replay length",
+      "How far back the hotkey saves. A longer buffer keeps the same memory budget by lowering the bitrate.",
+      CLIP_BUFFER_OPTIONS.map((value) => String(value)),
+      bufferLabels,
+      String(sanitizeClipBuffer(this.config.clips.buffer_sec)),
+      (value) => {
+        this.config.clips.buffer_sec = sanitizeClipBuffer(Number.parseInt(value, 10));
         return this.persist().then(() => this.pullClipStatus());
       },
     ));

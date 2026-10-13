@@ -2,7 +2,7 @@ import { parseCompressMode } from "./clips";
 import { readDisplayFlags } from "./display-flags";
 import { clampFontSize, defaultKeybinds, defaultPreferences, sanitizeKeybinds, sanitizePreferences, sanitizeSessions } from "./user-settings";
 import { sanitizeGames } from "./game";
-import { sanitizeClipFps, sanitizeClipResolution } from "./clip";
+import { sanitizeClipBuffer, sanitizeClipFps, sanitizeClipResolution } from "./clip";
 import { snapShareFps, snapShareHeight } from "./share";
 import { sanitizeClips } from "./soundboard";
 import type { AppConfig, ChannelList, Density, FontFamily, NotifyLevel, UserMix } from "./types";
@@ -76,7 +76,7 @@ export function defaultConfig(): AppConfig {
       detect_games: true,
       game_mode: false,
     },
-    clips: { game_capture: false, compress: "ask", fps: 60, resolution: 1440 },
+    clips: { game_capture: false, compress: "ask", fps: 60, resolution: 1440, buffer_sec: 30 },
     games: {},
     privacy: { streamer: false, streamer_auto: false },
     accents: {},
@@ -167,6 +167,7 @@ export function sanitizeConfig(input: unknown): AppConfig {
   base.clips.compress = parseCompressMode(raw.clips?.compress);
   if (raw.clips && "fps" in raw.clips) base.clips.fps = sanitizeClipFps(raw.clips.fps);
   if (raw.clips && "resolution" in raw.clips) base.clips.resolution = sanitizeClipResolution(raw.clips.resolution);
+  if (raw.clips && "buffer_sec" in raw.clips) base.clips.buffer_sec = sanitizeClipBuffer(raw.clips.buffer_sec);
   if (typeof raw.privacy?.streamer === "boolean") base.privacy.streamer = raw.privacy.streamer;
   if (typeof raw.privacy?.streamer_auto === "boolean") base.privacy.streamer_auto = raw.privacy.streamer_auto;
   base.display = readDisplayFlags(raw);

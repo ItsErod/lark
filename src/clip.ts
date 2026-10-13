@@ -8,6 +8,8 @@ export const CLIP_FPS_OPTIONS = [60, 120, 240] as const;
 export const CLIP_RESOLUTION_OPTIONS = [720, 1080, 1440, 2160] as const;
 export const DEFAULT_CLIP_FPS = 60;
 export const DEFAULT_CLIP_RESOLUTION = 1440;
+export const CLIP_BUFFER_OPTIONS = [15, 30, 60, 90, 120] as const;
+export const DEFAULT_CLIP_BUFFER = 30;
 
 export function sanitizeClipFps(value: unknown): number {
   return value === 120 || value === 240 ? value : DEFAULT_CLIP_FPS;
@@ -15,6 +17,10 @@ export function sanitizeClipFps(value: unknown): number {
 
 export function sanitizeClipResolution(value: unknown): number {
   return value === 720 || value === 1080 || value === 2160 ? value : DEFAULT_CLIP_RESOLUTION;
+}
+
+export function sanitizeClipBuffer(value: unknown): number {
+  return value === 15 || value === 60 || value === 90 || value === 120 ? value : DEFAULT_CLIP_BUFFER;
 }
 
 export function clipsDirHint(os: OsName): string {
@@ -34,7 +40,7 @@ export function clipBehaviorNote(os: OsName): string {
     : os === "windows"
       ? "Windows captures with DXGI Desktop Duplication, or Windows Graphics Capture when duplication is unavailable, and encodes with a hardware Media Foundation encoder (NVENC, AMF, or Quick Sync)."
       : "The macOS and Windows apps capture the display on the GPU. This system does not.";
-  return `Lark keeps about 30 seconds of the main display, and only while screen share or Game Mode capture is on. Turning both off discards the buffer. The default is 1440p at 60 fps. Settings can pick 720p, 1080p, 1440p, or 2160p, each with 60, 120, or 240 fps. A hardware encoder keeps an encoded H.264 packet ring, and the clip hotkey remuxes that ring into an MP4 (H.264 video and AAC audio, with the moov atom at the front) so WebView2 can play it. HEVC is not saved. If the display or encoder cannot hold the combination, Lark caps it and says so here. If hardware capture isn't available, Lark falls back to about 5 frames per second, scaled to fit a 960 pixel edge. Game Mode drops frames instead of queuing them and keeps the capture thread below the game. The saved file is the full recording in the clips folder. If it is over this account's upload limit, Lark follows the compress setting (always, ask, or never) and the detected tier: 10 MB, 50 MB, or 500 MB. Nothing is uploaded until you attach the file and send the message. ${platform} There is no system replay API for the previous 30 seconds, so the buffer has to be running before you press the hotkey.`;
+  return `Lark keeps a rolling replay of the main display for 15 seconds up to 2 minutes, and only while screen share or Game Mode capture is on. Turning both off discards the buffer. The default buffer is 30 seconds at 1440p and 60 fps. Settings can pick 720p, 1080p, 1440p, or 2160p, each with 60, 120, or 240 fps. A hardware encoder keeps an encoded H.264 packet ring inside a fixed memory budget, and the clip hotkey remuxes that ring into an MP4 (H.264 video and AAC system and microphone tracks, with the moov atom at the front) so WebView2 can play it. HEVC is not saved. If the display or encoder cannot hold the combination, Lark caps it and says so here. If hardware capture isn't available, Lark falls back to about 5 frames per second, scaled to fit a 960 pixel edge. Game Mode drops frames instead of queuing them and keeps the capture thread below the game. Capture uses the display, and it does not hook the game. The saved file is named for the game in front when one is detected, including Overwatch 2, Deadlock, Call of Duty, and Grand Theft Auto V. The saved file is the full recording in the clips folder. If it is over this account's upload limit, Lark follows the compress setting (always, ask, or never) and the detected tier: 10 MB, 50 MB, or 500 MB. Nothing is uploaded until you attach the file and send the message. ${platform} There is no system replay API for the previous window, so the buffer has to be running before you press the hotkey.`;
 }
 
 export function bytesFromBase64(data: string): Uint8Array {

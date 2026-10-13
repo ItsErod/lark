@@ -831,12 +831,16 @@ const GAMES: &[Game] = &[
         needles: &["overwatch"],
     },
     Game {
+        name: "Deadlock",
+        needles: &["deadlock"],
+    },
+    Game {
         name: "Rocket League",
         needles: &["rocket league", "rocketleague"],
     },
     Game {
         name: "Grand Theft Auto V",
-        needles: &["grand theft auto v", "gta5", "playgtav"],
+        needles: &["grand theft auto v", "gta5", "gtav", "playgtav"],
     },
     Game {
         name: "Red Dead Redemption 2",

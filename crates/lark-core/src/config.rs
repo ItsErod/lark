@@ -105,6 +105,7 @@ impl Config {
         self.soundboard.clips = normalize_clips(self.soundboard.clips);
         self.clips.fps = crate::clip_rate::snap_fps(self.clips.fps);
         self.clips.resolution = crate::clip_rate::snap_resolution(self.clips.resolution);
+        self.clips.buffer_sec = crate::clip_rate::snap_buffer_sec(self.clips.buffer_sec);
         self.notifications.keywords = self
             .notifications
             .keywords
@@ -493,6 +494,13 @@ pub struct Clips {
     /// 720, 1080, 1440, or 2160. Anything else becomes 1440.
     #[serde(default = "default_clip_resolution")]
     pub resolution: u32,
+    /// 15, 30, 60, 90, or 120 seconds. Anything else becomes 30.
+    #[serde(default = "default_clip_buffer")]
+    pub buffer_sec: u32,
+}
+
+fn default_clip_buffer() -> u32 {
+    30
 }
 
 fn default_clip_fps() -> u32 {
@@ -510,6 +518,7 @@ impl Default for Clips {
             compress: CompressMode::Ask,
             fps: default_clip_fps(),
             resolution: default_clip_resolution(),
+            buffer_sec: default_clip_buffer(),
         }
     }
 }
@@ -1578,6 +1587,7 @@ mod tests {
         assert_eq!(cfg.clips.compress, CompressMode::Ask);
         assert_eq!(cfg.clips.fps, 60);
         assert_eq!(cfg.clips.resolution, 1440);
+        assert_eq!(cfg.clips.buffer_sec, 30);
         assert!(!cfg.privacy.streamer);
         assert!(!cfg.privacy.streamer_auto);
     }
@@ -1599,9 +1609,12 @@ mod tests {
         let picked = parse_config("[clips]\nfps = 120\nresolution = 2160\n").unwrap();
         assert_eq!(picked.clips.fps, 120);
         assert_eq!(picked.clips.resolution, 2160);
-        let snapped = parse_config("[clips]\nfps = 90\nresolution = 480\n").unwrap();
+        let snapped = parse_config("[clips]\nfps = 90\nresolution = 480\nbuffer_sec = 45\n").unwrap();
         assert_eq!(snapped.clips.fps, 60);
         assert_eq!(snapped.clips.resolution, 1440);
+        assert_eq!(snapped.clips.buffer_sec, 30);
+        let long = parse_config("[clips]\nbuffer_sec = 120\n").unwrap();
+        assert_eq!(long.clips.buffer_sec, 120);
     }
 
     #[test]

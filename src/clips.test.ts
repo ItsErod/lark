@@ -119,6 +119,7 @@ describe("clip library", () => {
       compress: "always",
       fps: 60,
       resolution: 1440,
+      buffer_sec: 30,
     });
     expect(sanitizeConfig({ clips: { compress: "nope" } }).clips.compress).toBe("ask");
   });

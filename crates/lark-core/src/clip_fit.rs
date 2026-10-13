@@ -155,6 +155,104 @@ pub fn renamed_clip_name(current: &str, label: &str) -> Result<String, String> {
 }
 
 /// ffmpeg arguments for one H.264/AAC MP4. Audio is optional so a silent AVI still encodes.
+/// Copy the video and replace the audio with system and microphone AAC tracks.
+pub fn mix_audio_args(video: &str, system_wav: &str, mic_wav: &str, output: &str) -> Vec<String> {
+    [
+        "-y",
+        "-i",
+        video,
+        "-i",
+        system_wav,
+        "-i",
+        mic_wav,
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-map",
+        "2:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-metadata:s:a:0",
+        "title=System",
+        "-metadata:s:a:1",
+        "title=Microphone",
+        "-movflags",
+        "+faststart",
+        "-progress",
+        "pipe:1",
+        "-nostats",
+        output,
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+pub fn mix_captured_audio(
+    ffmpeg: &Path,
+    video: &Path,
+    system: &[i16],
+    mic: &[i16],
+    duration_ms: u64,
+) -> Result<u64, String> {
+    let dir = video.parent().unwrap_or_else(|| Path::new("."));
+    let system_wav = dir.join(".lark-system.wav");
+    let mic_wav = dir.join(".lark-mic.wav");
+    let mixed = dir.join(".lark-mix.mp4");
+    let cleanup = || {
+        let _ = std::fs::remove_file(&system_wav);
+        let _ = std::fs::remove_file(&mic_wav);
+        let _ = std::fs::remove_file(&mixed);
+    };
+    let system = crate::clip_audio::fit_pcm(system, duration_ms);
+    let mic = crate::clip_audio::fit_pcm(mic, duration_ms);
+    if std::fs::write(&system_wav, crate::clip_audio::wav_mono_i16(&system, crate::clip_audio::PCM_RATE)).is_err()
+        || std::fs::write(&mic_wav, crate::clip_audio::wav_mono_i16(&mic, crate::clip_audio::PCM_RATE)).is_err()
+    {
+        cleanup();
+        return Err("Couldn't write the clip audio.".into());
+    }
+    let args = mix_audio_args(
+        &video.display().to_string(),
+        &system_wav.display().to_string(),
+        &mic_wav.display().to_string(),
+        &mixed.display().to_string(),
+    );
+    if let Err(err) = run_ffmpeg(ffmpeg, &args, duration_ms, &mut |_| {}) {
+        cleanup();
+        return Err(err);
+    }
+    let bytes = match std::fs::read(&mixed) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            cleanup();
+            return Err(format!("Couldn't read the mixed clip: {err}"));
+        }
+    };
+    let fast = match crate::mp4mux::ensure_faststart(&bytes) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            cleanup();
+            return Err(err);
+        }
+    };
+    if let Err(err) = crate::mp4mux::require_discord_mp4(&fast) {
+        cleanup();
+        return Err(err);
+    }
+    if let Err(err) = std::fs::write(video, &fast) {
+        cleanup();
+        return Err(format!("Couldn't replace the clip: {err}"));
+    }
+    cleanup();
+    Ok(fast.len() as u64)
+}
+
 pub fn encode_args(
     encoder: &str,
     input: &str,
@@ -428,6 +526,13 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["-c:v", "h264_videotoolbox"]));
         assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
         assert!(args.iter().any(|arg| arg == "0:a:0?"));
+        let mix = mix_audio_args("clip.mp4", "system.wav", "mic.wav", "out.mp4");
+        assert!(mix.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+        assert!(mix.windows(2).any(|pair| pair == ["-c:a", "aac"]));
+        assert!(mix.iter().any(|arg| arg == "title=System"));
+        assert!(mix.iter().any(|arg| arg == "title=Microphone"));
+        assert!(mix.iter().any(|arg| arg == "+faststart"));
+        assert_eq!(mix.last().map(String::as_str), Some("out.mp4"));
         assert!(args.contains(&"-allow_sw".into()));
         assert_eq!(args.last().map(String::as_str), Some("out.mp4"));
         assert_ne!(fitted_clip_name("lark-clip-demo.avi"), "lark-clip-demo.avi");
