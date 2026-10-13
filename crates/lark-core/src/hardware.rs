@@ -10,6 +10,8 @@
 //! from Discord. CPU temperature on Windows is omitted because
 //! the only user-mode source was WMI. A missing reading is left out. Other
 //! systems return an empty reading and do not spawn anything.
+//! A local dashboard read on Linux uses `/proc` and does not spawn anything.
+//! That read is not published as a Discord status.
 //!
 //! Callers should publish the status line at [`HARDWARE_STATUS_INTERVAL_MS`],
 //! not on a frame tick. The overlay reuses this reading instead of a second probe.
@@ -151,6 +153,151 @@ pub fn sample_hardware(os: &str) -> HardwareReading {
 /// CPU, RAM, and the current game. Skips the GPU name and temperature probes.
 pub fn sample_load(os: &str) -> HardwareReading {
     sample_machine(os, false)
+}
+
+/// CPU, RAM, and a network byte counter for the on-device dashboard.
+/// Linux reads `/proc`. macOS and Windows reuse the load sample. Nothing
+/// here is sent to Discord.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DashboardMeters {
+    pub reading: HardwareReading,
+    pub net_rx_bytes: Option<u64>,
+    pub net_tx_bytes: Option<u64>,
+}
+
+pub fn sample_dashboard(os: &str, full: bool) -> DashboardMeters {
+    if os == "linux" {
+        return linux_dashboard();
+    }
+    DashboardMeters {
+        reading: sample_machine(os, full),
+        ..DashboardMeters::default()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CpuJiffies {
+    total: u64,
+    idle: u64,
+}
+
+static LINUX_CPU: Mutex<Option<CpuJiffies>> = Mutex::new(None);
+
+fn linux_dashboard() -> DashboardMeters {
+    let memory = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .as_deref()
+        .and_then(parse_meminfo);
+    let (net_rx_bytes, net_tx_bytes) = std::fs::read_to_string("/proc/net/dev")
+        .ok()
+        .as_deref()
+        .and_then(parse_proc_net)
+        .map(|(rx, tx)| (Some(rx), Some(tx)))
+        .unwrap_or((None, None));
+    DashboardMeters {
+        reading: HardwareReading {
+            cpu_percent: linux_cpu_percent(),
+            ram_used_mb: memory.map(|item| item.used_mb),
+            ram_total_mb: memory.map(|item| item.total_mb),
+            ..HardwareReading::default()
+        },
+        net_rx_bytes,
+        net_tx_bytes,
+    }
+}
+
+fn linux_cpu_percent() -> Option<u8> {
+    let text = std::fs::read_to_string("/proc/stat").ok()?;
+    let now = parse_proc_stat(&text)?;
+    let mut slot = LINUX_CPU.lock().unwrap_or_else(|err| err.into_inner());
+    let prev = slot.replace(now);
+    prev.and_then(|prev| cpu_delta(prev, now))
+}
+
+fn parse_proc_stat(text: &str) -> Option<CpuJiffies> {
+    let line = text.lines().find(|line| line.starts_with("cpu "))?;
+    let mut nums = Vec::new();
+    for part in line.split_whitespace().skip(1) {
+        nums.push(part.parse::<u64>().ok()?);
+    }
+    if nums.len() < 4 {
+        return None;
+    }
+    let idle = nums[3].saturating_add(*nums.get(4).unwrap_or(&0));
+    let total = nums
+        .iter()
+        .fold(0u64, |sum, value| sum.saturating_add(*value));
+    Some(CpuJiffies { total, idle })
+}
+
+fn cpu_delta(prev: CpuJiffies, next: CpuJiffies) -> Option<u8> {
+    if next.total <= prev.total {
+        return None;
+    }
+    let total = next.total - prev.total;
+    let idle = next.idle.saturating_sub(prev.idle);
+    if idle > total || total == 0 {
+        return None;
+    }
+    Some(((total - idle) * 100 / total) as u8)
+}
+
+fn parse_meminfo(text: &str) -> Option<MemorySample> {
+    let mut total_kb = None;
+    let mut available_kb = None;
+    for line in text.lines() {
+        if let Some(value) = kb_field(line, "MemTotal:") {
+            total_kb = Some(value);
+        } else if let Some(value) = kb_field(line, "MemAvailable:") {
+            available_kb = Some(value);
+        }
+    }
+    let total_kb = total_kb?;
+    let available_kb = available_kb?;
+    if total_kb == 0 || available_kb > total_kb {
+        return None;
+    }
+    Some(MemorySample {
+        used_mb: ((total_kb - available_kb) / 1024) as u32,
+        total_mb: (total_kb / 1024) as u32,
+    })
+}
+
+fn kb_field(line: &str, key: &str) -> Option<u64> {
+    let rest = line.strip_prefix(key)?.trim();
+    rest.split_whitespace().next()?.parse().ok()
+}
+
+fn parse_proc_net(text: &str) -> Option<(u64, u64)> {
+    let mut rx = 0u64;
+    let mut tx = 0u64;
+    let mut any = false;
+    for line in text.lines().skip(2) {
+        let Some((name, rest)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim() == "lo" {
+            continue;
+        }
+        let cols: Vec<&str> = rest.split_whitespace().collect();
+        if cols.len() < 9 {
+            continue;
+        }
+        let Ok(rx_b) = cols[0].parse::<u64>() else {
+            continue;
+        };
+        let Ok(tx_b) = cols[8].parse::<u64>() else {
+            continue;
+        };
+        rx = rx.saturating_add(rx_b);
+        tx = tx.saturating_add(tx_b);
+        any = true;
+    }
+    if any {
+        Some((rx, tx))
+    } else {
+        None
+    }
 }
 
 /// Foreground game only. Skips CPU, RAM, and GPU so a clip name check stays off the hotkey.
@@ -1380,5 +1527,37 @@ mod tests {
             ..HardwareReading::default()
         };
         assert_eq!(status_line(&with_load).as_deref(), Some("Apple M2"));
+    }
+
+    #[test]
+    fn linux_proc_reads_stay_local() {
+        let prev = parse_proc_stat("cpu  100 0 0 800 0 0 0 0\n").unwrap();
+        let next = parse_proc_stat("cpu  180 0 20 800 0 0 0 0\n").unwrap();
+        assert_eq!(cpu_delta(prev, next), Some(100));
+        assert_eq!(
+            parse_meminfo(
+                "MemTotal:       16384000 kB\nMemFree: 100 kB\nMemAvailable:    8192000 kB\n"
+            ),
+            Some(MemorySample {
+                used_mb: 8000,
+                total_mb: 16000
+            })
+        );
+        assert_eq!(
+            parse_proc_net(
+                "Inter-|   Receive                                                |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n    lo: 10 0 0 0 0 0 0 0 10 0 0 0 0 0 0 0\n  eth0: 1000 0 0 0 0 0 0 0 2000 0 0 0 0 0 0 0\n"
+            ),
+            Some((1000, 2000))
+        );
+        let meters = sample_dashboard("linux", false);
+        if std::path::Path::new("/proc/meminfo").is_file() {
+            assert!(meters.reading.ram_total_mb.unwrap_or(0) > 0);
+        } else {
+            assert_eq!(meters.reading, HardwareReading::default());
+        }
+        assert_eq!(
+            sample_dashboard("freebsd", false).reading,
+            HardwareReading::default()
+        );
     }
 }

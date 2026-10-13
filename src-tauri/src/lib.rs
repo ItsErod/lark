@@ -2039,6 +2039,8 @@ struct HardwareSnapshot {
     cpu_percent: Option<u8>,
     ram_used_mb: Option<u32>,
     ram_total_mb: Option<u32>,
+    net_rx_bytes: Option<u64>,
+    net_tx_bytes: Option<u64>,
 }
 
 fn sync_overlay_hotkeys(app: &AppHandle, config: &Config) {
@@ -2053,43 +2055,57 @@ fn sync_overlay_hotkeys(app: &AppHandle, config: &Config) {
 }
 
 /// Full reads stay behind Hardware in status. A load read (CPU, RAM, game) also
-/// runs for the performance overlay and game detection.
+/// runs for the performance overlay and game detection. `local` is the
+/// dashboard tile: the sample stays in the window and is not published.
 #[tauri::command]
 async fn hardware_snapshot(
     state: State<'_, Shared>,
     full: Option<bool>,
     game: Option<bool>,
+    local: Option<bool>,
 ) -> Result<HardwareSnapshot, String> {
     let full = full.unwrap_or(true);
     let game = game.unwrap_or(false);
-    let allowed = {
-        let config = state.config.lock().await;
-        if full {
-            config.desktop.hardware_status
-        } else {
-            config.desktop.hardware_status
-                || config.desktop.perf_overlay
-                || config.desktop.detect_games
-                || game
+    let local = local.unwrap_or(false);
+    if !local {
+        let allowed = {
+            let config = state.config.lock().await;
+            if full {
+                config.desktop.hardware_status
+            } else {
+                config.desktop.hardware_status
+                    || config.desktop.perf_overlay
+                    || config.desktop.detect_games
+                    || game
+            }
+        };
+        if !allowed {
+            return Err(if full {
+                "Hardware status is off.".into()
+            } else {
+                "Hardware reads are off.".into()
+            });
         }
-    };
-    if !allowed {
-        return Err(if full {
-            "Hardware status is off.".into()
-        } else {
-            "Hardware reads are off.".into()
-        });
     }
     let os = std::env::consts::OS.to_string();
-    let reading = tauri::async_runtime::spawn_blocking(move || {
-        if full {
-            lark_core::hardware::sample_hardware(&os)
+    let meters = tauri::async_runtime::spawn_blocking(move || {
+        if local {
+            lark_core::hardware::sample_dashboard(&os, full)
+        } else if full {
+            lark_core::hardware::DashboardMeters {
+                reading: lark_core::hardware::sample_hardware(&os),
+                ..lark_core::hardware::DashboardMeters::default()
+            }
         } else {
-            lark_core::hardware::sample_load(&os)
+            lark_core::hardware::DashboardMeters {
+                reading: lark_core::hardware::sample_load(&os),
+                ..lark_core::hardware::DashboardMeters::default()
+            }
         }
     })
     .await
     .map_err(|_| "Hardware sample failed.".to_string())?;
+    let reading = meters.reading;
     Ok(HardwareSnapshot {
         line: reading.line(),
         gpu: reading.gpu,
@@ -2098,6 +2114,8 @@ async fn hardware_snapshot(
         cpu_percent: reading.cpu_percent,
         ram_used_mb: reading.ram_used_mb,
         ram_total_mb: reading.ram_total_mb,
+        net_rx_bytes: meters.net_rx_bytes,
+        net_tx_bytes: meters.net_tx_bytes,
     })
 }
 

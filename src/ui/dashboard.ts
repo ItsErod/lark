@@ -86,6 +86,36 @@ export function activityAgo(startedAt: number | null | undefined, now: number): 
   return `${Math.floor(hours / 24)}d`;
 }
 
+export interface PlayingFriend {
+  id: string;
+  name: string;
+  game: string;
+  clock: string;
+  avatarUrl: string | null;
+}
+
+/** Friends in a game. Streams, music, and requests stay on the activity feed. */
+export function friendGames(people: Person[], meId: string, now: number): PlayingFriend[] {
+  const rows: PlayingFriend[] = [];
+  const seen = new Set<string>();
+  for (const person of people) {
+    if (!person.id || person.id === meId || seen.has(person.id)) continue;
+    if (activityKind(person) !== "game") continue;
+    const game = subject(person);
+    if (!game) continue;
+    seen.add(person.id);
+    rows.push({
+      id: person.id,
+      name: personName(person),
+      game,
+      clock: activityClock(person.rich?.startedAt, now),
+      avatarUrl: person.avatarUrl ?? null,
+    });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  return rows;
+}
+
 export function dashboardSig(model: DashboardModel): string {
   return model.rows.map((row) => [
     row.key,
