@@ -106,23 +106,56 @@
     <h1>Lark</h1>
     <p class="lede">An unofficial desktop client for one Discord account. Plugins and themes stay in the store, out of the download.</p>
     <div class="downloads" id="downloads">
-      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_x64-setup.exe">
+      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.4/Lark_3.0.4_x64-setup.exe">
         <span>Windows</span>
         <strong>Download EXE</strong>
-        <code>Lark_3.0.3_x64-setup.exe</code>
+        <code>Lark_3.0.4_x64-setup.exe</code>
       </a>
-      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_universal.dmg">
+      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.4/Lark_3.0.4_universal.dmg">
         <span>macOS</span>
         <strong>Download DMG</strong>
-        <code>Lark_3.0.3_universal.dmg</code>
+        <code>Lark_3.0.4_universal.dmg</code>
       </a>
     </div>
-    <p class="note" id="release-note">Current release v3.0.3</p>
+    <p class="note" id="release-note">Current release v3.0.4</p>
 
     <h2>Version history</h2>
     <p class="history-lead">Notes below are the published GitHub release text. Earlier releases are on the <a href="progress/#history">progress page</a>.</p>
     <div class="history" id="history">
-      <details open data-tag="v3.0.3">
+      <details open data-tag="v3.0.4">
+        <summary>v3.0.4 <span>Oct 13, 2026</span></summary>
+        <p>Notifications can wait until quiet hours end, clips can be shared and trimmed, and search works on messages already on this device. Incoming calls ring, the first channel paints sooner, and a local stats page stays on this computer.</p>
+        <h3>Added</h3>
+        <ul>
+          <li>Quiet hours, keyword and person alerts, and a missed-message digest. They stay on this device. Mentions, direct messages, and keyword alerts still come through during quiet hours. (<a href="https://github.com/ItsErod/lark/pull/184">#184</a>)</li>
+          <li>Share and trim clips from the gallery. Share sends the clip to the open channel. Trim keeps the original file. (<a href="https://github.com/ItsErod/lark/pull/185">#185</a>)</li>
+          <li>Offline search across messages already loaded on this device, from the command palette, with server, channel, and from filters. (<a href="https://github.com/ItsErod/lark/pull/186">#186</a>)</li>
+          <li>Streamer mode hides Discord invite links. (<a href="https://github.com/ItsErod/lark/pull/182">#182</a>)</li>
+          <li>Incoming DM and group calls ring, with Answer and Decline on the card and in a notification. (<a href="https://github.com/ItsErod/lark/pull/188">#188</a>)</li>
+          <li>A banner when you talk while muted or deafened. The microphone does not transmit. (<a href="https://github.com/ItsErod/lark/pull/191">#191</a>)</li>
+          <li>Mute and deafen from the voice HUD hotkeys, including while a game is in front. (<a href="https://github.com/ItsErod/lark/pull/194">#194</a>)</li>
+          <li>Optional Minimal Mono dashboard for a server or a call, with chat, voice, screen share, the activity feed, and local PC meters. (<a href="https://github.com/ItsErod/lark/pull/201">#201</a>)</li>
+          <li>Pause GIF and sticker autoplay in Appearance. A click plays that image. (<a href="https://github.com/ItsErod/lark/pull/204">#204</a>)</li>
+          <li>An in-app reduced-motion control: System, Reduce, or Allow. (<a href="https://github.com/ItsErod/lark/pull/205">#205</a>)</li>
+          <li>A local stats page for play time, voice, messages, clips, and the last 14 days. Nothing is uploaded. (<a href="https://github.com/ItsErod/lark/pull/206">#206</a>)</li>
+          <li>Minimal Mono store themes: OLED, graphite, light, contrast, blue, sage, arena, and signal. They install from the store and are not in the app download. (<a href="https://github.com/ItsErod/lark/pull/190">#190</a>, <a href="https://github.com/ItsErod/lark/pull/192">#192</a>, <a href="https://github.com/ItsErod/lark/pull/197">#197</a>)</li>
+        </ul>
+        <h3>Changed</h3>
+        <ul>
+          <li>Voice quality names the connection (Excellent, Good, Fair, Poor) on the panel and the HUD, and a connected call shows packet loss and jitter. (<a href="https://github.com/ItsErod/lark/pull/180">#180</a>, <a href="https://github.com/ItsErod/lark/pull/198">#198</a>)</li>
+          <li>The in-app store can be searched and filtered, and theme rows show colour swatches. (<a href="https://github.com/ItsErod/lark/pull/181">#181</a>, <a href="https://github.com/ItsErod/lark/pull/202">#202</a>)</li>
+          <li>Ctrl+Alt+Up and Ctrl+Alt+Down move between servers. On macOS that is Command+Option. Both shortcuts can be remapped. (<a href="https://github.com/ItsErod/lark/pull/183">#183</a>)</li>
+          <li>The first channel paints before settings, thread tools, and catalogs load. (<a href="https://github.com/ItsErod/lark/pull/187">#187</a>, <a href="https://github.com/ItsErod/lark/pull/203">#203</a>)</li>
+          <li>The camera setting says the camera is used for video in a call. (<a href="https://github.com/ItsErod/lark/pull/200">#200</a>)</li>
+          <li>Pull requests run formatting, lint, and native tests. A release runs the desktop shell tests before it publishes, and perf CI fails only on a large regression versus main. (<a href="https://github.com/ItsErod/lark/pull/193">#193</a>, <a href="https://github.com/ItsErod/lark/pull/195">#195</a>, <a href="https://github.com/ItsErod/lark/pull/196">#196</a>)</li>
+        </ul>
+        <h3>Fixed</h3>
+        <ul>
+          <li>The browser build typechecks again. The dev-server test helper is no longer part of the app compile. (<a href="https://github.com/ItsErod/lark/pull/189">#189</a>)</li>
+          <li>The clippy job records the real warning count. (<a href="https://github.com/ItsErod/lark/pull/199">#199</a>)</li>
+        </ul>
+      </details>
+      <details data-tag="v3.0.3">
         <summary>v3.0.3 <span>Oct 13, 2026</span></summary>
         <p>Two-way voice works, with real profile pictures and the new Focus call layout. Lark adds the Feed dashboard, a soundboard, per-user volume, a replay clip recorder, and an in-app store.</p>
         <h3>Added</h3>
@@ -418,11 +451,11 @@
           minute: "2-digit",
           timeZoneName: "short"
         }) : "";
-        note.textContent = "Current release " + (release.tag_name || "v3.0.3") + (when ? " · " + when : "");
+        note.textContent = "Current release " + (release.tag_name || "v3.0.4") + (when ? " · " + when : "");
         prependRelease(release);
       })
       .catch(() => {
-        note.textContent = "Current release v3.0.3";
+        note.textContent = "Current release v3.0.4";
       });
   </script>
 </body>
