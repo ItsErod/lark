@@ -1,6 +1,6 @@
 [package]
 name = "lark-clip-hw"
-version = "3.0.1"
+version = "3.0.3"
 edition = "2021"
 description = "Hardware H.264 encoders for Lark clips"
 license = "MIT"

@@ -4,6 +4,44 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.3](https://github.com/ItsErod/lark/releases/tag/v3.0.3) — 2026-10-13
+
+Show real Discord avatars in the voice list and call tiles, mark plugin tracks done on the progress page, and add a Check for updates button, plus 22 more.
+
+### ✨ Added
+
+- Add a Check for updates button. ([#153](https://github.com/ItsErod/lark/pull/153))
+- Add Stable and Canary interface updates in Settings. ([#168](https://github.com/ItsErod/lark/pull/168))
+- Add a session clock game desk. ([#162](https://github.com/ItsErod/lark/pull/162))
+- Add squad, build, and game desk catalogs. ([#165](https://github.com/ItsErod/lark/pull/165))
+
+### 🔧 Changed
+
+- Show real Discord avatars in the voice list and call tiles. ([#155](https://github.com/ItsErod/lark/pull/155))
+- Mark plugin tracks done on the progress page. ([#157](https://github.com/ItsErod/lark/pull/157))
+- Publish signed interface bundles to GitHub Pages. ([#154](https://github.com/ItsErod/lark/pull/154))
+- Decrypt Discord RTP extensions and fix voice loss. ([#156](https://github.com/ItsErod/lark/pull/156))
+- Update the progress status test for finished plugin tracks. ([#158](https://github.com/ItsErod/lark/pull/158))
+- Match the progress test to the finished plugin tracks. ([#161](https://github.com/ItsErod/lark/pull/161))
+- Play and hear guild soundboard sounds. ([#164](https://github.com/ItsErod/lark/pull/164))
+- Load signed interface bundles with rollback. ([#159](https://github.com/ItsErod/lark/pull/159))
+- Send voice after DAVE welcome and hear quiet mics. ([#163](https://github.com/ItsErod/lark/pull/163))
+- Show current work on the progress page. ([#160](https://github.com/ItsErod/lark/pull/160))
+- Restyle the store and landing page in Minimal Mono. ([#166](https://github.com/ItsErod/lark/pull/166))
+- Toggle echo cancellation beside noise suppression. ([#167](https://github.com/ItsErod/lark/pull/167))
+- Open voice calls as a short Focus stage. ([#169](https://github.com/ItsErod/lark/pull/169))
+- Install store plugins and themes from Settings. ([#171](https://github.com/ItsErod/lark/pull/171))
+- Keep per-user volume in the participant menu. ([#172](https://github.com/ItsErod/lark/pull/172))
+- Optional activity feed for Home. ([#170](https://github.com/ItsErod/lark/pull/170))
+- Republish the game desk store listings. ([#174](https://github.com/ItsErod/lark/pull/174))
+- Save clips from a configurable replay buffer. ([#175](https://github.com/ItsErod/lark/pull/175))
+- Send the voice join after identify and show the timeout. ([#176](https://github.com/ItsErod/lark/pull/176))
+- Decrypt inbound voice and send once the mic clears the gate. ([#177](https://github.com/ItsErod/lark/pull/177))
+
+### 🐛 Fixed
+
+- Fix clip playback in the embedded player. ([#173](https://github.com/ItsErod/lark/pull/173))
+
 ## [3.0.2](https://github.com/ItsErod/lark/releases/tag/v3.0.2) — 2026-10-12
 
 Lark gets the Minimal Mono redesign, a faster start, a network traffic viewer, and Discord sync for mutes, favorites, bookmarks, and language. This is the first release delivered through the auto-updater.
