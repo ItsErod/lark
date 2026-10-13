@@ -14,6 +14,7 @@ import {
   friendGlance,
   friendUsernameOk,
   friendsForTab,
+  dmVoiceStamp,
   groupMemberCount,
   indexedRelationships,
   memberContextMenu,
@@ -168,6 +169,11 @@ describe("relationships", () => {
     expect(readPinList("nope")).toEqual([]);
     expect(groupMemberCount(["2", "3"], "1")).toBe(3);
     expect(groupMemberCount(["1", "2"], "1")).toBe(2);
+    expect(groupMemberCount([], "1")).toBe(0);
+    expect(groupMemberCount(["", ""], "1")).toBe(0);
+    expect(dmVoiceStamp(null)).toBe("");
+    expect(dmVoiceStamp({ sharing: false })).toBe("voice");
+    expect(dmVoiceStamp({ sharing: true })).toBe("live");
     expect(friendUsernameOk("maya.chen")).toBe(true);
     expect(friendUsernameOk("Maya")).toBe(false);
     expect(friendUsernameOk("a")).toBe(false);

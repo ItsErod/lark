@@ -325,6 +325,7 @@ import {
   clearAfterAt,
   developerModeOn,
   dmContextMenu,
+  dmVoiceStamp,
   floatPinned,
   friendActivityText,
   friendUsernameOk,
@@ -2955,6 +2956,7 @@ class LarkApp {
 
   private channelShapeSig(): string {
     const list = this.guildId ? this.visibleChannels() : this.dms();
+    const roster = this.guildId ? null : Object.values(this.voiceRoster);
     const bits = list.map((channel) => {
       const voice = this.guildId && channel.kind === "voice"
         ? participantsIn(this.voiceRoster, this.guildId, channel.id).map((person) => {
@@ -2962,13 +2964,16 @@ class LarkApp {
             return `${person.userId}${flags.muted ? "m" : ""}${flags.deafened ? "d" : ""}`;
           }).join(".")
         : "";
+      const elsewhere = roster && channel.kind === "dm" ? dmVoiceStamp(voiceSpotFor(roster, this.dmUserId(channel))) : "";
+      const memberIds = channel.recipientIds?.length ? channel.recipientIds : (channel.recipients ?? []).map((item) => item.id);
+      const members = channel.kind === "group" ? String(groupMemberCount(memberIds, this.meId())) : "";
       const muted = this.levelFor(this.guildId && channel.kind !== "dm" && channel.kind !== "group" ? this.guildId : null, channel.id) === "mute" ? "m" : "";
       const collapsed = this.collapsedCats.has(channel.id) ? "c" : "";
       const direct = !this.guildId && (channel.kind === "dm" || channel.kind === "group");
       const preview = direct ? this.dmPreviewLabel(channel.id) : "";
       const activity = direct ? this.dmActivityLabel(channel) : "";
       const typing = this.listTyping(channel, direct)?.title ?? "";
-      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${preview}:${activity}:${typing}`;
+      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${elsewhere}:${members}:${preview}:${activity}:${typing}`;
     });
     const me = this.demo ? people[0] : this.me;
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
@@ -3402,11 +3407,12 @@ class LarkApp {
     if (!dm) button.append(icon(channel.kind === "voice" || channel.kind === "stage" ? paths.volume : channel.kind === "announcement" ? paths.bell : paths.hash));
     else {
       const recipient = channel.recipients?.find((item) => item.id !== this.meId()) ?? channel.recipients?.[0];
-      if (recipient) button.dataset.user = recipient.id;
-      known = recipient ? this.directory[recipient.id] : undefined;
+      const userId = recipient?.id && recipient.id !== this.meId() ? recipient.id : (channel.kind === "dm" ? this.dmUserId(channel) : "");
+      if (userId) button.dataset.user = userId;
+      known = userId ? this.directory[userId] : undefined;
       const wrap = el("div", "avatar-wrap");
       wrap.append(
-        portrait(known?.name || recipient?.name || channel.name, recipient?.id || channel.id, known?.avatarUrl || recipient?.avatarUrl, true),
+        portrait(known?.name || recipient?.name || channel.name, userId || recipient?.id || channel.id, known?.avatarUrl || recipient?.avatarUrl, true),
         channel.kind === "dm" ? el("i", `status ${known?.status ?? "offline"}`) : el("i"),
       );
       button.append(wrap);
@@ -3419,7 +3425,8 @@ class LarkApp {
     }
     if (dm && channel.kind === "group") {
       const ids = channel.recipientIds?.length ? channel.recipientIds : (channel.recipients ?? []).map((item) => item.id);
-      label.append(el("span", "dm-count", `${groupMemberCount(ids, this.meId())} members`));
+      const count = groupMemberCount(ids, this.meId());
+      if (count >= 2) label.append(el("span", "dm-count", `${count} members`));
     }
     if (dm) {
       const preview = this.dmPreviewLabel(channel.id);
@@ -3427,13 +3434,13 @@ class LarkApp {
     }
     button.append(label);
     if (dm && channel.kind === "dm") {
-      const recipientId = channel.recipients?.find((item) => item.id !== this.meId())?.id ?? channel.recipientIds?.find((id) => id !== this.meId());
-      const spot = recipientId ? voiceSpotFor(Object.values(this.voiceRoster), recipientId) : null;
-      if (spot) {
+      const recipientId = this.dmUserId(channel);
+      const stamp = dmVoiceStamp(recipientId ? voiceSpotFor(Object.values(this.voiceRoster), recipientId) : null);
+      if (stamp) {
         const mark = el("span", "dm-voice");
-        mark.title = spot.sharing ? "In voice, live" : "In voice";
+        mark.title = stamp === "live" ? "In voice, live" : "In voice";
         mark.append(icon(paths.volume));
-        if (spot.sharing) mark.append(el("span", "live-pill", "LIVE"));
+        if (stamp === "live") mark.append(el("span", "live-pill", "LIVE"));
         button.append(mark);
       }
     }
@@ -3452,9 +3459,15 @@ class LarkApp {
       close.tabIndex = 0;
       close.setAttribute("aria-label", "Close DM");
       close.textContent = "×";
-      close.addEventListener("click", (event) => {
+      const closeConversation = (event: Event) => {
+        event.preventDefault();
         event.stopPropagation();
         void this.closeDmChannel(channel);
+      };
+      close.addEventListener("click", closeConversation);
+      close.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        closeConversation(event);
       });
       button.append(close);
     }
@@ -3465,7 +3478,8 @@ class LarkApp {
         this.openChannelMenu(channel, event.clientX, event.clientY);
       });
     }
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest(".dm-close")) return;
       this.drawer = false;
       if (channel.kind === "voice" || isStageChannel(channel)) {
         this.onVoiceChannel(channel);
@@ -17197,8 +17211,11 @@ class LarkApp {
   private startDmCall(channel: Channel, video: boolean) {
     if (channel.kind !== "dm" && channel.kind !== "group") return;
     this.friendsOpen = false;
+    this.clipsOpen = false;
+    if (this.guildId) this.guildId = null;
     if (this.callSurface === "popout") this.closeCallPopout();
     this.callSurface = "chat";
+    if (this.channelId !== channel.id) void this.openChannel(channel.id);
     this.joinVoice(channel);
     if (this.voice?.channelId !== channel.id) {
       this.toast("Voice", "Couldn't start that call.");

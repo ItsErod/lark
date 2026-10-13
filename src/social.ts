@@ -245,8 +245,15 @@ export function clearAfterAt(choice: ClearAfter, now: number): number | null {
 
 export function groupMemberCount(recipientIds: string[], meId: string): number {
   const ids = new Set(recipientIds.filter((id) => Boolean(id)));
+  if (ids.size === 0) return 0;
   if (meId && !ids.has(meId)) ids.add(meId);
   return ids.size;
+}
+
+/** "" when they are not in a channel. "live" when that channel is sharing. */
+export function dmVoiceStamp(spot: { sharing?: boolean } | null | undefined): "" | "voice" | "live" {
+  if (!spot) return "";
+  return spot.sharing ? "live" : "voice";
 }
 
 export function floatPinned<T extends { id: string }>(channels: T[], pinned: ReadonlySet<string>): T[] {
