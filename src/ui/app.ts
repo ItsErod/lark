@@ -327,6 +327,7 @@ import {
   dmContextMenu,
   dmVoiceStamp,
   floatPinned,
+  groupCallStamp,
   friendActivityText,
   friendUsernameOk,
   friendsForTab,
@@ -2967,13 +2968,14 @@ class LarkApp {
       const elsewhere = roster && channel.kind === "dm" ? dmVoiceStamp(voiceSpotFor(roster, this.dmUserId(channel))) : "";
       const memberIds = channel.recipientIds?.length ? channel.recipientIds : (channel.recipients ?? []).map((item) => item.id);
       const members = channel.kind === "group" ? String(groupMemberCount(memberIds, this.meId())) : "";
+      const groupCall = roster && channel.kind === "group" ? groupCallStamp(roster, channel.id) : "";
       const muted = this.levelFor(this.guildId && channel.kind !== "dm" && channel.kind !== "group" ? this.guildId : null, channel.id) === "mute" ? "m" : "";
       const collapsed = this.collapsedCats.has(channel.id) ? "c" : "";
       const direct = !this.guildId && (channel.kind === "dm" || channel.kind === "group");
       const preview = direct ? this.dmPreviewLabel(channel.id) : "";
       const activity = direct ? this.dmActivityLabel(channel) : "";
       const typing = this.listTyping(channel, direct)?.title ?? "";
-      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${elsewhere}:${members}:${preview}:${activity}:${typing}`;
+      return `${channel.id}:${channel.name}:${channel.kind}:${channel.parentId ?? ""}:${channel.position}:${muted}:${collapsed}:${voice}:${elsewhere}:${members}:${groupCall}:${preview}:${activity}:${typing}`;
     });
     const me = this.demo ? people[0] : this.me;
     const pins = (this.pinnedChannels[this.guildId ?? ""] ?? []).join(".");
@@ -3433,9 +3435,10 @@ class LarkApp {
       if (preview) label.append(el("span", "dm-preview", preview));
     }
     button.append(label);
-    if (dm && channel.kind === "dm") {
-      const recipientId = this.dmUserId(channel);
-      const stamp = dmVoiceStamp(recipientId ? voiceSpotFor(Object.values(this.voiceRoster), recipientId) : null);
+    if (dm && (channel.kind === "dm" || channel.kind === "group")) {
+      const stamp = channel.kind === "group"
+        ? groupCallStamp(Object.values(this.voiceRoster), channel.id)
+        : dmVoiceStamp(this.dmUserId(channel) ? voiceSpotFor(Object.values(this.voiceRoster), this.dmUserId(channel)) : null);
       if (stamp) {
         const mark = el("span", "dm-voice");
         mark.title = stamp === "live" ? "In voice, live" : "In voice";
