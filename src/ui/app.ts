@@ -342,18 +342,7 @@ import {
   type VoiceSpot,
 } from "../social";
 import * as socialApi from "../social";
-import {
-  applyThreadIndex,
-  bindParityHost,
-  isMediaChannel,
-  mergeThreadChannels,
-  onCreateEvent as openCreateEventHook,
-  onCreatePoll as openCreatePollHook,
-  onCreateThread as openCreateThreadHook,
-  readPendingFriendCount,
-  type ParityHost,
-  type ThreadIndexWire,
-} from "../threads";
+import type { ParityHost, ThreadIndexWire } from "../threads";
 import { isHeldRequest } from "../message-requests";
 import { loadThreadsUi, threadsNow } from "./lazy-threads";
 import { writeClipboard } from "../clipboard";
@@ -731,6 +720,8 @@ class LarkApp {
   private dashboardMod: typeof import("./dashboard") | null = null;
   private late: typeof import("./late") | null = null;
   private lateTask: Promise<typeof import("./late")> | null = null;
+  private threadCore: typeof import("../threads") | null = null;
+  private threadCoreTask: Promise<typeof import("../threads")> | null = null;
   private modReady = false;
   private statusEmoji = "";
   private statusClearAt: number | null = null;
@@ -1104,7 +1095,7 @@ class LarkApp {
       this.enterDemo();
     }
     else {
-      const initial = gateQr(isTauri());
+      const initial = await gateQr(isTauri());
       this.qrSvg = initial.svg;
       this.qrStatus = initial.status;
       this.paint();
@@ -2151,9 +2142,12 @@ class LarkApp {
   private paintGate() {
     if (this.holdShell || this.splashLeaving) return;
     if (!this.qrSvg && !isTauri()) {
-      const initial = gateQr(false);
-      this.qrSvg = initial.svg;
-      this.qrStatus = initial.status;
+      void gateQr(false).then((initial) => {
+        if (this.qrSvg || isTauri()) return;
+        this.qrSvg = initial.svg;
+        this.qrStatus = initial.status;
+        this.paintGate();
+      });
     }
     const accounts = this.config.sessions ?? [];
     const sig = accounts.map((account) => `${account.id}:${account.name}`).join(",");
@@ -3743,7 +3737,13 @@ class LarkApp {
 
   private paintHeader() {
     if (this.holdShell) return;
-    bindParityHost(this.parityHost());
+    this.bindThreadHost();
+    if (!this.threadCore && !this.bench) {
+      const id = this.channelId;
+      void this.ensureThreadCore().then(() => {
+        if (this.channelId === id) this.paintHeader();
+      });
+    }
     clear(this.chatHead);
     const channel = this.currentChannel();
     const title = el("div", "chat-title");
@@ -7522,7 +7522,7 @@ class LarkApp {
     this.view = "gate";
     this.demo = false;
     this.qrWatching = false;
-    const initial = gateQr(isTauri());
+    const initial = await gateQr(isTauri());
     this.qrSvg = initial.svg;
     this.qrStatus = initial.status;
     this.tokenNote = "";
@@ -14897,7 +14897,7 @@ class LarkApp {
 
   private threadsFor(parentId: string): Channel[] {
     const live = !this.guildId ? [] : this.channelsOf(this.guildId).filter((channel) => channel.kind === "thread" && channel.parentId === parentId);
-    return mergeThreadChannels(parentId, live);
+    return this.threadCore?.mergeThreadChannels(parentId, live) ?? live;
   }
 
   private mergeThreads(guildId: string, parentId: string, threads: Channel[]) {
@@ -14912,7 +14912,9 @@ class LarkApp {
   }
 
   private async loadThreads(channelId: string) {
-    bindParityHost(this.parityHost());
+    if (this.bench) return;
+    const mod = await this.ensureThreadCore();
+    mod.bindParityHost(this.parityHost());
     if (this.demo || !this.guildId) return;
     try {
       const threads = await invoke<Channel[]>("fetch_threads", { channelId });
@@ -14922,7 +14924,7 @@ class LarkApp {
     }
     try {
       const index = await invoke<ThreadIndexWire>("fetch_thread_index", { channelId });
-      applyThreadIndex(index);
+      mod.applyThreadIndex(index);
       const threads = index.threads.map((thread) => normalizeChannel({
         id: thread.id,
         name: thread.name,
@@ -14972,10 +14974,10 @@ class LarkApp {
   }
 
   private forumBoard(channelId: string): HTMLElement | null {
-    bindParityHost(this.parityHost());
+    this.bindThreadHost();
     const channel = this.currentChannel();
     if (!channel || channel.id !== channelId) return null;
-    if (channel.kind !== "forum" && !isMediaChannel(channel)) return null;
+    if (channel.kind !== "forum" && channel.kind !== "media" && channel.rawKind !== 16) return null;
     const threads = threadsNow();
     if (!threads) {
       void loadThreadsUi().then(() => {
@@ -14988,29 +14990,56 @@ class LarkApp {
 
   /** Stream A: + Create Thread. */
   onCreateThread(input?: unknown) {
-    bindParityHost(this.parityHost());
-    openCreateThreadHook(input ?? { channelId: this.channelId });
+    const payload = input ?? { channelId: this.channelId };
+    void this.ensureThreadCore().then((mod) => {
+      mod.bindParityHost(this.parityHost());
+      mod.onCreateThread(payload);
+    });
   }
 
   /** Stream A: + Create Poll. */
   onCreatePoll(input?: unknown) {
-    bindParityHost(this.parityHost());
-    openCreatePollHook(input ?? { channelId: this.channelId });
+    const payload = input ?? { channelId: this.channelId };
+    void this.ensureThreadCore().then((mod) => {
+      mod.bindParityHost(this.parityHost());
+      mod.onCreatePoll(payload);
+    });
   }
 
   /** Stream B: Create Event, and the events list behind the sidebar row. */
   onCreateEvent(input?: unknown) {
-    bindParityHost(this.parityHost());
-    openCreateEventHook(input ?? this.guildId ?? "");
+    const payload = input ?? this.guildId ?? "";
+    void this.ensureThreadCore().then((mod) => {
+      mod.bindParityHost(this.parityHost());
+      mod.onCreateEvent(payload);
+    });
   }
 
   openEvents(input?: unknown) {
-    bindParityHost(this.parityHost());
-    void import("../threads").then((mod) => mod.openEvents(input ?? this.guildId ?? ""));
+    const payload = input ?? this.guildId ?? "";
+    void this.ensureThreadCore().then((mod) => {
+      mod.bindParityHost(this.parityHost());
+      mod.openEvents(payload);
+    });
+  }
+
+  private ensureThreadCore(): Promise<typeof import("../threads")> {
+    if (this.threadCore) return Promise.resolve(this.threadCore);
+    if (!this.threadCoreTask) {
+      this.threadCoreTask = import("../threads").then((mod) => {
+        this.threadCore = mod;
+        return mod;
+      });
+    }
+    return this.threadCoreTask;
+  }
+
+  private bindThreadHost() {
+    this.threadCore?.bindParityHost(this.parityHost());
   }
 
   private parityHost(): ParityHost {
-    const pending = readPendingFriendCount(socialApi, (globalThis as { __larkPendingFriends?: unknown }).__larkPendingFriends);
+    const pending = this.threadCore?.readPendingFriendCount(socialApi, (globalThis as { __larkPendingFriends?: unknown }).__larkPendingFriends) ?? 0;
     return {
       channelId: this.channelId,
       guildId: this.guildId,

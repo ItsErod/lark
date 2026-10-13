@@ -1,6 +1,6 @@
 import { cleanPanicKey, type PrivacyOptions } from "../pack/privacy";
 import { el } from "./dom";
-import { segmentControl } from "./settings";
+import { segmentControl } from "./controls";
 
 export function mountPrivacyPanel(
   id: string,

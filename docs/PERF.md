@@ -69,3 +69,21 @@ What this pass changed:
 - Leaving a channel keeps the newest page and drops cached heights for the rest. The bench history is already one page, so that trim does not move the bench heap. The heap drop above is the smaller first paint.
 
 Scroll stays on the display refresh. Input latency was already the cost of one composer event. Voice crypto was not changed. Dashboard tiles were already loaded only while the dashboard is open.
+
+A follow-up on 13 Oct 2026, after that pass had merged, moved three more modules off the first channel. The settings catalog was still pulled in by the privacy panels. Thread, forum, and poll code was still in the first script because the message list and the composer imported it directly. The browser preview QR was parsed on every startup, including the desktop app, which never shows it. Same machine, Linux, Chromium, viewport 1280×800, five runs, median. Main here already included the first-paint pass.
+
+| Metric | Before (main) | After |
+| --- | ---: | ---: |
+| Cold start to first interactive | 129.5 ms | 123.8 ms |
+| Channel switch | 6.2 ms | 5.7 ms |
+| Initial message load | 39.5 ms | 38.0 ms |
+| Scroll FPS | 61 | 61 |
+| Input latency | 0.2 ms | 0.2 ms |
+| Idle memory | 3.8 MB | 3.7 MB |
+| Idle CPU | 0.5% | 0.5% |
+| JS bundle | 1,125,645 bytes | 1,127,563 bytes |
+| CSS bundle | 99,768 bytes | 99,768 bytes |
+
+Cold-start samples before were 146.7, 128.7, 138.7, 128.7, and 129.5 ms. After were 147.7, 131.2, 123.8, 122.0, and 119.7 ms. Channel-switch samples after were 4.4, 5.7, 5.9, 5.7, and 4.7 ms. Message-load samples after were 39.2, 38.0, 38.6, 35.8, and 35.2 ms. Idle memory before sat between 3.76 and 3.85 MB. After it sat between 3.67 and 3.77 MB.
+
+The counted JS total is higher because the split chunks are still summed. The first-paint files are smaller: `main` is 735,693 bytes and the shared `hud` chunk is 30,912 bytes. On main those were 792,668 and 30,912 bytes. The settings catalog (26,783 bytes), thread core (17,298 bytes), and preview QR (13,440 bytes) load when something asks for them. The benchmark does not ask during the idle sample. Voice crypto was not changed.
