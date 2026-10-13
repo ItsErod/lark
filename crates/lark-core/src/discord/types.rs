@@ -4091,6 +4091,29 @@ pub struct ClientAppOption {
     #[serde(rename = "type")]
     pub type_id: i32,
     pub required: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<ClientAppChoice>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub autocomplete: bool,
+    /// Subcommand and subcommand-group children.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<ClientAppOption>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channel_types: Vec<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_value: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_value: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClientAppChoice {
+    pub name: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

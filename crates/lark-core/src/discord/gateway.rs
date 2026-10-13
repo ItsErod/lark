@@ -125,6 +125,11 @@ pub enum ClientEvent {
         user_id: String,
         username: String,
     },
+    /// Choices a bot returned for an autocomplete interaction, matched by nonce.
+    Autocomplete {
+        nonce: String,
+        choices: Value,
+    },
     Presence {
         guild_id: String,
         user_id: String,
@@ -1669,6 +1674,18 @@ fn handle_dispatch(
                     channel_id: parent,
                     threads: vec![channel_to_client(&channel)],
                 });
+            }
+            false
+        }
+        "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE" => {
+            let nonce = json_str(data, "nonce");
+            if !nonce.is_empty() {
+                let choices = data
+                    .get("choices")
+                    .filter(|v| v.is_array())
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                emit(ClientEvent::Autocomplete { nonce, choices });
             }
             false
         }
