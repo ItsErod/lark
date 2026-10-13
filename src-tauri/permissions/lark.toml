@@ -364,6 +364,11 @@ description = "Install a store plugin or theme after its hash matches."
 commands.allow = ["install_store_item"]
 
 [[permission]]
+identifier = "allow-preview-store-theme"
+description = "Download a store theme's CSS for a reversible preview. Nothing is installed."
+commands.allow = ["preview_store_theme"]
+
+[[permission]]
 identifier = "allow-uninstall-store-item"
 description = "Remove an installed store plugin or theme."
 commands.allow = ["uninstall_store_item"]
