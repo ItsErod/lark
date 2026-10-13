@@ -297,6 +297,7 @@ pub fn run() {
             read_plugin,
             store_index,
             install_store_item,
+            preview_store_theme,
             uninstall_store_item,
             installed_store,
             open_store_page,
@@ -1159,6 +1160,11 @@ async fn install_store_item(
     let plugins_dir = state.paths.plugins_dir.clone();
     let themes_dir = state.paths.themes_dir.clone();
     store::install(&plugins_dir, &themes_dir, &id).await
+}
+
+#[tauri::command]
+async fn preview_store_theme(id: String) -> Result<String, String> {
+    store::preview_theme(&id).await
 }
 
 #[tauri::command]

@@ -64,6 +64,38 @@ pub async fn fetch_index() -> Result<String, String> {
     Ok(text)
 }
 
+/// Download a theme, check its hash, and return the CSS. Nothing is written.
+pub async fn preview_theme(id: &str) -> Result<String, String> {
+    validate_theme_name(id).map_err(|err| err.to_string())?;
+    let index = parse_index(&fetch_index().await?)?;
+    let item = index
+        .themes
+        .iter()
+        .find(|item| item.id == id)
+        .ok_or_else(|| format!("\"{id}\" is not in the store."))?;
+    if !version_ok(env!("CARGO_PKG_VERSION"), &item.min_lark) {
+        return Err(format!("\"{id}\" needs Lark {} or newer.", item.min_lark));
+    }
+    if item.bytes == 0 || item.bytes > THEME_LIMIT {
+        return Err("That store item is the wrong size.".into());
+    }
+    let url = file_url("theme", id, &item.file, &item.entry)?;
+    if !hex_ok(&item.sha256) {
+        return Err("The store hash is not usable.".into());
+    }
+    let bytes = http_get(&url, THEME_LIMIT).await?;
+    if bytes.len() != item.bytes || bytes.contains(&0) {
+        return Err("That download is the wrong size.".into());
+    }
+    let digest = sha256_hex(&bytes);
+    if digest != item.sha256 {
+        return Err("The download does not match the store hash.".into());
+    }
+    let text = String::from_utf8(bytes).map_err(|_| "That download is not text.".to_string())?;
+    validate_theme_css(&text).map_err(|err| err.to_string())?;
+    Ok(text)
+}
+
 pub async fn install(
     plugins_dir: &Path,
     themes_dir: &Path,

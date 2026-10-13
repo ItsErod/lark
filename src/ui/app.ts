@@ -288,6 +288,7 @@ import {
   THEME_ID,
   validateThemeCss,
 } from "../themes";
+import { beginThemePreview, revertThemePreview, swapThemePreview, type ThemePreviewSession } from "../theme-preview";
 import {
   applyMemberListSort,
   applyMemberOps,
@@ -590,6 +591,7 @@ class LarkApp {
   private storeIndex: StoreIndex | null = null;
   private installed: InstalledRecord[] = [];
   private preferBuiltin = false;
+  private themePreview: ThemePreviewSession | null = null;
   private storeListening = false;
   private storeRefreshing = false;
   private storeIndexTried = false;
@@ -1957,6 +1959,10 @@ class LarkApp {
   }
 
   private async applyTheme() {
+    if (this.themePreview) {
+      this.showThemeCss(this.themePreview.css, this.themePreview.id, false);
+      return;
+    }
     if (this.preferBuiltin) {
       document.getElementById("lark-theme")?.remove();
       delete document.documentElement.dataset.theme;
@@ -2048,6 +2054,7 @@ class LarkApp {
 
   private selectTheme(id: string) {
     if (!THEME_ID.test(id)) return;
+    this.themePreview = null;
     this.preferBuiltin = false;
     localStorage.removeItem("lark.theme.builtin");
     for (const name of ["--bg-0", "--bg-2", "--text"]) this.root.style.removeProperty(name);
@@ -7322,6 +7329,16 @@ class LarkApp {
         chips.append(button);
       }
       results.replaceChildren();
+      if (this.themePreview) {
+        const name = index.themes.find((item) => item.id === this.themePreview?.id)?.name ?? this.themePreview.id;
+        const bar = el("div", "store-preview");
+        bar.append(el("span", "", `Previewing ${name}. Nothing is installed.`));
+        const revert = el("button", "text-button", "Revert");
+        revert.type = "button";
+        revert.addEventListener("click", () => this.revertStoreTheme());
+        bar.append(revert);
+        results.append(bar);
+      }
       const empty = !browsed.plugins.length && !browsed.themes.length;
       const unfiltered = browseStore(index, this.installed, { query: "", kind: "all", category: "" });
       if (empty && !unfiltered.plugins.length && !unfiltered.themes.length) {
@@ -7332,15 +7349,25 @@ class LarkApp {
         results.append(el("p", "setting-help", "Nothing matches."));
         return;
       }
-      const paintItem = (item: StoreItem) => {
+      const paintItem = (item: StoreItem, theme = false) => {
         const busy = this.storeInstalling === item.id;
+        const controls = el("div", "store-row-actions");
+        if (theme) {
+          const previewing = this.themePreview?.id === item.id;
+          const preview = el("button", "text-button", previewing ? "Revert" : "Preview");
+          preview.type = "button";
+          preview.disabled = this.storeInstalling !== "";
+          preview.addEventListener("click", () => void this.toggleStoreThemePreview(item));
+          controls.append(preview);
+        }
         const install = el("button", "text-button", busy ? "Installing…" : "Install");
         install.type = "button";
         install.disabled = this.storeInstalling !== "";
         install.addEventListener("click", () => void this.installFromCatalog(item.id));
+        controls.append(install);
         const needs = larkVersionOk(item.minLark, APP_VERSION) ? "" : ` · Needs Lark ${item.minLark}`;
         const note = item.changelog ? ` · ${item.changelog}` : "";
-        const row = this.late!.settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, install);
+        const row = this.late!.settingRow(`store.${item.id}`, item.name, `${item.description} · v${item.version}${needs}${note}`, controls);
         const swatches = storeSwatches(item.swatches);
         if (swatches) row.querySelector(".setting-copy")?.append(swatches);
         results.append(row);
@@ -7348,7 +7375,7 @@ class LarkApp {
       if (browsed.plugins.length) results.append(el("h3", "", "Plugins"));
       for (const item of browsed.plugins) paintItem(item);
       if (browsed.themes.length) results.append(el("h3", "", "Themes"));
-      for (const item of browsed.themes) paintItem(item);
+      for (const item of browsed.themes) paintItem(item, true);
     };
     search.addEventListener("input", () => {
       this.storeQuery = search.value;
@@ -7361,6 +7388,7 @@ class LarkApp {
 
   private async installFromCatalog(id: string) {
     if (this.storeInstalling) return;
+    if (this.themePreview?.id === id) this.revertStoreTheme();
     this.storeInstalling = id;
     if (this.settings && this.section === "plugins") this.renderSettings();
     const name = await this.installStoreItem(id);
@@ -7557,11 +7585,87 @@ class LarkApp {
       this.selectTheme(id);
       return;
     }
+    this.themePreview = null;
     if (this.config.appearance.theme !== id) return;
     this.preferBuiltin = true;
     localStorage.setItem("lark.theme.builtin", "1");
     void this.applyTheme();
     if (this.settings && this.section === "appearance") this.paintThemeGallery();
+  }
+
+  private showThemeCss(css: string | null, theme: string, builtin: boolean) {
+    if (builtin || !css) {
+      document.getElementById("lark-theme")?.remove();
+      delete document.documentElement.dataset.theme;
+      this.syncMaterial("none");
+      applyUserChrome(this.root, this.config);
+      return;
+    }
+    let style = document.getElementById("lark-theme");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "lark-theme";
+      document.head.append(style);
+    }
+    style.textContent = css;
+    document.documentElement.dataset.theme = theme;
+    this.syncMaterial(parseThemeCss(css).material);
+    applyUserChrome(this.root, this.config);
+  }
+
+  private async toggleStoreThemePreview(item: StoreItem) {
+    if (this.themePreview?.id === item.id) {
+      this.revertStoreTheme();
+      return;
+    }
+    try {
+      const css = await this.fetchStoreThemeCss(item);
+      const issue = validateThemeCss(css);
+      if (issue) throw new Error(issue);
+      if (this.themePreview) {
+        const next = swapThemePreview(this.themePreview, { id: item.id, css });
+        if (!next) return;
+        this.themePreview = next;
+      } else {
+        const node = document.getElementById("lark-theme");
+        const session = beginThemePreview({
+          css: node?.textContent ?? null,
+          theme: this.config.appearance.theme,
+          builtin: this.preferBuiltin || !node,
+        }, { id: item.id, css });
+        if (!session) return;
+        this.themePreview = session;
+      }
+      this.showThemeCss(css, item.id, false);
+      if (this.settings && this.section === "plugins") this.renderSettings();
+    } catch (err) {
+      this.toast("Store", err instanceof Error ? err.message : "Couldn't preview that theme.");
+    }
+  }
+
+  private revertStoreTheme() {
+    const session = this.themePreview;
+    if (!session) return;
+    this.themePreview = null;
+    const previous = revertThemePreview(session);
+    this.showThemeCss(previous.css, previous.theme, previous.builtin);
+    if (this.settings && this.section === "plugins") this.renderSettings();
+  }
+
+  private async fetchStoreThemeCss(item: StoreItem): Promise<string> {
+    if (isTauri()) return invoke<string>("preview_store_theme", { id: item.id });
+    const url = entryUrl(item);
+    if (!url) throw new Error("The store path was refused.");
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("The download failed.");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const hash = await sha256Hex(bytes);
+    const problem = acceptBytes(item, bytes, hash);
+    if (problem) throw new Error(problem);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const issue = validateThemeCss(text);
+    if (issue) throw new Error(issue);
+    return text;
   }
 
   private async installFromLink(id: string) {
