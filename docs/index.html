@@ -106,23 +106,58 @@
     <h1>Lark</h1>
     <p class="lede">An unofficial desktop client for one Discord account. Plugins and themes stay in the store, out of the download.</p>
     <div class="downloads" id="downloads">
-      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.4/Lark_3.0.4_x64-setup.exe">
+      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_x64-setup.exe">
         <span>Windows</span>
         <strong>Download EXE</strong>
-        <code>Lark_3.0.4_x64-setup.exe</code>
+        <code>Lark_3.0.5_x64-setup.exe</code>
       </a>
-      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.4/Lark_3.0.4_universal.dmg">
+      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/download/v3.0.5/Lark_3.0.5_universal.dmg">
         <span>macOS</span>
         <strong>Download DMG</strong>
-        <code>Lark_3.0.4_universal.dmg</code>
+        <code>Lark_3.0.5_universal.dmg</code>
       </a>
     </div>
-    <p class="note" id="release-note">Current release v3.0.4</p>
+    <p class="note" id="release-note">Current release v3.0.5</p>
 
     <h2>Version history</h2>
     <p class="history-lead">Notes below are the published GitHub release text. Earlier releases are on the <a href="progress/#history">progress page</a>.</p>
     <div class="history" id="history">
-      <details open data-tag="v3.0.4">
+      <details open data-tag="v3.0.5">
+        <summary>v3.0.5 <span>Oct 13, 2026</span></summary>
+        <p>Right-click menus for servers and channels, Discover and the App Directory inside Lark, 720p camera video, speaker echo cancellation, and full profiles. Game Mode now tucks the side columns during a call or a game, and the interface code is split into smaller modules.</p>
+        <h3>Added</h3>
+        <ul>
+          <li>Right-click menus for servers, channels, and categories: Mark As Read, Invite, Mute, Notification Settings, Copy Link, Edit Channel, Hide Muted Channels, and Server Settings. (<a href="https://github.com/ItsErod/lark/pull/210">#210</a>)</li>
+          <li>Browse, preview, and join servers from Discover without leaving Lark. (<a href="https://github.com/ItsErod/lark/pull/222">#222</a>)</li>
+          <li>Browse the App Directory and add apps to a server inside Lark. Install pages, permissions, and captchas still open in Discord. (<a href="https://github.com/ItsErod/lark/pull/226">#226</a>)</li>
+          <li>Ctrl+Shift+N opens Add Server. (<a href="https://github.com/ItsErod/lark/pull/216">#216</a>)</li>
+          <li>Search direct messages from Home, with filters. It falls back to local results if Discord search fails. (<a href="https://github.com/ItsErod/lark/pull/218">#218</a>)</li>
+          <li>Preview a store theme before installing it. Revert restores your previous look. (<a href="https://github.com/ItsErod/lark/pull/221">#221</a>)</li>
+          <li>Open a full profile with About, mutual servers and friends, activity, and connections. (<a href="https://github.com/ItsErod/lark/pull/224">#224</a>)</li>
+          <li>Group DM rows show when someone is in a call. (<a href="https://github.com/ItsErod/lark/pull/217">#217</a>)</li>
+          <li>Pick an emoji for your custom status from the emoji grid. (<a href="https://github.com/ItsErod/lark/pull/219">#219</a>)</li>
+        </ul>
+        <h3>Changed</h3>
+        <ul>
+          <li>Camera video sends at up to 720p and 30 fps by default, with a hardware encoder when one is available. It lowers quality when the connection gets worse. (<a href="https://github.com/ItsErod/lark/pull/220">#220</a>, <a href="https://github.com/ItsErod/lark/pull/223">#223</a>)</li>
+          <li>Speaker echo cancellation uses WebRTC AEC3, so the call no longer leaks back through your microphone on speakers. (<a href="https://github.com/ItsErod/lark/pull/225">#225</a>)</li>
+          <li>Game Mode hides the member list and narrows the server and channel lists during a call or a detected game, so chat stays on screen. It never hooks into the game. (<a href="https://github.com/ItsErod/lark/pull/211">#211</a>)</li>
+          <li>Voice and video call buttons stay in the header of DMs and group chats, and starting a call keeps the conversation on screen. (<a href="https://github.com/ItsErod/lark/pull/212">#212</a>)</li>
+          <li>The interface code is split from one large file into modules by area. Nothing changes in the app. (<a href="https://github.com/ItsErod/lark/pull/227">#227</a>–<a href="https://github.com/ItsErod/lark/pull/237">#237</a>, <a href="https://github.com/ItsErod/lark/pull/244">#244</a>–<a href="https://github.com/ItsErod/lark/pull/252">#252</a>)</li>
+          <li>The website and progress page show the current release and download the right installers. (<a href="https://github.com/ItsErod/lark/pull/209">#209</a>, <a href="https://github.com/ItsErod/lark/pull/214">#214</a>, <a href="https://github.com/ItsErod/lark/pull/215">#215</a>)</li>
+          <li>Discord parity gaps refreshed against the current build. (<a href="https://github.com/ItsErod/lark/pull/208">#208</a>)</li>
+        </ul>
+        <h3>Fixed</h3>
+        <ul>
+          <li>Group DMs show a member count only when Discord sent the members, a 1:1 DM shows when that person is in voice elsewhere, and closing a DM no longer opens it. (<a href="https://github.com/ItsErod/lark/pull/213">#213</a>)</li>
+          <li>The friends Pending badge matches the Minimal Mono style. (<a href="https://github.com/ItsErod/lark/pull/213">#213</a>)</li>
+        </ul>
+        <h3>Removed</h3>
+        <ul>
+          <li>Nothing was removed in this release.</li>
+        </ul>
+      </details>
+      <details data-tag="v3.0.4">
         <summary>v3.0.4 <span>Oct 13, 2026</span></summary>
         <p>Notifications can wait until quiet hours end, clips can be shared and trimmed, and search works on messages already on this device. Incoming calls ring, the first channel paints sooner, and a local stats page stays on this computer.</p>
         <h3>Added</h3>
@@ -451,11 +486,11 @@
           minute: "2-digit",
           timeZoneName: "short"
         }) : "";
-        note.textContent = "Current release " + (release.tag_name || "v3.0.4") + (when ? " · " + when : "");
+        note.textContent = "Current release " + (release.tag_name || "v3.0.5") + (when ? " · " + when : "");
         prependRelease(release);
       })
       .catch(() => {
-        note.textContent = "Current release v3.0.4";
+        note.textContent = "Current release v3.0.5";
       });
   </script>
 </body>
