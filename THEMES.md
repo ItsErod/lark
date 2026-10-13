@@ -25,6 +25,9 @@ Themes are not part of the app download. The files live in `store/themes/<id>/`.
 | `mono-oled` | Minimal Mono on pure black. White accent, hairline edges, unused pixels stay off. |
 | `mono-graphite` | Minimal Mono on warm graphite. Warm-white accent, no apricot. |
 | `mono-light` | Minimal Mono in daylight. White surfaces, black type, black accent. |
+| `mono-contrast` | Minimal Mono at high contrast. White type on black, white accent, text pairs at least 7:1. |
+| `mono-blue` | Minimal Mono zinc with one muted steel-blue accent. |
+| `mono-sage` | Minimal Mono zinc with one muted sage accent. |
 | `daylight` | Warm paper. |
 | `ink-contrast` | The earlier bright-room black. `high-contrast` is the stricter one. |
 

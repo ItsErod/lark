@@ -1,0 +1,12 @@
+{
+  "id": "mono-blue",
+  "name": "Mono blue",
+  "description": "Minimal Mono with one muted steel-blue accent.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "dark",
+  "minLark": "2.4.0",
+  "entry": "theme.css",
+  "icon": "palette",
+  "changelog": "Store release. Neutral zinc and a muted blue accent. Installed from the store, not bundled with the app."
+}
