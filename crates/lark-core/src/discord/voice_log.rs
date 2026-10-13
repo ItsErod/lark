@@ -154,6 +154,17 @@ impl VoiceLog {
         self.ping_ms = ms;
     }
 
+    /// Loss is missing packets over received plus missing, as a percent. Jitter is milliseconds.
+    pub fn link_stats(&self) -> (f64, f64) {
+        let seen = self.udp_in.saturating_add(self.packets_lost);
+        let loss = if seen == 0 {
+            0.0
+        } else {
+            (self.packets_lost as f64) * 100.0 / (seen as f64)
+        };
+        (loss, self.jitter_ms)
+    }
+
     fn note_bytes(&mut self, bytes: u64) {
         let now = now_ms();
         if self.window_ms == 0 || now.saturating_sub(self.window_ms) >= 1000 {
@@ -319,5 +330,16 @@ mod tests {
             wrapped.packets_lost, 0,
             "a sequence wrap is not packet loss"
         );
+    }
+
+    #[test]
+    fn link_stats_are_a_loss_percent_and_jitter() {
+        let mut log = VoiceLog::default();
+        assert_eq!(log.link_stats(), (0.0, 0.0));
+        log.note_udp_in(20, Some(1), Some(1));
+        log.note_udp_in(20, Some(1), Some(3));
+        let (loss, jitter) = log.link_stats();
+        assert!((loss - (100.0 / 3.0)).abs() < 0.001);
+        assert!(jitter >= 0.0);
     }
 }

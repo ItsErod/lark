@@ -1343,8 +1343,8 @@ async fn join_voice(
                 lark_core::discord::voice_link::VoiceLinkEvent::Speaking { user_id, speaking, epoch } => {
                     serde_json::json!({"kind": "voiceSpeaking", "userId": user_id, "speaking": speaking, "epoch": epoch})
                 }
-                lark_core::discord::voice_link::VoiceLinkEvent::Ping { ping_ms, endpoint, epoch } => {
-                    serde_json::json!({"kind": "voiceLink", "state": "connected", "detail": "", "epoch": epoch, "pingMs": ping_ms, "endpoint": endpoint})
+                lark_core::discord::voice_link::VoiceLinkEvent::Ping { ping_ms, endpoint, epoch, loss_pct, jitter_ms } => {
+                    serde_json::json!({"kind": "voiceLink", "state": "connected", "detail": "", "epoch": epoch, "pingMs": ping_ms, "endpoint": endpoint, "lossPct": loss_pct, "jitterMs": jitter_ms})
                 }
                 lark_core::discord::voice_link::VoiceLinkEvent::Camera { user_id, annex_b, epoch } => {
                     serde_json::json!({
