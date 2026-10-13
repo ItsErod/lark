@@ -130,6 +130,12 @@ jobs:
         run: cargo test -p lark-clip-hw
       - name: Typecheck the desktop shell
         run: cargo check -p lark
+      - name: Native shell tests
+        # The installer job waits for this job. Tag builds and manual
+        # releases run the desktop shell tests here, after the frontend
+        # suite and the library tests above.
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+        run: cargo test -p lark
 
   build:
     needs: [test, release-notes]
