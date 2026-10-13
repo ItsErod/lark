@@ -47,7 +47,10 @@ jobs:
       - name: cargo clippy
         # The workspace is not clean (about 90 warnings on main). Record the
         # count instead of denying warnings, so this job stays a signal
-        # rather than a wall of existing lint.
+        # rather than a wall of existing lint. Color codes hid the word
+        # "warning" from the counter on the first run.
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           cargo clippy --workspace --all-targets --message-format=short -- -W warnings 2>&1 | tee clippy.txt
           count=$({ grep -E ':[0-9]+:[0-9]+: warning:' clippy.txt || true; } | sed -E 's/: warning:.*//' | sort -u | wc -l | tr -d ' ')
