@@ -359,11 +359,13 @@ import type { StatNote } from "./stats-store";
 import { mountPrivacyPanel } from "./privacy-panels";
 import {
   DISCORD_LINKS,
+  categoryChannelIds,
   categoryContextItems,
   channelContextItems,
   channelIsPrivate,
   channelLink,
   channelNotifyBody,
+  channelsNotifyBody,
   duplicateChannelBody,
   extraChannelItems,
   guildNotifyBody,
@@ -371,7 +373,6 @@ import {
   hideMutedChannel,
   openCreateEvent,
   openMediaChannel,
-  openPerServerProfile,
   openStageChannel,
   orderChannels,
   parseFlag,
@@ -3445,6 +3446,7 @@ class LarkApp {
     if (!dm) {
       button.addEventListener("contextmenu", (event) => {
         event.preventDefault();
+        event.stopPropagation();
         this.openChannelMenu(channel, event.clientX, event.clientY);
       });
     }
@@ -10727,6 +10729,7 @@ class LarkApp {
     if (this.voiceChannelMenuBound) return;
     this.voiceChannelMenuBound = true;
     this.channelPane.addEventListener("contextmenu", (event) => {
+      if (event.defaultPrevented) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const row = target.closest("[data-channel]");
@@ -16640,7 +16643,12 @@ class LarkApp {
 
   private openServerMenu(guildId: string, x: number, y: number, header = false) {
     const folders = this.folders.filter((folder) => folder.id).map((folder) => ({ id: folder.id as string, name: folder.name?.trim() || "Folder" }));
-    const items = header ? headerMenuItems(null) : withMoveTargets(serverContextItems(), folders);
+    const flags = {
+      developerMode: readDeveloperMode(this.config),
+      muted: this.guildMuted(guildId),
+      hideMuted: this.hideMuted,
+    };
+    const items = header ? headerMenuItems(null, flags) : withMoveTargets(serverContextItems(flags), folders);
     this.showMenu(x, y, items, (id) => this.onServerAction(guildId, id));
   }
 
@@ -16657,6 +16665,10 @@ class LarkApp {
         return;
       }
       void import("./channel-settings").then(({ mountInviteModal }) => mountInviteModal(this.channelHost(guildId), channel.id));
+      return;
+    }
+    if (id === "mute") {
+      this.onServerAction(guildId, this.guildMuted(guildId) ? "guild-notify:all" : "guild-notify:mute");
       return;
     }
     if (id === "hide-muted") {
@@ -16676,9 +16688,9 @@ class LarkApp {
       return;
     }
     if (id === "profile") {
-      if (openPerServerProfile(guildId, this.meId()) === "missing") {
-        this.toast("Per-server Profile", "Profile editing for this server is not available yet.");
-      }
+      if (this.guildId !== guildId) this.selectGuild(guildId);
+      const me = this.demo ? people[0] : this.me;
+      this.openProfile(me, false, true);
       return;
     }
     if (id === "create-channel") {
@@ -16809,7 +16821,11 @@ class LarkApp {
   }
 
   private openChannelMenu(channel: Channel, x: number, y: number) {
-    const items = [...channelContextItems(channel.kind), ...extraChannelItems(channel)];
+    const items = [...channelContextItems(channel.kind, {
+      developerMode: readDeveloperMode(this.config),
+      muted: this.levelFor(this.guildId, channel.id) === "mute",
+      hideNames: this.callView.hideNames,
+    }), ...extraChannelItems(channel)];
     const favorite = (this.favorites[this.guildId ?? ""] ?? []).includes(channel.id);
     const pinned = (this.pinnedChannels[this.guildId ?? ""] ?? []).includes(channel.id);
     for (const item of items) {
@@ -16846,7 +16862,12 @@ class LarkApp {
       return;
     }
     if (id === "mute") {
-      this.writeChannelLevel(channel.id, "mute");
+      const next: NotifyLevel = this.levelFor(guildId, channel.id) === "mute" ? "all" : "mute";
+      this.writeChannelLevel(channel.id, next);
+      return;
+    }
+    if (id === "join-quiet" || id === "open-chat" || id === "hide-names" || id === "set-status") {
+      void this.runVoiceChannelAction(channel, id);
       return;
     }
     if (id.startsWith("notify:")) {
@@ -16894,7 +16915,8 @@ class LarkApp {
   }
 
   private openCategoryMenu(category: Channel, x: number, y: number) {
-    this.showMenu(x, y, categoryContextItems(), (id) => {
+    const muted = this.levelFor(this.guildId, category.id) === "mute";
+    this.showMenu(x, y, categoryContextItems({ muted }), (id) => {
       if (id === "edit" && this.guildId) {
         const guildId = this.guildId;
         void import("./channel-settings").then(({ mountChannelEditor }) => mountChannelEditor(this.channelHost(guildId), category));
@@ -16910,29 +16932,44 @@ class LarkApp {
           .catch((err) => this.toast("Couldn't delete", err instanceof Error ? err.message : "Discord refused the delete."));
         return;
       }
-      if (id === "mute") this.writeChannelLevel(category.id, "mute");
-      if (id.startsWith("notify:")) this.writeChannelLevel(category.id, id.slice("notify:".length) as NotifyLevel);
+      if (id === "mute" || id.startsWith("notify:")) {
+        const level: NotifyLevel = id === "mute" ? (muted ? "all" : "mute") : id.slice("notify:".length) as NotifyLevel;
+        const ids = this.guildId ? categoryChannelIds(this.channelsOf(this.guildId), category.id) : [category.id];
+        this.writeChannelLevels(ids, level);
+      }
     });
   }
 
   private writeChannelLevel(channelId: string, level: NotifyLevel) {
-    this.config.notifications.channels[channelId] = level === "mute" ? { muted: true } : { level, muted: false };
-    this.stageNotify(this.guildId, channelId, level);
+    this.writeChannelLevels([channelId], level);
+  }
+
+  private writeChannelLevels(channelIds: string[], level: NotifyLevel) {
+    const ids = [...new Set(channelIds.filter(Boolean))];
+    if (!ids.length) return;
+    for (const channelId of ids) {
+      this.config.notifications.channels[channelId] = level === "mute" ? { muted: true } : { level, muted: false };
+      this.stageNotify(this.guildId, channelId, level);
+    }
     this.persist();
-    void this.writeNotify(this.guildId, channelId, level);
+    void this.writeNotifyChannels(this.guildId, ids, level);
     this.toast("Notifications", `${level}.`);
     this.paint();
   }
 
   private async writeNotify(guildId: string | null, channelId: string | null, level: NotifyLevel) {
+    await this.writeNotifyChannels(guildId, channelId ? [channelId] : [], level);
+  }
+
+  private async writeNotifyChannels(guildId: string | null, channelIds: string[], level: NotifyLevel) {
     if (this.demo || !isTauri()) return;
     try {
-      if (guildId && channelId) {
-        await invoke("guild_admin", { request: { op: "patch_guild_settings", guildId, body: channelNotifyBody(channelId, level) } });
+      if (guildId && channelIds.length) {
+        await invoke("guild_admin", { request: { op: "patch_guild_settings", guildId, body: channelsNotifyBody(channelIds, level) } });
       } else if (guildId) {
         await invoke("guild_admin", { request: { op: "patch_guild_settings", guildId, body: guildNotifyBody(level) } });
-      } else if (channelId) {
-        await invoke("guild_admin", { request: { op: "patch_dm_settings", body: channelNotifyBody(channelId, level) } });
+      } else if (channelIds[0]) {
+        await invoke("guild_admin", { request: { op: "patch_dm_settings", body: channelNotifyBody(channelIds[0], level) } });
       }
     } catch (err) {
       this.toast("Notifications", err instanceof Error ? err.message : "Discord did not save that. Lark kept it on this device.");
