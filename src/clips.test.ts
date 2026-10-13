@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CLIP_DRAG,
   clipAttachAction,
+  clipPlaybackBlock,
   compressCopy,
   DEFAULT_UPLOAD_LIMIT,
   demoClips,
@@ -100,6 +101,15 @@ describe("clip library", () => {
     expect(clips.some((clip) => clip.name === over!.name)).toBe(true);
   });
 
+  it("plays an H.264 faststart MP4 and refuses AVI, HEVC, and a late moov", () => {
+    const playable = mp4({ moov: "moov....avc1", mdatAfter: true });
+    expect(clipPlaybackBlock("lark-clip-demo.mp4", playable)).toBeNull();
+    expect(clipPlaybackBlock("lark-clip-demo.avi", ascii("RIFF....AVI "))).toMatch(/AVI/);
+    expect(clipPlaybackBlock("lark-clip-demo.mp4", mp4({ moov: "moovhvc1....", mdatAfter: true }))).toMatch(/HEVC/);
+    expect(clipPlaybackBlock("lark-clip-demo.mp4", mp4({ moov: "moov....avc1", mdatAfter: false }))).toMatch(/faststart/);
+    expect(clipPlaybackBlock("lark-clip-demo.mp4", ascii("not a video"))).toMatch(/not an MP4/);
+  });
+
   it("is reachable from the command palette and settings remember the compress mode", () => {
     expect(commandCatalog().some((item) => item.id === "clips")).toBe(true);
     expect(matchCommands("trim", commandCatalog()).some((item) => item.id === "clips")).toBe(true);
@@ -113,3 +123,30 @@ describe("clip library", () => {
     expect(sanitizeConfig({ clips: { compress: "nope" } }).clips.compress).toBe("ask");
   });
 });
+
+function ascii(text: string): Uint8Array {
+  return Uint8Array.from(text, (char) => char.charCodeAt(0));
+}
+
+function mp4(options: { moov: string; mdatAfter: boolean }): Uint8Array {
+  const ftyp = box("ftyp", ascii("isom"));
+  const moov = box("moov", ascii(options.moov));
+  const mdat = box("mdat", ascii("frame"));
+  const parts = options.mdatAfter ? [ftyp, moov, mdat] : [ftyp, mdat, moov];
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const bytes = new Uint8Array(total);
+  let cursor = 0;
+  for (const part of parts) {
+    bytes.set(part, cursor);
+    cursor += part.length;
+  }
+  return bytes;
+}
+
+function box(kind: string, payload: Uint8Array): Uint8Array {
+  const bytes = new Uint8Array(8 + payload.length);
+  new DataView(bytes.buffer).setUint32(0, bytes.length);
+  bytes.set(ascii(kind), 4);
+  bytes.set(payload, 8);
+  return bytes;
+}

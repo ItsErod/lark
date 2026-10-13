@@ -14,7 +14,7 @@ use base64::Engine;
 use lark_clip_hw::{LiveConfig, LiveSession};
 use lark_core::clip::{prepare_frame, ClipBuffer, CLIP_SAMPLE_INTERVAL_MS, CLIP_WINDOW_MS};
 use lark_core::clip_rate::{
-    frame_duration_ticks, resolve_capture, sample_is_key, take_access_unit, AccessUnit,
+    frame_duration_ticks, resolve_clip_capture, sample_is_key, take_access_unit, AccessUnit,
     ClipRequest, DisplayCaps, EncoderCaps, EncoderKind, PacketRing, RateWatch, VideoCodec,
 };
 use serde::Serialize;
@@ -812,7 +812,7 @@ fn plan_for(
     inner: &Inner,
     probe: &lark_clip_hw::HardwareProbe,
 ) -> lark_core::clip_rate::ResolvedCapture {
-    resolve_capture(
+    resolve_clip_capture(
         ClipRequest::new(
             inner.fps.load(Ordering::Relaxed),
             inner.resolution.load(Ordering::Relaxed),
