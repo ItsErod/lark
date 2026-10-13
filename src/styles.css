@@ -132,7 +132,7 @@ button { cursor: pointer; }
 .server-button.has-unread .pip, .rail-button.has-unread .pip { height: 8px; }
 .server-button:hover .pip, .rail-button:hover .pip { height: 20px; }
 .server-button.is-selected .pip, .rail-button.is-selected .pip { height: 40px; }
-.server-button .badge, .rail-button .badge, .dm-row .badge, .channel-row .badge {
+.server-button .badge, .rail-button .badge, .dm-row .badge, .channel-row .badge, .friend-tab .badge {
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff;
   font-size: 12px; font-weight: 700; line-height: 16px; display: grid; place-items: center;
 }
@@ -140,6 +140,7 @@ button { cursor: pointer; }
   position: absolute; right: 8px; bottom: 0; box-shadow: 0 0 0 4px var(--bg-0); z-index: 1;
 }
 .channel-row .badge, .dm-row .badge { position: static; margin-left: auto; box-shadow: none; }
+.friend-tab .badge { position: static; margin-left: 0; box-shadow: none; }
 .rail-scroll, .channel-scroll, .member-scroll, .messages,
 .settings-body, .switcher-results, .bookmark-list, .codeblock {
   scrollbar-width: thin;
@@ -1227,11 +1228,12 @@ button.guild-row:hover { background: var(--hover); }
 .guild-row .ghost { width: auto; }
 .channel-editor { width: min(560px, calc(100% - 32px)); }
 .channel-editor-body { display: grid; gap: 8px; max-height: 60vh; overflow: auto; }
+.friends-board { padding: 8px 16px 16px; }
 .friend-tabs { display: flex; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 1; background: var(--bg-2); padding: 0 0 8px; border-bottom: 1px solid var(--line); }
 .friend-tab { border: 0; background: transparent; color: var(--muted); border-radius: 4px; padding: 2px 8px; min-height: 24px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .friend-tab.is-on { background: var(--bg-3); color: var(--text); }
-.friend-tab.is-add { margin-left: auto; color: #23a559; }
-.friend-tab.is-add.is-on { background: #23a559; color: #fff; }
+.friend-tab.is-add { margin-left: auto; color: var(--ok); }
+.friend-tab.is-add.is-on { background: var(--ok); color: var(--accent-ink); }
 .friends-shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; margin-top: 8px; }
 .friends-shell.no-active { grid-template-columns: minmax(0, 1fr); }
 .friends-list { min-width: 0; }
@@ -1243,11 +1245,11 @@ button.guild-row:hover { background: var(--hover); }
 .active-card { background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 4px; text-align: left; }
 .active-card p { margin: 0; }
 .activity-art { width: 100%; height: 112px; object-fit: cover; border-radius: 6px; background: var(--bg-3); }
-.live-pill { flex: none; background: #f23f43; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; border-radius: 4px; padding: 1px 4px; }
+.live-pill { flex: none; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; border-radius: 4px; padding: 1px 4px; }
 .clan-tag { flex: none; font-size: 11px; font-weight: 650; background: var(--bg-4); color: var(--text); border-radius: 4px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; }
 .clan-tag img { width: 14px; height: 14px; border-radius: 3px; }
 .dm-count { font-size: 12px; font-weight: 400; color: var(--faint); }
-.dm-voice { display: inline-flex; align-items: center; gap: 4px; color: #23a559; flex: none; }
+.dm-voice { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); flex: none; }
 .dm-voice svg { width: 16px; height: 16px; }
 .dm-close { display: none; width: 22px; height: 22px; place-items: center; border-radius: 4px; color: var(--muted); flex: none; }
 .dm-row:hover .dm-close, .dm-row:focus-within .dm-close { display: grid; }
