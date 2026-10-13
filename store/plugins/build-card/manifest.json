@@ -1,0 +1,12 @@
+{
+  "id": "build-card",
+  "name": "Build card",
+  "description": "Share a loadout you typed. The card waits in the composer. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "archive",
+  "changelog": "Four slots you fill in. Empty slots are left off the card."
+}

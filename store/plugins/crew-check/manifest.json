@@ -1,0 +1,12 @@
+{
+  "id": "crew-check",
+  "name": "Crew check",
+  "description": "Post a crew list and ask who is ready. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "shield",
+  "changelog": "One person per line. The ready line is added when you put the check in the composer."
+}

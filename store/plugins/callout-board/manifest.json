@@ -1,0 +1,12 @@
+{
+  "id": "callout-board",
+  "name": "Callout board",
+  "description": "Insert a short callout at the cursor. Add your own lines. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "keyboard",
+  "changelog": "Six starter lines, plus any you add. A click inserts the line. It does not send."
+}

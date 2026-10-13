@@ -1,0 +1,12 @@
+{
+  "id": "deadlock",
+  "name": "Deadlock",
+  "description": "Lane posts, hero builds, callouts, and a public Steam profile for Deadlock. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "spark",
+  "changelog": "Group posts and a hero card. Stats are the public Steam profile. Match history is not requested."
+}
