@@ -108,7 +108,7 @@ describe("version history", () => {
     expect(html).toContain('id="downloads"');
     expect(html).toContain("v3.0.5 is the current download");
     expect(html).toContain("720p camera, AEC3 echo cancellation, in-app Discover and App Directory, Home search, full profiles, emoji status, theme previews, app.ts split");
-    expect(html).toContain("Nothing merged after v3.0.5 yet");
+    expect(html).toContain("Slash command options form, bot buttons, select menus and modals");
     expect(html).toContain("Lark_3.0.5_x64-setup.exe");
     expect(html).toContain("Lark_3.0.5_universal.dmg");
     expect(html).toContain("/^Lark_.*_x64-setup\\.exe$/");

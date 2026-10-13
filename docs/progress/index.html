@@ -466,7 +466,7 @@
       <div class="section-head">
         <div>
           <h2 id="roadmap-title">Roadmap</h2>
-          <p id="roadmap-lead">v3.0.5 is the current download. It sends camera video at up to 720p, cancels speaker echo with AEC3, opens Discover, the App Directory, and Home search inside Lark, and adds full profiles, emoji statuses, and store theme previews. The interface code is now split into modules. Nothing newer is on main yet.</p>
+          <p id="roadmap-lead">v3.0.5 is the current download. It sends camera video at up to 720p, cancels speaker echo with AEC3, opens Discover, the App Directory, and Home search inside Lark, and adds full profiles, emoji statuses, and store theme previews. The interface code is now split into modules. Main also has a slash command options form plus bot buttons, select menus, and modals, which ship in the next release.</p>
         </div>
       </div>
       <ol class="roadmap">
@@ -477,8 +477,8 @@
         </li>
         <li id="roadmap-main-row">
           <span class="roadmap-ver">On main</span>
-          <span class="roadmap-name" id="roadmap-main-name">Nothing merged after v3.0.5 yet</span>
-          <span class="roadmap-state" id="roadmap-main-state">Up to date</span>
+          <span class="roadmap-name" id="roadmap-main-name">Slash command options form, bot buttons, select menus and modals</span>
+          <span class="roadmap-state" id="roadmap-main-state">Merged, not released</span>
         </li>
       </ol>
     </section>
@@ -3157,9 +3157,9 @@
         if (row) row.classList.add("is-shipped");
         if (tag.toLowerCase() === "v3.0.5") {
           if (name) name.textContent = "720p camera, AEC3 echo cancellation, in-app Discover and App Directory, Home search, full profiles, emoji status, theme previews, app.ts split";
-          if (lead) lead.textContent = "v3.0.5 is the current download. It sends camera video at up to 720p, cancels speaker echo with AEC3, opens Discover, the App Directory, and Home search inside Lark, and adds full profiles, emoji statuses, and store theme previews. The interface code is now split into modules. Nothing newer is on main yet.";
-          if (mainName) mainName.textContent = "Nothing merged after v3.0.5 yet";
-          if (onMain) onMain.textContent = "Up to date";
+          if (lead) lead.textContent = "v3.0.5 is the current download. It sends camera video at up to 720p, cancels speaker echo with AEC3, opens Discover, the App Directory, and Home search inside Lark, and adds full profiles, emoji statuses, and store theme previews. The interface code is now split into modules. Main also has a slash command options form plus bot buttons, select menus, and modals, which ship in the next release.";
+          if (mainName) mainName.textContent = "Slash command options form, bot buttons, select menus and modals";
+          if (onMain) onMain.textContent = "Merged, not released";
           return;
         }
         if (name) name.textContent = "Published release. Notes are in the version history.";
