@@ -15,7 +15,7 @@ use crate::soundboard::SoundMix;
 
 use super::noise::{FirAec, NoiseSuppressor, SpectralSuppressor};
 use super::voice::{
-    decrypt_voice, encrypt_voice, rtp_header, voice_active, CipherMode, OPUS_SILENCE,
+    decrypt_voice, encrypt_audio, voice_active, CipherMode, OPUS_SILENCE,
 };
 use super::voice_dave::DaveCall;
 use super::voice_io::DeviceStreams;
@@ -202,7 +202,9 @@ pub fn apply_aec(frame: &mut [f32], reference: &[f32], state: &mut AecState) {
     state.coeff = state.coeff.clamp(-2.0, 2.0);
 }
 
-/// Lifts a quiet voice toward a steady level. Exact silence stays silence.
+/// Lifts a quiet voice toward a steady level the default activity gate can hear.
+/// Exact silence stays silence. Gain stops at 8 so a quiet room tone stays under
+/// that gate.
 pub fn apply_agc(frame: &mut [f32], state: &mut AgcState) {
     if frame.is_empty() {
         return;
@@ -212,7 +214,7 @@ pub fn apply_agc(frame: &mut [f32], state: &mut AgcState) {
     if rms < 0.0008 {
         return;
     }
-    let desired = (0.05 / rms).clamp(0.25, 8.0);
+    let desired = (0.10 / rms).clamp(0.25, 8.0);
     state.gain = (state.gain * 0.7 + desired * 0.3).clamp(0.25, 8.0);
     for sample in frame.iter_mut() {
         *sample = (*sample * state.gain).clamp(-1.0, 1.0);
@@ -245,6 +247,8 @@ pub struct Playback {
     pub channels: u16,
     pub output_gain: f32,
     pub last_render: Vec<f32>,
+    /// Guild soundboard for the speakers. Not a remote voice stream.
+    local: VecDeque<f32>,
 }
 
 /// Playback gain ceiling. The voice slider uses 2.0. The volume booster plugin uses 4.0.
@@ -266,6 +270,17 @@ impl Playback {
             channels: 2,
             output_gain: 1.0,
             last_render: Vec::new(),
+            local: VecDeque::new(),
+        }
+    }
+
+    /// Queue speaker-only soundboard audio. A long sound is kept; voice jitter is not.
+    pub fn push_local(&mut self, pcm: &[f32]) {
+        const LOCAL_CAP: usize = 48_000 * 15;
+        self.local.extend(pcm.iter().copied().filter(|sample| sample.is_finite()));
+        if self.local.len() > LOCAL_CAP {
+            let extra = self.local.len() - LOCAL_CAP;
+            self.local.drain(..extra);
         }
     }
 
@@ -287,6 +302,15 @@ impl Playback {
             for sample in mixed.iter_mut() {
                 let Some(input) = speaker.samples.pop_front() else { break };
                 *sample += input * gain;
+            }
+        }
+        let local_frames = src_frames.min(self.local.len());
+        if self.deafened {
+            self.local.drain(..local_frames);
+        } else {
+            for sample in mixed.iter_mut().take(local_frames) {
+                let Some(extra) = self.local.pop_front() else { break };
+                *sample = (*sample + extra).clamp(-1.0, 1.0);
             }
         }
         if !self.deafened {
@@ -511,6 +535,7 @@ fn run_media(args: MediaArgs) {
             play.deafened = controls.deafened;
             play.output_gain = (f32::from(controls.output_volume) / 100.0).clamp(0.0, 2.0);
         }
+        drain_heard(&args.board, &args.playback);
         let wait = next_frame.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
         match args.inbound.recv_timeout(wait) {
             Ok(packet) => handle_packet(&args, &mut decoders, &mut scratch, packet),
@@ -620,6 +645,9 @@ fn produce_frame(
     let active = voice_active(&owned, controls.sensitivity);
     let board = args.board.lock().ok().map(|mut mix| mix.mix_into(&mut owned)).unwrap_or(false);
     let talking = encoder.is_some() && (board || (transmit && have_audio && (!controls.vad || active)));
+    if !talking && have_audio && transmit && controls.vad && !active && encoder.is_some() {
+        note_drop(&args.log, |log| &mut log.quiet);
+    }
     if talking {
         set_talking(args, true, last_talking);
         *silence_left = SILENCE_TAIL;
@@ -673,8 +701,8 @@ fn send_opus(args: &MediaArgs, opus: &[u8], seq: &mut u16, timestamp: &mut u32, 
         log.opus_out = log.opus_out.saturating_add(1);
         log.last_opus_out = opus.to_vec();
     }
-    let header = rtp_header(*seq, *timestamp, args.ssrc);
-    if let Ok(packet) = encrypt_voice(args.mode, &args.key, &header, &sealed, *nonce) {
+    let speaking = opus != OPUS_SILENCE;
+    if let Ok(packet) = encrypt_audio(args.mode, &args.key, *seq, *timestamp, args.ssrc, &sealed, *nonce, speaking) {
         let _ = args.outbound.send(VoiceWire::Packet(packet));
     } else if let Ok(mut log) = args.log.lock() {
         log.encrypt_fail = log.encrypt_fail.saturating_add(1);
@@ -810,6 +838,20 @@ fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratc
         deliver(args, ssrc, &pcm);
     } else {
         note_drop(&args.log, |log| &mut log.opus_decode_fail);
+    }
+}
+
+/// Move queued guild sounds onto the speaker mix. They never enter the encoder.
+fn drain_heard(board: &Mutex<SoundMix>, playback: &Mutex<Playback>) {
+    let chunk = match board.lock() {
+        Ok(mut mix) => mix.take_hear(SAMPLE_RATE as usize),
+        Err(_) => return,
+    };
+    if chunk.is_empty() {
+        return;
+    }
+    if let Ok(mut play) = playback.lock() {
+        play.push_local(&chunk);
     }
 }
 
@@ -1027,6 +1069,22 @@ mod tests {
     }
 
     #[test]
+    fn a_local_sound_plays_and_a_deafen_drops_the_backlog() {
+        let mut play = Playback::new();
+        play.push_local(&[0.5, 0.25, f32::NAN]);
+        let mixed = play.render(2, &HashMap::new());
+        assert!((mixed[0] - 0.5).abs() < 0.001);
+        assert!((mixed[1] - 0.25).abs() < 0.001);
+        play.push_local(&[0.8, 0.8]);
+        play.deafened = true;
+        let silent = play.render(2, &HashMap::new());
+        assert_eq!(silent, vec![0.0, 0.0]);
+        play.deafened = false;
+        let after = play.render(2, &HashMap::new());
+        assert_eq!(after, vec![0.0, 0.0]);
+    }
+
+    #[test]
     fn input_gain_unity_is_unchanged_and_half_scales() {
         let mut frame = vec![0.5, -0.5];
         apply_input_gain(&mut frame, 100);
@@ -1057,6 +1115,19 @@ mod tests {
         let mut silence = vec![0.0; 64];
         apply_agc(&mut silence, &mut AgcState::default());
         assert!(silence.iter().all(|sample| *sample == 0.0));
+        let mut state = AgcState::default();
+        let mut heard = false;
+        for _ in 0..12 {
+            let mut frame = vec![0.02f32; 64];
+            apply_agc(&mut frame, &mut state);
+            if voice_active(&frame, 45) {
+                heard = true;
+                break;
+            }
+        }
+        assert!(heard, "automatic gain must clear the default activity gate");
+        let room = vec![0.001f32; 64];
+        assert!(!voice_active(&room, 45));
     }
 
     #[test]

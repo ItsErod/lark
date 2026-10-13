@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Lark main window. The webview can listen for events, read window state, copy voice diagnostics, check for updates, and relaunch after an update is installed. It cannot start a shell or create windows.",
+  "description": "Lark main window. The webview can listen for events, read window state, copy voice diagnostics, check for updates, relaunch after an update is installed, and load a signed interface bundle. It cannot start a shell or create windows.",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
@@ -18,6 +18,7 @@
     "notification:default",
     "updater:default",
     "process:allow-restart",
+    "allow-interface-update",
     "allow-get-config",
     "allow-save-config",
     "allow-app-paths",

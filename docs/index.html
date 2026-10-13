@@ -3,24 +3,142 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0; url=progress/">
-  <title>Lark 3.0 build progress</title>
-  <link rel="canonical" href="progress/">
+  <meta name="description" content="Lark is an unofficial desktop client for one Discord account. Download the latest Windows and Mac builds.">
+  <meta name="theme-color" content="#09090b">
+  <title>Lark</title>
   <link rel="icon" href="progress/favicon.svg" type="image/svg+xml">
   <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09090b;
+      --line: #27272a;
+      --text: #fafafa;
+      --secondary: #d4d4d8;
+      --muted: #a1a1aa;
+      --accent: #fafafa;
+      --font: "Inter", "Segoe UI", system-ui, sans-serif;
+      --mono: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      background: #1e1f22;
-      color: #f2f3f5;
-      font-family: "Segoe UI", system-ui, sans-serif;
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.45;
+      color: var(--text);
+      background: var(--bg);
     }
-    a { color: #e2a15a; font-weight: 700; }
+    a { color: inherit; }
+    :focus { outline: none; }
+    :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+    .wrap { width: min(760px, calc(100% - 32px)); margin: 0 auto; }
+    header {
+      border-bottom: 1px solid var(--line);
+    }
+    .bar {
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 650; }
+    .brand img { width: 28px; height: 28px; border-radius: 4px; }
+    nav { display: flex; gap: 14px; }
+    nav a { color: var(--secondary); text-decoration: none; font-weight: 600; }
+    nav a:hover { color: var(--text); }
+    main { padding: 48px 0 64px; }
+    h1 { margin: 0; font-size: clamp(40px, 8vw, 64px); letter-spacing: -0.045em; line-height: 0.95; font-weight: 600; }
+    .lede { max-width: 46ch; color: var(--secondary); font-size: 17px; margin: 16px 0 0; }
+    .downloads { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+    .dl {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 180px;
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #09090b;
+      text-decoration: none;
+    }
+    .dl:hover { background: #fff; color: #09090b; }
+    .dl span { font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
+    .dl strong { font-size: 15px; }
+    .dl code { font-family: var(--mono); font-size: 12px; }
+    .note { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+    footer { border-top: 1px solid var(--line); padding: 24px 0; color: var(--muted); }
+    footer p { margin: 0; max-width: 68ch; }
   </style>
 </head>
 <body>
-  <p><a href="progress/">Lark 3.0 build progress</a></p>
+  <header>
+    <div class="wrap bar">
+      <a class="brand" href="./">
+        <img src="progress/icon.png" width="28" height="28" alt="">
+        Lark
+      </a>
+      <nav aria-label="Site">
+        <a href="progress/">Progress</a>
+        <a href="store/">Store</a>
+        <a href="https://github.com/ItsErod/lark">GitHub</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <h1>Lark</h1>
+    <p class="lede">An unofficial desktop client for one Discord account. Plugins and themes stay in the store, out of the download.</p>
+    <div class="downloads" id="downloads">
+      <a class="dl" id="exe" href="https://github.com/ItsErod/lark/releases/latest">
+        <span>Windows</span>
+        <strong>Download EXE</strong>
+        <code>Latest setup</code>
+      </a>
+      <a class="dl" id="dmg" href="https://github.com/ItsErod/lark/releases/latest">
+        <span>macOS</span>
+        <strong>Download DMG</strong>
+        <code>Latest disk image</code>
+      </a>
+    </div>
+    <p class="note" id="release-note">Checking the latest release…</p>
+  </main>
+  <footer>
+    <div class="wrap">
+      <p>Lark is not affiliated with, endorsed by, or supported by Discord.</p>
+    </div>
+  </footer>
+  <script>
+    const note = document.getElementById("release-note");
+    fetch("https://api.github.com/repos/ItsErod/lark/releases/latest")
+      .then((res) => res.ok ? res.json() : Promise.reject(res.status))
+      .then((release) => {
+        const assets = Array.isArray(release.assets) ? release.assets : [];
+        const exe = assets.find((asset) => /x64-setup\.exe$/i.test(asset.name) && !/\.sig$/i.test(asset.name));
+        const dmg = assets.find((asset) => /universal\.dmg$/i.test(asset.name) && !/\.sig$/i.test(asset.name));
+        const exeLink = document.getElementById("exe");
+        const dmgLink = document.getElementById("dmg");
+        if (exe) {
+          exeLink.href = exe.browser_download_url;
+          exeLink.querySelector("code").textContent = exe.name;
+        }
+        if (dmg) {
+          dmgLink.href = dmg.browser_download_url;
+          dmgLink.querySelector("code").textContent = dmg.name;
+        }
+        const when = release.published_at ? new Date(release.published_at).toLocaleString("en-US", {
+          timeZone: "America/New_York",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          timeZoneName: "short"
+        }) : "";
+        note.textContent = (release.tag_name || "Latest") + (when ? " · " + when : "");
+      })
+      .catch(() => {
+        note.textContent = "Downloads are on the GitHub releases page.";
+      });
+  </script>
 </body>
 </html>
