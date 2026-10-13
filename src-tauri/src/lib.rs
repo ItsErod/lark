@@ -313,6 +313,7 @@ pub fn run() {
             set_voice_processing,
             set_voice_camera,
             push_camera_frame,
+            push_camera_rgba,
             push_camera_access,
             set_camera_profile,
             set_voice_video,
@@ -1603,6 +1604,24 @@ fn push_camera_frame(state: State<'_, Shared>, width: u32, height: u32, rgba: Ve
             width,
             height,
             rgba,
+        });
+}
+
+#[tauri::command]
+fn push_camera_rgba(state: State<'_, Shared>, width: u32, height: u32, rgba: String) {
+    if rgba.len() > 12_000_000 {
+        return;
+    }
+    let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, rgba.trim())
+    else {
+        return;
+    };
+    state
+        .camera
+        .push(lark_core::discord::voice_camera::CameraFrame {
+            width,
+            height,
+            rgba: bytes,
         });
 }
 

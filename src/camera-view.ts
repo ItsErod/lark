@@ -81,11 +81,10 @@ class CameraPreview {
   private pps: Uint8Array | null = null;
   private configured = false;
   private stamp = 0;
-  private bitmap: ImageBitmap | null = null;
+  private acceleration: HardwareAcceleration = "prefer-hardware";
 
   attach(canvas: HTMLCanvasElement): void {
     if (!this.canvases.includes(canvas)) this.canvases.push(canvas);
-    this.paint();
   }
 
   detach(root: ParentNode): void {
@@ -100,19 +99,29 @@ class CameraPreview {
     for (const nal of nals) {
       if (!nal.length) continue;
       const kind = nal[0] & 0x1f;
-      if (kind === 7) this.sps = nal;
-      else if (kind === 8) this.pps = nal;
-      else {
+      if (kind === 7) {
+        if (!sameBytes(this.sps, nal)) {
+          this.sps = nal.slice();
+          this.configured = false;
+        }
+      } else if (kind === 8) {
+        if (!sameBytes(this.pps, nal)) {
+          this.pps = nal.slice();
+          this.configured = false;
+        }
+      } else {
         sample.push(nal);
         if (kind === 5) key = true;
       }
     }
     if (!this.configured && this.sps && this.pps && key) this.configure();
     if (!this.decoder || !this.configured || !sample.length) return;
+    if (!key && this.decoder.decodeQueueSize > 3) return;
     const chunk = lengthPrefix(sample);
+    const now = Math.round(performance.now() * 1000);
+    this.stamp = now > this.stamp ? now : this.stamp + 1;
     try {
       this.decoder.decode(new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp: this.stamp, data: chunk }));
-      this.stamp += 66_666;
     } catch {
       this.configured = false;
     }
@@ -125,8 +134,6 @@ class CameraPreview {
       /* already closed */
     }
     this.decoder = null;
-    this.bitmap?.close();
-    this.bitmap = null;
     this.canvases = [];
   }
 
@@ -141,40 +148,58 @@ class CameraPreview {
     }
     this.decoder = new VideoDecoder({
       output: (frame) => {
-        void createImageBitmap(frame).then((bitmap) => {
-          frame.close();
-          this.bitmap?.close();
-          this.bitmap = bitmap;
-          this.paint();
-        }).catch(() => frame.close());
+        this.paint(frame);
+        frame.close();
       },
       error: () => {
         this.configured = false;
+        if (this.acceleration === "prefer-hardware") this.acceleration = "prefer-software";
       },
     });
+    const options = {
+      codec,
+      description: avcC(this.sps, this.pps),
+      optimizeForLatency: true,
+      hardwareAcceleration: this.acceleration,
+    };
     try {
-      this.decoder.configure({
-        codec,
-        description: avcC(this.sps, this.pps),
-        optimizeForLatency: true,
-        hardwareAcceleration: "prefer-hardware",
-      });
+      this.decoder.configure(options);
       this.configured = true;
     } catch {
+      if (this.acceleration === "prefer-hardware") {
+        this.acceleration = "prefer-software";
+        try {
+          this.decoder.configure({ ...options, hardwareAcceleration: "prefer-software" });
+          this.configured = true;
+          return;
+        } catch {
+          /* this window cannot decode the picture */
+        }
+      }
       this.configured = false;
     }
   }
 
-  private paint(): void {
-    const bitmap = this.bitmap;
-    if (!bitmap) return;
+  private paint(frame: VideoFrame): void {
     for (const canvas of this.canvases) {
+      if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+        canvas.width = frame.displayWidth;
+        canvas.height = frame.displayHeight;
+      }
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(frame, 0, 0);
       canvas.classList.add("is-live");
     }
   }
+}
+
+function sameBytes(left: Uint8Array | null, right: Uint8Array): boolean {
+  if (!left || left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
 }
 
 function hasStartCode(bytes: Uint8Array): boolean {
