@@ -6,6 +6,7 @@ import "./design-messages.css";
 import "./design-profile.css";
 import "./design-voice.css";
 import "./design-chrome.css";
+import "./motion-override.css";
 import { installCrashHandlers, reportCrash } from "./crash";
 import { notifyInterfaceBoot } from "./interface-update";
 import { mount } from "./ui/app";

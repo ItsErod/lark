@@ -13,6 +13,7 @@ import {
 } from "../user-settings";
 import { el } from "./dom";
 import { syncGifPause } from "../gif-pause-dom";
+import { motionChoice } from "../motion-pref";
 import { registerSettingEntries, segmentControl, settingCard, settingHead, settingRow, sliderControl, switchControl } from "./settings";
 
 registerSettingEntries([{
@@ -207,6 +208,17 @@ export function renderAccessibilityPane(host: SettingsHost): HTMLElement {
     }),
   ));
   const display = settingCard("Display");
+  display.append(settingRow(
+    "accessibility.motion",
+    "Motion",
+    "Follow the system, reduce motion, or allow motion. Game Mode still stays still.",
+    segmentControl(["system", "reduce", "allow"], motionChoice(host.config.preferences.reduced_motion), (value) => {
+      host.config.preferences.reduced_motion = motionChoice(value);
+      host.persist();
+      host.apply();
+    }, { system: "System", reduce: "Reduce", allow: "Allow" }),
+    true,
+  ));
   display.append(settingRow(
     "accessibility.ui",
     "UI density",

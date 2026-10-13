@@ -136,6 +136,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "appearance.embeds", section: "appearance", label: "Show embeds", description: "Show embeds and link previews in chat.", keywords: "preview links" },
   { id: "appearance.media", section: "appearance", label: "Show media", description: "Show images, video, and audio attached to messages.", keywords: "images video" },
   { id: "appearance.pause_gif", section: "appearance", label: "Pause GIF autoplay", description: "GIFs and stickers stay still until you click them.", keywords: "gif sticker tenor giphy" },
+  { id: "accessibility.motion", section: "accessibility", label: "Motion", description: "Follow the system, reduce motion, or allow motion.", keywords: "reduced motion animation" },
   { id: "appearance.spoilers", section: "appearance", label: "Show spoiler content", description: "Reveal spoilers without a click.", keywords: "spoiler" },
   { id: "appearance.font", section: "appearance", label: "Font", description: "The face used for messages and the chrome.", keywords: "inter system serif mono typeface" },
   { id: "appearance.size", section: "appearance", label: "Font size", description: "Interface size, from 12 to 24.", keywords: "text scale" },
