@@ -334,7 +334,8 @@ where
             received = udp_recv.recv(&mut packet) => {
                 if let Ok(size) = received {
                     let datagram = &packet[..size];
-                    let stream = crate::discord::voice_log::rtp_stream(datagram);
+                    let stream = crate::discord::voice_log::rtp_stream(datagram)
+                        .filter(|_| crate::discord::voice::opus_payload(datagram));
                     if let Ok(mut guard) = log.lock() {
                         guard.note_udp_in(size, stream.map(|(id, _)| id), stream.map(|(_, seq)| seq));
                     }

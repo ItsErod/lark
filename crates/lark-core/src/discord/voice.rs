@@ -159,7 +159,7 @@ pub fn decrypt_voice(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<
     }
     let mut plain = open(mode, key, header, cipher_text, &counter, &suffix24)?;
     if aead {
-        strip_rtp_padding(body[0], &mut plain)?;
+        strip_rtp_padding(body[0], &mut plain);
         let ext = extension_payload_len(body);
         if plain.len() < ext {
             return Err(());
@@ -197,21 +197,28 @@ pub fn extension_payload_len(packet: &[u8]) -> usize {
     u16::from_be_bytes([packet[start + 2], packet[start + 3]]) as usize * 4
 }
 
-fn strip_rtp_padding(flags: u8, plain: &mut Vec<u8>) -> Result<(), ()> {
-    if flags & 0x20 == 0 {
-        return Ok(());
+fn strip_rtp_padding(flags: u8, plain: &mut Vec<u8>) {
+    if flags & 0x20 == 0 || plain.is_empty() {
+        return;
     }
-    let pad = plain.last().copied().ok_or(())? as usize;
+    let pad = plain.last().copied().unwrap_or(0) as usize;
+    // A padding bit with a length that does not fit is not RFC padding.
+    // Dropping the frame here threw away audio that had already authenticated.
     if pad == 0 || pad > plain.len() {
-        return Err(());
+        return;
     }
     plain.truncate(plain.len() - pad);
-    Ok(())
 }
 
 /// RTCP packet types live in 192..=223. They share the RTP version bits.
 pub fn is_rtcp(packet: &[u8]) -> bool {
     packet.len() >= 8 && packet[0] >> 6 == 2 && (192..=223).contains(&packet[1])
+}
+
+/// Discord audio uses payload type 120 (`0x78`). Other RTP-looking datagrams
+/// are not a media sequence.
+pub fn opus_payload(packet: &[u8]) -> bool {
+    packet.len() >= 12 && packet[0] >> 6 == 2 && packet[1] & 0x7f == 0x78 && !is_rtcp(packet)
 }
 
 fn suffix_bytes<'a>(mode: CipherMode, counter: &'a [u8; 4], suffix24: &'a [u8; 24]) -> &'a [u8] {
@@ -548,9 +555,8 @@ pub fn voice_heartbeat(now_ms: u64, seq_ack: Option<i64>) -> String {
 
 /// Energy detector for voice activity. Higher sensitivity hears quieter speech.
 ///
-/// Sensitivity 45 is the default. Its gate sits under the automatic-gain target
-/// so a quiet microphone still counts as speech after gain, and above the level
-/// a gain-capped room tone can reach.
+/// Sensitivity 45 is the default. Its gate sits under a quiet voice after the
+/// gain cap, and above the level a gain-capped room tone can reach.
 pub fn voice_active(samples: &[f32], sensitivity: u8) -> bool {
     if samples.is_empty() {
         return false;
@@ -561,7 +567,9 @@ pub fn voice_active(samples: &[f32], sensitivity: u8) -> bool {
     }
     let rms = (sum / samples.len() as f32).sqrt();
     let sensitivity = sensitivity.min(100) as f32;
-    let threshold = 0.08 * (1.0 - sensitivity / 100.0) + 0.0004;
+    // Sensitivity 45 sits near 0.022. That is under a quiet voice after the
+    // gain cap (about 0.04) and above a gain-capped room tone (about 0.004).
+    let threshold = 0.04 * (1.0 - sensitivity / 100.0) + 0.0004;
     rms >= threshold
 }
 
@@ -702,8 +710,15 @@ mod tests {
         padded_header[0] |= 0x20;
         let packet = encrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &padded_header, &padded, 8).unwrap();
         assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(), opus);
+        let mut marked = rtp_header(9, 960, 5);
+        marked[0] |= 0x20;
+        let odd = b"abc\xff";
+        let odd_packet = encrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &marked, odd, 11).unwrap();
+        assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &odd_packet).unwrap(), odd);
         assert!(is_rtcp(&[0x80, 200, 0, 1, 0, 0, 0, 1]));
         assert!(!is_rtcp(&header));
+        assert!(opus_payload(&packet));
+        assert!(!opus_payload(&[0x80, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]));
         let packet = encrypt_audio(CipherMode::Aes256GcmRtpSize, &key(), 4, 960, 42, opus, 3, true).unwrap();
         assert_eq!(packet[0] & 0x10, 0x10);
         assert_eq!(extension_payload_len(&packet), 4);
@@ -768,6 +783,8 @@ mod tests {
         let room = vec![0.01f32; 48];
         assert!(voice_active(&speech, 45));
         assert!(!voice_active(&room, 45));
+        assert!(voice_active(&vec![0.04f32; 48], 45));
+        assert!(!voice_active(&vec![0.004f32; 48], 45));
         assert_eq!(speaking_extension(1), 0x02);
         assert_eq!(voice_reconnect_delay_ms(0), 1_000);
         assert_eq!(voice_reconnect_delay_ms(8), 20_000);
