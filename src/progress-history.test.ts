@@ -107,10 +107,13 @@ describe("version history", () => {
     expect(html).toContain('id="now-list"');
     expect(html).toContain('id="downloads"');
     expect(html).toContain("v3.0.4 is the current download");
-    expect(html).toContain("Quiet hours, clip sharing, offline search, dashboard, local stats");
-    expect(html).toContain("Server and channel menus, Game Mode side columns, DM call buttons, and DM list marks");
+    expect(html).toContain("Dashboard, local stats, quiet hours, offline search, clip sharing");
+    expect(html).toContain("Server and channel menus, Game Mode tuck, call header buttons, DM list and friends badge refresh, parity refresh");
     expect(html).toContain("Lark_3.0.4_x64-setup.exe");
     expect(html).toContain("Lark_3.0.4_universal.dmg");
+    expect(html).toContain("/^Lark_.*_x64-setup\\.exe$/");
+    expect(html).toContain("/^Lark_.*_universal\\.dmg$/");
+    expect(html).not.toContain("Lark_3.0.3_x64-setup.exe");
     expect(html).not.toContain("3.0.2, then a dashboard");
     expect(html).toContain('archive.id = "archive-3"');
     expect(html).toContain("#09090b");
