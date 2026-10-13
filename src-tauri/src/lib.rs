@@ -3494,6 +3494,8 @@ async fn set_custom_status(
     status: String,
     custom: String,
     emoji: String,
+    emoji_id: Option<String>,
+    animated: Option<bool>,
     expires_at: Option<i64>,
     game: Option<String>,
 ) -> Result<(), String> {
@@ -3512,6 +3514,8 @@ async fn set_custom_status(
             status,
             custom,
             emoji,
+            emoji_id,
+            animated: animated.unwrap_or(false),
             expires_at,
             game: game.unwrap_or_default(),
         })

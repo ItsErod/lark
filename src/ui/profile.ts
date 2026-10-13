@@ -1,7 +1,10 @@
+import { EMOJI } from "../emoji";
 import type { ClearAfter } from "../social";
 import { blockedIds, pendingFriendCount } from "../social";
 import type { Person } from "../types";
 import { colorFor, el, portrait } from "./dom";
+import { renderEmojiPicker } from "./emoji-picker";
+import type { ServerEmoji } from "./status-emoji";
 
 export { blockedIds, pendingFriendCount };
 
@@ -70,6 +73,12 @@ export interface ProfileDetails {
 
 export type ProfilePlacement = "modal" | "panel" | "full";
 
+export interface StatusEmojiSource {
+  recent: string[];
+  server: ServerEmoji[];
+  allowServer: boolean;
+}
+
 export interface ProfileView {
   person: Person;
   details: ProfileDetails | null;
@@ -78,6 +87,7 @@ export interface ProfileView {
   roles: ProfileRole[];
   placement?: ProfilePlacement;
   serverEditor?: boolean;
+  statusEmojis?: StatusEmojiSource;
 }
 
 /** Stream B adds moderation buttons here. The card renders them and does not own the actions. */
@@ -90,6 +100,8 @@ export interface ProfileActionSlot {
 
 export interface ProfileStatusExtra {
   emoji: string;
+  emojiId?: string | null;
+  animated?: boolean;
   clearAfter: ClearAfter;
 }
 
@@ -347,10 +359,13 @@ function badgeRow(badges: ProfileBadge[]): HTMLElement {
 function statusPicker(view: ProfileView, actions: ProfileActions): HTMLElement {
   const picker = el("div", "profile-status-picker");
   let emoji = view.person.statusEmoji ?? "";
+  let emojiId: string | null = null;
+  let emojiAnimated = false;
   let clearAfter: ClearAfter = "never";
+  const source = view.statusEmojis;
   const current = () => view.person.status === "invisible" || view.person.status === "idle" || view.person.status === "dnd" ? view.person.status : "online";
   const send = (status: "online" | "idle" | "dnd" | "invisible", custom: string) => {
-    actions.onStatus?.(status, custom, { emoji: emoji.trim(), clearAfter });
+    actions.onStatus?.(status, custom, { emoji: emoji.trim(), emojiId, animated: emojiAnimated, clearAfter });
   };
   for (const status of ["online", "idle", "dnd", "invisible"] as const) {
     const button = el("button", `text-button${view.person.status === status ? " is-on" : ""}`, statusLabel(status));
@@ -364,14 +379,39 @@ function statusPicker(view: ProfileView, actions: ProfileActions): HTMLElement {
   custom.placeholder = "Custom status";
   custom.setAttribute("aria-label", "Custom status");
   custom.addEventListener("change", () => send(current(), custom.value.trim()));
-  const emojiField = el("input");
-  emojiField.value = emoji;
-  emojiField.maxLength = 32;
-  emojiField.placeholder = "Emoji";
-  emojiField.setAttribute("aria-label", "Status emoji");
-  emojiField.addEventListener("change", () => {
-    emoji = emojiField.value.trim();
-    send(current(), custom.value.trim());
+  const emojiButton = el("button", "text-button status-emoji-toggle", emoji || "Emoji");
+  emojiButton.type = "button";
+  emojiButton.setAttribute("aria-label", "Status emoji");
+  emojiButton.setAttribute("aria-expanded", "false");
+  const grid = el("div", "status-emoji-grid");
+  grid.hidden = true;
+  let query = "";
+  const paintGrid = () => {
+    grid.replaceChildren(renderEmojiPicker({
+      query,
+      unicode: EMOJI,
+      recent: source?.recent ?? [],
+      server: source?.server ?? [],
+      allowServer: Boolean(source?.allowServer),
+      onQuery: (value) => {
+        query = value;
+      },
+      onPick: (glyph, id, animated) => {
+        emoji = glyph;
+        emojiId = id ?? null;
+        emojiAnimated = Boolean(animated && id);
+        emojiButton.textContent = glyph;
+        grid.hidden = true;
+        emojiButton.setAttribute("aria-expanded", "false");
+        send(current(), custom.value.trim());
+      },
+    }));
+  };
+  emojiButton.addEventListener("click", () => {
+    const open = grid.hidden;
+    grid.hidden = !open;
+    emojiButton.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) paintGrid();
   });
   const clearSelect = el("select");
   clearSelect.setAttribute("aria-label", "Clear after");
@@ -394,13 +434,17 @@ function statusPicker(view: ProfileView, actions: ProfileActions): HTMLElement {
   clear.type = "button";
   clear.addEventListener("click", () => {
     emoji = "";
-    emojiField.value = "";
+    emojiId = null;
+    emojiAnimated = false;
+    emojiButton.textContent = "Emoji";
+    grid.hidden = true;
+    emojiButton.setAttribute("aria-expanded", "false");
     custom.value = "";
     clearAfter = "never";
     clearSelect.value = "never";
     send(current(), "");
   });
-  picker.append(custom, emojiField, clearSelect, clear);
+  picker.append(custom, emojiButton, grid, clearSelect, clear);
   return picker;
 }
 
