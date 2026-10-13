@@ -748,7 +748,7 @@ impl Default for Preferences {
             personalize: true,
             desktop_notifications: true,
             message_sound: false,
-            call_sound: false,
+            call_sound: true,
             unread_badge: true,
             email_notifications: false,
             share_activity: true,

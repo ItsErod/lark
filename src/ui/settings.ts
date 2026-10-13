@@ -143,7 +143,7 @@ const SETTING_ENTRIES: readonly SettingEntry[] = [
   { id: "notifications.desktop", section: "notifications", label: "Desktop notifications", description: "Banners while Lark is in the background.", keywords: "alerts toasts" },
   { id: "notifications.level", section: "notifications", label: "Notify me when", description: "All messages, only mentions, or nothing.", keywords: "all mentions mute nothing" },
   { id: "notifications.sounds", section: "notifications", label: "Message sound", description: "A short tone when a desktop notification fires.", keywords: "sounds message" },
-  { id: "notifications.call", section: "notifications", label: "Call sound", description: "A short tone for a call notification.", keywords: "call sound" },
+  { id: "notifications.call", section: "notifications", label: "Call sound", description: "The ringtone while a direct or group call is ringing.", keywords: "call sound ringtone" },
   { id: "notifications.badge", section: "notifications", label: "Unread badge", description: "The count on the dock or taskbar.", keywords: "badge dock" },
   { id: "notifications.email", section: "notifications", label: "Email notifications", description: "Saved on this device. Discord sends the mail.", keywords: "email" },
   { id: "notifications.test", section: "notifications", label: "Test notification", description: "Send a sample so you can see where it lands." },

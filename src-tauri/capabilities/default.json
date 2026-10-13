@@ -64,6 +64,8 @@
     "deep-link:default",
     "allow-join-voice",
     "allow-leave-voice",
+    "allow-ring-call",
+    "allow-stop-ringing",
     "allow-set-voice-self",
     "allow-set-presence",
     "allow-hardware-snapshot",

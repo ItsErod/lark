@@ -29,4 +29,11 @@ describe("call keybinds", () => {
   it("leaves other keybinds alone", () => {
     expect(callKeyAction("toggle_inbox", dm, dmVoice)).toBeNull();
   });
+
+  it("answers or declines a ringing call before joining the open DM", () => {
+    const ringing = { channelId: "77" };
+    expect(callKeyAction("answer_call", text, null, ringing)).toEqual({ op: "answer", channelId: "77" });
+    expect(callKeyAction("decline_call", dm, dmVoice, ringing)).toEqual({ op: "decline", channelId: "77" });
+    expect(callKeyAction("start_call", dm, null, ringing)).toEqual({ op: "join", channelId: "10" });
+  });
 });

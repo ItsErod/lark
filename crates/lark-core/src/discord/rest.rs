@@ -409,6 +409,37 @@ impl DiscordRest {
         Ok(messages.iter().map(message_to_client).collect())
     }
 
+    /// Ring the other people in a DM or group call. Discord shows them the incoming call.
+    pub async fn ring_call(&self, channel_id: &str, recipients: &[String]) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        if recipients.is_empty() || recipients.len() > 16 {
+            return Err(RestError::Message("Choose who to ring.".into()));
+        }
+        for id in recipients {
+            self.ensure_snowflake(id)?;
+        }
+        let path = format!("/channels/{channel_id}/call/ring");
+        let route = route_key("POST", "/channels/{channel.id}/call/ring", channel_id);
+        self.finish_call(Method::POST, &route, &path, json!({ "recipients": recipients })).await
+    }
+
+    /// Leave the ringing list without joining. This is Decline.
+    pub async fn stop_ringing(&self, channel_id: &str) -> Result<(), RestError> {
+        self.ensure_snowflake(channel_id)?;
+        let path = format!("/channels/{channel_id}/call/stop-ringing");
+        let route = route_key("POST", "/channels/{channel.id}/call/stop-ringing", channel_id);
+        self.finish_call(Method::POST, &route, &path, json!({})).await
+    }
+
+    async fn finish_call(&self, method: Method, route: &str, path: &str, body: Value) -> Result<(), RestError> {
+        let response = self.send(method, route, path, Some(body), &[]).await?;
+        if response.status().is_success() || response.status().as_u16() == 204 {
+            return Ok(());
+        }
+        let _ = Self::json_body(response, &self.token).await?;
+        Ok(())
+    }
+
     /// One mark-read for the channel the user is looking at. Not a bulk sweep.
     pub async fn ack_message(&self, channel_id: &str, message_id: &str) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
