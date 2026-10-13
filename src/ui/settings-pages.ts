@@ -12,6 +12,7 @@ import {
   type DiscordLink,
 } from "../user-settings";
 import { el } from "./dom";
+import { syncGifPause } from "../gif-pause-dom";
 import { registerSettingEntries, segmentControl, settingCard, settingHead, settingRow, sliderControl, switchControl } from "./settings";
 
 registerSettingEntries([{
@@ -159,6 +160,15 @@ export function mediaCard(host: SettingsHost): HTMLElement {
     "Images, video, and audio attached to messages.",
     toggle(host, "Show media", prefs.show_media, (value) => {
       host.config.preferences.show_media = value;
+    }),
+  ));
+  card.append(settingRow(
+    "appearance.pause_gif",
+    "Pause GIF autoplay",
+    "GIFs and stickers stay still until you click them.",
+    toggle(host, "Pause GIF autoplay", prefs.pause_gif, (value) => {
+      host.config.preferences.pause_gif = value;
+      syncGifPause(document, value);
     }),
   ));
   card.append(settingRow(

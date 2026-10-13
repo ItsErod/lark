@@ -7,6 +7,7 @@ import { messageMenuItems, reactorSummary, systemMessage, type SlashCommand } fr
 import { downloadName, offerDownload, originalImageUrl, originalLabel, type DownloadScope, type OriginalAction } from "../media/files";
 import { youtubeFromEmbed } from "../media/watch";
 import { colorFor, el, formatClock, formatDay, icon, initials, paths, portrait } from "./dom";
+import { placeMotion } from "../gif-pause-dom";
 
 export function renderMessage(
   view: ViewMessage,
@@ -194,7 +195,7 @@ export function renderMessage(
       img.decoding = "async";
       img.width = 72;
       img.height = 72;
-      img.dataset.lazySrc = sticker.url;
+      placeMotion(img, sticker.url, "sticker");
       chip.append(img);
     }
     chip.append(el("span", "", sticker.name));
@@ -509,7 +510,7 @@ function renderAttachment(
     img.alt = "";
     img.decoding = "async";
     applyMediaBox(img, mediaBox(attachment.width, attachment.height));
-    img.dataset.lazySrc = attachment.url;
+    placeMotion(img, attachment.url, "image");
     img.addEventListener("error", () => {
       if (!img.getAttribute("src")) return;
       const chip = el("div", "file-chip");
@@ -583,7 +584,7 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
     applyMediaBox(video, mediaBox(embed.videoWidth, embed.videoHeight));
     if (quiet) video.dataset.quiet = "1";
     if (loop) video.dataset.loopPlay = "1";
-    video.dataset.lazySrc = embed.video;
+    placeMotion(video, embed.video, "video");
     card.append(video);
   } else if (embed.image || embed.thumbnail) {
     const img = el("img", "embed-image");
@@ -592,7 +593,7 @@ function renderEmbed(embed: ViewMessage["embeds"][number], remoteEmoji: boolean,
     const width = embed.image ? embed.imageWidth : undefined;
     const height = embed.image ? embed.imageHeight : undefined;
     applyMediaBox(img, mediaBox(width, height));
-    img.dataset.lazySrc = embed.image || embed.thumbnail || "";
+    placeMotion(img, embed.image || embed.thumbnail || "", "image");
     card.append(img);
     const full = originalControl(embed.image || embed.thumbnail || "", embed.title || "image", media);
     if (full) card.append(full);

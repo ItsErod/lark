@@ -158,6 +158,7 @@ export interface UserPreferences {
   desktop_notifications: boolean;
   message_sound: boolean;
   call_sound: boolean;
+  pause_gif: boolean;
   unread_badge: boolean;
   email_notifications: boolean;
   share_activity: boolean;

@@ -722,6 +722,7 @@ pub struct Preferences {
     pub desktop_notifications: bool,
     pub message_sound: bool,
     pub call_sound: bool,
+    pub pause_gif: bool,
     #[serde(default = "default_true")]
     pub unread_badge: bool,
     pub email_notifications: bool,
@@ -756,6 +757,7 @@ impl Default for Preferences {
             desktop_notifications: true,
             message_sound: false,
             call_sound: true,
+            pause_gif: false,
             unread_badge: true,
             email_notifications: false,
             share_activity: true,
