@@ -184,6 +184,65 @@ export function renamedClipName(current: string, label: string): string | null {
   return isClipFileName(name) ? name : null;
 }
 
+/** Gallery title. A detected game stays readable; a bare timestamp is "Saved clip". */
+export function clipDisplayTitle(name: string): string {
+  const copy = /-trim\.(mp4|avi)$/i.test(name) ? " trim" : /-fit\.(mp4|avi)$/i.test(name) ? " fit" : "";
+  let stem = name.replace(/^lark-clip-/i, "").replace(/\.(mp4|avi)$/i, "");
+  stem = stem.replace(/-(?:fit|trim)$/i, "");
+  if (/^\d{8}-\d{6}Z(?:-\d+)?$/i.test(stem)) stem = "";
+  else stem = stem.replace(/-\d{8}-\d{6}Z(?:-\d+)?$/i, "");
+  stem = stem.replace(/-+$/g, "");
+  if (!stem) return `Saved clip${copy}`;
+  const title = stem
+    .split("-")
+    .filter(Boolean)
+    .map((word) => {
+      if (/^\d+$/.test(word) || word.length === 1) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+  return `${title}${copy}`;
+}
+
+export interface TrimPreset {
+  label: string;
+  startSec: number;
+  endSec: number;
+}
+
+function tenth(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/** Short trims for the clips gallery. The full file stays the default range. */
+export function trimPresets(durationMs: number): TrimPreset[] {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return [];
+  const endSec = tenth(durationMs / 1000);
+  const presets: TrimPreset[] = [];
+  if (endSec > 15) presets.push({ label: "Last 15s", startSec: tenth(endSec - 15), endSec });
+  if (endSec > 6) presets.push({ label: "Drop first 5s", startSec: 5, endSec });
+  return presets;
+}
+
+/** Keep the trim at least a tenth of a second inside the clip. */
+export function clampTrim(durationSec: number, startSec: number, endSec: number, moved: "start" | "end"): { startSec: number; endSec: number } {
+  const duration = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
+  let start = Number.isFinite(startSec) ? startSec : 0;
+  let end = Number.isFinite(endSec) ? endSec : duration;
+  const cap = duration > 0 ? duration : Math.max(end, start, 0.1);
+  start = Math.min(Math.max(0, start), cap);
+  end = Math.min(Math.max(0, end), cap);
+  if (end - start < 0.1) {
+    if (moved === "start") start = Math.max(0, end - 0.1);
+    else end = Math.min(cap, start + 0.1);
+    if (end - start < 0.1) {
+      start = 0;
+      end = Math.min(cap, Math.max(0.1, cap));
+    }
+  }
+  return { startSec: tenth(start), endSec: tenth(end) };
+}
+
 export function trimRange(durationMs: number, startSec: number, endSec: number): { startMs: number; endMs: number } | string {
   if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) return "Enter a start and end.";
   const startMs = Math.round(Math.max(0, startSec) * 1000);

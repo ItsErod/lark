@@ -390,6 +390,21 @@ pub fn clip_game_label(name: &str) -> Option<String> {
     })
 }
 
+/// Name for a clip file. A detected activity wins. Otherwise the background probe.
+/// An empty activity falls through so a game Lark has not painted yet still names the file.
+pub fn clip_name_label(activity: Option<&str>, probed: &str) -> Option<String> {
+    if let Some(label) = activity.map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(named) = clip_game_label(label) {
+            return Some(named);
+        }
+    }
+    let probed = probed.trim();
+    if probed.is_empty() {
+        return None;
+    }
+    clip_game_label(probed)
+}
+
 fn clip_slug(label: &str) -> Option<String> {
     let mut slug = String::new();
     let mut dash = false;
@@ -901,6 +916,13 @@ mod tests {
         assert_eq!(clip_game_label("cod.exe").as_deref(), Some("Call of Duty"));
         assert_eq!(clip_game_label("GTA5.exe").as_deref(), Some("Grand Theft Auto V"));
         assert_eq!(clip_game_label("Lark"), None);
+        assert_eq!(
+            clip_name_label(Some("Overwatch.exe"), "Lark").as_deref(),
+            Some("Overwatch 2")
+        );
+        assert_eq!(clip_name_label(Some("Lark"), "deadlock.exe").as_deref(), Some("Deadlock"));
+        assert_eq!(clip_name_label(None, "cod.exe").as_deref(), Some("Call of Duty"));
+        assert_eq!(clip_name_label(Some(""), ""), None);
         assert_eq!(
             clip_file_name(1_700_000_000),
             "lark-clip-20231114-221320Z.mp4"

@@ -459,7 +459,7 @@ html.is-panic body > * { visibility: hidden !important; }
 .composer-banner.clip-banner { flex-wrap: wrap; justify-content: flex-start; }
 .clip-library { padding: 8px 16px 24px; }
 .clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.clip-card { background: var(--bg-3); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.clip-card { background: var(--bg-3); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; display: flex; flex-direction: column; }
 .clip-thumb { position: relative; aspect-ratio: 16 / 9; background: #111; }
 .clip-thumb img, .clip-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #111; }
 .clip-duration { position: absolute; right: 8px; bottom: 8px; background: rgba(0, 0, 0, 0.72); color: white; border-radius: 4px; padding: 2px 6px; font-size: 12px; }
@@ -472,8 +472,13 @@ html.is-panic body > * { visibility: hidden !important; }
 .clip-progress { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .clip-progress-bar { height: 4px; background: var(--bg-0); border-radius: 99px; overflow: hidden; }
 .clip-progress-bar > span { display: block; height: 100%; background: var(--accent); }
-.clip-dialog { width: min(560px, calc(100% - 32px)); margin: auto; background: var(--bg-2); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
-.clip-video { max-height: 320px; border-radius: 10px; }
+.clip-dialog { width: min(560px, calc(100% - 32px)); margin: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 3px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.clip-trim { display: grid; gap: 8px; }
+.clip-trim input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
+.clip-trim-times { display: flex; justify-content: space-between; gap: 8px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.clip-trim-fields { display: flex; gap: 8px; }
+.clip-trim-fields input { width: 88px; background: var(--bg-0); color: var(--text); border: 1px solid var(--line); border-radius: 3px; padding: 6px 8px; }
+.clip-video { max-height: 320px; border-radius: 3px; }
 .composer-banner, .banner, .toast {
   display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--accent-soft);
   border-radius: 10px; padding: 6px 8px; margin-bottom: 6px;

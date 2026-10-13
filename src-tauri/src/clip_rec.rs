@@ -136,6 +136,11 @@ struct Inner {
     last_save: Mutex<Option<(Instant, ClipSaved)>>,
     save_gate: Arc<Mutex<()>>,
     hotkey_gate: Arc<Mutex<()>>,
+    /// Game the UI already detected. Empty when detection is on and nothing is in front.
+    ui_activity: Mutex<String>,
+    ui_reporting: AtomicBool,
+    /// Background game probe. The hotkey reads this and does not scan processes itself.
+    probed: Mutex<String>,
 }
 
 #[derive(Clone)]
@@ -178,14 +183,22 @@ impl ClipEngine {
             last_save: Mutex::new(None),
             save_gate: Arc::new(Mutex::new(())),
             hotkey_gate: Arc::new(Mutex::new(())),
+            ui_activity: Mutex::new(String::new()),
+            ui_reporting: AtomicBool::new(false),
+            probed: Mutex::new(String::new()),
         });
         let engine = Self {
             inner: inner.clone(),
         };
+        let naming = inner.clone();
         thread::Builder::new()
             .name("lark-clip".into())
             .spawn(move || sample_loop(inner))
             .expect("clip thread");
+        thread::Builder::new()
+            .name("lark-clip-name".into())
+            .spawn(move || name_loop(naming))
+            .expect("clip name thread");
         engine
     }
 
@@ -259,6 +272,29 @@ impl ClipEngine {
         let previous = self.inner.pace.swap(game_mode, Ordering::Relaxed);
         if previous != game_mode {
             self.inner.generation.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Remember the activity the UI already detected. `None` means detection is off.
+    pub fn set_activity(&self, activity: Option<String>) {
+        match activity {
+            Some(value) => {
+                let clean: String = value.trim().chars().take(80).collect();
+                self.inner.ui_reporting.store(true, Ordering::Relaxed);
+                *self
+                    .inner
+                    .ui_activity
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner()) = clean;
+            }
+            None => {
+                self.inner.ui_reporting.store(false, Ordering::Relaxed);
+                self.inner
+                    .ui_activity
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .clear();
+            }
         }
     }
 
@@ -671,7 +707,7 @@ impl ClipEngine {
 
     fn write_clip(&self, bytes: &[u8], frames: u32, span_ms: u64) -> Result<ClipSaved, String> {
         let _ = std::fs::create_dir_all(&self.inner.dir);
-        let name = unique_name(&self.inner.dir);
+        let name = unique_name(&self.inner);
         let path = self.inner.dir.join(&name);
         std::fs::write(&path, bytes).map_err(|err| format!("Couldn't write the clip: {err}"))?;
         let mut saved = ClipSaved::ready(
@@ -1045,13 +1081,52 @@ fn ffmpeg_bin() -> Option<PathBuf> {
     lark_core::clip_fit::resolve_ffmpeg(&candidates)
 }
 
-fn unique_name(dir: &Path) -> String {
+fn name_loop(inner: Arc<Inner>) {
+    loop {
+        let active = inner.share.load(Ordering::Relaxed) || inner.game.load(Ordering::Relaxed);
+        let covered = {
+            let ui = inner
+                .ui_activity
+                .lock()
+                .unwrap_or_else(|err| err.into_inner());
+            inner.ui_reporting.load(Ordering::Relaxed) && !ui.trim().is_empty()
+        };
+        if active && !covered {
+            let game = lark_core::hardware::sample_game(std::env::consts::OS).unwrap_or_default();
+            *inner.probed.lock().unwrap_or_else(|err| err.into_inner()) = game;
+            thread::sleep(Duration::from_secs(20));
+        } else {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+}
+
+fn saved_game_label(inner: &Inner) -> Option<String> {
+    let ui = inner
+        .ui_activity
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .clone();
+    let probed = inner
+        .probed
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .clone();
+    let activity = if inner.ui_reporting.load(Ordering::Relaxed) {
+        Some(ui.as_str())
+    } else {
+        None
+    };
+    lark_core::clip::clip_name_label(activity, &probed)
+}
+
+fn unique_name(inner: &Inner) -> String {
+    let dir = &inner.dir;
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let game = lark_core::hardware::sample_load(std::env::consts::OS).game;
-    let label = game.as_deref().and_then(lark_core::clip::clip_game_label);
+    let label = saved_game_label(inner);
     let name = lark_core::clip::clip_file_name_for(secs, label.as_deref());
     let name = unique_clip_name(dir, &name);
     if !dir.join(&name).exists() {

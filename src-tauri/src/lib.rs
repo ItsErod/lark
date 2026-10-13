@@ -2112,8 +2112,18 @@ fn clip_status(state: State<'_, Shared>) -> clip_rec::ClipStatus {
 }
 
 #[tauri::command]
-fn set_clip_pace(state: State<'_, Shared>, game_mode: bool) {
+fn set_clip_pace(
+    state: State<'_, Shared>,
+    game_mode: bool,
+    activity: Option<String>,
+    report_activity: Option<bool>,
+) {
     state.clips.set_pace(game_mode);
+    match report_activity {
+        Some(true) => state.clips.set_activity(activity.or(Some(String::new()))),
+        Some(false) => state.clips.set_activity(None),
+        None => {}
+    }
 }
 
 #[tauri::command]

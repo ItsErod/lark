@@ -180,7 +180,9 @@ import {
   CLIP_DRAG,
   clipMime,
   clipPlaybackBlock,
+  clampTrim,
   clipAttachAction,
+  clipDisplayTitle,
   compressCopy,
   demoClips,
   fitAction,
@@ -192,6 +194,7 @@ import {
   parseCompressMode,
   posterFor,
   renamedClipName,
+  trimPresets,
   trimRange,
   uploadLimitBytes,
   type ClipCard,
@@ -6512,7 +6515,7 @@ class LarkApp {
     browse.addEventListener("click", () => this.openClips());
     const uploadActions = el("div", "settings-actions");
     uploadActions.append(browse);
-    upload.append(settingRow("clips.library", "Clip library", "Play, trim, rename, and send clips saved on this computer.", uploadActions));
+    upload.append(settingRow("clips.library", "Clip library", "Play, trim, and share clips saved on this computer.", uploadActions));
     const library = settingCard("Saved on this computer");
     this.appendClipLibrary(library);
     wrap.append(card, upload, library);
@@ -7266,13 +7269,7 @@ class LarkApp {
       this.toast("Clip", "No saved clip to send.");
       return;
     }
-    const current = this.currentChannel();
-    const sendable = current && current.kind !== "voice" && current.kind !== "category" ? current : undefined;
-    if (!sendable) {
-      this.toast("Clip", "Open a channel first.");
-      return;
-    }
-    await this.deliverClip(clip.name, sendable.id);
+    await this.shareClip(clip.name);
   }
 
   private startUpdates() {
@@ -7881,7 +7878,7 @@ class LarkApp {
       bytes: payload.bytes || 0,
       spanMs: payload.spanMs || 0,
     };
-    void this.notify("Clip saved", `${payload.name} is on this computer. Attach it to share it. Nothing was uploaded.`);
+    void this.notify("Clip saved", `${clipDisplayTitle(payload.name)} is on this computer. Share sends it to the open channel. Nothing was uploaded.`);
     if (this.view === "app") this.paintComposer();
   }
 
@@ -7904,8 +7901,13 @@ class LarkApp {
     this.clipBanner.hidden = !clip;
     if (!clip) return;
     const seconds = Math.max(1, Math.round(clip.spanMs / 1000));
-    this.clipBanner.append(el("span", "", `Clip saved · about ${seconds}s · not uploaded`));
-    const attach = el("button", "primary", "Attach");
+    this.clipBanner.append(el("span", "", `Clip saved · ${clipDisplayTitle(clip.name)} · about ${seconds}s · not uploaded`));
+    const share = el("button", "primary", "Share");
+    share.type = "button";
+    const channel = this.textChannel();
+    if (channel) share.title = `Send to ${this.channelShareLabel(channel)}`;
+    share.addEventListener("click", () => void this.sharePendingClip());
+    const attach = el("button", "text-button", "Attach");
     attach.type = "button";
     attach.addEventListener("click", () => void this.attachPendingClip());
     const folder = el("button", "text-button", "Show in folder");
@@ -7917,7 +7919,49 @@ class LarkApp {
       this.pendingClip = null;
       this.paintClipBanner();
     });
-    this.clipBanner.append(attach, folder, dismiss);
+    this.clipBanner.append(share, attach, folder, dismiss);
+  }
+
+  private rememberPendingClip() {
+    const clip = this.pendingClip;
+    if (!clip || this.clipItems.some((item) => item.name === clip.name)) return;
+    this.clipItems = [{
+      name: clip.name,
+      bytes: clip.bytes,
+      modifiedMs: Date.now(),
+      durationMs: clip.spanMs,
+      width: 0,
+      height: 0,
+      poster: "",
+    }, ...this.clipItems];
+  }
+
+  private textChannel() {
+    const current = this.currentChannel();
+    return current && current.kind !== "voice" && current.kind !== "category" ? current : undefined;
+  }
+
+  private channelShareLabel(channel: { kind: string; name: string }): string {
+    return channel.kind === "dm" || channel.kind === "group" ? channel.name : `#${channel.name}`;
+  }
+
+  private async sharePendingClip() {
+    const clip = this.pendingClip;
+    if (!clip) return;
+    this.rememberPendingClip();
+    const name = clip.name;
+    this.pendingClip = null;
+    this.paintClipBanner();
+    await this.shareClip(name);
+  }
+
+  private async shareClip(name: string) {
+    const channel = this.textChannel();
+    if (!channel) {
+      this.toast("Clip", "Open a channel or a DM first.");
+      return;
+    }
+    await this.deliverClip(name, channel.id);
   }
 
   private async attachPendingClip() {
@@ -7927,17 +7971,7 @@ class LarkApp {
       this.toast("Clip", "Open a channel, then attach the clip.");
       return;
     }
-    if (!this.clipItems.some((item) => item.name === clip.name)) {
-      this.clipItems = [{
-        name: clip.name,
-        bytes: clip.bytes,
-        modifiedMs: Date.now(),
-        durationMs: clip.spanMs,
-        width: 0,
-        height: 0,
-        poster: "",
-      }, ...this.clipItems];
-    }
+    this.rememberPendingClip();
     this.pendingClip = null;
     this.paintClipBanner();
     await this.attachClipByName(clip.name);
@@ -8001,7 +8035,7 @@ class LarkApp {
   }
 
   private paintClipLibrary() {
-    const stamp = `${this.clipStamp}|${this.clipSendFor ?? ""}|${this.clipRename ?? ""}|${this.clipProgress?.name ?? ""}:${this.clipProgress?.percent ?? ""}|${this.premiumType}|${this.config.clips.compress}`;
+    const stamp = `${this.clipStamp}|${this.channelId ?? ""}|${this.clipSendFor ?? ""}|${this.clipRename ?? ""}|${this.clipProgress?.name ?? ""}:${this.clipProgress?.percent ?? ""}|${this.premiumType}|${this.config.clips.compress}`;
     if (stamp === this.msgSig && this.messagesEl.querySelector(".clip-library")) return;
     this.msgSig = stamp;
     clear(this.messagesEl);
@@ -8048,7 +8082,8 @@ class LarkApp {
     image.src = clip.poster || posterFor(clip.name, clip.name);
     thumb.append(image, el("span", "clip-duration", formatClipDuration(clip.durationMs)));
     const meta = el("div", "clip-meta");
-    const title = this.clipRename === clip.name ? el("input") : el("strong", "", clip.name.replace(/^lark-clip-/, ""));
+    const title = this.clipRename === clip.name ? el("input") : el("strong", "", clipDisplayTitle(clip.name));
+    if (!(title instanceof HTMLInputElement)) title.title = clip.name;
     if (title instanceof HTMLInputElement) {
       title.value = clip.name.replace(/^lark-clip-/, "").replace(/\.(mp4|avi)$/, "");
       title.setAttribute("aria-label", "Clip name");
@@ -8074,6 +8109,14 @@ class LarkApp {
     if (clip.bytes > limit) meta.append(el("span", "clip-over", `Over the ${formatClipBytes(limit)} upload limit`));
     const actions = el("div", "clip-actions");
     actions.append(this.clipAction("Play", () => void this.playClip(clip.name)));
+    const share = this.clipAction("Share", () => void this.shareClip(clip.name));
+    const channel = this.textChannel();
+    if (channel) share.title = `Send to ${this.channelShareLabel(channel)}`;
+    actions.append(share);
+    actions.append(this.clipAction("Trim", () => {
+      this.clipTrim = clip.name;
+      this.paintClipDialog();
+    }));
     actions.append(this.clipAction("Rename", () => {
       this.clipRename = clip.name;
       this.msgSig = "";
@@ -8081,10 +8124,6 @@ class LarkApp {
     }));
     actions.append(this.clipAction("Delete", () => void this.deleteClip(clip.name)));
     actions.append(this.clipAction("Reveal", () => void this.revealClip(clip.name)));
-    actions.append(this.clipAction("Trim", () => {
-      this.clipTrim = clip.name;
-      this.paintClipDialog();
-    }));
     actions.append(this.clipAction("Send", () => {
       this.clipSendFor = this.clipSendFor === clip.name ? null : clip.name;
       this.msgSig = "";
@@ -8108,11 +8147,9 @@ class LarkApp {
 
   private clipSendMenu(name: string): HTMLElement {
     const menu = el("div", "clip-send");
-    const current = this.currentChannel();
-    const sendable = current && current.kind !== "voice" && current.kind !== "category" ? current : undefined;
+    const sendable = this.textChannel();
     if (sendable) {
-      const label = sendable.kind === "dm" || sendable.kind === "group" ? sendable.name : `#${sendable.name}`;
-      menu.append(this.clipAction(`Send to ${label}`, () => void this.deliverClip(name, sendable.id)));
+      menu.append(this.clipAction(`Send to ${this.channelShareLabel(sendable)}`, () => void this.deliverClip(name, sendable.id)));
     }
     for (const dm of this.dms().slice(0, 6)) {
       if (dm.id === sendable?.id) continue;
@@ -8457,6 +8494,93 @@ class LarkApp {
     }
   }
 
+  private appendTrimControls(card: HTMLElement, clip: ClipCard) {
+    const durationSec = Math.max(0.1, clip.durationMs / 1000);
+    card.append(el("h2", "", "Trim clip"), el("p", "hint", "This writes a new file. The original stays."));
+    const start = el("input");
+    start.type = "range";
+    start.min = "0";
+    start.max = String(durationSec);
+    start.step = "0.1";
+    start.value = "0";
+    start.setAttribute("aria-label", "Trim start");
+    const end = el("input");
+    end.type = "range";
+    end.min = "0";
+    end.max = String(durationSec);
+    end.step = "0.1";
+    end.value = String(durationSec);
+    end.setAttribute("aria-label", "Trim end");
+    const startNum = el("input");
+    startNum.type = "number";
+    startNum.min = "0";
+    startNum.step = "0.1";
+    startNum.value = "0";
+    startNum.setAttribute("aria-label", "Trim start seconds");
+    const endNum = el("input");
+    endNum.type = "number";
+    endNum.min = "0";
+    endNum.step = "0.1";
+    endNum.value = String(durationSec);
+    endNum.setAttribute("aria-label", "Trim end seconds");
+    const times = el("div", "clip-trim-times");
+    const startLabel = el("span", "", formatClipDuration(0));
+    const endLabel = el("span", "", formatClipDuration(clip.durationMs));
+    times.append(startLabel, endLabel);
+    const paintTimes = () => {
+      const kept = Math.max(0, Number(end.value) - Number(start.value));
+      startLabel.textContent = formatClipDuration(Number(start.value) * 1000);
+      endLabel.textContent = `${formatClipDuration(Number(end.value) * 1000)} · ${formatClipDuration(kept * 1000)} kept`;
+    };
+    const apply = (moved: "start" | "end") => {
+      const next = clampTrim(durationSec, Number(start.value), Number(end.value), moved);
+      start.value = String(next.startSec);
+      end.value = String(next.endSec);
+      startNum.value = start.value;
+      endNum.value = end.value;
+      paintTimes();
+    };
+    start.addEventListener("input", () => {
+      startNum.value = start.value;
+      apply("start");
+    });
+    end.addEventListener("input", () => {
+      endNum.value = end.value;
+      apply("end");
+    });
+    startNum.addEventListener("input", () => {
+      start.value = startNum.value || "0";
+      apply("start");
+    });
+    endNum.addEventListener("input", () => {
+      end.value = endNum.value || "0";
+      apply("end");
+    });
+    const ranges = el("div", "clip-trim");
+    ranges.append(start, end, times);
+    card.append(ranges);
+    const presets = el("div", "clip-actions");
+    for (const preset of trimPresets(clip.durationMs)) {
+      presets.append(this.clipAction(preset.label, () => {
+        start.value = String(preset.startSec);
+        end.value = String(preset.endSec);
+        apply("end");
+      }));
+    }
+    if (presets.childElementCount) card.append(presets);
+    const fields = el("div", "clip-trim-fields");
+    fields.append(startNum, endNum);
+    card.append(fields);
+    const actions = el("div", "clip-actions");
+    actions.append(this.clipAction("Save trim", () => void this.applyTrim(clip.name, Number(start.value), Number(end.value))));
+    actions.append(this.clipAction("Cancel", () => {
+      this.clipTrim = null;
+      this.paintClipDialog();
+    }));
+    card.append(actions);
+    paintTimes();
+  }
+
   private paintClipDialog() {
     clear(this.clipDialog);
     const ask = this.clipAsk;
@@ -8506,29 +8630,7 @@ class LarkApp {
         this.paintClipDialog();
       }));
     } else if (trimming) {
-      card.append(el("h2", "", "Trim clip"), el("p", "hint", "This writes a new file. The original stays."));
-      const start = el("input");
-      start.type = "number";
-      start.min = "0";
-      start.step = "0.1";
-      start.value = "0";
-      start.setAttribute("aria-label", "Trim start seconds");
-      const end = el("input");
-      end.type = "number";
-      end.min = "0";
-      end.step = "0.1";
-      end.value = String(Math.max(0.1, trimming.durationMs / 1000));
-      end.setAttribute("aria-label", "Trim end seconds");
-      const row = el("div", "clip-actions");
-      row.append(start, end);
-      card.append(row);
-      const actions = el("div", "clip-actions");
-      actions.append(this.clipAction("Save trim", () => void this.applyTrim(trimming.name, Number(start.value), Number(end.value))));
-      actions.append(this.clipAction("Cancel", () => {
-        this.clipTrim = null;
-        this.paintClipDialog();
-      }));
-      card.append(actions);
+      this.appendTrimControls(card, trimming);
     }
     this.clipDialog.append(card);
     this.clipDialog.onclick = (event) => {
@@ -10522,7 +10624,14 @@ class LarkApp {
       }
     }
     if (!next.perfOverlay) this.fpsLoop = false;
-    if (isTauri()) void invoke("set_clip_pace", { gameMode: next.gameMode }).catch(() => undefined);
+    if (isTauri()) {
+      const reporting = this.config.desktop.detect_games;
+      void invoke("set_clip_pace", {
+        gameMode: next.gameMode,
+        activity: reporting ? (this.detectedGame ?? "") : "",
+        reportActivity: reporting,
+      }).catch(() => undefined);
+    }
     this.armFps();
     this.publishVoiceHud();
     if (modeChanged && this.view === "app") {

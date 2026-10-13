@@ -22,7 +22,7 @@ export function commandCatalog(): CommandItem[] {
     { id: "members", label: "Toggle member list", hint: "People in this server", keywords: "members users" },
     { id: "irc", label: "Toggle IRC layout", hint: "One line per message", keywords: "irc compact density" },
     { id: "pins", label: "Pinned messages", hint: "This channel", keywords: "pins saved" },
-    { id: "clips", label: "Clips", hint: "Saved 30 second clips", keywords: "clips clip library video replay trim compress send" },
+    { id: "clips", label: "Clips", hint: "Gallery, trim, and share", keywords: "clips clip library gallery video replay trim compress send share" },
     { id: "saved", label: "Saved messages", hint: "Bookmarks on this device", keywords: "saved bookmarks save messages" },
     { id: "reminders", label: "Reminders", hint: "Messages to come back to", keywords: "remind reminder later messages" },
     { id: "scheduled", label: "Scheduled messages", hint: "Send later queue", keywords: "schedule scheduled send later queue" },
