@@ -95,6 +95,44 @@ export function soundEnabled(toggles: Record<string, boolean>, id: string): bool
   return toggles[id] !== false;
 }
 
+export interface HeardSound {
+  channelId: string;
+  userId: string;
+  soundId: string;
+  volume: number;
+}
+
+/** A gateway soundboard effect. Emoji-only effects and bad ids are ignored. */
+export function parseSoundEffect(input: unknown): HeardSound | null {
+  if (!input || typeof input !== "object") return null;
+  const raw = input as Record<string, unknown>;
+  const soundId = String(raw.soundId ?? raw.sound_id ?? "").trim();
+  const channelId = String(raw.channelId ?? raw.channel_id ?? "").trim();
+  if (!SNOWFLAKE.test(soundId) || !SNOWFLAKE.test(channelId)) return null;
+  const userId = String(raw.userId ?? raw.user_id ?? "").trim();
+  const volumeRaw = typeof raw.volume === "number" ? raw.volume : typeof raw.soundVolume === "number" ? raw.soundVolume : 1;
+  const volume = Number.isFinite(volumeRaw) ? Math.min(1, Math.max(0, volumeRaw)) : 1;
+  return { channelId, userId, soundId, volume };
+}
+
+export function hearSoundKey(userId: string, soundId: string): string {
+  return `${userId}:${soundId}`;
+}
+
+/** Play a sound you can hear in this channel. A recent copy of the same sound is skipped. */
+export function acceptHeardSound(
+  effect: HeardSound,
+  joinedChannelId: string,
+  deafened: boolean,
+  now: number,
+  recentAt: number | undefined,
+  windowMs = 1500,
+): boolean {
+  if (deafened || !joinedChannelId || effect.channelId !== joinedChannelId) return false;
+  if (recentAt !== undefined && now - recentAt < windowMs) return false;
+  return true;
+}
+
 /** Guild sounds stay quiet while deafened. A per-sound toggle can turn one off. Local clips are a separate board. */
 export function playableGuildSounds(sounds: readonly GuildSound[], toggles: Record<string, boolean>, deafened: boolean): GuildSound[] {
   if (deafened) return [];

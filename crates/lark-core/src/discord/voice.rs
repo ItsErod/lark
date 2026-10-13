@@ -95,6 +95,41 @@ pub fn encrypt_voice(
     Ok(packet)
 }
 
+/// One RTP-size voice packet. The speaking and audio-level extensions sit inside
+/// the ciphertext. The preamble (`0xBEDE` plus one length word) stays in the clear.
+pub fn encrypt_audio(
+    mode: CipherMode,
+    key: &[u8; 32],
+    sequence: u16,
+    timestamp: u32,
+    ssrc: u32,
+    media: &[u8],
+    nonce: u32,
+    speaking: bool,
+) -> Result<Vec<u8>, ()> {
+    if !matches!(mode, CipherMode::Aes256GcmRtpSize | CipherMode::XChaCha20Poly1305RtpSize) {
+        let header = rtp_header(sequence, timestamp, ssrc);
+        return encrypt_voice(mode, key, &header, media, nonce);
+    }
+    let mut header = rtp_header(sequence, timestamp, ssrc);
+    header[0] |= 0x10;
+    let mut aad = Vec::with_capacity(16);
+    aad.extend_from_slice(&header);
+    aad.extend_from_slice(&[0xBE, 0xDE, 0x00, 0x01]);
+    let level = if speaking { 0x80 } else { 0x7F };
+    let flags = if speaking { 1u32 } else { 0 };
+    let ext = [0x10, level, 0x90, speaking_extension(flags)];
+    let mut plain = Vec::with_capacity(4 + media.len());
+    plain.extend_from_slice(&ext);
+    plain.extend_from_slice(media);
+    encrypt_voice(mode, key, &aad, &plain, nonce)
+}
+
+/// Discord packs the opcode 5 speaking flags into the one-byte RTP extension.
+pub fn speaking_extension(flags: u32) -> u8 {
+    (((flags & 0x03) << 1) | ((flags & 0x04) >> 2)) as u8
+}
+
 pub fn decrypt_voice(mode: CipherMode, key: &[u8; 32], packet: &[u8]) -> Result<Vec<u8>, ()> {
     let suffix_len = mode.suffix_len();
     if packet.len() < 12 + 16 + suffix_len {
@@ -512,6 +547,10 @@ pub fn voice_heartbeat(now_ms: u64, seq_ack: Option<i64>) -> String {
 }
 
 /// Energy detector for voice activity. Higher sensitivity hears quieter speech.
+///
+/// Sensitivity 45 is the default. Its gate sits under the automatic-gain target
+/// so a quiet microphone still counts as speech after gain, and above the level
+/// a gain-capped room tone can reach.
 pub fn voice_active(samples: &[f32], sensitivity: u8) -> bool {
     if samples.is_empty() {
         return false;
@@ -522,7 +561,7 @@ pub fn voice_active(samples: &[f32], sensitivity: u8) -> bool {
     }
     let rms = (sum / samples.len() as f32).sqrt();
     let sensitivity = sensitivity.min(100) as f32;
-    let threshold = 0.12 * (1.0 - sensitivity / 100.0) + 0.0004;
+    let threshold = 0.08 * (1.0 - sensitivity / 100.0) + 0.0004;
     rms >= threshold
 }
 
@@ -665,6 +704,12 @@ mod tests {
         assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(), opus);
         assert!(is_rtcp(&[0x80, 200, 0, 1, 0, 0, 0, 1]));
         assert!(!is_rtcp(&header));
+        let packet = encrypt_audio(CipherMode::Aes256GcmRtpSize, &key(), 4, 960, 42, opus, 3, true).unwrap();
+        assert_eq!(packet[0] & 0x10, 0x10);
+        assert_eq!(extension_payload_len(&packet), 4);
+        assert_eq!(decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packet).unwrap(), opus);
+        let quiet = encrypt_audio(CipherMode::XChaCha20Poly1305RtpSize, &key(), 5, 1_920, 42, opus, 4, false).unwrap();
+        assert_eq!(decrypt_voice(CipherMode::XChaCha20Poly1305RtpSize, &key(), &quiet).unwrap(), opus);
     }
 
     #[test]
@@ -719,6 +764,11 @@ mod tests {
         assert!(voice_active(&loud, 10));
         assert!(!voice_active(&quiet, 10));
         assert!(voice_active(&quiet, 100));
+        let speech = vec![0.08f32; 48];
+        let room = vec![0.01f32; 48];
+        assert!(voice_active(&speech, 45));
+        assert!(!voice_active(&room, 45));
+        assert_eq!(speaking_extension(1), 0x02);
         assert_eq!(voice_reconnect_delay_ms(0), 1_000);
         assert_eq!(voice_reconnect_delay_ms(8), 20_000);
     }
