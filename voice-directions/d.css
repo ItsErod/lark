@@ -1,0 +1,32 @@
+/* D Side — the call lives in the channel sidebar, like a Linear list.
+   Opening the stage replaces the member list with a column, so the thread is never covered. */
+
+body.dir-d.screen-stage .panel-d-stage { display: flex; }
+body.dir-d.screen-stage .stagecol { display: flex; }
+body.dir-d.screen-stage .members { display: none; }
+body.dir-d.screen-stage .app { grid-template-columns: 56px 240px minmax(0, 1fr) 300px; }
+body.dir-d.screen-side .panel-d-side { display: flex; }
+body.dir-d .sub-booth { display: none; }
+body.dir-d.screen-side .user-tools .icon-btn:not(:last-child) { display: none; }
+
+.panel-d-stage {
+  align-items: center;
+  padding: 8px 10px;
+}
+.panel-d-side { flex-direction: column; padding: 0; gap: 0; }
+.panel-d-side .side-share { height: 120px; padding: 8px 8px 0; }
+.panel-d-side .side-people { padding: 4px 4px 0; }
+.panel-d-side .person-row { min-height: 34px; border-radius: 0; border-top: 1px solid #27272a; }
+.panel-d-side .side-ctrls { padding: 6px 8px 8px; border-top: 1px solid #27272a; }
+
+.stagecol { min-height: 0; }
+.col-share { flex: 1; min-height: 0; padding: 8px; }
+.col-share .wire { height: 100%; }
+.col-people { flex: none; padding: 0 6px 6px; display: flex; flex-direction: column; }
+.col-people .person-row { min-height: 32px; }
+.col-ctrls {
+  flex: none;
+  height: 48px;
+  padding: 0 10px;
+  border-top: 1px solid #27272a;
+}

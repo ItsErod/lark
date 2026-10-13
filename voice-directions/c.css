@@ -1,0 +1,49 @@
+/* C Grid — four equal tiles and a separate control row sit in a short band above the messages.
+   Reading view drops the band; a type line and a tiny grid live in the sidebar. */
+
+body.dir-c.screen-stage .band-c { display: flex; }
+body.dir-c.screen-stage .panel-c-stage { display: block; }
+body.dir-c.screen-side .panel-c-side { display: flex; }
+.band-c { flex-direction: column; padding: 12px 16px 10px; gap: 12px; border-bottom: 1px solid #27272a; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.tile { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tile .wire, .tile-initial {
+  height: 92px;
+  border-radius: 4px;
+  border: 1px solid #27272a;
+  background: #0c0c0e;
+}
+.tile-initial {
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #a1a1aa;
+}
+.tile.is-speaking .tile-initial { box-shadow: inset 2px 0 0 #fafafa; color: #fafafa; }
+.tile-cap {
+  font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #71717a;
+}
+.grid-ctrls { justify-content: center; gap: 4px; }
+
+.type-panel { margin: 0; padding: 10px 12px; color: #d4d4d8; font-size: 13px; line-height: 1.45; }
+.type-panel .kicker { display: block; margin-bottom: 4px; }
+.panel-c-side { flex-direction: column; gap: 8px; padding: 8px; }
+.mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.mini {
+  height: 36px;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 600;
+}
+.mini.speaking { box-shadow: inset 2px 0 0 #fafafa; color: #fafafa; }
+.mini.share { color: #fafafa; }

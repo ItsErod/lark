@@ -1,0 +1,38 @@
+/* B Focus — the share and the person speaking share a short stage; everyone else is a caption.
+   Reading view keeps a roster under Studio booth and leaves the thread clear. */
+
+body.dir-b.screen-stage .band-b { display: flex; }
+body.dir-b.screen-stage .panel-b-stage { display: flex; }
+body.dir-b.screen-side .roster { display: flex; }
+body.dir-b.screen-side .panel-b-side { display: block; }
+.band-b { flex-direction: column; border-bottom: 1px solid #27272a; }
+.focus { height: 188px; display: grid; grid-template-columns: minmax(0, 1fr) 168px; gap: 8px; padding: 8px 12px 0; }
+.focus-share .wire { height: 180px; }
+.focus-speaker {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px;
+  background: #18181b;
+  border-radius: 4px;
+  box-shadow: inset 2px 0 0 #fafafa;
+}
+.focus-initial { font-size: 40px; font-weight: 500; letter-spacing: -0.04em; color: #fafafa; }
+.focus-copy b { display: block; font-size: 14px; font-weight: 600; }
+.focus-copy i { display: block; margin-top: 4px; }
+.focus-foot {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+.focus-foot .strip-ctrls { margin-left: auto; }
+
+.roster { flex-direction: column; margin: 0 0 4px; padding-left: 18px; }
+.panel-b-side { padding: 8px; }
+.panel-b-side .side-share { height: 92px; margin-bottom: 8px; }
+.panel-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

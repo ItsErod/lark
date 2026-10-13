@@ -1,0 +1,31 @@
+/* A Dock — a 64px strip under the header holds the share, four people, and the controls.
+   Reading view moves that same strip into the sidebar so the thread is completely clear. */
+
+body.dir-a.screen-stage .band-a { display: flex; }
+body.dir-a.screen-stage .panel-a-stage { display: flex; }
+body.dir-a.screen-side .panel-a-side { display: flex; }
+.band-a {
+  height: 64px;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  border-bottom: 1px solid #27272a;
+  background: #09090b;
+}
+.thumb { width: 128px; height: 48px; flex: none; }
+.thumb .wire { height: 48px; }
+.thumb .wire-top { height: 14px; font-size: 8px; padding: 0 5px; }
+.thumb .wire-body { padding: 3px; gap: 2px; }
+.strip-people { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1; }
+.strip-person { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.strip-person span { min-width: 0; }
+.strip-person b, .strip-person i { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip-person b { font-size: 12px; font-weight: 600; color: #d4d4d8; }
+.strip-person i { font-style: normal; font-size: 11px; color: #71717a; }
+.strip-person.is-speaking { border-left: 2px solid #fafafa; padding-left: 8px; box-shadow: none; }
+.strip-ctrls { flex: none; }
+
+.panel-a-side { flex-direction: column; padding: 8px; gap: 8px; }
+.panel-a-side .side-share { height: 64px; }
+.panel-a-side .side-people { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; }
+.panel-a-side .person-row { min-height: 32px; padding: 2px 4px; }
