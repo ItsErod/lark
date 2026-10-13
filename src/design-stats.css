@@ -1,0 +1,70 @@
+.stats-page { display: flex; flex-direction: column; gap: 12px; }
+.stats-page .setting-card { box-shadow: none; border-radius: 6px; }
+.stats-metric {
+  margin: 0;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.stats-kicker, .stats-empty, .stats-note, .stats-meta {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+.stats-kicker, .stats-empty, .stats-note { margin: 4px 0 0; }
+.stats-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 88px;
+  margin-top: 12px;
+}
+.stats-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+}
+.stats-bar {
+  background: #fafafa;
+  border-radius: 4px 4px 0 0;
+  min-height: 0;
+  box-shadow: none;
+  transition: height 120ms linear;
+}
+.stats-day {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 10px;
+  color: #a1a1aa;
+  font-variant-numeric: tabular-nums;
+}
+.stats-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stats-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 4px;
+}
+.stats-page .switch.is-on { background: #fafafa; }
+.stats-page .switch.is-on .switch-knob { background: #09090b; }
+.stats-page .switch, .stats-page .switch-knob { transition-duration: 120ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stats-bar, .stats-page .switch, .stats-page .switch-knob { transition: none; }
+}
+
+html[data-motion="reduce"] .stats-bar,
+html[data-motion="reduce"] .stats-page .switch,
+html[data-motion="reduce"] .stats-page .switch-knob {
+  transition: none;
+}

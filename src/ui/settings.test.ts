@@ -26,6 +26,7 @@ describe("settings catalog", () => {
       "Privacy",
       "Clips",
       "Gaming",
+      "Stats",
       "Plugins and Themes",
     ]);
     expect(groups.find((group) => group.id === "user")?.sections.map((section) => section.id)).toEqual([
