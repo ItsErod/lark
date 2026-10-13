@@ -1,5 +1,7 @@
 # Lark 3.0 parity
 
+The status tables below are the 12 Oct 2026 inventory, scored against `2a5ea2f`. They are not the current picture. Main has moved through 3.0.3 and the pulls merged after that tag. The ranked remaining gaps and the coverage estimate are in [PARITY-REMAINING.md](PARITY-REMAINING.md).
+
 Analysis only. This document compares Lark at `2a5ea2f` (2.4.5 plus the first parity note) with the Discord web client inventory captured on 12 Oct 2026. It does not add features.
 
 The first pass reconstructed a client from public patch notes because `discord-audit.md` never landed. The condensed inventory (Home, DMs, servers, composer, settings) is the next section. A later section is the server-settings and voice deep-dive. Stage, forums, polls, and search filters stay in the entry-point section so the original brief is still covered.
