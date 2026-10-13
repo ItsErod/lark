@@ -1,3 +1,4 @@
+import { bindSlashFormContext, openSlashForm } from "./slash-form";
 import { outgoingNonce, sameReaction } from "../chat";
 import { composedError, spoilerUploadName } from "../compose";
 import { history, channels as demoChannels } from "../demo/data";
@@ -136,6 +137,11 @@ export const composerMethods = defineMethods({
         this.toast("Apps", this.demo ? "Demo mode doesn't run Discord apps." : "Open a channel first.");
         return;
       }
+      if (action.op === "form") {
+        this.composer.value = "";
+        openSlashForm(action.command, channelId);
+        return;
+      }
       const body = interactionBody({
         command: action.command,
         channelId,
@@ -144,8 +150,8 @@ export const composerMethods = defineMethods({
         targetId: action.targetId,
       });
       if (!body) {
-        this.composer.value = `/${action.command.name} `;
-        this.composer.focus();
+        this.composer.value = "";
+        openSlashForm(action.command, channelId);
         return;
       }
       void invoke("invoke_command", { payload: body }).then(() => {
@@ -154,6 +160,16 @@ export const composerMethods = defineMethods({
         this.toast("Apps", err instanceof Error ? err.message : "Discord refused the command.");
       });
     });
+    bindSlashFormContext(() => ({
+      channelId: this.channelId,
+      guildId: this.guildId,
+      demo: this.demo,
+      invoke,
+      toast: (title, body) => this.toast(title, body),
+      people: () => (this.guildId ? this.membersByGuild[this.guildId] ?? [] : []).map((person) => ({ id: person.id, name: person.name })),
+      channels: () => (this.guildId ? this.channelsOf(this.guildId) : []).map((channel) => ({ id: channel.id, name: channel.name, kind: channel.kind })),
+      roles: () => (this.guildId ? this.rolesByGuild[this.guildId] ?? [] : []).map((role) => ({ id: role.id, name: role.name })),
+    }));
     bindSlashLoader((query) => {
       if (this.demo || !this.channelId) {
         setSlashCommands([]);

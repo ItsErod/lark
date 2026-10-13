@@ -11,6 +11,8 @@ import {
   type SlashCommand,
 } from "./composer-tools";
 import { el } from "./dom";
+import { needsForm } from "../slash-options";
+import { openSlashForm } from "./slash-form";
 
 function shell() {
   return currentParityHost();
@@ -131,8 +133,9 @@ async function runCommand(command: SlashCommand, channelId: string) {
     guildId: host.guildId,
     args: "",
   });
-  if (!body) {
-    host.toast("Apps", `/${command.name} needs options. Type it in the composer.`);
+  if (!body || needsForm(command)) {
+    document.getElementById("lark-apps-catalog")?.remove();
+    openSlashForm(command, channelId);
     return;
   }
   if (host.demo) {

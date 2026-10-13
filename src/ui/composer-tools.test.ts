@@ -257,3 +257,12 @@ describe("slash commands, spoilers, and stream flags", () => {
     setRelationshipIndex([]);
   });
 });
+
+describe("slash commands with options", () => {
+  it("offers the options form instead of a half-typed command", async () => {
+    const tools = await import("./composer-tools");
+    tools.setSlashCommands(tools.commandsFromPayload([{ id: "100000000000000010", application_id: "100000000000000020", name: "remind", type: 1, options: [{ type: 3, name: "what", required: true }] }]));
+    const hit = tools.slashSuggestions("remi").find((item) => item.label === "/remind");
+    expect(hit?.token).toContain('"op":"form"');
+  });
+});

@@ -1,3 +1,4 @@
+import { deliverAutocomplete } from "./slash-form";
 import { mergeIncoming, sameOutgoing, sameReaction } from "../chat";
 import { ARCHIVE, history, ME, pageMessages } from "../demo/data";
 import { latestGateway, readyShape, rememberGateway } from "../gateway-cache";
@@ -434,6 +435,11 @@ export const gatewayMethods = defineMethods({
       emoji?: string;
       added?: boolean;
     };
+    if (event.kind === "autocomplete") {
+      const hit = payload as { nonce?: string; choices?: unknown };
+      if (hit.nonce) deliverAutocomplete(hit.nonce, hit.choices);
+      return;
+    }
     if (event.kind === "status") {
       const next = event.state === "connected" ? "Connected" : event.state ?? "Offline";
       if (next !== this.connection) this.noteGatewayStatus(event.state);
