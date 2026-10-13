@@ -19,6 +19,7 @@ import { sanitizeCursors } from "./receipts";
 import { wordMin, type WordMin } from "./words";
 import { sanitizeNicks } from "./nicks";
 import { cleanAwayText, sanitizeAwayReplied } from "./away-reply";
+import { sanitizeDesks, type DeskSettings } from "./game-desk";
 
 export interface PackState {
   translateLang: Lang;
@@ -87,6 +88,7 @@ export interface PackState {
   awayReplyArmed: boolean;
   awayReplied: string[];
   awayReplyAt: number;
+  gameDesks: Record<string, DeskSettings>;
 }
 
 export const PACK_IDS = [
@@ -216,6 +218,7 @@ export function defaultPack(): PackState {
     awayReplyArmed: false,
     awayReplied: [],
     awayReplyAt: 0,
+    gameDesks: {},
   };
 }
 
@@ -291,6 +294,7 @@ export function sanitizePack(input: unknown): PackState {
   if (typeof raw.awayReplyArmed === "boolean") base.awayReplyArmed = raw.awayReplyArmed;
   base.awayReplied = sanitizeAwayReplied(raw.awayReplied);
   if (typeof raw.awayReplyAt === "number" && Number.isFinite(raw.awayReplyAt) && raw.awayReplyAt >= 0) base.awayReplyAt = raw.awayReplyAt;
+  base.gameDesks = sanitizeDesks(raw.gameDesks);
   return base;
 }
 

@@ -61,6 +61,25 @@ import { connectionLabel, connectionLines, type ConnectionLine } from "../pack/c
 import { displayName, setLocalNick } from "../pack/nicks";
 import { folderTitle, orderUnreadFirst, peekNames, summarizeFolder, type FolderServer } from "../pack/folder-extra";
 import { awayReplyDecision, cleanAwayText } from "../pack/away-reply";
+import {
+  activeStatKind,
+  buildText,
+  canReplaceSession,
+  crewText,
+  deskActions,
+  displayName as deskName,
+  emptyDesk,
+  lfgText,
+  parseSteamProfile,
+  profileTarget,
+  readCatalog,
+  sessionClock,
+  sessionStatusLine,
+  setSession,
+  statsCard,
+  type GameCatalog,
+} from "../pack/game-desk";
+import { mountGameDesk } from "./game-desk-panel";
 import { themeAttributeLines, themeAttributeText } from "../pack/theme-attrs";
 import { mutualNames, whoisLines } from "../pack/whois";
 import { canReplaceCustom, playingLine, shouldWritePlaying } from "../pack/playing";
@@ -750,6 +769,9 @@ class LarkApp {
   private voiceJoinedAt = 0;
   private voiceConnectedAt = 0;
   private callTimerTick = 0;
+  private sessionTick = 0;
+  private sessionShown = "";
+  private sessionWrite = 0;
   private callSurface: CallSurface = "chat";
   private stripOpen = false;
   private pipCorner: PipCorner = "bottom-right";
@@ -939,6 +961,7 @@ class LarkApp {
     } catch {
       this.pack = defaultPack();
     }
+    this.armSessionClock();
     this.away.lastActivity = Date.now();
     this.imported = loadImportedThemes(localStorage.getItem("lark.imported-themes.v1"));
     this.preferBuiltin = localStorage.getItem("lark.theme.builtin") === "1";
@@ -4749,6 +4772,7 @@ class LarkApp {
     });
     tools.append(later);
     if (this.hookOn("quickReply")) tools.append(this.repliesButton());
+    if (this.hookOn("gameDesk")) tools.append(this.deskButton());
     if (this.hookOn("liveSchedule")) {
       const schedule = el("button", "text-button", "Schedule");
       schedule.type = "button";
@@ -12799,6 +12823,11 @@ class LarkApp {
   }
 
   private appendPluginPanel(wrap: HTMLElement, id: string) {
+    const desk = this.enabledPlugins().find((plugin) => plugin.id === id);
+    if (desk?.hooks.gameDesk) {
+      this.mountGameDeskCard(wrap, desk);
+      return;
+    }
     if (renderMediaPanel(wrap, id, this.mediaHost())) return;
     const privacy = mountPrivacyPanel(id, this.pack.privacy, {
       save: (patch) => {
@@ -14123,6 +14152,196 @@ class LarkApp {
     const saved = serializeHardwareState(this.hardware);
     if (saved) localStorage.setItem(HARDWARE_STORAGE_KEY, saved);
     else localStorage.removeItem(HARDWARE_STORAGE_KEY);
+  }
+
+  private gameDeskList(): { plugin: PluginSource; catalog: GameCatalog }[] {
+    const out: { plugin: PluginSource; catalog: GameCatalog }[] = [];
+    for (const plugin of this.enabledPlugins()) {
+      if (!plugin.hooks.gameDesk) continue;
+      const catalog = readCatalog(plugin.source);
+      if (catalog) out.push({ plugin, catalog });
+    }
+    return out;
+  }
+
+  private mountGameDeskCard(wrap: HTMLElement, plugin: PluginSource) {
+    const catalog = readCatalog(plugin.source);
+    if (!catalog) {
+      wrap.append(el("p", "hint", "This desk has no options."));
+      return;
+    }
+    const settings = this.pack.gameDesks[plugin.id] ?? emptyDesk();
+    mountGameDesk(wrap, {
+      catalog,
+      settings,
+      clock: sessionClock(settings.sessionStart, Date.now()),
+      save: (next, repaint) => {
+        this.pack.gameDesks = { ...this.pack.gameDesks, [plugin.id]: next };
+        this.savePack();
+        this.syncGameSessions(false);
+        if (repaint && this.settings) this.renderSettings();
+      },
+      toggleSession: () => this.toggleDeskSession(plugin.id),
+      insert: (text) => this.insertDesk(text),
+      lookup: () => void this.lookupDesk(plugin.id),
+    });
+  }
+
+  private deskButton(): HTMLButtonElement {
+    const button = el("button", "text-button", "Desk");
+    button.type = "button";
+    button.setAttribute("aria-label", "Game desk");
+    button.addEventListener("click", () => {
+      const items = this.gameDeskList().flatMap(({ plugin, catalog }) => deskActions(plugin.id, catalog, this.pack.gameDesks[plugin.id] ?? emptyDesk()));
+      if (!items.length) {
+        this.toast("Desk", "Turn on a game plugin first.");
+        return;
+      }
+      const rect = button.getBoundingClientRect();
+      this.showMenu(rect.left, rect.bottom + 4, items, (id) => this.onDeskAction(id));
+    });
+    return button;
+  }
+
+  private onDeskAction(actionId: string) {
+    const [pluginId, action, encoded] = actionId.split(":");
+    const found = this.gameDeskList().find((item) => item.plugin.id === pluginId);
+    if (!found || !action) return;
+    const desk = this.pack.gameDesks[pluginId] ?? emptyDesk();
+    const name = deskName(found.catalog, desk);
+    if (action === "session") {
+      this.toggleDeskSession(pluginId);
+      return;
+    }
+    if (action === "lfg") {
+      this.insertDesk(lfgText(name, desk));
+      return;
+    }
+    if (action === "build") {
+      const text = buildText(name, found.catalog.slots, desk);
+      if (!text) this.toast("Build", "Fill in a slot first.");
+      else this.insertDesk(text);
+      return;
+    }
+    if (action === "callout" && encoded) {
+      this.insertDesk(decodeURIComponent(encoded));
+      return;
+    }
+    if (action === "crew") {
+      const text = crewText(name, desk);
+      if (!text) this.toast("Crew", "Add a line in the plugin settings.");
+      else this.insertDesk(text);
+      return;
+    }
+    if (action === "stats") void this.lookupDesk(pluginId);
+  }
+
+  private toggleDeskSession(id: string) {
+    const current = this.pack.gameDesks[id] ?? emptyDesk();
+    const running = current.sessionStart === 0;
+    this.pack.gameDesks = setSession(this.pack.gameDesks, id, running, Date.now());
+    this.savePack();
+    if (!running) this.clearSessionStatus();
+    else this.syncGameSessions(true);
+    this.armSessionClock();
+    if (this.settings) this.renderSettings();
+    else this.paintComposer();
+  }
+
+  private insertDesk(text: string) {
+    const chunk = text.trim();
+    if (!chunk || !this.composer) {
+      this.toast("Desk", "Nothing to insert.");
+      return;
+    }
+    const start = this.composer.selectionStart ?? this.composer.value.length;
+    const end = this.composer.selectionEnd ?? start;
+    const next = `${this.composer.value.slice(0, start)}${chunk}${this.composer.value.slice(end)}`.slice(0, 2000);
+    this.composer.value = next;
+    const caret = Math.min(next.length, start + chunk.length);
+    this.composer.focus();
+    this.composer.setSelectionRange(caret, caret);
+    this.toast("Desk", "It's in the composer. It sends when you send it.");
+  }
+
+  private async lookupDesk(pluginId: string) {
+    const found = this.gameDeskList().find((item) => item.plugin.id === pluginId);
+    if (!found) return;
+    const desk = this.pack.gameDesks[pluginId] ?? emptyDesk();
+    const name = deskName(found.catalog, desk);
+    const kind = activeStatKind(found.catalog, desk);
+    if (kind === "card") {
+      const text = statsCard(name, desk);
+      if (!text) this.toast("Stats", "Add a line first.");
+      else this.insertDesk(text);
+      return;
+    }
+    const target = profileTarget(kind, desk.statId);
+    if (!target) {
+      this.toast("Stats", found.catalog.stats?.hint || "That is not a public profile.");
+      return;
+    }
+    if (kind === "steam" && isTauri()) {
+      try {
+        const xml = await invoke<string>("read_public_profile", { kind: "steam", id: desk.statId.trim() });
+        const card = parseSteamProfile(xml, target.url);
+        if (card) {
+          this.insertDesk(statsCard(name, desk, card));
+          return;
+        }
+      } catch {
+        // The public page is still opened below.
+      }
+    }
+    try {
+      if (isTauri()) await invoke("open_public_profile", { kind, id: desk.statId.trim() });
+      else window.open(target.url, "_blank", "noopener,noreferrer");
+    } catch {
+      window.open(target.url, "_blank", "noopener,noreferrer");
+    }
+    const text = statsCard(name, desk, null, target.url);
+    if (text) this.insertDesk(text);
+    else this.toast("Stats", "Opened the public page.");
+  }
+
+  private syncGameSessions(force: boolean) {
+    const now = Date.now();
+    for (const { plugin, catalog } of this.gameDeskList()) {
+      const desk = this.pack.gameDesks[plugin.id];
+      if (!desk?.sessionStart || !desk.presence) continue;
+      const line = sessionStatusLine(deskName(catalog, desk), desk.sessionStart, now);
+      if (line) this.writeSession(line, desk.presenceReplace, force);
+      return;
+    }
+  }
+
+  private writeSession(line: string, replace: boolean, force: boolean) {
+    if (this.demo) return;
+    if (!canReplaceSession(this.me.custom ?? "", this.sessionShown, replace)) return;
+    const now = Date.now();
+    if (!force && !shouldWritePlaying(this.sessionShown, line, this.sessionWrite, now)) return;
+    this.sessionShown = line;
+    this.sessionWrite = now;
+    this.setStatus(this.me.status ?? "online", line, "plugin");
+  }
+
+  private clearSessionStatus() {
+    if (this.sessionShown && (this.me.custom ?? "") === this.sessionShown) {
+      this.setStatus(this.me.status ?? "online", "", "plugin");
+    }
+    this.sessionShown = "";
+    this.sessionWrite = 0;
+  }
+
+  private armSessionClock() {
+    const live = Object.values(this.pack.gameDesks).some((desk) => desk.sessionStart > 0);
+    if (!live) {
+      if (this.sessionTick) window.clearInterval(this.sessionTick);
+      this.sessionTick = 0;
+      return;
+    }
+    if (this.sessionTick) return;
+    this.sessionTick = window.setInterval(() => this.syncGameSessions(false), 15_000);
   }
 
   private writePlaying(line: string, fromButton: boolean, replace = this.pack.playingReplace) {

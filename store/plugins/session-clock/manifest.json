@@ -1,0 +1,12 @@
+{
+  "id": "session-clock",
+  "name": "Session clock",
+  "description": "Start a session timer and, if you ask, show it on your status. Nothing reads the game.",
+  "author": "Lark",
+  "version": "1.0.0",
+  "category": "games",
+  "minLark": "3.0.2",
+  "entry": "plugin.js",
+  "icon": "clock",
+  "changelog": "A clock you start yourself. The status line is optional and updates about once a minute."
+}

@@ -58,6 +58,8 @@
     "allow-uninstall-store-item",
     "allow-installed-store",
     "allow-open-store-page",
+    "allow-read-public-profile",
+    "allow-open-public-profile",
     "deep-link:default",
     "allow-join-voice",
     "allow-leave-voice",

@@ -94,6 +94,7 @@ export interface PluginHooks {
   betterFolders: boolean;
   autoReply: boolean;
   themeAttrs: boolean;
+  gameDesk: boolean;
 }
 
 export type PluginRun = (message: PluginMessage, ctx: PluginContext) => PluginMessage | null;
@@ -171,6 +172,7 @@ export function emptyHooks(): PluginHooks {
     betterFolders: false,
     autoReply: false,
     themeAttrs: false,
+    gameDesk: false,
   };
 }
 
@@ -397,6 +399,7 @@ function sanitizeHooks(value: unknown): PluginHooks {
   hooks.betterFolders = record.betterFolders === true;
   hooks.autoReply = record.autoReply === true;
   hooks.themeAttrs = record.themeAttrs === true;
+  hooks.gameDesk = record.gameDesk === true;
   return hooks;
 }
 
