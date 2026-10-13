@@ -4,6 +4,29 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.2](https://github.com/ItsErod/lark/releases/tag/v3.0.2) — 2026-10-12
+
+Lark gets the Minimal Mono redesign, a faster start, a network traffic viewer, and Discord sync for mutes, favorites, bookmarks, and language. This is the first release delivered through the auto-updater.
+
+### ✨ Added
+
+- Network traffic viewer under Settings → Advanced (Developer Mode) for REST calls, gateway events, and voice stats, with pause, clear, search, and JSON export. Secrets are redacted. ([#118](https://github.com/ItsErod/lark/pull/118), [#127](https://github.com/ItsErod/lark/pull/127), [#138](https://github.com/ItsErod/lark/pull/138))
+- Inline polls, the Apps launcher, forum attachments, friend requests in the inbox, and Message Requests. ([#113](https://github.com/ItsErod/lark/pull/113), [#115](https://github.com/ItsErod/lark/pull/115), [#119](https://github.com/ItsErod/lark/pull/119), [#120](https://github.com/ItsErod/lark/pull/120), [#125](https://github.com/ItsErod/lark/pull/125))
+- Remote camera video decoding in calls. ([#114](https://github.com/ItsErod/lark/pull/114))
+- Language setting for English, French, Spanish, German, and Portuguese. ([#135](https://github.com/ItsErod/lark/pull/135))
+- Mod View from the member and voice menus. ([#140](https://github.com/ItsErod/lark/pull/140))
+- Keybinds for the inbox, GIF and sticker pickers, creating a group, and starting, answering, and declining calls. ([#137](https://github.com/ItsErod/lark/pull/137))
+
+### 🔄 Changed
+
+- Minimal Mono redesign: new design tokens, composer, messages, profile and user area, voice, server rail, channels, members, settings, and menus. ([#143](https://github.com/ItsErod/lark/pull/143), [#144](https://github.com/ItsErod/lark/pull/144), [#145](https://github.com/ItsErod/lark/pull/145), [#146](https://github.com/ItsErod/lark/pull/146), [#147](https://github.com/ItsErod/lark/pull/147), [#148](https://github.com/ItsErod/lark/pull/148))
+- Faster cold start (175 ms to 128 ms), lower input latency, and lower idle memory. ([#118](https://github.com/ItsErod/lark/pull/118))
+- Server and channel mutes, notification levels, favorites, DM pins, bookmarks, and reminders sync with Discord. ([#116](https://github.com/ItsErod/lark/pull/116), [#126](https://github.com/ItsErod/lark/pull/126), [#129](https://github.com/ItsErod/lark/pull/129))
+
+### 🐛 Fixed
+
+- Windows no longer opens a command window with Lark or its helper processes. ([#142](https://github.com/ItsErod/lark/pull/142))
+
 ## [3.0.1](https://github.com/ItsErod/lark/releases/tag/v3.0.1) — 2026-10-12
 
 A joined voice channel is audible again on Windows. Copying voice diagnostics and resizing the window work.
