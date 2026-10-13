@@ -2549,6 +2549,88 @@ fn https_field(value: &Value, keys: &[&str]) -> Option<String> {
     None
 }
 
+/// Parse command options, keeping choices, limits, and subcommand children (two levels deep).
+fn app_options_from_value(value: Option<&Value>, depth: u8) -> Vec<super::types::ClientAppOption> {
+    let Some(list) = value.and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    list.iter()
+        .take(25)
+        .filter_map(|option| {
+            let name = option.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if name.is_empty() {
+                return None;
+            }
+            let type_id = option.get("type").and_then(|v| v.as_i64()).unwrap_or(3) as i32;
+            let choices = option
+                .get("choices")
+                .and_then(|v| v.as_array())
+                .map(|choices| {
+                    choices
+                        .iter()
+                        .take(25)
+                        .filter_map(|choice| {
+                            let name = choice.get("name").and_then(|v| v.as_str())?;
+                            let value = choice.get("value")?;
+                            if !(value.is_string() || value.is_number()) {
+                                return None;
+                            }
+                            Some(super::types::ClientAppChoice {
+                                name: name.to_string(),
+                                value: value.clone(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let children = if (type_id == 1 || type_id == 2) && depth < 2 {
+                app_options_from_value(option.get("options"), depth + 1)
+            } else {
+                Vec::new()
+            };
+            Some(super::types::ClientAppOption {
+                name: name.to_string(),
+                description: option
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                type_id,
+                required: option
+                    .get("required")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                choices,
+                autocomplete: option
+                    .get("autocomplete")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                options: children,
+                channel_types: option
+                    .get("channel_types")
+                    .and_then(|v| v.as_array())
+                    .map(|v| {
+                        v.iter()
+                            .filter_map(|t| t.as_i64())
+                            .map(|t| t as i32)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                min_value: option.get("min_value").and_then(|v| v.as_f64()),
+                max_value: option.get("max_value").and_then(|v| v.as_f64()),
+                min_length: option
+                    .get("min_length")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32),
+                max_length: option
+                    .get("max_length")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32),
+            })
+        })
+        .collect()
+}
+
 pub fn app_commands_from_value(value: &Value) -> Vec<super::types::ClientAppCommand> {
     let list = value
         .get("application_commands")
@@ -2568,35 +2650,7 @@ pub fn app_commands_from_value(value: &Value) -> Vec<super::types::ClientAppComm
         if !snowflake_ok(id) || !snowflake_ok(application_id) || name.is_empty() {
             continue;
         }
-        let options = item
-            .get("options")
-            .and_then(|v| v.as_array())
-            .map(|options| {
-                options
-                    .iter()
-                    .filter_map(|option| {
-                        let name = option.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        if name.is_empty() {
-                            return None;
-                        }
-                        Some(super::types::ClientAppOption {
-                            name: name.to_string(),
-                            description: option
-                                .get("description")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            type_id: option.get("type").and_then(|v| v.as_i64()).unwrap_or(3)
-                                as i32,
-                            required: option
-                                .get("required")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let options = app_options_from_value(item.get("options"), 0);
         out.push(super::types::ClientAppCommand {
             id: id.to_string(),
             application_id: application_id.to_string(),
@@ -2966,7 +3020,10 @@ impl DiscordRest {
     }
 
     pub async fn post_interaction(&self, mut payload: Value) -> Result<(), RestError> {
-        if payload.get("type").and_then(|v| v.as_i64()) != Some(2) {
+        if !matches!(
+            payload.get("type").and_then(|v| v.as_i64()),
+            Some(2) | Some(4)
+        ) {
             return Err(RestError::Message(
                 "Only application commands can be sent from the composer.".into(),
             ));
@@ -3120,6 +3177,34 @@ fn sticker_picker_url(id: &str, format: i32) -> Option<String> {
 #[cfg(test)]
 mod messaging_search {
     use super::*;
+
+    #[test]
+    fn app_commands_keep_choices_limits_and_subcommands() {
+        let value = json!({ "application_commands": [{
+            "id": "100000000000000010", "application_id": "100000000000000020", "name": "poll", "type": 1, "version": "1",
+            "options": [
+                { "type": 1, "name": "make", "description": "Make one", "options": [
+                    { "type": 3, "name": "kind", "required": true, "choices": [{ "name": "Yes/No", "value": "yn" }, { "name": "bad", "value": {} }] },
+                    { "type": 4, "name": "hours", "min_value": 1, "max_value": 24 },
+                    { "type": 7, "name": "where", "channel_types": [0, 5] },
+                    { "type": 3, "name": "topic", "autocomplete": true, "max_length": 100 }
+                ] }
+            ]
+        }] });
+        let commands = app_commands_from_value(&value);
+        assert_eq!(commands.len(), 1);
+        let sub = &commands[0].options[0];
+        assert_eq!(sub.type_id, 1);
+        assert_eq!(sub.options.len(), 4);
+        assert_eq!(sub.options[0].choices.len(), 1);
+        assert!(sub.options[0].required);
+        assert_eq!(sub.options[1].max_value, Some(24.0));
+        assert_eq!(sub.options[2].channel_types, vec![0, 5]);
+        assert!(sub.options[3].autocomplete);
+        assert_eq!(sub.options[3].max_length, Some(100));
+        let wire = serde_json::to_value(&commands[0]).unwrap();
+        assert_eq!(wire["options"][0]["options"][1]["maxValue"], json!(24.0));
+    }
 
     #[test]
     fn search_query_carries_filters_and_forward_payload_is_a_forward() {
