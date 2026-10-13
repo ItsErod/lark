@@ -17,7 +17,6 @@ import { developerMode, showEmbeds, showSpoilers, type DisplaySource } from "../
 import { bookmarkMenuLabel } from "../pack/bookmarks";
 import { reminderMenuLabel } from "../reminders";
 import { blockedIds as relationshipBlockedIds } from "../social";
-import { onCreatePoll as streamCreatePoll, onCreateThread as streamCreateThread } from "../threads";
 import { el } from "./dom";
 
 const DISCORD_EPOCH = 1_420_070_400_000n;
@@ -65,13 +64,15 @@ function callHook(name: HookName, ...args: [string, (string | null)?]): boolean 
 }
 
 function callStream(name: "onCreateThread" | "onCreatePoll", channelId: string, messageId: string | null): boolean {
-  try {
-    if (name === "onCreateThread") streamCreateThread({ channelId, messageId });
-    else streamCreatePoll({ channelId });
-    return true;
-  } catch {
-    return false;
-  }
+  void import("../threads").then((mod) => {
+    try {
+      if (name === "onCreateThread") mod.onCreateThread({ channelId, messageId });
+      else mod.onCreatePoll({ channelId });
+    } catch {
+      // The opener reports its own failure.
+    }
+  });
+  return true;
 }
 
 export function requestCreateThread(channelId: string, messageId?: string | null): boolean {

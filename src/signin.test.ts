@@ -19,9 +19,9 @@ describe("sign-in screen", () => {
     expect(PREVIEW_QR_URL).not.toContain("token");
   });
 
-  it("does not offer the sample QR as a desktop login code", () => {
-    const preview = gateQr(false);
-    const desktop = gateQr(true);
+  it("does not offer the sample QR as a desktop login code", async () => {
+    const preview = await gateQr(false);
+    const desktop = await gateQr(true);
     expect(preview.svg.startsWith("<svg")).toBe(true);
     expect(preview.status).toBe("Scan with the Discord mobile app");
     expect(desktop.svg).toBe("");

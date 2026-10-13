@@ -1,15 +1,17 @@
 /** Copy and state for the sign-in screen. The desktop shell does the real login. */
 
-import { PREVIEW_QR_SVG } from "./preview-qr";
+let previewQrTask: Promise<string> | null = null;
 
-export function previewQr(): string {
-  return PREVIEW_QR_SVG;
+/** Browser preview only. The desktop app never loads this picture. */
+function previewQr(): Promise<string> {
+  if (!previewQrTask) previewQrTask = import("./preview-qr").then((mod) => mod.PREVIEW_QR_SVG);
+  return previewQrTask;
 }
 
 /** The desktop app must not show the sample QR. Scanning it does not sign in. */
-export function gateQr(desktop: boolean): { svg: string; status: string } {
+export async function gateQr(desktop: boolean): Promise<{ svg: string; status: string }> {
   if (desktop) return { svg: "", status: QR_PREPARING };
-  return { svg: previewQr(), status: QR_CAPTION };
+  return { svg: await previewQr(), status: QR_CAPTION };
 }
 
 export const DISCORD_BUTTON = "Sign in with Discord";

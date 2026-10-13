@@ -2,7 +2,7 @@
  * Message requests and the spam inbox for 1:1 DMs from people who are not friends.
  * Discord's client routes are tried first. A thrown fetch falls back to this list.
  */
-import { snowflakeOk } from "./threads";
+import { snowflakeOk } from "./user-lists";
 
 export interface MessageRequest {
   id: string;
