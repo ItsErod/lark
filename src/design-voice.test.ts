@@ -5,7 +5,7 @@ const css = readFileSync(new URL("./design-voice.css", import.meta.url), "utf8")
 
 describe("voice styling", () => {
   it("keeps the panel, tiles, speaking state, stage, and control bar", () => {
-    for (const hook of [".voice-panel:not(.is-resting)", ".voice-tile", ".voice-tile.is-speaking", ".voice-tile-name", ".voice-bar", ".call-button", ".stage-board", ".call-strip"]) {
+    for (const hook of [".voice-panel:not(.is-resting)", ".voice-board", ".voice-tile", ".voice-tile.is-speaking", ".voice-tile-name", ".voice-bar", ".call-button", ".stage-board", ".call-strip"]) {
       expect(css).toContain(hook);
     }
   });

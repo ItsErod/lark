@@ -282,6 +282,7 @@ pub fn run() {
             set_voice_video,
             fetch_soundboard,
             play_guild_sound,
+            hear_guild_sound,
             create_activity_invite,
             modify_channel,
             duplicate_channel,
@@ -1423,14 +1424,25 @@ async fn play_guild_sound(
         .send_soundboard_sound(&channel_id, &sound_id, &guild_id)
         .await
         .map_err(|err| err.to_string())?;
-    let pcm = load_guild_pcm(&client, &state, &sound_id).await?;
+    queue_heard(&state, &client, &sound_id, volume).await
+}
+
+#[tauri::command]
+async fn hear_guild_sound(state: State<'_, Shared>, sound_id: String, volume: Option<f64>) -> Result<(), String> {
+    let client = rest(&state).await?;
+    queue_heard(&state, &client, &sound_id, volume).await
+}
+
+/// Download a guild sound and queue it for the speakers. It is not sent on the voice socket.
+async fn queue_heard(state: &Shared, client: &DiscordRest, sound_id: &str, volume: Option<f64>) -> Result<(), String> {
+    let pcm = load_guild_pcm(client, state, sound_id).await?;
     let gain = volume.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
     let gained: Vec<f32> = pcm.into_iter().map(|sample| (sample * gain).clamp(-1.0, 1.0)).collect();
     state
         .sound_mix
         .lock()
         .map_err(|_| "Soundboard is busy.".to_string())?
-        .push_guild(gained);
+        .push_hear(gained);
     Ok(())
 }
 

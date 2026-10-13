@@ -245,6 +245,8 @@ pub struct Playback {
     pub channels: u16,
     pub output_gain: f32,
     pub last_render: Vec<f32>,
+    /// Guild soundboard for the speakers. Not a remote voice stream.
+    local: VecDeque<f32>,
 }
 
 /// Playback gain ceiling. The voice slider uses 2.0. The volume booster plugin uses 4.0.
@@ -266,6 +268,17 @@ impl Playback {
             channels: 2,
             output_gain: 1.0,
             last_render: Vec::new(),
+            local: VecDeque::new(),
+        }
+    }
+
+    /// Queue speaker-only soundboard audio. A long sound is kept; voice jitter is not.
+    pub fn push_local(&mut self, pcm: &[f32]) {
+        const LOCAL_CAP: usize = 48_000 * 15;
+        self.local.extend(pcm.iter().copied().filter(|sample| sample.is_finite()));
+        if self.local.len() > LOCAL_CAP {
+            let extra = self.local.len() - LOCAL_CAP;
+            self.local.drain(..extra);
         }
     }
 
@@ -287,6 +300,15 @@ impl Playback {
             for sample in mixed.iter_mut() {
                 let Some(input) = speaker.samples.pop_front() else { break };
                 *sample += input * gain;
+            }
+        }
+        let local_frames = src_frames.min(self.local.len());
+        if self.deafened {
+            self.local.drain(..local_frames);
+        } else {
+            for sample in mixed.iter_mut().take(local_frames) {
+                let Some(extra) = self.local.pop_front() else { break };
+                *sample = (*sample + extra).clamp(-1.0, 1.0);
             }
         }
         if !self.deafened {
@@ -511,6 +533,7 @@ fn run_media(args: MediaArgs) {
             play.deafened = controls.deafened;
             play.output_gain = (f32::from(controls.output_volume) / 100.0).clamp(0.0, 2.0);
         }
+        drain_heard(&args.board, &args.playback);
         let wait = next_frame.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
         match args.inbound.recv_timeout(wait) {
             Ok(packet) => handle_packet(&args, &mut decoders, &mut scratch, packet),
@@ -813,6 +836,20 @@ fn handle_packet(args: &MediaArgs, decoders: &mut HashMap<u32, Incoming>, scratc
     }
 }
 
+/// Move queued guild sounds onto the speaker mix. They never enter the encoder.
+fn drain_heard(board: &Mutex<SoundMix>, playback: &Mutex<Playback>) {
+    let chunk = match board.lock() {
+        Ok(mut mix) => mix.take_hear(SAMPLE_RATE as usize),
+        Err(_) => return,
+    };
+    if chunk.is_empty() {
+        return;
+    }
+    if let Ok(mut play) = playback.lock() {
+        play.push_local(&chunk);
+    }
+}
+
 fn deliver(args: &MediaArgs, ssrc: u32, pcm: &[f32]) {
     let user_id = args
         .ssrc_users
@@ -1024,6 +1061,22 @@ mod tests {
         assert!(decoded.len() >= FRAME_SAMPLES / 2);
         let energy: f32 = decoded.iter().map(|sample| sample * sample).sum();
         assert!(energy > 1.0, "energy {energy}");
+    }
+
+    #[test]
+    fn a_local_sound_plays_and_a_deafen_drops_the_backlog() {
+        let mut play = Playback::new();
+        play.push_local(&[0.5, 0.25, f32::NAN]);
+        let mixed = play.render(2, &HashMap::new());
+        assert!((mixed[0] - 0.5).abs() < 0.001);
+        assert!((mixed[1] - 0.25).abs() < 0.001);
+        play.push_local(&[0.8, 0.8]);
+        play.deafened = true;
+        let silent = play.render(2, &HashMap::new());
+        assert_eq!(silent, vec![0.0, 0.0]);
+        play.deafened = false;
+        let after = play.render(2, &HashMap::new());
+        assert_eq!(after, vec![0.0, 0.0]);
     }
 
     #[test]
