@@ -296,6 +296,15 @@ pub enum ClientEvent {
     },
     /// A voice handshake step for the diagnostics log. Not forwarded to the shell.
     VoiceStep { step: String },
+    /// CALL_CREATE / CALL_UPDATE, or CALL_DELETE when `ended` is set.
+    /// `ringing` is the users who should see the incoming-call UI.
+    Call {
+        channel_id: String,
+        message_id: String,
+        ringing: Vec<String>,
+        video: bool,
+        ended: bool,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -1618,6 +1627,19 @@ fn handle_dispatch(
             emit_saved_message(name, data, emit);
             false
         }
+        "CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" => {
+            let channel_id = json_str(data, "channel_id");
+            if !channel_id.is_empty() {
+                emit(ClientEvent::Call {
+                    channel_id,
+                    message_id: json_str(data, "message_id"),
+                    ringing: call_ringing(data),
+                    video: call_has_video(data),
+                    ended: name == "CALL_DELETE",
+                });
+            }
+            false
+        }
         _ => false,
     }
 }
@@ -2503,6 +2525,31 @@ mod tests {
             _ => panic!("expected saved message"),
         }
     }
+
+    #[test]
+    fn call_events_keep_who_is_ringing() {
+        let data = json!({
+            "channel_id": "100000000000000041",
+            "message_id": "100000000000000090",
+            "ringing": ["100000000000000001", "nope", "100000000000000001"],
+            "voice_states": [{ "user_id": "100000000000000002", "self_video": true }]
+        });
+        let mut events = Vec::new();
+        let mut session = None;
+        handle_dispatch("CALL_CREATE", &data, None, &mut session, &mut |event| events.push(event));
+        match &events[0] {
+            ClientEvent::Call { channel_id, ringing, video, ended, .. } => {
+                assert_eq!(channel_id, "100000000000000041");
+                assert_eq!(ringing, &vec!["100000000000000001".to_string()]);
+                assert!(*video);
+                assert!(!(*ended));
+            }
+            _ => panic!("expected call"),
+        }
+        events.clear();
+        handle_dispatch("CALL_DELETE", &json!({"channel_id": "100000000000000041"}), None, &mut session, &mut |event| events.push(event));
+        assert!(matches!(events[0], ClientEvent::Call { ended: true, video: false, .. }));
+    }
 }
 
 /// Gateway READY session, kept for interaction payloads. The voice slot's session id is a different value.
@@ -2539,6 +2586,37 @@ fn emit_user_lists(encoded: Option<&str>, from_ready: bool, emit: &mut impl FnMu
         channel_pins: lists.channel_pins,
         from_ready,
     });
+}
+
+fn call_ringing(data: &Value) -> Vec<String> {
+    let Some(list) = data.get("ringing").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for value in list {
+        let Some(id) = value.as_str().map(str::trim) else {
+            continue;
+        };
+        if id.len() < 5 || id.len() > 22 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        if out.iter().any(|seen: &String| seen == id) {
+            continue;
+        }
+        out.push(id.to_string());
+        if out.len() == 16 {
+            break;
+        }
+    }
+    out
+}
+
+fn call_has_video(data: &Value) -> bool {
+    data.get("voice_states")
+        .and_then(|value| value.as_array())
+        .is_some_and(|states| {
+            states.iter().any(|state| state.get("self_video").and_then(|value| value.as_bool()) == Some(true))
+        })
 }
 
 fn emit_saved_message(name: &str, data: &Value, emit: &mut impl FnMut(ClientEvent)) {

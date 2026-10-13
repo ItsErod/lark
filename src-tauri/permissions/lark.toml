@@ -199,6 +199,16 @@ description = "Read GPU, temperature, CPU, memory, and the current game when Set
 commands.allow = ["hardware_snapshot"]
 
 [[permission]]
+identifier = "allow-ring-call"
+description = "Ring the other people in a direct or group call."
+commands.allow = ["ring_call"]
+
+[[permission]]
+identifier = "allow-stop-ringing"
+description = "Decline an incoming call without joining."
+commands.allow = ["stop_ringing"]
+
+[[permission]]
 identifier = "allow-ack-message"
 description = "Mark one channel read."
 commands.allow = ["ack_message"]

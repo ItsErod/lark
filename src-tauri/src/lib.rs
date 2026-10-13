@@ -280,6 +280,8 @@ pub fn run() {
             open_public_profile,
             join_voice,
             leave_voice,
+            ring_call,
+            stop_ringing,
             voice_diagnostics,
             set_voice_self,
             set_voice_transmit,
@@ -1885,6 +1887,16 @@ async fn set_presence(state: State<'_, Shared>, status: String, custom: String, 
     gateway
         .send(lark_core::discord::GatewayCommand::Presence { status, custom, game: game.unwrap_or_default() })
         .map_err(|_| "Gateway is closed.".to_string())
+}
+
+#[tauri::command]
+async fn ring_call(state: State<'_, Shared>, channel_id: String, recipients: Vec<String>) -> Result<(), String> {
+    rest(&state).await?.ring_call(&channel_id, &recipients).await.map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn stop_ringing(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
+    rest(&state).await?.stop_ringing(&channel_id).await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]

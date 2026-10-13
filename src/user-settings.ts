@@ -110,7 +110,7 @@ export function defaultPreferences(): UserPreferences {
     personalize: true,
     desktop_notifications: true,
     message_sound: false,
-    call_sound: false,
+    call_sound: true,
     unread_badge: true,
     email_notifications: false,
     share_activity: true,
@@ -162,7 +162,7 @@ export function sanitizePreferences(input: unknown): UserPreferences {
   base.personalize = flag(raw.personalize, true);
   base.desktop_notifications = flag(raw.desktop_notifications, true);
   base.message_sound = flag(raw.message_sound, false);
-  base.call_sound = flag(raw.call_sound, false);
+  base.call_sound = flag(raw.call_sound, true);
   base.unread_badge = flag(raw.unread_badge, true);
   base.email_notifications = flag(raw.email_notifications, false);
   base.share_activity = flag(raw.share_activity, true);

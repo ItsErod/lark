@@ -496,6 +496,19 @@ import { renderContextMenu, renderFriendsBoard, type ActiveCardModel, type Frien
 import { toggleInbox } from "./inbox";
 import { installModView } from "./mod-view";
 import { callKeyAction } from "../keybind-actions";
+import {
+  applyCall,
+  callerName,
+  createRingtone,
+  incomingNotice,
+  pulseRingtone,
+  ringAudible,
+  ringInBackground,
+  ringTargets,
+  stopRingtoneContext,
+  type RingState,
+} from "../call-ring";
+import { renderCallRing } from "./call-ring-view";
 import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
@@ -850,6 +863,10 @@ class LarkApp {
   private desk: DeskAudio = restingDesk();
   private callView: CallViewPrefs = defaultCallView();
   private voiceDetails = voiceLinkDetails({});
+  private incoming: RingState | null = null;
+  private ringHandle: { start(): void; stop(): void } | null = null;
+  private ringNotified = "";
+  private callActionsBound = false;
   private netPanel: { close: () => void } | null = null;
   private netVoiceTimer = 0;
   private netTicket = 0;
@@ -7243,9 +7260,11 @@ class LarkApp {
       this.openGroupCreator();
       return true;
     }
-    const call = callKeyAction(id, this.currentChannel() ?? null, this.voice);
+    const call = callKeyAction(id, this.currentChannel() ?? null, this.voice, this.incoming);
     if (call) {
-      if (call.op === "join") {
+      if (call.op === "answer") this.answerIncoming();
+      else if (call.op === "decline") this.declineIncoming();
+      else if (call.op === "join") {
         const channel = this.currentChannel();
         if (channel && channel.id === call.channelId) this.startDmCall(channel, false);
       } else if (call.op === "focus") void this.openChannel(call.channelId);
@@ -9842,6 +9861,9 @@ class LarkApp {
         this.paintVoice();
         this.paintChannels();
       }
+    } else if (event.kind === "call") {
+      const call = payload as { channelId?: string; ringing?: unknown; ended?: boolean; video?: boolean };
+      this.applyIncomingCall(call);
     } else if (event.kind === "typing" && event.channelId && event.userId !== this.meId()) {
       const name = event.username || this.userNames[event.userId ?? ""] || "Someone";
       this.typingNames = this.typingNames.filter((item) => item.channelId !== event.channelId || item.name !== name);
@@ -16631,7 +16653,124 @@ class LarkApp {
       this.joinVoice(channel);
     } catch (err) {
       this.toast("Voice", err instanceof Error ? err.message : "Couldn't start that call.");
+      return;
     }
+    this.ringOthers(channel);
+  }
+
+  private ringOthers(channel: Channel) {
+    if (this.demo || this.voice?.channelId !== channel.id) return;
+    const ids = ringTargets(this.meId(), [
+      ...(channel.recipientIds ?? []),
+      ...(channel.recipients ?? []).map((person) => person.id),
+    ]);
+    if (!ids.length) return;
+    void invoke("ring_call", { channelId: channel.id, recipients: ids }).catch(() => undefined);
+  }
+
+  private applyIncomingCall(call: { channelId?: string; ringing?: unknown; ended?: boolean; video?: boolean }) {
+    const channelId = String(call.channelId ?? "");
+    const ringing = Array.isArray(call.ringing) ? call.ringing.filter((id): id is string => typeof id === "string") : [];
+    const known = this.dmChannels().find((item) => item.id === channelId);
+    const people = (known?.recipients ?? []).map((person) => ({ id: person.id, name: person.name }));
+    if (!people.length && known?.name) people.push({ id: "", name: known.name });
+    const next = applyCall(
+      this.incoming,
+      { channelId, ringing, ended: Boolean(call.ended), video: Boolean(call.video) },
+      this.meId(),
+      callerName(this.meId(), people),
+      this.voice?.channelId === channelId && !this.voice.guildId,
+    );
+    this.syncIncoming(next);
+  }
+
+  private syncIncoming(next: RingState | null) {
+    this.incoming = next;
+    renderCallRing(next, {
+      onAnswer: () => this.answerIncoming(),
+      onDecline: () => this.declineIncoming(),
+    });
+    if (!this.ringHandle) {
+      this.ringHandle = createRingtone(() => {
+        if (!ringAudible(this.config.preferences.call_sound, Boolean(this.incoming))) {
+          this.ringHandle?.stop();
+          stopRingtoneContext();
+          return;
+        }
+        pulseRingtone();
+      }, 2000, window);
+    }
+    if (ringAudible(this.config.preferences.call_sound, Boolean(next))) this.ringHandle.start();
+    else {
+      this.ringHandle.stop();
+      stopRingtoneContext();
+    }
+    if (!next) {
+      this.ringNotified = "";
+      return;
+    }
+    if (next.channelId !== this.ringNotified && ringInBackground(document.hidden, document.hasFocus())) {
+      this.ringNotified = next.channelId;
+      void this.notifyIncoming(next);
+    }
+  }
+
+  private answerIncoming() {
+    const ring = this.incoming;
+    if (!ring) return;
+    const known = this.dmChannels().find((item) => item.id === ring.channelId);
+    const channel: Channel = known ?? { id: ring.channelId, name: ring.callerName, kind: "dm", position: 0 };
+    this.syncIncoming(null);
+    if (ring.video && !this.cameraOn) this.toggleCamera();
+    this.friendsOpen = false;
+    if (this.channelId !== channel.id) void this.openChannel(channel.id);
+    this.joinVoice(channel);
+    if (!isTauri()) return;
+    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+      const win = getCurrentWindow();
+      await win.show();
+      await win.unminimize();
+      await win.setFocus();
+    }).catch(() => undefined);
+  }
+
+  private declineIncoming() {
+    const ring = this.incoming;
+    if (!ring) return;
+    this.syncIncoming(null);
+    if (this.demo) return;
+    void invoke("stop_ringing", { channelId: ring.channelId }).catch(() => undefined);
+  }
+
+  private async notifyIncoming(ring: RingState) {
+    const notice = incomingNotice(ring.callerName, ring.video);
+    this.toast(notice.title, notice.body);
+    if (!isTauri()) return;
+    const mod = await import("@tauri-apps/plugin-notification");
+    let granted = await mod.isPermissionGranted();
+    if (!granted) granted = (await mod.requestPermission()) === "granted";
+    if (!granted) return;
+    if (!this.callActionsBound) {
+      this.callActionsBound = true;
+      void mod.onAction((notification) => {
+        const action = (notification as { actionId?: string }).actionId;
+        if (action === "answer") this.answerIncoming();
+        else if (action === "decline") this.declineIncoming();
+      });
+    }
+    await mod.registerActionTypes([{
+      id: "lark-call",
+      actions: [
+        { id: "answer", title: "Answer", foreground: true },
+        { id: "decline", title: "Decline", foreground: true },
+      ],
+    }]).catch(() => undefined);
+    mod.sendNotification({
+      title: notice.title,
+      body: notice.body,
+      actionTypeId: "lark-call",
+      autoCancel: true,
+    });
   }
 
   private joinFriendVoice(userId: string) {
