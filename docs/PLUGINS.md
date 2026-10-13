@@ -325,7 +325,7 @@ The plugin’s settings list the colour tokens already painted on the page.
 
 ## Game desks
 
-These stay in the store. They are off until you turn one on. The settings use the same Minimal Mono rows as the rest of Settings. None of them read a game or its memory. A card is inserted into the composer. It sends when you send it. **Desk** in the composer lists the same actions.
+These stay in the store, under Games. They are off until you turn one on. The settings use the same Minimal Mono rows as the rest of Settings. None of them read a game or its memory. A card is inserted into the composer. It sends when you send it. **Desk** in the composer lists the same actions.
 
 ## Session clock
 
