@@ -96,6 +96,53 @@ export function availableStoreItems(
   return list.filter((item) => !have.has(item.id));
 }
 
+export interface StoreBrowse {
+  query: string;
+  kind: "all" | "plugin" | "theme";
+  category: string;
+}
+
+export interface StoreBrowseResult {
+  plugins: StoreItem[];
+  themes: StoreItem[];
+  categories: string[];
+}
+
+/** Install list for Settings. Search, kind, and category narrow what is not installed yet. */
+export function browseStore(
+  index: StoreIndex,
+  installed: readonly { id: string; kind: string }[],
+  browse: StoreBrowse,
+): StoreBrowseResult {
+  const query = browse.query.trim().toLowerCase();
+  const plugins = browse.kind === "theme" ? [] : availableStoreItems(index, installed, "plugin");
+  const themes = browse.kind === "plugin" ? [] : availableStoreItems(index, installed, "theme");
+  const categories = [...new Set([...plugins, ...themes].map((item) => item.category))].sort((a, b) => a.localeCompare(b));
+  const category = browse.category && categories.includes(browse.category) ? browse.category : "";
+  return {
+    plugins: narrowStoreItems(plugins, query, category),
+    themes: narrowStoreItems(themes, query, category),
+    categories,
+  };
+}
+
+export function categoryLabel(category: string): string {
+  const clean = category.replace(/[-_]+/g, " ").trim();
+  if (!clean) return "Other";
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+function narrowStoreItems(items: readonly StoreItem[], query: string, category: string): StoreItem[] {
+  return items
+    .filter((item) => {
+      if (category && item.category !== category) return false;
+      if (!query) return true;
+      const hay = `${item.name} ${item.description} ${item.changelog} ${item.author} ${item.id} ${item.category}`.toLowerCase();
+      return hay.includes(query);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
 export function findStoreItem(index: StoreIndex, id: string): { kind: "plugin" | "theme"; item: StoreItem } | null {
   const plugin = index.plugins.find((item) => item.id === id);
   const theme = index.themes.find((item) => item.id === id);

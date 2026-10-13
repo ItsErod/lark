@@ -4,6 +4,8 @@ import {
   acceptBytes,
   APP_VERSION,
   availableStoreItems,
+  browseStore,
+  categoryLabel,
   entryUrl,
   findStoreItem,
   hashMatches,
@@ -95,6 +97,48 @@ describe("store index", () => {
     if (!index) return;
     expect(availableStoreItems(index, [{ id: "quiet-media", kind: "plugin" }], "plugin").map((item) => item.id)).toEqual(["bookmarks"]);
     expect(availableStoreItems(index, [], "theme").map((item) => item.id)).toEqual(["nord"]);
+  });
+
+  it("filters the install list by search, kind, and category", () => {
+    const index = parseStoreIndex({
+      version: 1,
+      plugins: [
+        plugin({ changelog: "Hides previews." }),
+        plugin({
+          id: "call-timer",
+          name: "Call Timer",
+          description: "How long the call has run.",
+          category: "voice",
+          file: "plugins/call-timer/plugin.js",
+          download: "downloads/call-timer.zip",
+          changelog: "First release.",
+        }),
+      ],
+      themes: [plugin({
+        id: "nord",
+        name: "Nord",
+        description: "A cool dark theme.",
+        category: "themes",
+        entry: "theme.css",
+        file: "themes/nord/theme.css",
+        download: "downloads/nord.zip",
+      })],
+    });
+    expect(index).not.toBeNull();
+    if (!index) return;
+    const installed = [{ id: "quiet-media", kind: "plugin" }];
+    const all = browseStore(index, installed, { query: "", kind: "all", category: "" });
+    expect(all.plugins.map((item) => item.id)).toEqual(["call-timer"]);
+    expect(all.themes.map((item) => item.id)).toEqual(["nord"]);
+    expect(all.categories).toEqual(["themes", "voice"]);
+    expect(browseStore(index, installed, { query: "timer", kind: "all", category: "" }).plugins.map((item) => item.name)).toEqual(["Call Timer"]);
+    expect(browseStore(index, installed, { query: "previews", kind: "all", category: "" }).plugins).toEqual([]);
+    expect(browseStore(index, [], { query: "previews", kind: "plugin", category: "" }).plugins.map((item) => item.id)).toEqual(["quiet-media"]);
+    expect(browseStore(index, [], { query: "", kind: "plugin", category: "voice" }).plugins.map((item) => item.id)).toEqual(["call-timer"]);
+    expect(browseStore(index, installed, { query: "", kind: "theme", category: "voice" }).themes.map((item) => item.id)).toEqual(["nord"]);
+    expect(browseStore(index, installed, { query: "", kind: "all", category: "missing" }).plugins.map((item) => item.id)).toEqual(["call-timer"]);
+    expect(categoryLabel("voice")).toBe("Voice");
+    expect(categoryLabel("better-folders")).toBe("Better folders");
   });
 
   it("reads only lark://install/<id>", () => {
