@@ -398,7 +398,7 @@ where
     }
     if op == 5 {
         if let Some(data) = value.get("d") {
-            let user_id = data.get("user_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let user_id = data.get("user_id").and_then(json_snowflake).map(|id| id.to_string()).unwrap_or_default();
             let flags = data.get("speaking").and_then(|v| v.as_u64()).unwrap_or(0);
             if let Some(remote_ssrc) = data.get("ssrc").and_then(|v| v.as_u64()) {
                 if !user_id.is_empty() {
@@ -784,6 +784,9 @@ fn apply_dave_json(dave: &mut DaveCall, value: &Value) -> Result<(), String> {
             let version = data.and_then(|item| item.get("protocol_version")).and_then(|v| v.as_u64()).unwrap_or(1) as u16;
             let epoch = data.and_then(|item| item.get("epoch")).and_then(|v| v.as_u64()).unwrap_or(0);
             dave.prepare_epoch(version, epoch)?;
+            if let Some(transition) = data.and_then(|item| item.get("transition_id")).and_then(|v| v.as_u64()) {
+                dave.prepare_transition(version, transition as u16);
+            }
         }
         _ => {}
     }
@@ -1475,6 +1478,97 @@ mod tests {
         let mut payload = vec![0u8];
         payload.extend_from_slice(&messages);
         Ok((external_bytes, payload, peer))
+    }
+
+    fn committed_pair() -> (DaveCall, DaveCall, Vec<u8>) {
+        let (external, proposal, mut welcomee) = gateway_add().expect("add");
+        welcomee.take_outbound();
+        let mut committer = DaveCall::start(CLIENT_ID, CHANNEL_ID, 1).unwrap();
+        committer.take_outbound();
+        committer.note_users([CLIENT_ID, PEER_ID]);
+        committer.ingest_binary(&dave_server(1, 25, &external));
+        committer.ingest_binary(&dave_server(2, 27, &proposal));
+        let frame = committer
+            .take_outbound()
+            .into_iter()
+            .find_map(|item| match item {
+                DaveWire::Binary(bytes) if bytes.first() == Some(&28) => Some(bytes),
+                _ => None,
+            })
+            .expect("commit");
+        let (commit, welcome) = split_commit_welcome(&frame[1..]).unwrap();
+        let mut announce = Vec::new();
+        announce.extend_from_slice(&TRANSITION.to_be_bytes());
+        announce.extend_from_slice(commit);
+        committer.ingest_binary(&dave_server(3, 29, &announce));
+        committer.execute_transition(TRANSITION);
+        assert!(committer.sender_ready(), "{:?}", committer.drain_trace());
+        welcomee.ingest_binary(&dave_server(1, 25, &external));
+        let mut welcome_body = Vec::new();
+        welcome_body.extend_from_slice(&TRANSITION.to_be_bytes());
+        welcome_body.extend_from_slice(welcome);
+        (committer, welcomee, welcome_body)
+    }
+
+    #[test]
+    fn a_welcome_joins_without_a_roster_and_execute_arms_the_sender() {
+        let (committer, mut welcomee, welcome_body) = committed_pair();
+        assert_eq!(welcomee.pending_proposals(), 0);
+        welcomee.ingest_binary(&dave_server(4, 30, &welcome_body));
+        assert!(!welcomee.sender_ready(), "welcome stages the ratchet");
+        let wires = welcomee.take_outbound();
+        assert!(wires.iter().any(|item| matches!(item, DaveWire::Text(text) if text.contains("\"op\":23"))));
+        assert!(welcomee.drain_trace().iter().any(|line| line.contains("welcome")));
+        welcomee.execute_transition(TRANSITION);
+        assert!(welcomee.sender_ready(), "{:?}", welcomee.drain_trace());
+        let sealed = welcomee.seal_opus(b"from-joiner").unwrap();
+        let mut committer = committer;
+        assert_eq!(committer.open_opus(PEER_ID, &sealed).unwrap(), b"from-joiner");
+        let back = committer.seal_opus(b"from-member").unwrap();
+        assert_eq!(welcomee.open_opus(CLIENT_ID, &back).unwrap(), b"from-member");
+    }
+
+    #[test]
+    fn a_welcome_that_arrives_after_execute_still_arms_the_sender() {
+        let (mut committer, mut welcomee, welcome_body) = committed_pair();
+        welcomee.execute_transition(TRANSITION);
+        assert!(!welcomee.sender_ready());
+        welcomee.ingest_binary(&dave_server(4, 30, &welcome_body));
+        assert!(welcomee.sender_ready(), "{:?}", welcomee.drain_trace());
+        let sealed = welcomee.seal_opus(b"late-welcome").unwrap();
+        assert_eq!(committer.open_opus(PEER_ID, &sealed).unwrap(), b"late-welcome");
+    }
+
+    #[test]
+    fn numeric_speaking_user_is_mapped_to_the_ssrc() {
+        let hello = VoiceHello {
+            endpoint: "127.0.0.1".into(),
+            server_id: "444".into(),
+            channel_id: CHANNEL_ID.to_string(),
+            user_id: CLIENT_ID.to_string(),
+            session_id: "session".into(),
+            token: "tok".into(),
+            epoch: 1,
+            camera: Arc::new(crate::discord::voice_camera::CameraInbox::new()),
+        };
+        let map = std::sync::Mutex::new(std::collections::HashMap::new());
+        let mut seq = None;
+        let mut heard = String::new();
+        super::handle_gateway_text(
+            r#"{"op":5,"d":{"speaking":1,"delay":0,"ssrc":99,"user_id":222}}"#,
+            &hello,
+            &map,
+            &mut seq,
+            None,
+            &mut |event| {
+                if let VoiceLinkEvent::Speaking { user_id, .. } = event {
+                    heard = user_id;
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(map.lock().unwrap().get(&99).map(String::as_str), Some("222"));
+        assert_eq!(heard, "222");
     }
 
     #[test]

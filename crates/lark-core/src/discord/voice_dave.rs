@@ -37,9 +37,12 @@ pub struct DaveCall {
     welcome: Option<(u16, Vec<u8>)>,
     commit: Option<(u16, Vec<u8>)>,
     outbound: Vec<DaveWire>,
-    /// Protocol version 0 is transport-only. A non-zero version never falls back
-    /// to plaintext just because the transition id is 0.
+    /// Send-side transport-only. Receive passthrough is the session's own mode:
+    /// it turns on for a downgrade and for the ten seconds after an execute.
     passthrough: bool,
+    pending_version: u16,
+    executed: Option<u16>,
+    readied: HashSet<u16>,
     trace: Vec<String>,
 }
 
@@ -71,6 +74,9 @@ impl DaveCall {
             commit: None,
             outbound: Vec::new(),
             passthrough: false,
+            pending_version: protocol_version,
+            executed: None,
+            readied: HashSet::new(),
             trace: Vec::new(),
         };
         call.trace("session started");
@@ -180,13 +186,19 @@ impl DaveCall {
 
     pub fn prepare_transition(&mut self, protocol_version: u16, transition_id: u16) {
         self.trace(format!("prepare transition {transition_id} protocol {protocol_version}"));
+        self.pending_version = protocol_version;
         if protocol_version == 0 {
-            self.passthrough = true;
+            // Downgrade: receivers pass plaintext through immediately. Senders
+            // keep the old ratchet until execute, except transition 0 which
+            // the gateway never follows with opcode 22.
             self.session.set_passthrough_mode(PassthroughMode::Enabled);
+            if transition_id == 0 {
+                self.passthrough = true;
+                self.executed = Some(0);
+            }
             self.ready(transition_id);
             return;
         }
-        self.passthrough = false;
         if transition_id == 0 {
             // Re-initialization. The gateway does not send opcode 22 for this id.
             self.execute_transition(0);
@@ -195,17 +207,22 @@ impl DaveCall {
     }
 
     pub fn execute_transition(&mut self, transition_id: u16) {
+        self.executed = Some(transition_id);
+        let _ = self.pump();
         let activated = self.session.activate_staged_sender();
-        self.trace(format!(
-            "execute transition {transition_id} sender {}",
-            if activated || self.session.sender_ready() { "ready" } else { "pending" }
-        ));
-        if self.passthrough {
+        if self.pending_version == 0 {
+            self.passthrough = true;
             self.session.set_passthrough_mode(PassthroughMode::Enabled);
         } else {
+            self.passthrough = false;
             self.session
                 .set_passthrough_mode(PassthroughMode::DisabledAfter(Duration::from_secs(10)));
         }
+        let ready = activated || self.session.sender_ready() || self.passthrough;
+        self.trace(format!(
+            "execute transition {transition_id} sender {}",
+            if ready { "ready" } else { "pending" }
+        ));
     }
 
     pub fn prepare_epoch(&mut self, _protocol_version: u16, epoch: u64) -> Result<(), String> {
@@ -218,6 +235,8 @@ impl DaveCall {
         self.proposals.clear();
         self.welcome = None;
         self.commit = None;
+        self.executed = None;
+        self.readied.clear();
         self.pump()
     }
 
@@ -228,6 +247,8 @@ impl DaveCall {
             options: SessionOptions { identity: SessionIdentity::Ephemeral },
         })
         .map_err(|err| format!("fatal:DAVE session failed to restart ({err})"))?;
+        self.executed = None;
+        self.readied.clear();
         Ok(())
     }
 
@@ -263,21 +284,29 @@ impl DaveCall {
         if !self.key_package_sent {
             self.queue_key_package()?;
         }
-        if !self.external_ready || !self.roster_seen {
+        // Proposals add or remove members, so they wait for the roster.
+        // A welcome or commit is how a pending member joins and must not.
+        if self.external_ready && self.roster_seen {
+            let pending = std::mem::take(&mut self.proposals);
+            let mut retry = Vec::new();
+            for payload in pending {
+                match self.apply_proposals(&payload) {
+                    ProposalApply::Done => {}
+                    ProposalApply::Later => retry.push(payload),
+                }
+            }
+            self.proposals.splice(0..0, retry);
+        }
+        if !self.external_ready {
             return Ok(());
         }
-        let pending = std::mem::take(&mut self.proposals);
-        let mut retry = Vec::new();
-        for payload in pending {
-            match self.apply_proposals(&payload) {
-                ProposalApply::Done => {}
-                ProposalApply::Later => retry.push(payload),
-            }
-        }
-        self.proposals.splice(0..0, retry);
         if let Some((id, welcome)) = self.welcome.clone() {
             self.welcome = None;
             if self.session.process_welcome(&welcome).is_ok() {
+                self.trace(format!("welcome {id} joined"));
+                if self.executed == Some(id) {
+                    let _ = self.session.activate_staged_sender();
+                }
                 self.ready(id);
             } else {
                 self.fail_transition(id)?;
@@ -286,6 +315,10 @@ impl DaveCall {
         if let Some((id, commit)) = self.commit.clone() {
             self.commit = None;
             if self.session.process_commit(&commit).is_ok() {
+                self.trace(format!("commit {id} merged"));
+                if self.executed == Some(id) {
+                    let _ = self.session.activate_staged_sender();
+                }
                 self.ready(id);
             } else {
                 self.fail_transition(id)?;
@@ -321,6 +354,9 @@ impl DaveCall {
     }
 
     fn ready(&mut self, transition_id: u16) {
+        if !self.readied.insert(transition_id) {
+            return;
+        }
         self.outbound.push(DaveWire::Text(dave_transition_ready(transition_id)));
     }
 
@@ -432,6 +468,20 @@ mod tests {
         assert_eq!(session.pending_proposals(), 1);
         session.note_users([1]);
         assert_eq!(session.pending_proposals(), 1, "a proposal must not be dropped before the group exists");
+    }
+
+    #[test]
+    fn a_downgrade_sends_plaintext_only_after_execute() {
+        let mut session = call();
+        session.take_outbound();
+        session.prepare_transition(0, 4);
+        assert!(!session.passthrough());
+        assert!(session.seal_opus(&[1, 2, 3]).is_err());
+        let ready = session.take_outbound();
+        assert!(matches!(&ready[0], DaveWire::Text(text) if text.contains("\"op\":23")));
+        session.execute_transition(4);
+        assert!(session.passthrough());
+        assert_eq!(session.seal_opus(&[1, 2, 3]).unwrap(), vec![1, 2, 3]);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::soundboard::SoundMix;
 
 use super::noise::{FirAec, NoiseSuppressor, SpectralSuppressor};
 use super::voice::{
-    decrypt_voice, encrypt_voice, rtp_header, voice_active, CipherMode, OPUS_SILENCE,
+    decrypt_voice, encrypt_audio, voice_active, CipherMode, OPUS_SILENCE,
 };
 use super::voice_dave::DaveCall;
 use super::voice_io::DeviceStreams;
@@ -202,7 +202,9 @@ pub fn apply_aec(frame: &mut [f32], reference: &[f32], state: &mut AecState) {
     state.coeff = state.coeff.clamp(-2.0, 2.0);
 }
 
-/// Lifts a quiet voice toward a steady level. Exact silence stays silence.
+/// Lifts a quiet voice toward a steady level the default activity gate can hear.
+/// Exact silence stays silence. Gain stops at 8 so a quiet room tone stays under
+/// that gate.
 pub fn apply_agc(frame: &mut [f32], state: &mut AgcState) {
     if frame.is_empty() {
         return;
@@ -212,7 +214,7 @@ pub fn apply_agc(frame: &mut [f32], state: &mut AgcState) {
     if rms < 0.0008 {
         return;
     }
-    let desired = (0.05 / rms).clamp(0.25, 8.0);
+    let desired = (0.10 / rms).clamp(0.25, 8.0);
     state.gain = (state.gain * 0.7 + desired * 0.3).clamp(0.25, 8.0);
     for sample in frame.iter_mut() {
         *sample = (*sample * state.gain).clamp(-1.0, 1.0);
@@ -620,6 +622,9 @@ fn produce_frame(
     let active = voice_active(&owned, controls.sensitivity);
     let board = args.board.lock().ok().map(|mut mix| mix.mix_into(&mut owned)).unwrap_or(false);
     let talking = encoder.is_some() && (board || (transmit && have_audio && (!controls.vad || active)));
+    if !talking && have_audio && transmit && controls.vad && !active && encoder.is_some() {
+        note_drop(&args.log, |log| &mut log.quiet);
+    }
     if talking {
         set_talking(args, true, last_talking);
         *silence_left = SILENCE_TAIL;
@@ -673,8 +678,8 @@ fn send_opus(args: &MediaArgs, opus: &[u8], seq: &mut u16, timestamp: &mut u32, 
         log.opus_out = log.opus_out.saturating_add(1);
         log.last_opus_out = opus.to_vec();
     }
-    let header = rtp_header(*seq, *timestamp, args.ssrc);
-    if let Ok(packet) = encrypt_voice(args.mode, &args.key, &header, &sealed, *nonce) {
+    let speaking = opus != OPUS_SILENCE;
+    if let Ok(packet) = encrypt_audio(args.mode, &args.key, *seq, *timestamp, args.ssrc, &sealed, *nonce, speaking) {
         let _ = args.outbound.send(VoiceWire::Packet(packet));
     } else if let Ok(mut log) = args.log.lock() {
         log.encrypt_fail = log.encrypt_fail.saturating_add(1);
@@ -1057,6 +1062,19 @@ mod tests {
         let mut silence = vec![0.0; 64];
         apply_agc(&mut silence, &mut AgcState::default());
         assert!(silence.iter().all(|sample| *sample == 0.0));
+        let mut state = AgcState::default();
+        let mut heard = false;
+        for _ in 0..12 {
+            let mut frame = vec![0.02f32; 64];
+            apply_agc(&mut frame, &mut state);
+            if voice_active(&frame, 45) {
+                heard = true;
+                break;
+            }
+        }
+        assert!(heard, "automatic gain must clear the default activity gate");
+        let room = vec![0.001f32; 64];
+        assert!(!voice_active(&room, 45));
     }
 
     #[test]
