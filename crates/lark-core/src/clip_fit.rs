@@ -156,6 +156,8 @@ pub fn renamed_clip_name(current: &str, label: &str) -> Result<String, String> {
 
 /// ffmpeg arguments for one H.264/AAC MP4. Audio is optional so a silent AVI still encodes.
 /// Copy the video and replace the audio with system and microphone AAC tracks.
+/// Three AAC tracks: game and mic mixed (default, what players and Discord play),
+/// then game alone and mic alone for editing.
 pub fn mix_audio_args(video: &str, system_wav: &str, mic_wav: &str, output: &str) -> Vec<String> {
     [
         "-y",
@@ -165,8 +167,12 @@ pub fn mix_audio_args(video: &str, system_wav: &str, mic_wav: &str, output: &str
         system_wav,
         "-i",
         mic_wav,
+        "-filter_complex",
+        "[1:a][2:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]",
         "-map",
         "0:v:0",
+        "-map",
+        "[mix]",
         "-map",
         "1:a:0",
         "-map",
@@ -178,9 +184,17 @@ pub fn mix_audio_args(video: &str, system_wav: &str, mic_wav: &str, output: &str
         "-b:a",
         "128k",
         "-metadata:s:a:0",
-        "title=System",
+        "title=Game + Microphone",
         "-metadata:s:a:1",
+        "title=Game",
+        "-metadata:s:a:2",
         "title=Microphone",
+        "-disposition:a:0",
+        "default",
+        "-disposition:a:1",
+        "0",
+        "-disposition:a:2",
+        "0",
         "-movflags",
         "+faststart",
         "-progress",
@@ -539,8 +553,13 @@ mod tests {
         let mix = mix_audio_args("clip.mp4", "system.wav", "mic.wav", "out.mp4");
         assert!(mix.windows(2).any(|pair| pair == ["-c:v", "copy"]));
         assert!(mix.windows(2).any(|pair| pair == ["-c:a", "aac"]));
-        assert!(mix.iter().any(|arg| arg == "title=System"));
+        assert!(mix.iter().any(|arg| arg == "title=Game + Microphone"));
+        assert!(mix.iter().any(|arg| arg == "title=Game"));
         assert!(mix.iter().any(|arg| arg == "title=Microphone"));
+        assert!(mix.windows(2).any(|pair| pair == ["-map", "[mix]"]));
+        assert!(mix
+            .windows(2)
+            .any(|pair| pair == ["-disposition:a:0", "default"]));
         assert!(mix.iter().any(|arg| arg == "+faststart"));
         assert_eq!(mix.last().map(String::as_str), Some("out.mp4"));
         assert!(args.contains(&"-allow_sw".into()));
