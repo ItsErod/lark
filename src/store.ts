@@ -3,7 +3,7 @@
 export const STORE_PAGE_URL = "https://itserod.github.io/lark/store/";
 export const STORE_INDEX_URL = "https://itserod.github.io/lark/store/index.json";
 export const STORE_ROOT = "https://itserod.github.io/lark/store/";
-export const APP_VERSION = "3.0.3";
+export const APP_VERSION = "3.0.4";
 export const STORE_LOCAL_KEY = "lark.store.v1";
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;

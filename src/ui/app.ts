@@ -778,7 +778,7 @@ class LarkApp {
   private toastWrap!: HTMLElement;
   private updateBannerEl!: HTMLElement;
   private interfaceToastEl!: HTMLElement;
-  private updates: UpdateState = initialUpdateState("3.0.3", true);
+  private updates: UpdateState = initialUpdateState("3.0.4", true);
   private interfaceUi: InterfaceUi = initialInterfaceUi();
   private updateTimer = 0;
   private interfaceTimer = 0;
@@ -6167,7 +6167,7 @@ class LarkApp {
     const wrap = el("div", "settings-stack");
     wrap.append(this.late!.settingHead("Updates", "Lark checks for an app update and an interface bundle on startup and every 30 minutes. A voice call finishes before either one reloads."));
     const card = this.late!.settingCard("This computer");
-    card.append(this.late!.settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.3")));
+    card.append(this.late!.settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.4")));
     card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
       const step = setAutoInstall(this.updates, value);
       this.updates = step.state;
@@ -7922,7 +7922,7 @@ class LarkApp {
   }
 
   private startUpdates() {
-    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.3", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
+    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.4", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
     if (!isTauri()) return;
     void this.watchForUpdates();
     void this.watchInterface();
@@ -7934,7 +7934,7 @@ class LarkApp {
       const version = await getVersion();
       if (version) this.updates = { ...this.updates, currentVersion: version };
     } catch {
-      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.3" };
+      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.4" };
     }
     this.refreshUpdateUi();
     void this.checkForUpdates(false);

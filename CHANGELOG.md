@@ -4,6 +4,39 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.4](https://github.com/ItsErod/lark/releases/tag/v3.0.4) — 2026-10-13
+
+Notifications can wait until quiet hours end, clips can be shared and trimmed, and search works on messages already on this device. Incoming calls ring, the first channel paints sooner, and a local stats page stays on this computer.
+
+### ✨ Added
+
+- Quiet hours, keyword and person alerts, and a missed-message digest. They stay on this device. Mentions, direct messages, and keyword alerts still come through during quiet hours. ([#184](https://github.com/ItsErod/lark/pull/184))
+- Share and trim clips from the gallery. Share sends the clip to the open channel. Trim keeps the original file. ([#185](https://github.com/ItsErod/lark/pull/185))
+- Offline search across messages already loaded on this device, from the command palette, with server, channel, and from filters. ([#186](https://github.com/ItsErod/lark/pull/186))
+- Streamer mode hides Discord invite links. ([#182](https://github.com/ItsErod/lark/pull/182))
+- Incoming DM and group calls ring, with Answer and Decline on the card and in a notification. ([#188](https://github.com/ItsErod/lark/pull/188))
+- A banner when you talk while muted or deafened. The microphone does not transmit. ([#191](https://github.com/ItsErod/lark/pull/191))
+- Mute and deafen from the voice HUD hotkeys, including while a game is in front. ([#194](https://github.com/ItsErod/lark/pull/194))
+- Optional Minimal Mono dashboard for a server or a call, with chat, voice, screen share, the activity feed, and local PC meters. ([#201](https://github.com/ItsErod/lark/pull/201))
+- Pause GIF and sticker autoplay in Appearance. A click plays that image. ([#204](https://github.com/ItsErod/lark/pull/204))
+- An in-app reduced-motion control: System, Reduce, or Allow. ([#205](https://github.com/ItsErod/lark/pull/205))
+- A local stats page for play time, voice, messages, clips, and the last 14 days. Nothing is uploaded. ([#206](https://github.com/ItsErod/lark/pull/206))
+- Minimal Mono store themes: OLED, graphite, light, contrast, blue, sage, arena, and signal. They install from the store and are not in the app download. ([#190](https://github.com/ItsErod/lark/pull/190), [#192](https://github.com/ItsErod/lark/pull/192), [#197](https://github.com/ItsErod/lark/pull/197))
+
+### 🔧 Changed
+
+- Voice quality names the connection (Excellent, Good, Fair, Poor) on the panel and the HUD, and a connected call shows packet loss and jitter. ([#180](https://github.com/ItsErod/lark/pull/180), [#198](https://github.com/ItsErod/lark/pull/198))
+- The in-app store can be searched and filtered, and theme rows show colour swatches. ([#181](https://github.com/ItsErod/lark/pull/181), [#202](https://github.com/ItsErod/lark/pull/202))
+- Ctrl+Alt+Up and Ctrl+Alt+Down move between servers. On macOS that is Command+Option. Both shortcuts can be remapped. ([#183](https://github.com/ItsErod/lark/pull/183))
+- The first channel paints before settings, thread tools, and catalogs load. ([#187](https://github.com/ItsErod/lark/pull/187), [#203](https://github.com/ItsErod/lark/pull/203))
+- The camera setting says the camera is used for video in a call. ([#200](https://github.com/ItsErod/lark/pull/200))
+- Pull requests run formatting, lint, and native tests. A release runs the desktop shell tests before it publishes, and perf CI fails only on a large regression versus main. ([#193](https://github.com/ItsErod/lark/pull/193), [#195](https://github.com/ItsErod/lark/pull/195), [#196](https://github.com/ItsErod/lark/pull/196))
+
+### 🐛 Fixed
+
+- The browser build typechecks again. The dev-server test helper is no longer part of the app compile. ([#189](https://github.com/ItsErod/lark/pull/189))
+- The clippy job records the real warning count. ([#199](https://github.com/ItsErod/lark/pull/199))
+
 ## [3.0.3](https://github.com/ItsErod/lark/releases/tag/v3.0.3) — 2026-10-13
 
 Two-way voice works, with real profile pictures and the new Focus call layout. Lark adds the Feed dashboard, a soundboard, per-user volume, a replay clip recorder, and an in-app store.
