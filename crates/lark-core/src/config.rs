@@ -589,6 +589,9 @@ pub struct Clips {
     /// Record the microphone into clips. Off means the microphone is never opened for clips.
     #[serde(default = "default_true_clip")]
     pub mic_audio: bool,
+    /// Play a short sound and show a small on-top toast when a clip saves.
+    #[serde(default = "default_true_clip")]
+    pub save_notice: bool,
 }
 
 fn default_true_clip() -> bool {
@@ -617,6 +620,7 @@ impl Default for Clips {
             buffer_sec: default_clip_buffer(),
             system_audio: true,
             mic_audio: true,
+            save_notice: true,
         }
     }
 }

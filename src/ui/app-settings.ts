@@ -1246,6 +1246,10 @@ export const settingsMethods = defineMethods({
       this.config.clips.mic_audio = value;
       return this.persist().then(() => this.pullClipStatus());
     }));
+    card.append(this.switchRow("clips.saveNotice", "Save sound and toast", "Play a short sound and show a small on-top note when a clip saves. Shows over borderless fullscreen games.", this.config.clips.save_notice, (value) => {
+      this.config.clips.save_notice = value;
+      return this.persist();
+    }));
     card.append(this.switchRow("clips.capture", "Game Mode capture", "Keep a buffer of the main display without sharing your screen.", this.config.clips.game_capture, (value) => {
       this.config.clips.game_capture = value;
       return this.persist().then(() => this.pullClipStatus());

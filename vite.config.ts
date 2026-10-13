@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         main: path.resolve(root, "index.html"),
         overlay: path.resolve(root, "overlay.html"),
+        clipToast: path.resolve(root, "clip-toast.html"),
       },
     },
   },

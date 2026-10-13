@@ -95,7 +95,8 @@
     "resolution": 1440,
     "buffer_sec": 30,
     "system_audio": true,
-    "mic_audio": true
+    "mic_audio": true,
+    "save_notice": true
   },
   "games": {},
   "privacy": {
