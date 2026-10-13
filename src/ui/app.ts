@@ -509,6 +509,9 @@ import {
   type RingState,
 } from "../call-ring";
 import { renderCallRing } from "./call-ring-view";
+import { nextMutedTalk, type MutedTalkState } from "../muted-talk";
+import { createMutedProbe, type MutedProbe } from "../muted-probe";
+import { renderMutedTalk } from "./muted-talk-view";
 import { renderProfileCard, sampleProfile, sampleRoles, type ProfileActionSlot, type ProfileRole, type WireProfile } from "./profile";
 import { patchSignIn, renderSignIn } from "./signin";
 import {
@@ -867,6 +870,8 @@ class LarkApp {
   private ringHandle: { start(): void; stop(): void } | null = null;
   private ringNotified = "";
   private callActionsBound = false;
+  private mutedTalk: MutedTalkState = { show: false, heldMs: 0 };
+  private mutedProbe: MutedProbe | null = null;
   private netPanel: { close: () => void } | null = null;
   private netVoiceTimer = 0;
   private netTicket = 0;
@@ -11309,6 +11314,35 @@ class LarkApp {
     });
   }
 
+  private syncMutedTalk() {
+    const voice = this.voice;
+    if (!voice || !(voice.muted || voice.deafened) || this.demo) {
+      this.mutedProbe?.stop();
+      this.mutedProbe = null;
+      this.mutedTalk = { show: false, heldMs: 0 };
+      renderMutedTalk(false);
+      return;
+    }
+    if (!this.mutedProbe) {
+      this.mutedProbe = createMutedProbe((level, stepMs) => {
+        if (!this.voice || !(this.voice.muted || this.voice.deafened) || this.demo) {
+          this.mutedProbe?.stop();
+          this.mutedProbe = null;
+          this.mutedTalk = { show: false, heldMs: 0 };
+          renderMutedTalk(false);
+          return;
+        }
+        this.mutedTalk = nextMutedTalk(this.mutedTalk, {
+          selfMuted: true,
+          level,
+          sensitivity: this.config.voice.sensitivity,
+        }, stepMs);
+        renderMutedTalk(this.mutedTalk.show);
+      });
+    }
+    this.mutedProbe.arm(browserMicConstraint(this.config.voice.input_device, this.audioInputs.map((device) => device.id)));
+  }
+
   private paintHudHost(view: VoiceHudView, native: boolean) {
     const show = (view.enabled || view.perf) && !native;
     this.hudEl.hidden = !show;
@@ -11317,6 +11351,7 @@ class LarkApp {
 
   private paintVoice() {
     if (this.holdShell) return;
+    this.syncMutedTalk();
     const dock = this.voiceDock;
     if (!dock || !this.callStrip || !this.callSplit) return;
     const textChat = Boolean(this.voice) && !this.clipsOpen && !(this.friendsOpen && !this.guildId);
