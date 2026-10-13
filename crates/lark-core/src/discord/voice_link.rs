@@ -54,6 +54,8 @@ pub enum VoiceLinkEvent {
         ping_ms: u64,
         endpoint: String,
         epoch: u64,
+        loss_pct: f64,
+        jitter_ms: f64,
     },
     /// One decrypted H.264 access unit from the voice UDP socket. Not DAVE.
     Camera {
@@ -413,10 +415,19 @@ where
                     }
                     Message::Text(text) => {
                         if let Some(ms) = voice_ping_ms(&text, &mut beat) {
-                            if let Ok(mut guard) = log.lock() {
+                            let (loss_pct, jitter_ms) = if let Ok(mut guard) = log.lock() {
                                 guard.note_ping(ms);
-                            }
-                            emit(VoiceLinkEvent::Ping { ping_ms: ms, endpoint: hello.endpoint.clone(), epoch: hello.epoch });
+                                guard.link_stats()
+                            } else {
+                                (0.0, 0.0)
+                            };
+                            emit(VoiceLinkEvent::Ping {
+                                ping_ms: ms,
+                                endpoint: hello.endpoint.clone(),
+                                epoch: hello.epoch,
+                                loss_pct,
+                                jitter_ms,
+                            });
                         }
                         handle_gateway_text(&text, hello, &ssrc_users, &mut seq_ack, dave.as_ref(), emit)?;
                         if let Some(dave) = dave.as_ref() {

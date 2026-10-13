@@ -357,13 +357,37 @@ export interface VoiceLinkDetails {
   pingMs: number | null;
   endpoint: string;
   mode: string;
+  lossPct: number | null;
+  jitterMs: number | null;
 }
 
-export function voiceLinkDetails(input: { pingMs?: number | null; endpoint?: string | null; mode?: string | null }): VoiceLinkDetails {
+function finiteSpan(value: number | null | undefined, max: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.min(max, value);
+}
+
+export function voiceLinkDetails(input: {
+  pingMs?: number | null;
+  endpoint?: string | null;
+  mode?: string | null;
+  lossPct?: number | null;
+  jitterMs?: number | null;
+}): VoiceLinkDetails {
   const ping = typeof input.pingMs === "number" && Number.isFinite(input.pingMs) ? Math.max(0, Math.round(input.pingMs)) : null;
   const endpoint = (input.endpoint ?? "").trim().slice(0, 80);
   const mode = (input.mode ?? "").trim().slice(0, 48);
-  return { pingMs: ping, endpoint, mode };
+  return {
+    pingMs: ping,
+    endpoint,
+    mode,
+    lossPct: finiteSpan(input.lossPct, 100),
+    jitterMs: finiteSpan(input.jitterMs, 10_000),
+  };
+}
+
+function onePlace(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 export type LinkQuality = "Excellent" | "Good" | "Fair" | "Poor";
@@ -382,10 +406,12 @@ export function voiceDetailLine(details: VoiceLinkDetails, status: string, error
   if (problem && status !== "connected") return problem;
   const ping = details.pingMs === null ? "Ping —" : `Ping ${details.pingMs} ms`;
   const quality = linkQuality(details.pingMs);
+  const loss = details.lossPct === null ? "" : `Loss ${onePlace(details.lossPct)}%`;
+  const jitter = details.jitterMs === null ? "" : `Jitter ${onePlace(details.jitterMs)} ms`;
   const server = details.endpoint ? details.endpoint.replace(/^wss:\/\//, "").replace(/\/.*$/, "") : "Voice server —";
   const mode = details.mode && !details.mode.startsWith("aead_") && !details.mode.startsWith("xsalsa20") ? details.mode : "";
   const state = status === "connected" ? "Connected" : status === "reconnecting" ? "Reconnecting" : "Connecting";
-  return [state, quality, ping, server, mode].filter(Boolean).join(" · ");
+  return [state, quality, ping, loss, jitter, server, mode].filter(Boolean).join(" · ");
 }
 
 export const VOICE_CHANNEL_MENU = [

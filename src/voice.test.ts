@@ -181,6 +181,10 @@ describe("voice roster", () => {
     expect(voiceDetailLine(voiceLinkDetails({ pingMs: 240 }), "reconnecting")).toContain("Fair");
     expect(voiceDetailLine(voiceLinkDetails({ pingMs: 400 }), "connecting")).toContain("Poor");
     expect(voiceDetailLine(voiceLinkDetails({}), "connecting")).not.toContain("Excellent");
+    const measured = voiceLinkDetails({ pingMs: 42, lossPct: 1.54, jitterMs: 3.24 });
+    expect(voiceDetailLine(measured, "connected")).toContain("Loss 1.5%");
+    expect(voiceDetailLine(measured, "connected")).toContain("Jitter 3.2 ms");
+    expect(voiceDetailLine(voiceLinkDetails({ pingMs: 42 }), "connected")).not.toContain("Loss");
   });
 
   it("keeps the participant volume menu inside the voice surface", () => {

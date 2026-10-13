@@ -9929,12 +9929,14 @@ class LarkApp {
         this.voice.status = state as VoiceSession["status"];
         this.voice.detail = friendlyVoiceDetail(detail);
         if (state === "connected") this.noteVoiceConnected();
-        const ping = (event as { pingMs?: number; endpoint?: string; mode?: string }).pingMs;
-        if (ping !== undefined || (event as { endpoint?: string }).endpoint) {
+        const link = event as { pingMs?: number; endpoint?: string; mode?: string; lossPct?: number; jitterMs?: number };
+        if (link.pingMs !== undefined || link.endpoint) {
           this.voiceDetails = voiceLinkDetails({
-            pingMs: ping,
-            endpoint: (event as { endpoint?: string }).endpoint ?? this.voiceDetails.endpoint,
-            mode: (event as { mode?: string }).mode || this.voiceDetails.mode || detail,
+            pingMs: link.pingMs ?? this.voiceDetails.pingMs,
+            endpoint: link.endpoint ?? this.voiceDetails.endpoint,
+            mode: link.mode || this.voiceDetails.mode || detail,
+            lossPct: link.lossPct ?? this.voiceDetails.lossPct,
+            jitterMs: link.jitterMs ?? this.voiceDetails.jitterMs,
           });
         }
         this.paintVoice();
@@ -10652,7 +10654,7 @@ class LarkApp {
         if (!this.voice || this.voice.channelId !== target.channelId) return;
         this.voice.status = "connected";
         this.noteVoiceConnected();
-        this.voiceDetails = voiceLinkDetails({ pingMs: 28, endpoint: "c-demo.discord.gg", mode: "connected" });
+        this.voiceDetails = voiceLinkDetails({ pingMs: 28, endpoint: "c-demo.discord.gg", mode: "connected", lossPct: 0, jitterMs: 1.4 });
         if (trafficArmed()) {
           noteVoice({ ping: 28 });
           noteGateway({ kind: "voiceLink", state: "connected", endpoint: "c-demo.discord.gg", pingMs: 28, mode: "connected" });
