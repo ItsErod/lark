@@ -313,6 +313,8 @@ pub fn run() {
             set_voice_processing,
             set_voice_camera,
             push_camera_frame,
+            push_camera_access,
+            set_camera_profile,
             set_voice_video,
             fetch_soundboard,
             play_guild_sound,
@@ -1599,6 +1601,35 @@ fn push_camera_frame(state: State<'_, Shared>, width: u32, height: u32, rgba: Ve
             height,
             rgba,
         });
+}
+
+#[tauri::command]
+fn push_camera_access(state: State<'_, Shared>, annex_b: String) {
+    if annex_b.len() > 2_000_000 {
+        return;
+    }
+    let Ok(bytes) =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, annex_b.trim())
+    else {
+        return;
+    };
+    state.camera.push_access(bytes);
+}
+
+#[tauri::command]
+fn set_camera_profile(
+    state: State<'_, Shared>,
+    width: u32,
+    height: u32,
+    fps: u8,
+    bitrate: u32,
+) -> bool {
+    let Some(profile) =
+        lark_core::discord::voice_camera::profile_from_parts(width, height, fps, bitrate)
+    else {
+        return false;
+    };
+    state.camera.set_profile(profile)
 }
 
 #[tauri::command]

@@ -381,7 +381,9 @@ where
         if watched(cancel) {
             return Ok(());
         }
-        if let Some(payload) = camera_tx.note_active(hello.camera.active(), ssrc) {
+        if let Some(payload) =
+            camera_tx.note_active(hello.camera.active(), ssrc, hello.camera.profile())
+        {
             let _ = write.send(Message::Text(payload)).await;
         }
         for sealed in camera_tx.take_packets(mode, &key, ssrc, &hello.camera) {

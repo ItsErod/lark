@@ -107,6 +107,10 @@ export interface AppConfig {
     share_app_audio: boolean;
     /** auto, nvenc, amf, qsv, videotoolbox, or media-foundation. */
     share_encoder: string;
+    /** 360, 480, 720, or 1080. */
+    camera_height: number;
+    /** 15 or 30. */
+    camera_fps: number;
   };
   soundboard: { clips: SoundClip[] };
   desktop: {

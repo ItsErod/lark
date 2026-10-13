@@ -2,6 +2,17 @@
 //!
 //! Frames are H.264 access units. They are packetized and sealed with the voice
 //! transport cipher (`encrypt_voice`). Opus and DAVE `seal_opus` are not used.
+//!
+//! Discord's voice video is one H.264 stream on that socket: payload type 101,
+//! RTX payload type 102, video SSRC = audio SSRC + 1, RTX SSRC = audio SSRC + 2.
+//! Opcode 12 advertises a single simulcast layer, `rid` `"100"`, with
+//! `max_resolution`, `max_framerate`, and `max_bitrate`. A remote client
+//! subscribed to that rid receives the layer. Lark does not send a second
+//! spatial layer (that would encode the camera twice). When the link gets
+//! worse, the shell steps this one layer down and sends opcode 12 again.
+//! RTP is a 90 kHz clock, RFC 6184 single-NAL or FU-A, and the marker bit on
+//! the last packet of the access unit. The audio-level header extension is
+//! not added: that extension belongs to Opus.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,11 +23,64 @@ use tokio::sync::Notify;
 use super::stream::{packetize_h264, video_attributes, H264Assembler, VideoSpan};
 use super::voice::{decrypt_voice, encrypt_voice, CipherMode};
 
+/// Unset capture. The shell replaces this with a [`CameraProfile`] before it sends.
 pub const CAMERA_WIDTH: u32 = 320;
 pub const CAMERA_HEIGHT: u32 = 176;
 pub const CAMERA_FPS: u8 = 15;
+/// 720p30. Discord's usual camera picture. 2.5 Mbps is the opcode 12 max.
+pub const CAMERA_HD_WIDTH: u32 = 1280;
+pub const CAMERA_HD_HEIGHT: u32 = 720;
+pub const CAMERA_HD_FPS: u8 = 30;
+pub const CAMERA_HD_BITRATE: u32 = 2_500_000;
 const VIDEO_CLOCK: u32 = 90_000;
 const PAYLOAD_TYPE: u8 = 101;
+
+/// One camera encoding. `width` and `height` are the picture Discord is told
+/// about. The software encoder also requires both to be multiples of 16, so
+/// 1920×1080 is hardware-only and 1920×1088 is the padded software size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CameraProfile {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u8,
+    pub bitrate: u32,
+}
+
+impl CameraProfile {
+    pub const THUMB: Self = Self {
+        width: CAMERA_WIDTH,
+        height: CAMERA_HEIGHT,
+        fps: CAMERA_FPS,
+        bitrate: 400_000,
+    };
+    pub const HD: Self = Self {
+        width: CAMERA_HD_WIDTH,
+        height: CAMERA_HD_HEIGHT,
+        fps: CAMERA_HD_FPS,
+        bitrate: CAMERA_HD_BITRATE,
+    };
+
+    pub fn legal(self) -> bool {
+        let size = matches!(
+            (self.width, self.height),
+            (320, 176) | (640, 360) | (848, 480) | (1280, 720) | (1920, 1080) | (1920, 1088)
+        );
+        size && matches!(self.fps, 15 | 30) && (100_000..=8_000_000).contains(&self.bitrate)
+    }
+}
+
+/// Snap a settings choice onto a profile Discord can describe.
+/// Unknown sizes are rejected. 24 fps and above becomes 30. Below that, 15.
+pub fn profile_from_parts(width: u32, height: u32, fps: u8, bitrate: u32) -> Option<CameraProfile> {
+    let fps = if fps >= 24 { 30 } else { 15 };
+    let profile = CameraProfile {
+        width,
+        height,
+        fps,
+        bitrate: bitrate.clamp(100_000, 8_000_000),
+    };
+    profile.legal().then_some(profile)
+}
 
 pub struct CameraFrame {
     pub width: u32,
@@ -26,6 +90,9 @@ pub struct CameraFrame {
 
 pub struct CameraInbox {
     frames: Mutex<VecDeque<CameraFrame>>,
+    /// Annex-B access units already encoded by the shell (hardware or software).
+    access: Mutex<VecDeque<Vec<u8>>>,
+    profile: Mutex<CameraProfile>,
     notify: Notify,
     active: AtomicBool,
 }
@@ -34,6 +101,8 @@ impl CameraInbox {
     pub fn new() -> Self {
         Self {
             frames: Mutex::new(VecDeque::new()),
+            access: Mutex::new(VecDeque::new()),
+            profile: Mutex::new(CameraProfile::THUMB),
             notify: Notify::new(),
             active: AtomicBool::new(false),
         }
@@ -48,11 +117,45 @@ impl CameraInbox {
         self.active.load(Ordering::Relaxed)
     }
 
+    pub fn profile(&self) -> CameraProfile {
+        self.profile
+            .lock()
+            .map(|slot| *slot)
+            .unwrap_or(CameraProfile::THUMB)
+    }
+
+    /// Stores a legal profile and drops queued pictures from the previous one.
+    pub fn set_profile(&self, profile: CameraProfile) -> bool {
+        if !profile.legal() {
+            return false;
+        }
+        let changed = self
+            .profile
+            .lock()
+            .map(|mut slot| {
+                let changed = *slot != profile;
+                *slot = profile;
+                changed
+            })
+            .unwrap_or(false);
+        if changed {
+            if let Ok(mut queue) = self.frames.lock() {
+                queue.clear();
+            }
+            if let Ok(mut queue) = self.access.lock() {
+                queue.clear();
+            }
+            self.notify.notify_one();
+        }
+        true
+    }
+
     pub fn push(&self, frame: CameraFrame) {
-        if frame.width != CAMERA_WIDTH || frame.height != CAMERA_HEIGHT {
+        let profile = self.profile();
+        if frame.width != profile.width || frame.height != profile.height {
             return;
         }
-        let expected = (CAMERA_WIDTH as usize) * (CAMERA_HEIGHT as usize) * 4;
+        let expected = (profile.width as usize) * (profile.height as usize) * 4;
         if frame.rgba.len() < expected {
             return;
         }
@@ -65,8 +168,29 @@ impl CameraInbox {
         self.notify.notify_one();
     }
 
+    /// One already-encoded access unit. Two are kept. Older ones are dropped.
+    pub fn push_access(&self, annex_b: Vec<u8>) {
+        if annex_b.len() < 5 || annex_b.len() > 1_500_000 {
+            return;
+        }
+        if let Ok(mut queue) = self.access.lock() {
+            if queue.len() >= 2 {
+                queue.pop_front();
+            }
+            queue.push_back(annex_b);
+        }
+        self.notify.notify_one();
+    }
+
     pub fn drain(&self) -> Vec<CameraFrame> {
         self.frames
+            .lock()
+            .map(|mut queue| queue.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn drain_access(&self) -> Vec<Vec<u8>> {
+        self.access
             .lock()
             .map(|mut queue| queue.drain(..).collect())
             .unwrap_or_default()
@@ -84,18 +208,19 @@ impl Default for CameraInbox {
 }
 
 /// Voice opcode 12 for the camera. Video SSRC is the audio SSRC plus one.
-pub fn camera_attributes(audio_ssrc: u32, active: bool) -> String {
+/// One rid `"100"` layer. `profile` is what a remote client should expect.
+pub fn camera_attributes(audio_ssrc: u32, active: bool, profile: CameraProfile) -> String {
     video_attributes(
         audio_ssrc,
         audio_ssrc.wrapping_add(1),
         audio_ssrc.wrapping_add(2),
         VideoSpan {
-            width: CAMERA_WIDTH,
-            height: CAMERA_HEIGHT,
-            fps: CAMERA_FPS,
-            bitrate: 400_000,
+            width: profile.width,
+            height: profile.height,
+            fps: profile.fps,
+            bitrate: profile.bitrate,
             active,
-            preset_height: CAMERA_HEIGHT,
+            preset_height: profile.height,
         },
     )
 }
@@ -123,8 +248,8 @@ pub fn seal_camera_access(
     out
 }
 
-pub fn camera_timestamp_step() -> u32 {
-    VIDEO_CLOCK / u32::from(CAMERA_FPS.max(1))
+pub fn camera_timestamp_step(fps: u8) -> u32 {
+    VIDEO_CLOCK / u32::from(fps.max(1))
 }
 
 /// True when the cleartext RTP header is a camera access-unit packet.
@@ -216,6 +341,15 @@ pub struct CameraSender {
     timestamp: u32,
     nonce: u32,
     sent_active: Option<bool>,
+    sent_profile: Option<CameraProfile>,
+    enc_width: i32,
+    enc_height: i32,
+    enc_fps: i32,
+    fps: u8,
+    bitrate: u32,
+    y_plane: Vec<u64>,
+    u_plane: Vec<u64>,
+    v_plane: Vec<u64>,
 }
 
 impl Default for CameraSender {
@@ -226,6 +360,15 @@ impl Default for CameraSender {
             timestamp: 0,
             nonce: 0,
             sent_active: None,
+            sent_profile: None,
+            enc_width: 0,
+            enc_height: 0,
+            enc_fps: 0,
+            fps: 0,
+            bitrate: 0,
+            y_plane: Vec::new(),
+            u_plane: Vec::new(),
+            v_plane: Vec::new(),
         }
     }
 }
@@ -240,17 +383,25 @@ impl Drop for CameraSender {
 }
 
 impl CameraSender {
-    /// Sends opcode 12 when the camera turns on, and again when it turns off.
-    pub fn note_active(&mut self, active: bool, audio_ssrc: u32) -> Option<String> {
-        if self.sent_active == Some(active) {
+    /// Sends opcode 12 when the camera turns on, when it turns off, and when
+    /// the advertised profile changes.
+    pub fn note_active(
+        &mut self,
+        active: bool,
+        audio_ssrc: u32,
+        profile: CameraProfile,
+    ) -> Option<String> {
+        if self.sent_active == Some(active) && self.sent_profile == Some(profile) {
             return None;
         }
         if !active && self.sent_active != Some(true) {
             self.sent_active = Some(false);
+            self.sent_profile = Some(profile);
             return None;
         }
         self.sent_active = Some(active);
-        Some(camera_attributes(audio_ssrc, active))
+        self.sent_profile = Some(profile);
+        Some(camera_attributes(audio_ssrc, active, profile))
     }
 
     pub fn take_packets(
@@ -260,48 +411,91 @@ impl CameraSender {
         audio_ssrc: u32,
         inbox: &CameraInbox,
     ) -> Vec<Vec<u8>> {
+        let profile = inbox.profile();
+        self.fps = profile.fps;
+        self.bitrate = profile.bitrate;
         if !inbox.active() {
             let _ = inbox.drain();
+            let _ = inbox.drain_access();
             return Vec::new();
         }
+        let access = inbox.drain_access();
         let frames = inbox.drain();
         let mut out = Vec::new();
+        if !access.is_empty() {
+            for unit in access {
+                self.seal_unit(&unit, mode, key, audio_ssrc, &mut out);
+            }
+            return out;
+        }
         for frame in frames {
-            let Some(access) = self.encode(&frame) else {
+            let Some(unit) = self.encode(&frame) else {
                 continue;
             };
-            let step = camera_timestamp_step();
-            out.extend(seal_camera_access(
-                &access,
-                mode,
-                key,
-                audio_ssrc,
-                &mut self.sequence,
-                self.timestamp,
-                &mut self.nonce,
-            ));
-            self.timestamp = self.timestamp.wrapping_add(step);
+            self.seal_unit(&unit, mode, key, audio_ssrc, &mut out);
         }
         out
     }
 
+    fn seal_unit(
+        &mut self,
+        access: &[u8],
+        mode: CipherMode,
+        key: &[u8; 32],
+        audio_ssrc: u32,
+        out: &mut Vec<Vec<u8>>,
+    ) {
+        let step = camera_timestamp_step(self.fps.max(1));
+        out.extend(seal_camera_access(
+            access,
+            mode,
+            key,
+            audio_ssrc,
+            &mut self.sequence,
+            self.timestamp,
+            &mut self.nonce,
+        ));
+        self.timestamp = self.timestamp.wrapping_add(step);
+    }
+
     fn encode(&mut self, frame: &CameraFrame) -> Option<Vec<u8>> {
-        self.ensure()?;
-        let (y, u, v) = rgba_to_planes(&frame.rgba, CAMERA_WIDTH as usize, CAMERA_HEIGHT as usize)?;
+        if frame.width < 16 || frame.height < 16 || frame.width % 16 != 0 || frame.height % 16 != 0
+        {
+            return None;
+        }
+        let fps = i32::from(if self.fps == 0 { CAMERA_FPS } else { self.fps });
+        self.ensure(frame.width as i32, frame.height as i32, fps)?;
+        if !fill_planes(
+            &mut self.y_plane,
+            &mut self.u_plane,
+            &mut self.v_plane,
+            &frame.rgba,
+            frame.width as usize,
+            frame.height as usize,
+        ) {
+            return None;
+        }
+        let rate = if self.bitrate == 0 {
+            CameraProfile::THUMB.bitrate
+        } else {
+            self.bitrate
+        };
+        let frame_bytes =
+            (rate / 8 / u32::try_from(fps).unwrap_or(15).max(1)).clamp(2_000, 250_000) as i32;
         let mut data = std::ptr::null_mut();
         let mut size = 0i32;
         let status = unsafe {
             lark_h264_encode(
                 self.raw,
-                y.as_ptr() as *mut u8,
-                u.as_ptr() as *mut u8,
-                v.as_ptr() as *mut u8,
-                CAMERA_WIDTH as i32,
-                (CAMERA_WIDTH / 2) as i32,
+                self.y_plane.as_mut_ptr() as *mut u8,
+                self.u_plane.as_mut_ptr() as *mut u8,
+                self.v_plane.as_mut_ptr() as *mut u8,
+                frame.width as i32,
+                (frame.width / 2) as i32,
                 10,
-                12_000,
-                20,
-                36,
+                frame_bytes,
+                18,
+                40,
                 &mut data,
                 &mut size,
             )
@@ -313,23 +507,25 @@ impl CameraSender {
         Some(bytes)
     }
 
-    fn ensure(&mut self) -> Option<()> {
-        if !self.raw.is_null() {
+    fn ensure(&mut self, width: i32, height: i32, fps: i32) -> Option<()> {
+        if !self.raw.is_null()
+            && self.enc_width == width
+            && self.enc_height == height
+            && self.enc_fps == fps
+        {
             return Some(());
         }
+        self.close();
         let mut raw = std::ptr::null_mut();
-        let status = unsafe {
-            lark_h264_open(
-                &mut raw,
-                CAMERA_WIDTH as i32,
-                CAMERA_HEIGHT as i32,
-                i32::from(CAMERA_FPS),
-            )
-        };
+        let gop = (fps * 2).max(1);
+        let status = unsafe { lark_h264_open(&mut raw, width, height, gop) };
         if status != 0 || raw.is_null() {
             return None;
         }
         self.raw = raw;
+        self.enc_width = width;
+        self.enc_height = height;
+        self.enc_fps = fps;
         Some(())
     }
 
@@ -338,53 +534,67 @@ impl CameraSender {
             unsafe { lark_h264_close(self.raw) };
             self.raw = std::ptr::null_mut();
         }
+        self.enc_width = 0;
+        self.enc_height = 0;
+        self.enc_fps = 0;
     }
 }
 
-fn rgba_to_planes(
+fn fill_planes(
+    y_plane: &mut Vec<u64>,
+    u_plane: &mut Vec<u64>,
+    v_plane: &mut Vec<u64>,
     rgba: &[u8],
     width: usize,
     height: usize,
-) -> Option<(Vec<u64>, Vec<u64>, Vec<u64>)> {
+) -> bool {
     if width < 16 || height < 16 || width % 2 != 0 || height % 2 != 0 {
-        return None;
+        return false;
     }
     if rgba.len() < width * height * 4 {
-        return None;
+        return false;
     }
-    let mut y = vec![0u8; width * height];
-    let mut u = vec![0u8; (width / 2) * (height / 2)];
-    let mut v = vec![0u8; (width / 2) * (height / 2)];
+    let y = plane_bytes(y_plane, width * height);
+    let chroma_w = width / 2;
+    let chroma_h = height / 2;
+    let u = plane_bytes(u_plane, chroma_w * chroma_h);
+    let v = plane_bytes(v_plane, chroma_w * chroma_h);
     for row in 0..height {
         for col in 0..width {
             let at = (row * width + col) * 4;
             let (yy, uu, vv) = yuv(rgba[at], rgba[at + 1], rgba[at + 2]);
             y[row * width + col] = yy;
             if row % 2 == 0 && col % 2 == 0 {
-                let c = (row / 2) * (width / 2) + (col / 2);
+                let c = (row / 2) * chroma_w + (col / 2);
                 u[c] = uu;
                 v[c] = vv;
             }
         }
     }
-    Some((align_plane(&y), align_plane(&u), align_plane(&v)))
+    true
+}
+
+fn plane_bytes(plane: &mut Vec<u64>, len: usize) -> &mut [u8] {
+    let words = len.div_ceil(8);
+    if plane.len() < words {
+        plane.resize(words, 0);
+    }
+    // SAFETY: `words` u64s are at least `len` bytes, and this slice is the only borrow.
+    unsafe { std::slice::from_raw_parts_mut(plane.as_mut_ptr() as *mut u8, len) }
 }
 
 fn yuv(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
-    let r = f32::from(r);
-    let g = f32::from(g);
-    let b = f32::from(b);
-    let y = (0.299 * r + 0.587 * g + 0.114 * b).clamp(0.0, 255.0) as u8;
-    let u = (128.0 - 0.168736 * r - 0.331264 * g + 0.5 * b).clamp(0.0, 255.0) as u8;
-    let v = (128.0 + 0.5 * r - 0.418688 * g - 0.081312 * b).clamp(0.0, 255.0) as u8;
-    (y, u, v)
-}
-
-fn align_plane(bytes: &[u8]) -> Vec<u64> {
-    let mut plane = vec![0u64; bytes.len().div_ceil(8)];
-    let dst = unsafe { std::slice::from_raw_parts_mut(plane.as_mut_ptr() as *mut u8, bytes.len()) };
-    dst.copy_from_slice(bytes);
-    plane
+    let r = i32::from(r);
+    let g = i32::from(g);
+    let b = i32::from(b);
+    let y = (77 * r + 150 * g + 29 * b) >> 8;
+    let u = 128 + ((-43 * r - 85 * g + 128 * b) >> 8);
+    let v = 128 + ((128 * r - 107 * g - 21 * b) >> 8);
+    (
+        y.clamp(0, 255) as u8,
+        u.clamp(0, 255) as u8,
+        v.clamp(0, 255) as u8,
+    )
 }
 
 unsafe extern "C" {
@@ -552,5 +762,137 @@ mod tests {
             rgba: vec![0; 16 * 16 * 4],
         });
         assert!(inbox.drain().is_empty());
+        let rgba = vec![0u8; (CAMERA_WIDTH as usize) * (CAMERA_HEIGHT as usize) * 4];
+        inbox.push(CameraFrame {
+            width: CAMERA_WIDTH,
+            height: CAMERA_HEIGHT,
+            rgba: rgba.clone(),
+        });
+        assert_eq!(inbox.drain().len(), 1);
+        assert!(inbox.set_profile(CameraProfile::HD));
+        inbox.push(CameraFrame {
+            width: CAMERA_WIDTH,
+            height: CAMERA_HEIGHT,
+            rgba,
+        });
+        assert!(inbox.drain().is_empty());
+    }
+
+    #[test]
+    fn discord_720p30_is_one_rid_100_layer() {
+        let mut sender = CameraSender::default();
+        assert!(sender
+            .note_active(false, 50, CameraProfile::THUMB)
+            .is_none());
+        let on = sender
+            .note_active(true, 50, CameraProfile::HD)
+            .expect("turning the camera on advertises the layer");
+        let value: serde_json::Value = serde_json::from_str(&on).unwrap();
+        assert_eq!(value["op"], 12);
+        assert_eq!(value["d"]["audio_ssrc"], 50);
+        assert_eq!(value["d"]["video_ssrc"], 51);
+        assert_eq!(value["d"]["rtx_ssrc"], 52);
+        let streams = value["d"]["streams"].as_array().unwrap();
+        assert_eq!(streams.len(), 1, "one spatial layer, not a second encode");
+        let stream = &streams[0];
+        assert_eq!(stream["type"], "video");
+        assert_eq!(stream["rid"], "100");
+        assert_eq!(stream["ssrc"], 51);
+        assert_eq!(stream["rtx_ssrc"], 52);
+        assert_eq!(stream["active"], true);
+        assert_eq!(stream["quality"], 100);
+        assert_eq!(stream["max_bitrate"], CAMERA_HD_BITRATE);
+        assert_eq!(stream["max_framerate"], 30);
+        assert_eq!(stream["max_resolution"]["type"], "fixed");
+        assert_eq!(stream["max_resolution"]["width"], 1280);
+        assert_eq!(stream["max_resolution"]["height"], 720);
+        assert!(sender.note_active(true, 50, CameraProfile::HD).is_none());
+        let stepped = sender
+            .note_active(
+                true,
+                50,
+                CameraProfile {
+                    bitrate: 1_200_000,
+                    ..CameraProfile::HD
+                },
+            )
+            .expect("a bitrate change is a new opcode 12");
+        assert!(stepped.contains("1200000"));
+        assert_eq!(camera_timestamp_step(30), 3_000);
+        assert_eq!(camera_timestamp_step(15), 6_000);
+        assert!(profile_from_parts(1280, 720, 30, 2_500_000).is_some());
+        assert!(profile_from_parts(1920, 1080, 30, 4_500_000).is_some());
+        assert!(profile_from_parts(640, 480, 30, 2_500_000).is_none());
+    }
+
+    #[test]
+    fn a_large_720p_nal_is_fu_a_at_the_90khz_clock() {
+        let mut nal = vec![0x65u8, 0x88];
+        nal.extend(std::iter::repeat(0x3c).take(20_000));
+        let mut access = vec![0, 0, 0, 1];
+        access.extend_from_slice(&nal);
+        let mut sequence = 1u16;
+        let mut nonce = 1u32;
+        let packets = seal_camera_access(
+            &access,
+            CipherMode::Aes256GcmRtpSize,
+            &key(),
+            50,
+            &mut sequence,
+            9_000,
+            &mut nonce,
+        );
+        assert!(packets.len() > 8);
+        let last = packets.len() - 1;
+        for (index, packet) in packets.iter().enumerate() {
+            assert_eq!(packet[1] & 0x7f, PAYLOAD_TYPE);
+            assert_eq!(u32::from_be_bytes(packet[4..8].try_into().unwrap()), 9_000);
+            assert_eq!(
+                u32::from_be_bytes(packet[8..12].try_into().unwrap()),
+                51,
+                "video ssrc is the audio ssrc plus one"
+            );
+            let marker = packet[1] & 0x80 != 0;
+            assert_eq!(marker, index == last);
+            let payload = decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), packet).unwrap();
+            assert_eq!(payload[0] & 0x1f, 28, "a nal this large is FU-A");
+            if index == 0 {
+                assert_ne!(payload[1] & 0x80, 0, "start bit");
+            }
+            if index == last {
+                assert_ne!(payload[1] & 0x40, 0, "end bit");
+            }
+        }
+    }
+
+    #[test]
+    fn a_preencoded_access_unit_is_sealed_without_the_software_encoder() {
+        let inbox = CameraInbox::new();
+        inbox.set_active(true);
+        assert!(inbox.set_profile(CameraProfile::HD));
+        let access = vec![0, 0, 0, 1, 0x65, 0x11, 0x22, 0x33, 0x44];
+        inbox.push_access(access);
+        let mut sender = CameraSender::default();
+        let packets = sender.take_packets(CipherMode::Aes256GcmRtpSize, &key(), 9, &inbox);
+        assert_eq!(packets.len(), 1);
+        let opened = decrypt_voice(CipherMode::Aes256GcmRtpSize, &key(), &packets[0]).unwrap();
+        assert_eq!(opened, [0x65, 0x11, 0x22, 0x33, 0x44]);
+        assert_eq!(u32::from_be_bytes(packets[0][4..8].try_into().unwrap()), 0);
+        inbox.push_access(vec![0, 0, 0, 1, 0x41, 0x01, 0x02, 0x03, 0x04]);
+        let next = sender.take_packets(CipherMode::Aes256GcmRtpSize, &key(), 9, &inbox);
+        assert_eq!(u32::from_be_bytes(next[0][4..8].try_into().unwrap()), 3_000);
+    }
+
+    #[test]
+    fn software_encoder_accepts_720p_and_rejects_unaligned_1080() {
+        let mut raw = std::ptr::null_mut();
+        let status = unsafe { lark_h264_open(&mut raw, 1280, 720, 60) };
+        assert_eq!(status, 0);
+        assert!(!raw.is_null());
+        unsafe { lark_h264_close(raw) };
+        let mut raw = std::ptr::null_mut();
+        let status = unsafe { lark_h264_open(&mut raw, 1920, 1080, 30) };
+        assert_ne!(status, 0);
+        assert!(raw.is_null());
     }
 }

@@ -92,6 +92,13 @@ impl Config {
             "media-foundation" => "media-foundation".into(),
             _ => "auto".into(),
         };
+        self.voice.camera_height = match self.voice.camera_height {
+            0..=360 => 360,
+            361..=480 => 480,
+            481..=720 => 720,
+            _ => 1080,
+        };
+        self.voice.camera_fps = if self.voice.camera_fps >= 24 { 30 } else { 15 };
         self.voice.levels.retain(|id, level| {
             let snowflake = (5..=22).contains(&id.len()) && id.chars().all(|c| c.is_ascii_digit());
             if snowflake {
@@ -419,6 +426,12 @@ pub struct Voice {
     /// auto, nvenc, amf, qsv, videotoolbox, or media-foundation.
     #[serde(default = "default_share_encoder")]
     pub share_encoder: String,
+    /// 360, 480, 720, or 1080. 720 is the camera default.
+    #[serde(default = "default_camera_height")]
+    pub camera_height: u16,
+    /// 15 or 30. 30 is the camera default.
+    #[serde(default = "default_camera_fps")]
+    pub camera_fps: u8,
 }
 
 fn default_share_resolution() -> String {
@@ -435,6 +448,14 @@ fn default_share_audio() -> bool {
 
 fn default_share_encoder() -> String {
     "auto".into()
+}
+
+fn default_camera_height() -> u16 {
+    720
+}
+
+fn default_camera_fps() -> u8 {
+    30
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -472,6 +493,8 @@ impl Default for Voice {
             share_fps: default_share_fps(),
             share_app_audio: default_share_audio(),
             share_encoder: default_share_encoder(),
+            camera_height: default_camera_height(),
+            camera_fps: default_camera_fps(),
         }
     }
 }
