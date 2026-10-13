@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const html = readFileSync(new URL("../docs/progress/index.html", import.meta.url), "utf8");
+const home = readFileSync(new URL("../docs/index.html", import.meta.url), "utf8");
 const marked = html.match(/\/\* version-history-api \*\/([\s\S]*?)\/\* version-history-api-end \*\//);
 if (!marked) throw new Error("version history helpers missing from the progress page");
 
@@ -105,8 +106,12 @@ describe("version history", () => {
     expect(html).not.toContain('id="streams"');
     expect(html).toContain('id="now-list"');
     expect(html).toContain('id="downloads"');
-    expect(html).toContain("Dashboard view");
-    expect(html).toContain("3.1.1");
+    expect(html).toContain("v3.0.3 is the current download");
+    expect(html).toContain("Two-way voice, Focus layout, Feed, clips, store");
+    expect(html).toContain("Dashboard view, local stats, quiet hours, offline search, and clip sharing");
+    expect(html).toContain("Lark_3.0.3_x64-setup.exe");
+    expect(html).toContain("Lark_3.0.3_universal.dmg");
+    expect(html).not.toContain("3.0.2, then a dashboard");
     expect(html).toContain('archive.id = "archive-3"');
     expect(html).toContain("#09090b");
     expect(html).toContain("#fafafa");
@@ -143,5 +148,19 @@ describe("version history", () => {
       { tag_name: "v2.4.5", published_at: "2026-10-12T17:10:27Z", body: "### 🐛 Fixed\n\n- Splash no longer sticks.\n" },
     ], Date.parse("2026-10-12T18:00:00Z"));
     expect(carried.entries[1].notes).toContain("Fixed");
+  });
+
+  it("prints the published 3.0.3 notes on the marketing page", () => {
+    expect(home).toContain("Current release v3.0.3");
+    expect(home).toContain("https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_x64-setup.exe");
+    expect(home).toContain("https://github.com/ItsErod/lark/releases/download/v3.0.3/Lark_3.0.3_universal.dmg");
+    expect(home).toContain("Focus voice layout: a short stage above chat");
+    expect(home).toContain("Inbound voice decrypts Discord RTP header extensions");
+    expect(home).toContain("<h3>Added</h3>");
+    expect(home).toContain("<h3>Changed</h3>");
+    expect(home).toContain("<h3>Fixed</h3>");
+    expect(home).toContain("#09090b");
+    expect(home).not.toContain("box-shadow");
+    expect(home).toContain("https://api.github.com/repos/ItsErod/lark/releases/latest");
   });
 });
