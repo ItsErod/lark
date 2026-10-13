@@ -4,6 +4,30 @@ Brief notes for each Lark version, newest first. Installers for published releas
 
 [v1](https://github.com/ItsErod/lark/tree/v1), [v2](https://github.com/ItsErod/lark/tree/v2), and [v2.1](https://github.com/ItsErod/lark/tree/v2.1) are git tags with no GitHub Release. The installer jobs for those tags failed. Published installers start at [v2.1.1](https://github.com/ItsErod/lark/releases/tag/v2.1.1).
 
+## [3.0.6](https://github.com/ItsErod/lark/releases/tag/v3.0.6) — 2026-10-13
+
+Slash commands with options get a proper form, bot buttons, select menus and pop-up forms work, slash commands can attach files, and clips can leave out game sound or the microphone.
+
+### ✨ Added
+
+- Slash commands that take options open a Minimal Mono form above the message box, with text, number, true/false, and user, role and channel pickers, subcommands, and the bot's suggestions as you type. Send stays off until every required field is valid. ([#255](https://github.com/ItsErod/lark/pull/255), [#256](https://github.com/ItsErod/lark/pull/256))
+- Bot messages show working buttons and select menus, and bots can open pop-up forms. Messages update when a bot changes its buttons after a click. ([#257](https://github.com/ItsErod/lark/pull/257), [#258](https://github.com/ItsErod/lark/pull/258))
+- Slash commands that take a file can attach one, up to 25 MB. ([#259](https://github.com/ItsErod/lark/pull/259))
+- Settings → Clips has Game and system audio and Microphone switches. With the microphone off, the clip recorder never opens it. ([#261](https://github.com/ItsErod/lark/pull/261))
+
+### 🔧 Changed
+
+- Saved clips carry a mixed Game + Microphone track first, so players and Discord play your voice too, plus separate Game and Microphone tracks for editing. ([#262](https://github.com/ItsErod/lark/pull/262))
+- The website and progress page show v3.0.5 and list work merged on main after it. ([#254](https://github.com/ItsErod/lark/pull/254), [#260](https://github.com/ItsErod/lark/pull/260))
+
+### 🐛 Fixed
+
+- Clips shared to Discord or opened in a player no longer lose the microphone. ([#262](https://github.com/ItsErod/lark/pull/262))
+
+### 🗑️ Removed
+
+- Nothing was removed in this release.
+
 ## [3.0.5](https://github.com/ItsErod/lark/releases/tag/v3.0.5) — 2026-10-13
 
 Right-click menus for servers and channels, Discover and the App Directory inside Lark, 720p camera video, speaker echo cancellation, and full profiles. Game Mode now tucks the side columns during a call or a game, and the interface code is split into smaller modules.
