@@ -371,7 +371,7 @@ export const updateMethods = defineMethods({
     await this.shareClip(clip.name);
   },
   startUpdates() {
-    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.4", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
+    this.updates = initialUpdateState(this.updates.currentVersion || "3.0.5", readAutoInstall(localStorage.getItem(AUTO_INSTALL_KEY)));
     if (!isTauri()) return;
     void this.watchForUpdates();
     void this.watchInterface();
@@ -382,7 +382,7 @@ export const updateMethods = defineMethods({
       const version = await getVersion();
       if (version) this.updates = { ...this.updates, currentVersion: version };
     } catch {
-      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.4" };
+      this.updates = { ...this.updates, currentVersion: this.updates.currentVersion || "3.0.5" };
     }
     this.refreshUpdateUi();
     void this.checkForUpdates(false);

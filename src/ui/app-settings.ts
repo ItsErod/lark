@@ -329,7 +329,7 @@ export const settingsMethods = defineMethods({
     const wrap = el("div", "settings-stack");
     wrap.append(this.late!.settingHead("Updates", "Lark checks for an app update and an interface bundle on startup and every 30 minutes. A voice call finishes before either one reloads."));
     const card = this.late!.settingCard("This computer");
-    card.append(this.late!.settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.4")));
+    card.append(this.late!.settingRow("updates.version", "Current version", "The version of Lark running on this computer.", el("span", "hint", this.updates.currentVersion || "3.0.5")));
     card.append(this.switchRow("updates.auto", "Automatically install updates", "Download a new version in the background and install it when it is ready. A voice call finishes first.", this.updates.autoInstall, (value) => {
       const step = setAutoInstall(this.updates, value);
       this.updates = step.state;
