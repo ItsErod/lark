@@ -3896,6 +3896,7 @@ class LarkApp {
     actions.append(help);
     this.chatHead.append(title, actions);
     threadsNow()?.mountChannelPolls(this.messagesEl);
+    this.paintSocialChrome();
   }
 
   private cycleNotify() {
@@ -17140,14 +17141,15 @@ class LarkApp {
 
   private startDmCall(channel: Channel, video: boolean) {
     if (channel.kind !== "dm" && channel.kind !== "group") return;
-    if (video !== this.cameraOn) this.toggleCamera();
     this.friendsOpen = false;
-    try {
-      this.joinVoice(channel);
-    } catch (err) {
-      this.toast("Voice", err instanceof Error ? err.message : "Couldn't start that call.");
+    if (this.callSurface === "popout") this.closeCallPopout();
+    this.callSurface = "chat";
+    this.joinVoice(channel);
+    if (this.voice?.channelId !== channel.id) {
+      this.toast("Voice", "Couldn't start that call.");
       return;
     }
+    if (video !== this.cameraOn) this.toggleCamera();
     this.ringOthers(channel);
   }
 
@@ -17214,10 +17216,12 @@ class LarkApp {
     const known = this.dmChannels().find((item) => item.id === ring.channelId);
     const channel: Channel = known ?? { id: ring.channelId, name: ring.callerName, kind: "dm", position: 0 };
     this.syncIncoming(null);
-    if (ring.video && !this.cameraOn) this.toggleCamera();
     this.friendsOpen = false;
+    if (this.callSurface === "popout") this.closeCallPopout();
+    this.callSurface = "chat";
     if (this.channelId !== channel.id) void this.openChannel(channel.id);
     this.joinVoice(channel);
+    if (ring.video && this.voice?.channelId === channel.id && !this.cameraOn) this.toggleCamera();
     if (!isTauri()) return;
     void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
       const win = getCurrentWindow();

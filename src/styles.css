@@ -238,9 +238,12 @@ button.category:hover { color: var(--text); }
 .avatar-wrap:has(.sm) { width: 32px; height: 32px; }
 .avatar-wrap .status { position: absolute; right: -2px; bottom: -2px; }
 
-.chat-head { justify-content: space-between; }
+.chat-head { justify-content: space-between; min-width: 0; }
+.chat-head > .chat-title { flex: 1; }
 .chat-title { display: flex; flex-direction: column; min-width: 0; }
+.chat-head h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .head-actions, .composer-tools { display: flex; gap: 6px; align-items: center; }
+.head-actions { flex: none; }
 .icon-button, .text-button, .primary, .ghost {
   border: 0; background: transparent; border-radius: 4px; padding: 2px 8px; color: var(--muted);
 }
