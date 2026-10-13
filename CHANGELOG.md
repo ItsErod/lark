@@ -17,7 +17,7 @@ Lark gets the Minimal Mono redesign, a faster start, a network traffic viewer, a
 - Mod View from the member and voice menus. ([#140](https://github.com/ItsErod/lark/pull/140))
 - Keybinds for the inbox, GIF and sticker pickers, creating a group, and starting, answering, and declining calls. ([#137](https://github.com/ItsErod/lark/pull/137))
 
-### 🔄 Changed
+### 🔧 Changed
 
 - Minimal Mono redesign: new design tokens, composer, messages, profile and user area, voice, server rail, channels, members, settings, and menus. ([#143](https://github.com/ItsErod/lark/pull/143), [#144](https://github.com/ItsErod/lark/pull/144), [#145](https://github.com/ItsErod/lark/pull/145), [#146](https://github.com/ItsErod/lark/pull/146), [#147](https://github.com/ItsErod/lark/pull/147), [#148](https://github.com/ItsErod/lark/pull/148))
 - Faster cold start (175 ms to 128 ms), lower input latency, and lower idle memory. ([#118](https://github.com/ItsErod/lark/pull/118))
