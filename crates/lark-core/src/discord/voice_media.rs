@@ -14,9 +14,7 @@ use tokio::sync::{mpsc as async_mpsc, watch};
 use crate::soundboard::SoundMix;
 
 use super::noise::{FirAec, NoiseSuppressor, SpectralSuppressor};
-use super::voice::{
-    decrypt_voice, encrypt_audio, voice_active, CipherMode, OPUS_SILENCE,
-};
+use super::voice::{decrypt_voice, encrypt_audio, voice_active, CipherMode, OPUS_SILENCE};
 use super::voice_dave::DaveCall;
 use super::voice_io::DeviceStreams;
 use super::voice_log::VoiceLog;
@@ -41,7 +39,12 @@ impl OpusEncoder {
     fn new() -> Result<Self, ()> {
         let mut error = 0;
         let raw = unsafe {
-            audiopus_sys::opus_encoder_create(SAMPLE_RATE as i32, 2, audiopus_sys::OPUS_APPLICATION_VOIP, &mut error)
+            audiopus_sys::opus_encoder_create(
+                SAMPLE_RATE as i32,
+                2,
+                audiopus_sys::OPUS_APPLICATION_VOIP,
+                &mut error,
+            )
         };
         if raw.is_null() || error != audiopus_sys::OPUS_OK {
             return Err(());
@@ -62,7 +65,11 @@ impl OpusEncoder {
                 out.len() as i32,
             )
         };
-        if wrote <= 0 { Err(()) } else { Ok(wrote as usize) }
+        if wrote <= 0 {
+            Err(())
+        } else {
+            Ok(wrote as usize)
+        }
     }
 }
 
@@ -89,13 +96,24 @@ impl OpusDecoder {
         Ok(Self { raw })
     }
 
-    fn decode(&mut self, packet: Option<&[u8]>, pcm: &mut [i16], frame_size: i32) -> Result<usize, ()> {
+    fn decode(
+        &mut self,
+        packet: Option<&[u8]>,
+        pcm: &mut [i16],
+        frame_size: i32,
+    ) -> Result<usize, ()> {
         let (ptr, len) = match packet {
             Some(bytes) => (bytes.as_ptr(), bytes.len() as i32),
             None => (std::ptr::null(), 0),
         };
-        let wrote = unsafe { audiopus_sys::opus_decode(self.raw, ptr, len, pcm.as_mut_ptr(), frame_size, 0) };
-        if wrote <= 0 { Err(()) } else { Ok(wrote as usize) }
+        let wrote = unsafe {
+            audiopus_sys::opus_decode(self.raw, ptr, len, pcm.as_mut_ptr(), frame_size, 0)
+        };
+        if wrote <= 0 {
+            Err(())
+        } else {
+            Ok(wrote as usize)
+        }
     }
 }
 
@@ -229,7 +247,10 @@ pub struct CaptureBuf {
 
 impl CaptureBuf {
     pub fn new() -> Self {
-        Self { samples: VecDeque::new(), rate: 0 }
+        Self {
+            samples: VecDeque::new(),
+            rate: 0,
+        }
     }
 }
 
@@ -277,7 +298,8 @@ impl Playback {
     /// Queue speaker-only soundboard audio. A long sound is kept; voice jitter is not.
     pub fn push_local(&mut self, pcm: &[f32]) {
         const LOCAL_CAP: usize = 48_000 * 15;
-        self.local.extend(pcm.iter().copied().filter(|sample| sample.is_finite()));
+        self.local
+            .extend(pcm.iter().copied().filter(|sample| sample.is_finite()));
         if self.local.len() > LOCAL_CAP {
             let extra = self.local.len() - LOCAL_CAP;
             self.local.drain(..extra);
@@ -291,7 +313,8 @@ impl Playback {
             return Vec::new();
         }
         let rate = self.rate.max(1);
-        let src_frames = ((device_frames as u64 * u64::from(SAMPLE_RATE)) / u64::from(rate)).max(1) as usize;
+        let src_frames =
+            ((device_frames as u64 * u64::from(SAMPLE_RATE)) / u64::from(rate)).max(1) as usize;
         let mut mixed = vec![0f32; src_frames];
         for speaker in self.speakers.values_mut() {
             let gain = if self.deafened {
@@ -300,7 +323,9 @@ impl Playback {
                 user_gain(volumes.get(&speaker.user_id).copied().unwrap_or(1.0))
             };
             for sample in mixed.iter_mut() {
-                let Some(input) = speaker.samples.pop_front() else { break };
+                let Some(input) = speaker.samples.pop_front() else {
+                    break;
+                };
                 *sample += input * gain;
             }
         }
@@ -309,7 +334,9 @@ impl Playback {
             self.local.drain(..local_frames);
         } else {
             for sample in mixed.iter_mut().take(local_frames) {
-                let Some(extra) = self.local.pop_front() else { break };
+                let Some(extra) = self.local.pop_front() else {
+                    break;
+                };
                 *sample = (*sample + extra).clamp(-1.0, 1.0);
             }
         }
@@ -359,7 +386,8 @@ pub fn pull_mono_frame(buf: &mut CaptureBuf) -> Option<Vec<f32>> {
     if buf.rate == 0 || buf.samples.is_empty() {
         return None;
     }
-    let need = ((FRAME_SAMPLES as u64 * u64::from(buf.rate)) / u64::from(SAMPLE_RATE)).max(1) as usize;
+    let need =
+        ((FRAME_SAMPLES as u64 * u64::from(buf.rate)) / u64::from(SAMPLE_RATE)).max(1) as usize;
     if buf.samples.len() < need {
         return None;
     }
@@ -383,7 +411,11 @@ pub fn resample_mono(input: &[f32], out_len: usize) -> Vec<f32> {
     }
     let mut out = Vec::with_capacity(out_len);
     let last = (input.len() - 1) as f32;
-    let scale = if out_len == 1 { 0.0 } else { last / (out_len - 1) as f32 };
+    let scale = if out_len == 1 {
+        0.0
+    } else {
+        last / (out_len - 1) as f32
+    };
     for i in 0..out_len {
         let pos = i as f32 * scale;
         let idx = pos.floor() as usize;
@@ -502,7 +534,11 @@ fn run_media(args: MediaArgs) {
         }
     };
     let mut decoders: HashMap<u32, Incoming> = HashMap::new();
-    let mut streams = DeviceStreams::new(args.capture.clone(), args.playback.clone(), args.volumes.clone());
+    let mut streams = DeviceStreams::new(
+        args.capture.clone(),
+        args.playback.clone(),
+        args.volumes.clone(),
+    );
     let mut next_frame = Instant::now();
     let mut seq = 0u16;
     let mut timestamp = 0u32;
@@ -537,7 +573,9 @@ fn run_media(args: MediaArgs) {
             play.output_gain = (f32::from(controls.output_volume) / 100.0).clamp(0.0, 2.0);
         }
         drain_heard(&args.board, &args.playback);
-        let wait = next_frame.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        let wait = next_frame
+            .saturating_duration_since(Instant::now())
+            .max(Duration::from_millis(1));
         match args.inbound.recv_timeout(wait) {
             Ok(packet) => handle_packet(&args, &mut decoders, &mut scratch, packet, &mut pending),
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -616,13 +654,23 @@ fn produce_frame(
         }
         samples
     });
-    let frame = injected.or_else(|| args.capture.lock().ok().and_then(|mut buf| pull_mono_frame(&mut buf)));
+    let frame = injected.or_else(|| {
+        args.capture
+            .lock()
+            .ok()
+            .and_then(|mut buf| pull_mono_frame(&mut buf))
+    });
     let have_audio = frame.is_some();
     let mut owned = frame.unwrap_or_else(|| vec![0.0; FRAME_SAMPLES]);
     apply_input_gain(&mut owned, controls.input_volume);
     let high = noise_quality_high(&controls.noise_quality);
     if controls.echo_cancellation && have_audio {
-        let reference = args.playback.lock().ok().map(|play| play.last_render.clone()).unwrap_or_default();
+        let reference = args
+            .playback
+            .lock()
+            .ok()
+            .map(|play| play.last_render.clone())
+            .unwrap_or_default();
         let mut reference = reference;
         if reference.len() < FRAME_SAMPLES {
             reference.resize(FRAME_SAMPLES, 0.0);
@@ -647,8 +695,14 @@ fn produce_frame(
             denoiser.process(&mut owned);
         }
     }
-    let board = args.board.lock().ok().map(|mut mix| mix.mix_into(&mut owned)).unwrap_or(false);
-    let talking = encoder.is_some() && (board || (transmit && have_audio && (!controls.vad || active)));
+    let board = args
+        .board
+        .lock()
+        .ok()
+        .map(|mut mix| mix.mix_into(&mut owned))
+        .unwrap_or(false);
+    let talking =
+        encoder.is_some() && (board || (transmit && have_audio && (!controls.vad || active)));
     if !talking && have_audio && transmit && controls.vad && !active && encoder.is_some() {
         note_drop(&args.log, |log| &mut log.quiet);
     }
@@ -706,7 +760,9 @@ fn send_opus(args: &MediaArgs, opus: &[u8], seq: &mut u16, timestamp: &mut u32, 
         log.last_opus_out = opus.to_vec();
     }
     let speaking = opus != OPUS_SILENCE;
-    if let Ok(packet) = encrypt_audio(args.mode, &args.key, *seq, *timestamp, args.ssrc, &sealed, *nonce, speaking) {
+    if let Ok(packet) = encrypt_audio(
+        args.mode, &args.key, *seq, *timestamp, args.ssrc, &sealed, *nonce, speaking,
+    ) {
         let _ = args.outbound.send(VoiceWire::Packet(packet));
     } else if let Ok(mut log) = args.log.lock() {
         log.encrypt_fail = log.encrypt_fail.saturating_add(1);
@@ -728,7 +784,9 @@ unsafe impl Send for AppOpus {}
 
 impl AppOpus {
     pub fn new() -> Result<Self, ()> {
-        Ok(Self { inner: OpusEncoder::new()? })
+        Ok(Self {
+            inner: OpusEncoder::new()?,
+        })
     }
 
     pub fn frame_from_f32(&self, samples: &[f32]) -> Vec<i16> {
@@ -775,9 +833,15 @@ fn flush_pending(
     scratch: &mut [i16],
     pending: &mut HashMap<u32, VecDeque<Vec<u8>>>,
 ) {
-    let ready: Vec<u32> = pending.keys().copied().filter(|ssrc| ssrc_user(args, *ssrc) != 0).collect();
+    let ready: Vec<u32> = pending
+        .keys()
+        .copied()
+        .filter(|ssrc| ssrc_user(args, *ssrc) != 0)
+        .collect();
     for ssrc in ready {
-        let Some(queued) = pending.remove(&ssrc) else { continue };
+        let Some(queued) = pending.remove(&ssrc) else {
+            continue;
+        };
         for packet in queued {
             handle_packet(args, decoders, scratch, packet, pending);
         }
@@ -814,7 +878,10 @@ fn handle_packet(
             } else {
                 let user_id = ssrc_user(args, ssrc);
                 if user_id == 0 {
-                    let opened = dave.lock().ok().and_then(|mut call| call.open_unmapped(&transport).ok());
+                    let opened = dave
+                        .lock()
+                        .ok()
+                        .and_then(|mut call| call.open_unmapped(&transport).ok());
                     if let Some(plain) = opened {
                         plain
                     } else {
@@ -855,10 +922,14 @@ fn handle_packet(
         if decoders.len() >= MAX_SPEAKERS {
             return;
         }
-        let Some(created) = Incoming::new() else { return };
+        let Some(created) = Incoming::new() else {
+            return;
+        };
         decoders.insert(ssrc, created);
     }
-    let Some(incoming) = decoders.get_mut(&ssrc) else { return };
+    let Some(incoming) = decoders.get_mut(&ssrc) else {
+        return;
+    };
     if let (Some(expected), Some(seq)) = (incoming.next_seq, seq) {
         match packets_to_conceal(expected, seq) {
             None => {
@@ -947,9 +1018,17 @@ impl Incoming {
     }
 }
 
-fn decode_mono(decoder: &mut OpusDecoder, packet: Option<&[u8]>, scratch: &mut [i16]) -> Option<Vec<f32>> {
+fn decode_mono(
+    decoder: &mut OpusDecoder,
+    packet: Option<&[u8]>,
+    scratch: &mut [i16],
+) -> Option<Vec<f32>> {
     let space = (scratch.len() / 2) as i32;
-    let frame = if packet.is_none() { FRAME_SAMPLES as i32 } else { space };
+    let frame = if packet.is_none() {
+        FRAME_SAMPLES as i32
+    } else {
+        space
+    };
     let per_channel = decoder.decode(packet, scratch, frame).ok()?;
     if per_channel == 0 {
         return None;
@@ -957,7 +1036,10 @@ fn decode_mono(decoder: &mut OpusDecoder, packet: Option<&[u8]>, scratch: &mut [
     let mut mono = Vec::with_capacity(per_channel);
     for index in 0..per_channel {
         let left = scratch.get(index * 2).copied().unwrap_or(0) as f32 / 32_768.0;
-        let right = scratch.get(index * 2 + 1).map(|sample| *sample as f32 / 32_768.0).unwrap_or(left);
+        let right = scratch
+            .get(index * 2 + 1)
+            .map(|sample| *sample as f32 / 32_768.0)
+            .unwrap_or(left);
         mono.push((left + right) * 0.5);
     }
     Some(mono)
@@ -967,7 +1049,9 @@ pub fn rtp_ssrc(packet: &[u8]) -> Option<u32> {
     if packet.len() < 12 || packet[0] >> 6 != 2 {
         return None;
     }
-    Some(u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]))
+    Some(u32::from_be_bytes([
+        packet[8], packet[9], packet[10], packet[11],
+    ]))
 }
 
 pub fn rtp_sequence(packet: &[u8]) -> Option<u16> {
@@ -1049,11 +1133,17 @@ mod tests {
         let out = resample_mono(&input, 3);
         assert_eq!(out.len(), 3);
         assert!(out[1] > 0.4 && out[1] < 0.6);
-        let mut capture = CaptureBuf { samples: VecDeque::from(vec![0.25; 960]), rate: 48_000 };
+        let mut capture = CaptureBuf {
+            samples: VecDeque::from(vec![0.25; 960]),
+            rate: 48_000,
+        };
         let frame = pull_mono_frame(&mut capture).unwrap();
         assert_eq!(frame.len(), 960);
         assert!(pull_mono_frame(&mut capture).is_none());
-        let mut slow = CaptureBuf { samples: VecDeque::from(vec![0.5; 882]), rate: 44_100 };
+        let mut slow = CaptureBuf {
+            samples: VecDeque::from(vec![0.5; 882]),
+            rate: 44_100,
+        };
         let pulled = pull_mono_frame(&mut slow).unwrap();
         assert_eq!(pulled.len(), 960);
     }
@@ -1154,7 +1244,8 @@ mod tests {
     fn agc_lifts_a_quiet_tone_and_leaves_silence() {
         let mut quiet = vec![0.01; 64];
         apply_agc(&mut quiet, &mut AgcState::default());
-        let rms = (quiet.iter().map(|sample| sample * sample).sum::<f32>() / quiet.len() as f32).sqrt();
+        let rms =
+            (quiet.iter().map(|sample| sample * sample).sum::<f32>() / quiet.len() as f32).sqrt();
         assert!(rms > 0.02, "rms {rms}");
         let mut silence = vec![0.0; 64];
         apply_agc(&mut silence, &mut AgcState::default());

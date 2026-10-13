@@ -386,7 +386,7 @@ pub struct ClientChannel {
     pub parent_id: Option<String>,
     pub position: i32,
     pub topic: Option<String>,
-    pub     recipient_ids: Vec<String>,
+    pub recipient_ids: Vec<String>,
     #[serde(default)]
     pub recipients: Vec<ClientUser>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -647,7 +647,9 @@ pub struct ClientProfile {
     pub server_tag: Option<ClientServerTag>,
 }
 
-fn de_optional_nonce<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+fn de_optional_nonce<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
     Ok(match value.unwrap_or(serde_json::Value::Null) {
         serde_json::Value::String(text) => {
@@ -738,7 +740,9 @@ pub fn default_avatar_url(user_id: &str) -> Option<String> {
     }
     let id = user_id.parse::<u64>().ok()?;
     let index = (id >> 22) % 6;
-    Some(format!("https://cdn.discordapp.com/embed/avatars/{index}.png"))
+    Some(format!(
+        "https://cdn.discordapp.com/embed/avatars/{index}.png"
+    ))
 }
 
 /// User avatar, then the guild member avatar, then the default for that id.
@@ -879,7 +883,10 @@ pub fn channel_to_client(channel: &DiscordChannel) -> ClientChannel {
         bitrate: channel.bitrate,
         user_limit: channel.user_limit,
         video_quality_mode: channel.video_quality_mode,
-        rtc_region: channel.rtc_region.clone().filter(|region| !region.is_empty()),
+        rtc_region: channel
+            .rtc_region
+            .clone()
+            .filter(|region| !region.is_empty()),
         default_auto_archive_duration: channel.default_auto_archive_duration,
         flags: channel.flags,
         discord_type: channel.kind,
@@ -1217,13 +1224,19 @@ pub fn activity_parts(activities: &[serde_json::Value]) -> (String, String) {
     let mut custom = String::new();
     let mut activity = String::new();
     for item in activities {
-        let kind = item.get("type").and_then(|value| value.as_i64()).unwrap_or(-1);
+        let kind = item
+            .get("type")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(-1);
         if kind == 4 {
             let emoji = item
                 .pointer("/emoji/name")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            let state = item.get("state").and_then(|value| value.as_str()).unwrap_or("");
+            let state = item
+                .get("state")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             custom = match (emoji.is_empty(), state.is_empty()) {
                 (true, true) => String::new(),
                 (false, true) => emoji.to_string(),
@@ -1235,7 +1248,10 @@ pub fn activity_parts(activities: &[serde_json::Value]) -> (String, String) {
         if !activity.is_empty() {
             continue;
         }
-        let name = item.get("name").and_then(|value| value.as_str()).unwrap_or("");
+        let name = item
+            .get("name")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
         if name.is_empty() {
             continue;
         }
@@ -1244,7 +1260,10 @@ pub fn activity_parts(activities: &[serde_json::Value]) -> (String, String) {
                 .get("details")
                 .and_then(|value| value.as_str())
                 .filter(|text| !text.is_empty());
-            let artist = item.get("state").and_then(|value| value.as_str()).unwrap_or("");
+            let artist = item
+                .get("state")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             activity = match (song, artist.is_empty()) {
                 (Some(song), false) => format!("Listening to {song} — {artist}"),
                 (Some(song), true) => format!("Listening to {song}"),
@@ -1313,17 +1332,27 @@ pub fn roster_from_guild(guild: &DiscordGuild) -> Vec<ClientMember> {
 
 pub fn member_from_list_value(member: &serde_json::Value) -> Option<ClientMember> {
     let user = member.get("user")?;
-    let id = user.get("id").and_then(|value| value.as_str()).unwrap_or("");
+    let id = user
+        .get("id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
     if id.is_empty() {
         return None;
     }
-    let username = user.get("username").and_then(|value| value.as_str()).unwrap_or("");
+    let username = user
+        .get("username")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
     let global = user
         .get("global_name")
         .and_then(|value| value.as_str())
         .filter(|name| !name.is_empty());
     let name = global
-        .unwrap_or(if username.is_empty() { "Unknown" } else { username })
+        .unwrap_or(if username.is_empty() {
+            "Unknown"
+        } else {
+            username
+        })
         .to_string();
     let avatar = user
         .get("avatar")
@@ -1358,7 +1387,10 @@ pub fn member_from_list_value(member: &serde_json::Value) -> Option<ClientMember
         id: id.to_string(),
         name,
         nick,
-        bot: user.get("bot").and_then(|value| value.as_bool()).unwrap_or(false),
+        bot: user
+            .get("bot")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
         role_ids,
         status: normalize_presence_status(status),
         avatar_url: avatar_url(id, &avatar),
@@ -1367,7 +1399,9 @@ pub fn member_from_list_value(member: &serde_json::Value) -> Option<ClientMember
     })
 }
 
-fn presence_lookup(presences: Option<&serde_json::Value>) -> std::collections::HashMap<String, (String, String, String)> {
+fn presence_lookup(
+    presences: Option<&serde_json::Value>,
+) -> std::collections::HashMap<String, (String, String, String)> {
     let mut by_id = std::collections::HashMap::new();
     let Some(serde_json::Value::Array(list)) = presences else {
         return by_id;
@@ -1389,7 +1423,12 @@ fn presence_lookup(presences: Option<&serde_json::Value>) -> std::collections::H
         by_id.insert(
             id.to_string(),
             (
-                normalize_presence_status(presence.get("status").and_then(|value| value.as_str()).unwrap_or("offline")),
+                normalize_presence_status(
+                    presence
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("offline"),
+                ),
                 custom,
                 activity,
             ),
@@ -1414,7 +1453,10 @@ pub fn friend_from_relationship(
     if id.is_empty() {
         return None;
     }
-    let username = user.get("username").and_then(|item| item.as_str()).unwrap_or("");
+    let username = user
+        .get("username")
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
     let global = user
         .get("global_name")
         .and_then(|item| item.as_str())
@@ -1425,7 +1467,11 @@ pub fn friend_from_relationship(
         .filter(|name| !name.is_empty());
     let name = nickname
         .or(global)
-        .unwrap_or(if username.is_empty() { "Unknown" } else { username })
+        .unwrap_or(if username.is_empty() {
+            "Unknown"
+        } else {
+            username
+        })
         .to_string();
     let avatar = user
         .get("avatar")
@@ -1439,7 +1485,10 @@ pub fn friend_from_relationship(
         id: id.to_string(),
         name,
         nick: None,
-        bot: user.get("bot").and_then(|item| item.as_bool()).unwrap_or(false),
+        bot: user
+            .get("bot")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
         role_ids: Vec::new(),
         status,
         avatar_url: avatar_url(id, &avatar),
@@ -1491,18 +1540,31 @@ pub fn profile_from_value(value: &serde_json::Value) -> Option<ClientProfile> {
     profile_from_guild(value, None)
 }
 
-pub fn profile_from_guild(value: &serde_json::Value, guild_id: Option<&str>) -> Option<ClientProfile> {
+pub fn profile_from_guild(
+    value: &serde_json::Value,
+    guild_id: Option<&str>,
+) -> Option<ClientProfile> {
     let user = value.get("user")?;
     let id = user.get("id").and_then(|item| item.as_str()).unwrap_or("");
     if !snowflake_ok(id) {
         return None;
     }
-    let username = user.get("username").and_then(|item| item.as_str()).unwrap_or("").to_string();
+    let username = user
+        .get("username")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .to_string();
     let global = user
         .get("global_name")
         .and_then(|item| item.as_str())
         .filter(|name| !name.is_empty());
-    let name = global.unwrap_or(if username.is_empty() { "Unknown" } else { username.as_str() }).to_string();
+    let name = global
+        .unwrap_or(if username.is_empty() {
+            "Unknown"
+        } else {
+            username.as_str()
+        })
+        .to_string();
     let avatar = hash_field(user.get("avatar"));
     let profile = value.get("user_profile");
     let banner = profile
@@ -1553,7 +1615,10 @@ pub fn profile_from_guild(value: &serde_json::Value, guild_id: Option<&str>) -> 
         .map(|list| {
             list.iter()
                 .filter_map(|item| {
-                    let id = item.get("id").and_then(|value| value.as_str()).unwrap_or("");
+                    let id = item
+                        .get("id")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
                     if !snowflake_ok(id) {
                         return None;
                     }
@@ -1592,7 +1657,10 @@ pub fn profile_from_guild(value: &serde_json::Value, guild_id: Option<&str>) -> 
         role_ids,
         mutual_guilds,
         mutual_friends,
-        bot: user.get("bot").and_then(|item| item.as_bool()).unwrap_or(false),
+        bot: user
+            .get("bot")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
         joined_at,
         badges: profile_badges(value),
         widgets: profile_widgets(value),
@@ -1613,19 +1681,28 @@ pub fn parse_guild_voice_states(data: &serde_json::Value) -> Option<Vec<ClientVo
 }
 
 /// One VOICE_STATE_UPDATE. An empty channel id means the user left voice.
-pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Option<ClientVoiceState> {
+pub fn parse_voice_state(
+    value: &serde_json::Value,
+    fallback_guild: &str,
+) -> Option<ClientVoiceState> {
     let member = value.get("member");
     let user = member.and_then(|item| item.get("user"));
-    let user_id = first_str(&[
-        value.get("user_id"),
-        user.and_then(|item| item.get("id")),
-    ]);
+    let user_id = first_str(&[value.get("user_id"), user.and_then(|item| item.get("id"))]);
     if user_id.is_empty() {
         return None;
     }
-    let nick = member.and_then(|item| item.get("nick")).and_then(|v| v.as_str()).unwrap_or("");
-    let global = user.and_then(|item| item.get("global_name")).and_then(|v| v.as_str()).unwrap_or("");
-    let username = user.and_then(|item| item.get("username")).and_then(|v| v.as_str()).unwrap_or("");
+    let nick = member
+        .and_then(|item| item.get("nick"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let global = user
+        .and_then(|item| item.get("global_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let username = user
+        .and_then(|item| item.get("username"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let name = if !nick.is_empty() {
         nick.to_string()
     } else if !global.is_empty() {
@@ -1638,24 +1715,44 @@ pub fn parse_voice_state(value: &serde_json::Value, fallback_guild: &str) -> Opt
     let avatar = hash_field(user.and_then(|item| item.get("avatar")));
     let member_avatar = hash_field(member.and_then(|item| item.get("avatar")));
     let guild_id = first_str(&[value.get("guild_id")]);
-    let guild_id = if guild_id.is_empty() { fallback_guild.to_string() } else { guild_id };
+    let guild_id = if guild_id.is_empty() {
+        fallback_guild.to_string()
+    } else {
+        guild_id
+    };
     Some(ClientVoiceState {
         avatar_url: voice_avatar_url(&guild_id, &user_id, &avatar, &member_avatar),
         guild_id,
         channel_id: json_text(value.get("channel_id")),
         user_id,
-        session_id: value.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        self_mute: value.get("self_mute").and_then(|v| v.as_bool()).unwrap_or(false),
-        self_deaf: value.get("self_deaf").and_then(|v| v.as_bool()).unwrap_or(false),
+        session_id: value
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        self_mute: value
+            .get("self_mute")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        self_deaf: value
+            .get("self_deaf")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         server_mute: value.get("mute").and_then(|v| v.as_bool()).unwrap_or(false),
         server_deaf: value.get("deaf").and_then(|v| v.as_bool()).unwrap_or(false),
-        self_stream: value.get("self_stream").and_then(|v| v.as_bool()).unwrap_or(false),
+        self_stream: value
+            .get("self_stream")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         name,
     })
 }
 
 fn hash_field(value: Option<&serde_json::Value>) -> Option<String> {
-    value.and_then(|item| item.as_str()).filter(|hash| !hash.is_empty()).map(|hash| hash.to_string())
+    value
+        .and_then(|item| item.as_str())
+        .filter(|hash| !hash.is_empty())
+        .map(|hash| hash.to_string())
 }
 
 fn json_text(value: Option<&serde_json::Value>) -> String {
@@ -1675,7 +1772,11 @@ fn first_str(values: &[Option<&serde_json::Value>]) -> String {
         .iter()
         .find_map(|value| {
             let text = json_text(*value);
-            if text.is_empty() { None } else { Some(text) }
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
         })
         .unwrap_or_default()
 }
@@ -1712,7 +1813,9 @@ pub fn validate_outgoing(
     }
     if file_bytes > limit_bytes {
         let mb = (limit_bytes / (1024 * 1024)).max(1);
-        return Err(format!("Attachments are limited to {mb} MB on this account."));
+        return Err(format!(
+            "Attachments are limited to {mb} MB on this account."
+        ));
     }
     Ok(())
 }
@@ -1739,7 +1842,9 @@ pub fn validate_composed(
     }
     if file_bytes > limit_bytes {
         let mb = (limit_bytes / (1024 * 1024)).max(1);
-        return Err(format!("Attachments are limited to {mb} MB on this account."));
+        return Err(format!(
+            "Attachments are limited to {mb} MB on this account."
+        ));
     }
     Ok(())
 }
@@ -1854,7 +1959,12 @@ pub fn relationships_from_value(value: &serde_json::Value) -> Vec<ClientRelation
 }
 
 pub fn relationship_from_value(value: &serde_json::Value) -> Option<ClientRelationship> {
-    let kind = relationship_kind_name(value.get("type").and_then(|item| item.as_i64()).unwrap_or(-1))?;
+    let kind = relationship_kind_name(
+        value
+            .get("type")
+            .and_then(|item| item.as_i64())
+            .unwrap_or(-1),
+    )?;
     let user = value.get("user");
     let id = user
         .and_then(|item| item.get("id"))
@@ -1874,7 +1984,11 @@ pub fn relationship_from_value(value: &serde_json::Value) -> Option<ClientRelati
         .and_then(|item| item.as_str())
         .filter(|name| !name.is_empty());
     let name = global
-        .unwrap_or(if username.is_empty() { "Unknown" } else { username.as_str() })
+        .unwrap_or(if username.is_empty() {
+            "Unknown"
+        } else {
+            username.as_str()
+        })
         .to_string();
     let nickname = value
         .get("nickname")
@@ -1897,7 +2011,10 @@ pub fn relationship_from_value(value: &serde_json::Value) -> Option<ClientRelati
         username,
         nickname,
         avatar_url: avatar_url(id, &avatar),
-        bot: user.and_then(|item| item.get("bot")).and_then(|item| item.as_bool()).unwrap_or(false),
+        bot: user
+            .and_then(|item| item.get("bot"))
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
         server_tag: user.and_then(profile_server_tag_user),
     })
 }
@@ -1905,7 +2022,10 @@ pub fn relationship_from_value(value: &serde_json::Value) -> Option<ClientRelati
 /// First non-custom activity, with elapsed time and art Discord dropped from the one-line glance.
 pub fn primary_rich_activity(activities: &[serde_json::Value]) -> Option<RichActivity> {
     activities.iter().find_map(|item| {
-        let kind = item.get("type").and_then(|value| value.as_i64()).unwrap_or(-1);
+        let kind = item
+            .get("type")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(-1);
         if kind == 4 {
             return None;
         }
@@ -1914,11 +2034,18 @@ pub fn primary_rich_activity(activities: &[serde_json::Value]) -> Option<RichAct
 }
 
 pub fn rich_activity(item: &serde_json::Value) -> Option<RichActivity> {
-    let kind = item.get("type").and_then(|value| value.as_i64()).unwrap_or(-1);
+    let kind = item
+        .get("type")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(-1);
     if kind == 4 {
         return None;
     }
-    let name = item.get("name").and_then(|value| value.as_str()).unwrap_or("").trim();
+    let name = item
+        .get("name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .trim();
     if name.is_empty() {
         return None;
     }
@@ -1931,7 +2058,9 @@ pub fn rich_activity(item: &serde_json::Value) -> Option<RichActivity> {
     let started_at = timestamps
         .and_then(|value| value.get("start"))
         .and_then(json_millis);
-    let ends_at = timestamps.and_then(|value| value.get("end")).and_then(json_millis);
+    let ends_at = timestamps
+        .and_then(|value| value.get("end"))
+        .and_then(json_millis);
     let assets = item.get("assets");
     let large_key = assets
         .and_then(|value| value.get("large_image"))
@@ -1955,7 +2084,10 @@ pub fn rich_activity(item: &serde_json::Value) -> Option<RichActivity> {
             }
         })
         .unwrap_or_default();
-    let url = item.get("url").and_then(|value| value.as_str()).unwrap_or("");
+    let url = item
+        .get("url")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
     Some(RichActivity {
         name: name.chars().take(128).collect(),
         kind,
@@ -2052,7 +2184,10 @@ fn text_field(item: &serde_json::Value, key: &str) -> String {
 }
 
 fn json_millis(value: &serde_json::Value) -> Option<i64> {
-    value.as_i64().or_else(|| value.as_f64().map(|number| number as i64)).filter(|ms| *ms > 0)
+    value
+        .as_i64()
+        .or_else(|| value.as_f64().map(|number| number as i64))
+        .filter(|ms| *ms > 0)
 }
 
 const USER_FLAGS: &[(u64, &str, &str)] = &[
@@ -2066,7 +2201,11 @@ const USER_FLAGS: &[(u64, &str, &str)] = &[
     (1 << 9, "early_supporter", "Early Supporter"),
     (1 << 14, "bug_hunter_2", "Bug Hunter Level 2"),
     (1 << 16, "verified_bot", "Verified Bot"),
-    (1 << 17, "verified_developer", "Early Verified Bot Developer"),
+    (
+        1 << 17,
+        "verified_developer",
+        "Early Verified Bot Developer",
+    ),
     (1 << 18, "moderator", "Moderator Programs Alumni"),
     (1 << 22, "active_developer", "Active Developer"),
 ];
@@ -2076,7 +2215,11 @@ pub fn profile_badges(value: &serde_json::Value) -> Vec<ClientBadge> {
     let mut seen = std::collections::HashSet::new();
     if let Some(list) = value.get("badges").and_then(|item| item.as_array()) {
         for item in list {
-            let id = item.get("id").and_then(|value| value.as_str()).unwrap_or("").trim();
+            let id = item
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .trim();
             let description = item
                 .get("description")
                 .and_then(|value| value.as_str())
@@ -2085,14 +2228,25 @@ pub fn profile_badges(value: &serde_json::Value) -> Vec<ClientBadge> {
             if id.is_empty() && description.is_empty() {
                 continue;
             }
-            let key = if id.is_empty() { description.to_string() } else { id.to_string() };
+            let key = if id.is_empty() {
+                description.to_string()
+            } else {
+                id.to_string()
+            };
             if !seen.insert(key.clone()) {
                 continue;
             }
-            let icon = item.get("icon").and_then(|value| value.as_str()).unwrap_or("");
+            let icon = item
+                .get("icon")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             badges.push(ClientBadge {
                 id: if id.is_empty() { key } else { id.to_string() },
-                description: if description.is_empty() { id.to_string() } else { description.to_string() },
+                description: if description.is_empty() {
+                    id.to_string()
+                } else {
+                    description.to_string()
+                },
                 icon_url: badge_icon_url(icon),
             });
         }
@@ -2127,18 +2281,33 @@ pub fn profile_widgets(value: &serde_json::Value) -> Vec<ClientWidget> {
     let accounts = value
         .get("connected_accounts")
         .and_then(|item| item.as_array())
-        .or_else(|| value.pointer("/user_profile/connected_accounts").and_then(|item| item.as_array()));
+        .or_else(|| {
+            value
+                .pointer("/user_profile/connected_accounts")
+                .and_then(|item| item.as_array())
+        });
     if let Some(list) = accounts {
         for item in list {
-            let kind = item.get("type").and_then(|value| value.as_str()).unwrap_or("").trim();
-            let name = item.get("name").and_then(|value| value.as_str()).unwrap_or("").trim();
+            let kind = item
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .trim();
+            let name = item
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .trim();
             if kind.is_empty() && name.is_empty() {
                 continue;
             }
             widgets.push(ClientWidget {
                 kind: kind.chars().take(32).collect(),
                 name: name.chars().take(64).collect(),
-                verified: item.get("verified").and_then(|value| value.as_bool()).unwrap_or(false),
+                verified: item
+                    .get("verified")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
             });
         }
     }
@@ -2157,7 +2326,11 @@ fn profile_server_tag_user(user: &serde_json::Value) -> Option<ClientServerTag> 
     if clan.get("identity_enabled").and_then(|item| item.as_bool()) == Some(false) {
         return None;
     }
-    let tag = clan.get("tag").and_then(|item| item.as_str()).unwrap_or("").trim();
+    let tag = clan
+        .get("tag")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim();
     let tag: String = tag.chars().take(4).collect();
     if tag.is_empty() {
         return None;
@@ -2167,13 +2340,22 @@ fn profile_server_tag_user(user: &serde_json::Value) -> Option<ClientServerTag> 
         .and_then(|item| item.as_str())
         .unwrap_or("")
         .to_string();
-    let badge = clan.get("badge").and_then(|item| item.as_str()).unwrap_or("");
+    let badge = clan
+        .get("badge")
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
     let badge_url = if snowflake_ok(&guild_id) && asset_hash_ok(badge) {
-        Some(format!("https://cdn.discordapp.com/clan-badges/{guild_id}/{badge}.png"))
+        Some(format!(
+            "https://cdn.discordapp.com/clan-badges/{guild_id}/{badge}.png"
+        ))
     } else {
         None
     };
-    Some(ClientServerTag { tag, guild_id, badge_url })
+    Some(ClientServerTag {
+        tag,
+        guild_id,
+        badge_url,
+    })
 }
 
 pub fn friend_username_ok(name: &str) -> bool {
@@ -2185,15 +2367,28 @@ pub fn friend_username_ok(name: &str) -> bool {
     if chars.first() == Some(&'.') || chars.last() == Some(&'.') || name.contains("..") {
         return false;
     }
-    chars.iter().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '_' || *ch == '.')
+    chars
+        .iter()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || *ch == '_' || *ch == '.')
 }
 
 pub fn clamp_friend_nickname(nickname: &str) -> String {
-    nickname.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(32).collect::<String>().trim().to_string()
+    nickname
+        .chars()
+        .filter(|ch| *ch != '\0' && *ch != '\n')
+        .take(32)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 pub fn clamp_group_name(name: &str) -> String {
-    name.chars().filter(|ch| *ch != '\0' && *ch != '\n' && *ch != '\r').take(100).collect::<String>().trim().to_string()
+    name.chars()
+        .filter(|ch| *ch != '\0' && *ch != '\n' && *ch != '\r')
+        .take(100)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 pub fn clamp_server_bio(bio: &str) -> String {
@@ -2202,7 +2397,11 @@ pub fn clamp_server_bio(bio: &str) -> String {
 
 /// Gateway opcode 3. A non-empty game is a playing activity and stays off the custom status.
 pub fn presence_payload(status: &str, custom: &str, game: &str) -> String {
-    let custom: String = custom.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(128).collect();
+    let custom: String = custom
+        .chars()
+        .filter(|ch| *ch != '\0' && *ch != '\n')
+        .take(128)
+        .collect();
     let mut activities = if custom.trim().is_empty() {
         Vec::<serde_json::Value>::new()
     } else {
@@ -2217,9 +2416,25 @@ pub fn presence_payload(status: &str, custom: &str, game: &str) -> String {
 }
 
 /// Gateway opcode 3 with a custom-status emoji and an optional clear-after timestamp.
-pub fn custom_status_payload(status: &str, custom: &str, emoji: &str, expires_at: Option<i64>, game: &str) -> String {
-    let custom: String = custom.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(128).collect();
-    let emoji: String = emoji.chars().filter(|ch| !ch.is_control()).take(32).collect::<String>().trim().to_string();
+pub fn custom_status_payload(
+    status: &str,
+    custom: &str,
+    emoji: &str,
+    expires_at: Option<i64>,
+    game: &str,
+) -> String {
+    let custom: String = custom
+        .chars()
+        .filter(|ch| *ch != '\0' && *ch != '\n')
+        .take(128)
+        .collect();
+    let emoji: String = emoji
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(32)
+        .collect::<String>()
+        .trim()
+        .to_string();
     let activities = if custom.trim().is_empty() && emoji.is_empty() {
         Vec::<serde_json::Value>::new()
     } else {
@@ -2242,7 +2457,13 @@ pub fn custom_status_payload(status: &str, custom: &str, emoji: &str, expires_at
 }
 
 fn push_game(activities: &mut Vec<serde_json::Value>, game: &str) {
-    let name: String = game.chars().filter(|ch| *ch != '\0' && *ch != '\n').take(128).collect::<String>().trim().to_string();
+    let name: String = game
+        .chars()
+        .filter(|ch| *ch != '\0' && *ch != '\n')
+        .take(128)
+        .collect::<String>()
+        .trim()
+        .to_string();
     if name.is_empty() {
         return;
     }
@@ -2288,7 +2509,10 @@ mod tests {
         ]);
         assert_eq!(
             blocked_user_ids(&list),
-            vec!["100000000000000003".to_string(), "100000000000000004".to_string()]
+            vec![
+                "100000000000000003".to_string(),
+                "100000000000000004".to_string()
+            ]
         );
     }
 
@@ -2337,18 +2561,18 @@ mod tests {
         assert_eq!(channel_kind_name(16), "media");
         assert_eq!(channel_kind_name(10), "thread");
         assert_eq!(channel_kind_name(99), "text");
-        let stage: DiscordChannel = serde_json::from_str(
-            r#"{"id":"13","type":13,"name":"live","position":1}"#,
-        )
-        .unwrap();
-        let media: DiscordChannel = serde_json::from_str(
-            r#"{"id":"16","type":16,"name":"gallery","position":2}"#,
-        )
-        .unwrap();
+        let stage: DiscordChannel =
+            serde_json::from_str(r#"{"id":"13","type":13,"name":"live","position":1}"#).unwrap();
+        let media: DiscordChannel =
+            serde_json::from_str(r#"{"id":"16","type":16,"name":"gallery","position":2}"#).unwrap();
         assert_eq!(channel_to_client(&stage).kind, "stage");
         assert_eq!(channel_to_client(&media).kind, "media");
         assert_eq!(
-            channel_to_client(&serde_json::from_str(r#"{"id":"2","type":2,"name":"booth","position":0}"#).unwrap()).kind,
+            channel_to_client(
+                &serde_json::from_str(r#"{"id":"2","type":2,"name":"booth","position":0}"#)
+                    .unwrap()
+            )
+            .kind,
             "voice"
         );
         let detailed: DiscordChannel = serde_json::from_str(
@@ -2463,7 +2687,9 @@ mod tests {
         let numbered = message_to_client(&serde_json::from_str(number).unwrap());
         assert_eq!(numbered.nonce.as_deref(), Some("42"));
         let missing = r#"{"id":"9","channel_id":"1","content":"test"}"#;
-        assert!(message_to_client(&serde_json::from_str(missing).unwrap()).nonce.is_none());
+        assert!(message_to_client(&serde_json::from_str(missing).unwrap())
+            .nonce
+            .is_none());
     }
 
     #[test]
@@ -2475,7 +2701,13 @@ mod tests {
         assert!(validate_outgoing("hi", 5, 10, limit).is_err());
         assert!(validate_outgoing("hi", 1, 9 * 1024 * 1024, limit).is_ok());
         assert!(validate_outgoing("hi", 1, 11 * 1024 * 1024, limit).is_err());
-        assert!(validate_outgoing("hi", 1, 40 * 1024 * 1024, crate::clip_fit::upload_limit_bytes(2)).is_ok());
+        assert!(validate_outgoing(
+            "hi",
+            1,
+            40 * 1024 * 1024,
+            crate::clip_fit::upload_limit_bytes(2)
+        )
+        .is_ok());
         assert_eq!(safe_file_name("C:\\Users\\Ethan\\shot.png"), "shot.png");
         assert_eq!(safe_file_name("../../etc/passwd"), "passwd");
         assert_eq!(safe_file_name(""), "file");
@@ -2512,7 +2744,11 @@ mod tests {
         assert_eq!(states[0].channel_id, "100000000000000026");
         assert!(states[0].self_mute);
         assert!(states[0].server_deaf);
-        assert!(states[0].avatar_url.as_deref().unwrap().contains("/avatars/100000000000000002/a1b2c3d4.png"));
+        assert!(states[0]
+            .avatar_url
+            .as_deref()
+            .unwrap()
+            .contains("/avatars/100000000000000002/a1b2c3d4.png"));
         let guild_face = serde_json::json!({
             "guild_id": "100000000000000010",
             "channel_id": "100000000000000026",
@@ -2523,7 +2759,9 @@ mod tests {
             }
         });
         let guild_avatar = parse_voice_state(&guild_face, "100000000000000010").unwrap();
-        assert!(guild_avatar.avatar_url.as_deref().unwrap().contains("/guilds/100000000000000010/users/100000000000000003/avatars/a_guildface.gif"));
+        assert!(guild_avatar.avatar_url.as_deref().unwrap().contains(
+            "/guilds/100000000000000010/users/100000000000000003/avatars/a_guildface.gif"
+        ));
         let bare = serde_json::json!({
             "guild_id": "100000000000000010",
             "channel_id": "100000000000000026",
@@ -2531,7 +2769,11 @@ mod tests {
         });
         let fallback = parse_voice_state(&bare, "100000000000000010").unwrap();
         let index = (100000000000000004u64 >> 22) % 6;
-        assert!(fallback.avatar_url.as_deref().unwrap().contains(&format!("/embed/avatars/{index}.png")));
+        assert!(fallback
+            .avatar_url
+            .as_deref()
+            .unwrap()
+            .contains(&format!("/embed/avatars/{index}.png")));
         let user_wins = serde_json::json!({
             "guild_id": "100000000000000010",
             "channel_id": "100000000000000026",
@@ -2542,7 +2784,11 @@ mod tests {
             }
         });
         let preferred = parse_voice_state(&user_wins, "").unwrap();
-        assert!(preferred.avatar_url.as_deref().unwrap().contains("/avatars/100000000000000003/userface.png"));
+        assert!(preferred
+            .avatar_url
+            .as_deref()
+            .unwrap()
+            .contains("/avatars/100000000000000003/userface.png"));
         let left = serde_json::json!({
             "guild_id": "100000000000000010",
             "channel_id": null,
@@ -2614,16 +2860,19 @@ mod tests {
         assert_eq!(extra[0].activity, "Playing Battlefield");
         assert_eq!(normalize_presence_status("invisible"), "offline");
 
-        let (custom, activity) = activity_parts(&[serde_json::json!({
-            "type": 4,
-            "state": "In queue",
-            "emoji": {"name": "🔥"}
-        }), serde_json::json!({
-            "type": 2,
-            "name": "Spotify",
-            "details": "Northwind",
-            "state": "Maya Chen"
-        })]);
+        let (custom, activity) = activity_parts(&[
+            serde_json::json!({
+                "type": 4,
+                "state": "In queue",
+                "emoji": {"name": "🔥"}
+            }),
+            serde_json::json!({
+                "type": 2,
+                "name": "Spotify",
+                "details": "Northwind",
+                "state": "Maya Chen"
+            }),
+        ]);
         assert_eq!(custom, "🔥 In queue");
         assert_eq!(activity, "Listening to Northwind — Maya Chen");
     }
@@ -2646,7 +2895,8 @@ mod tests {
             },
             "mutual_guilds": [{"id": "100000000000000010", "nick": "Maya"}],
             "mutual_friends_count": 2
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(profile.name, "Maya Chen");
         assert_eq!(profile.username, "maya");
         assert_eq!(profile.nick.as_deref(), Some("Maya"));
@@ -2687,7 +2937,14 @@ mod tests {
         assert_eq!(rows[0].kind, "friend");
         assert_eq!(rows[0].nickname, "Desk");
         assert_eq!(rows[0].server_tag.as_ref().unwrap().tag, "LARK");
-        assert!(rows[0].server_tag.as_ref().unwrap().badge_url.as_deref().unwrap().contains("clan-badges"));
+        assert!(rows[0]
+            .server_tag
+            .as_ref()
+            .unwrap()
+            .badge_url
+            .as_deref()
+            .unwrap()
+            .contains("clan-badges"));
         assert_eq!(rows[1].kind, "incoming");
         assert_eq!(rows[2].kind, "outgoing");
         assert_eq!(rows[3].kind, "blocked");
@@ -2712,13 +2969,16 @@ mod tests {
                 "assets": {"large_image": "abcdef", "large_text": "Map"},
                 "buttons": ["Join"]
             }),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert_eq!(activity.name, "Lark");
         assert_eq!(activity.kind, 0);
         assert_eq!(activity.details, "Northwind");
         assert_eq!(activity.party, "2 of 5");
         assert_eq!(activity.started_at, Some(1_000));
-        assert!(activity.large_image.contains("app-assets/100000000000000077/abcdef.png"));
+        assert!(activity
+            .large_image
+            .contains("app-assets/100000000000000077/abcdef.png"));
         assert_eq!(activity.buttons, vec!["Join".to_string()]);
         assert!(!activity.live);
         assert_eq!(format_elapsed(1_000, 63_000), "1:02 elapsed");
@@ -2728,9 +2988,15 @@ mod tests {
             "name": "Spotify",
             "details": "Noon",
             "assets": {"large_image": "spotify:abc123"}
-        })).unwrap();
-        assert!(listening.large_image.starts_with("https://i.scdn.co/image/abc123"));
-        let stream = rich_activity(&serde_json::json!({"type": 1, "name": "Twitch", "url": "https://twitch.tv/maya"})).unwrap();
+        }))
+        .unwrap();
+        assert!(listening
+            .large_image
+            .starts_with("https://i.scdn.co/image/abc123"));
+        let stream = rich_activity(
+            &serde_json::json!({"type": 1, "name": "Twitch", "url": "https://twitch.tv/maya"}),
+        )
+        .unwrap();
         assert!(stream.live);
     }
 
@@ -2748,31 +3014,48 @@ mod tests {
         })).unwrap();
         assert_eq!(profile.badges.len(), 1);
         assert_eq!(profile.badges[0].description, "Active Developer");
-        assert!(profile.badges[0].icon_url.as_deref().unwrap().contains("badge-icons/abc123.png"));
+        assert!(profile.badges[0]
+            .icon_url
+            .as_deref()
+            .unwrap()
+            .contains("badge-icons/abc123.png"));
         assert!(profile.server_tag.is_none());
         assert_eq!(profile.widgets[0].kind, "spotify");
         assert!(profile.widgets[0].verified);
-        let payload: serde_json::Value = serde_json::from_str(&custom_status_payload("online", "At the desk", "😀", Some(1_700_000_000_000), "")).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&custom_status_payload(
+            "online",
+            "At the desk",
+            "😀",
+            Some(1_700_000_000_000),
+            "",
+        ))
+        .unwrap();
         assert_eq!(payload["op"], 3);
         assert_eq!(payload["d"]["status"], "online");
         assert_eq!(payload["d"]["activities"][0]["type"], 4);
         assert_eq!(payload["d"]["activities"][0]["state"], "At the desk");
         assert_eq!(payload["d"]["activities"][0]["emoji"]["name"], "😀");
-        assert_eq!(payload["d"]["activities"][0]["timestamps"]["end"], 1_700_000_000_000_i64);
-        let cleared: serde_json::Value = serde_json::from_str(&custom_status_payload("idle", "", "", None, "")).unwrap();
+        assert_eq!(
+            payload["d"]["activities"][0]["timestamps"]["end"],
+            1_700_000_000_000_i64
+        );
+        let cleared: serde_json::Value =
+            serde_json::from_str(&custom_status_payload("idle", "", "", None, "")).unwrap();
         assert!(cleared["d"]["activities"].as_array().unwrap().is_empty());
-        let playing: serde_json::Value = serde_json::from_str(&presence_payload("online", "At the desk", "Hades II")).unwrap();
+        let playing: serde_json::Value =
+            serde_json::from_str(&presence_payload("online", "At the desk", "Hades II")).unwrap();
         assert_eq!(playing["d"]["activities"][0]["type"], 4);
         assert_eq!(playing["d"]["activities"][1]["type"], 0);
         assert_eq!(playing["d"]["activities"][1]["name"], "Hades II");
-        let hidden: serde_json::Value = serde_json::from_str(&presence_payload("online", "At the desk", "")).unwrap();
+        let hidden: serde_json::Value =
+            serde_json::from_str(&presence_payload("online", "At the desk", "")).unwrap();
         assert_eq!(hidden["d"]["activities"].as_array().unwrap().len(), 1);
-        let only_game: serde_json::Value = serde_json::from_str(&presence_payload("dnd", "", "Hades II")).unwrap();
+        let only_game: serde_json::Value =
+            serde_json::from_str(&presence_payload("dnd", "", "Hades II")).unwrap();
         assert_eq!(only_game["d"]["activities"].as_array().unwrap().len(), 1);
         assert_eq!(only_game["d"]["activities"][0]["type"], 0);
     }
 }
-
 
 // Stream F. Thread, poll, and scheduled-event payloads. Append-only: existing
 // channel kinds stay in `channel_kind_name`.
@@ -2940,8 +3223,13 @@ fn forum_tag_from_value(value: &serde_json::Value) -> Option<ClientForumTag> {
     Some(ClientForumTag {
         id: id.to_string(),
         name: value_str(value, "name").to_string(),
-        moderated: value.get("moderated").and_then(|item| item.as_bool()).unwrap_or(false),
-        emoji_id: emoji.and_then(|item| value_string(item, "id")).or_else(|| value_string(value, "emoji_id")),
+        moderated: value
+            .get("moderated")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
+        emoji_id: emoji
+            .and_then(|item| value_string(item, "id"))
+            .or_else(|| value_string(value, "emoji_id")),
         emoji_name: emoji
             .and_then(|item| value_string(item, "name"))
             .or_else(|| value_string(value, "emoji_name")),
@@ -2985,20 +3273,39 @@ pub fn thread_record_from_value(value: &serde_json::Value) -> Option<ClientThrea
         .unwrap_or_default();
     Some(ClientThreadRecord {
         id: id.to_string(),
-        name: if name.is_empty() { "Thread".into() } else { name.to_string() },
+        name: if name.is_empty() {
+            "Thread".into()
+        } else {
+            name.to_string()
+        },
         raw_kind,
         parent_id: value_string(value, "parent_id").filter(|item| snowflake_ok(item)),
         guild_id: value_string(value, "guild_id").filter(|item| snowflake_ok(item)),
         owner_id: value_string(value, "owner_id").filter(|item| snowflake_ok(item)),
-        archived: meta.and_then(|item| item.get("archived")).and_then(|item| item.as_bool()).unwrap_or(false),
-        locked: meta.and_then(|item| item.get("locked")).and_then(|item| item.as_bool()).unwrap_or(false),
-        invitable: meta.and_then(|item| item.get("invitable")).and_then(|item| item.as_bool()).unwrap_or(true),
+        archived: meta
+            .and_then(|item| item.get("archived"))
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
+        locked: meta
+            .and_then(|item| item.get("locked"))
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
+        invitable: meta
+            .and_then(|item| item.get("invitable"))
+            .and_then(|item| item.as_bool())
+            .unwrap_or(true),
         auto_archive_duration: meta
             .map(|item| value_i32(item, "auto_archive_duration"))
             .filter(|item| *item > 0)
             .unwrap_or(1440),
-        message_count: value.get("message_count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
-        member_count: value.get("member_count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+        message_count: value
+            .get("message_count")
+            .and_then(|item| item.as_u64())
+            .unwrap_or(0) as u32,
+        member_count: value
+            .get("member_count")
+            .and_then(|item| item.as_u64())
+            .unwrap_or(0) as u32,
         last_message_id: value_string(value, "last_message_id").filter(|item| snowflake_ok(item)),
         applied_tags,
         flags: value_i32(value, "flags"),
@@ -3023,7 +3330,10 @@ pub fn forum_parent_from_value(value: &serde_json::Value) -> Option<ClientForumP
         topic: value_str(value, "topic").to_string(),
         flags: value_i32(value, "flags"),
         available_tags: tags,
-        default_sort_order: value.get("default_sort_order").and_then(|item| item.as_i64()).map(|item| item as i32),
+        default_sort_order: value
+            .get("default_sort_order")
+            .and_then(|item| item.as_i64())
+            .map(|item| item as i32),
         default_forum_layout: value
             .get("default_forum_layout")
             .and_then(|item| item.as_i64())
@@ -3057,8 +3367,14 @@ pub fn thread_member_from_value(value: &serde_json::Value) -> Option<ClientThrea
     let nick = member.and_then(|item| value_string(item, "nick"));
     let global = user.and_then(|item| value_string(item, "global_name"));
     let username = user.and_then(|item| value_string(item, "username"));
-    let name = nick.or(global).or(username).unwrap_or_else(|| "Member".into());
-    let avatar = user.and_then(|item| item.get("avatar")).and_then(|item| item.as_str()).map(|item| item.to_string());
+    let name = nick
+        .or(global)
+        .or(username)
+        .unwrap_or_else(|| "Member".into());
+    let avatar = user
+        .and_then(|item| item.get("avatar"))
+        .and_then(|item| item.as_str())
+        .map(|item| item.to_string());
     Some(ClientThreadMember {
         id: value_str(value, "id").to_string(),
         user_id: user_id.to_string(),
@@ -3071,7 +3387,11 @@ pub fn thread_member_from_value(value: &serde_json::Value) -> Option<ClientThrea
 
 pub fn poll_from_message(value: &serde_json::Value) -> Option<ClientPoll> {
     let poll = value.get("poll")?;
-    let question = poll.pointer("/question/text").and_then(|item| item.as_str()).unwrap_or("").trim();
+    let question = poll
+        .pointer("/question/text")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim();
     if question.is_empty() {
         return None;
     }
@@ -3087,22 +3407,37 @@ pub fn poll_from_message(value: &serde_json::Value) -> Option<ClientPoll> {
             list.iter()
                 .filter_map(|answer| {
                     let answer_id = answer.get("answer_id").and_then(|item| item.as_i64())?;
-                    let text = answer.pointer("/poll_media/text").and_then(|item| item.as_str()).unwrap_or("").trim();
+                    let text = answer
+                        .pointer("/poll_media/text")
+                        .and_then(|item| item.as_str())
+                        .unwrap_or("")
+                        .trim();
                     if text.is_empty() {
                         return None;
                     }
-                    let tally = counts.iter().find(|item| item.get("id").and_then(|id| id.as_i64()) == Some(answer_id));
+                    let tally = counts
+                        .iter()
+                        .find(|item| item.get("id").and_then(|id| id.as_i64()) == Some(answer_id));
                     Some(ClientPollAnswer {
                         answer_id,
                         text: text.to_string(),
-                        emoji_name: answer.pointer("/poll_media/emoji/name").and_then(|item| item.as_str()).map(|item| item.to_string()),
+                        emoji_name: answer
+                            .pointer("/poll_media/emoji/name")
+                            .and_then(|item| item.as_str())
+                            .map(|item| item.to_string()),
                         emoji_id: answer
                             .pointer("/poll_media/emoji/id")
                             .and_then(|item| item.as_str())
                             .filter(|item| snowflake_ok(item))
                             .map(|item| item.to_string()),
-                        count: tally.and_then(|item| item.get("count")).and_then(|item| item.as_u64()).unwrap_or(0) as u32,
-                        me_voted: tally.and_then(|item| item.get("me_voted")).and_then(|item| item.as_bool()).unwrap_or(false),
+                        count: tally
+                            .and_then(|item| item.get("count"))
+                            .and_then(|item| item.as_u64())
+                            .unwrap_or(0) as u32,
+                        me_voted: tally
+                            .and_then(|item| item.get("me_voted"))
+                            .and_then(|item| item.as_bool())
+                            .unwrap_or(false),
                     })
                 })
                 .collect()
@@ -3116,10 +3451,19 @@ pub fn poll_from_message(value: &serde_json::Value) -> Option<ClientPoll> {
         channel_id: value_str(value, "channel_id").to_string(),
         question: question.to_string(),
         answers,
-        expiry: poll.get("expiry").and_then(|item| item.as_str()).map(|item| item.to_string()),
-        allow_multiselect: poll.get("allow_multiselect").and_then(|item| item.as_bool()).unwrap_or(false),
+        expiry: poll
+            .get("expiry")
+            .and_then(|item| item.as_str())
+            .map(|item| item.to_string()),
+        allow_multiselect: poll
+            .get("allow_multiselect")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
         layout_type: value_i32(poll, "layout_type"),
-        finalized: poll.pointer("/results/is_finalized").and_then(|item| item.as_bool()).unwrap_or(false),
+        finalized: poll
+            .pointer("/results/is_finalized")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
     })
 }
 
@@ -3134,7 +3478,10 @@ pub fn poll_voters_from_value(value: &serde_json::Value) -> Vec<ClientPollVoter>
                     if !snowflake_ok(id) {
                         return None;
                     }
-                    let avatar = user.get("avatar").and_then(|item| item.as_str()).map(|item| item.to_string());
+                    let avatar = user
+                        .get("avatar")
+                        .and_then(|item| item.as_str())
+                        .map(|item| item.to_string());
                     let name = value_string(user, "global_name")
                         .or_else(|| value_string(user, "username"))
                         .unwrap_or_else(|| "Someone".into());
@@ -3171,7 +3518,12 @@ pub fn event_from_value(value: &serde_json::Value) -> Option<ClientScheduledEven
             by_weekday: rule
                 .get("by_weekday")
                 .and_then(|item| item.as_array())
-                .map(|list| list.iter().filter_map(|day| day.as_i64()).map(|day| day as i32).collect())
+                .map(|list| {
+                    list.iter()
+                        .filter_map(|day| day.as_i64())
+                        .map(|day| day as i32)
+                        .collect()
+                })
                 .unwrap_or_default(),
         })
     });
@@ -3187,15 +3539,24 @@ pub fn event_from_value(value: &serde_json::Value) -> Option<ClientScheduledEven
         privacy_level: value_i32(value, "privacy_level"),
         status: value_i32(value, "status"),
         entity_type: value_i32(value, "entity_type"),
-        location: value.pointer("/entity_metadata/location").and_then(|item| item.as_str()).map(|item| item.to_string()),
+        location: value
+            .pointer("/entity_metadata/location")
+            .and_then(|item| item.as_str())
+            .map(|item| item.to_string()),
         image: value_string(value, "image"),
-        user_count: value.get("user_count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+        user_count: value
+            .get("user_count")
+            .and_then(|item| item.as_u64())
+            .unwrap_or(0) as u32,
         recurrence_rule: recurrence,
     })
 }
 
 pub fn events_from_value(value: &serde_json::Value) -> Vec<ClientScheduledEvent> {
-    value.as_array().map(|list| list.iter().filter_map(event_from_value).collect()).unwrap_or_default()
+    value
+        .as_array()
+        .map(|list| list.iter().filter_map(event_from_value).collect())
+        .unwrap_or_default()
 }
 
 /// Relationship type 3 is an incoming request. Type 4 is outgoing.
@@ -3214,7 +3575,10 @@ pub fn friend_requests_from_value(value: &serde_json::Value) -> Vec<ClientFriend
             if !snowflake_ok(id) {
                 return None;
             }
-            let avatar = user.get("avatar").and_then(|part| part.as_str()).map(|part| part.to_string());
+            let avatar = user
+                .get("avatar")
+                .and_then(|part| part.as_str())
+                .map(|part| part.to_string());
             let name = value_string(user, "global_name")
                 .or_else(|| value_string(user, "username"))
                 .unwrap_or_else(|| "Someone".into());
@@ -3265,7 +3629,11 @@ pub fn thread_create_request(
     if !ARCHIVE_MINUTES.contains(&duration) {
         return Err("That archive time isn't one Discord offers.".into());
     }
-    let tags: Vec<&str> = applied_tags.iter().map(String::as_str).filter(|tag| snowflake_ok(tag)).collect();
+    let tags: Vec<&str> = applied_tags
+        .iter()
+        .map(String::as_str)
+        .filter(|tag| snowflake_ok(tag))
+        .collect();
     match route {
         "from-message" => {
             let Some(message_id) = message_id.filter(|id| snowflake_ok(id)) else {
@@ -3357,7 +3725,11 @@ pub fn poll_message_body(
             return Err("Answers can be 55 characters.".into());
         }
         let mut media = serde_json::json!({ "text": text });
-        if let Some(emoji) = emoji.as_deref().map(str::trim).filter(|item| !item.is_empty()) {
+        if let Some(emoji) = emoji
+            .as_deref()
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
             media["emoji"] = serde_json::json!({ "name": emoji });
         }
         answers_json.push(serde_json::json!({ "poll_media": media }));
@@ -3431,7 +3803,10 @@ mod parity_stream_f {
         assert!(!thread.archived);
         assert_eq!(thread.applied_tags, vec!["100000000000000901"]);
         assert_eq!(thread.starter_content.as_deref(), Some("The new mark"));
-        assert_eq!(thread.starter_image.as_deref(), Some("https://media.discordapp.net/a.png"));
+        assert_eq!(
+            thread.starter_image.as_deref(),
+            Some("https://media.discordapp.net/a.png")
+        );
 
         let parent = forum_parent_from_value(&serde_json::json!({
             "id": "100000000000000029",
@@ -3526,7 +3901,10 @@ mod parity_stream_f {
             false,
         )
         .unwrap();
-        assert_eq!(made.path, "/channels/100000000000000022/messages/100000000000000220/threads");
+        assert_eq!(
+            made.path,
+            "/channels/100000000000000022/messages/100000000000000220/threads"
+        );
         assert!(made.body.get("type").is_none());
         assert!(thread_create_request(
             "100000000000000022",
@@ -3560,10 +3938,20 @@ mod parity_stream_f {
         );
         assert!(media.unwrap_err().contains("image"));
 
-        let body = poll_message_body("Lunch?", &[("Yes".into(), Some("👍".into())), ("No".into(), None)], 24, false).unwrap();
+        let body = poll_message_body(
+            "Lunch?",
+            &[("Yes".into(), Some("👍".into())), ("No".into(), None)],
+            24,
+            false,
+        )
+        .unwrap();
         assert_eq!(body["poll"]["layout_type"], 1);
-        assert_eq!(body["poll"]["answers"][0]["poll_media"]["emoji"]["name"], "👍");
-        let bulk = ack_bulk_body(&[("100000000000000022".into(), "100000000000000220".into())]).unwrap();
+        assert_eq!(
+            body["poll"]["answers"][0]["poll_media"]["emoji"]["name"],
+            "👍"
+        );
+        let bulk =
+            ack_bulk_body(&[("100000000000000022".into(), "100000000000000220".into())]).unwrap();
         assert_eq!(bulk["read_states"][0]["read_state_type"], 0);
     }
 }
@@ -3634,7 +4022,10 @@ mod messaging_fields {
         assert_eq!(client.message_type, 3);
         assert!(client.pinned);
         assert_eq!(client.author_role_ids, vec!["100000000000000099"]);
-        assert_eq!(client.call_ended.as_deref(), Some("2026-10-06T12:05:00.000Z"));
+        assert_eq!(
+            client.call_ended.as_deref(),
+            Some("2026-10-06T12:05:00.000Z")
+        );
         assert!(client.reply.is_none());
         assert_eq!(client.forwarded.as_ref().unwrap().preview, "earlier");
         assert!(client.poll.is_none());
@@ -3684,7 +4075,10 @@ pub struct ClientMessageRequest {
 }
 
 /// Discord returns an array, or an object with `message_requests`, `channels`, or `spam`.
-pub fn message_requests_from_value(value: &serde_json::Value, spam: bool) -> Vec<ClientMessageRequest> {
+pub fn message_requests_from_value(
+    value: &serde_json::Value,
+    spam: bool,
+) -> Vec<ClientMessageRequest> {
     message_request_list(value)
         .into_iter()
         .filter_map(|item| message_request_from_value(item, spam))
@@ -3703,7 +4097,10 @@ fn message_request_list(value: &serde_json::Value) -> Vec<&serde_json::Value> {
     Vec::new()
 }
 
-fn message_request_from_value(value: &serde_json::Value, spam: bool) -> Option<ClientMessageRequest> {
+fn message_request_from_value(
+    value: &serde_json::Value,
+    spam: bool,
+) -> Option<ClientMessageRequest> {
     let id = json_snowflake(value, &["id", "channel_id"]);
     if !snowflake_ok(&id) {
         return None;
@@ -3714,7 +4111,9 @@ fn message_request_from_value(value: &serde_json::Value, spam: bool) -> Option<C
         .and_then(|list| list.first())
         .or_else(|| value.get("recipient"));
     let name = recipient
-        .and_then(|user| value_string(user, "global_name").or_else(|| value_string(user, "username")))
+        .and_then(|user| {
+            value_string(user, "global_name").or_else(|| value_string(user, "username"))
+        })
         .or_else(|| value_string(value, "name"))
         .unwrap_or_else(|| "Someone".into());
     let preview = value
@@ -3786,6 +4185,8 @@ mod message_request_fields {
         assert!(spam[0].spam);
         assert_eq!(spam[0].id, "100000000000000042");
         assert!(message_requests_from_value(&serde_json::json!([]), true).is_empty());
-        assert!(message_requests_from_value(&serde_json::json!([{ "id": "nope" }]), true).is_empty());
+        assert!(
+            message_requests_from_value(&serde_json::json!([{ "id": "nope" }]), true).is_empty()
+        );
     }
 }

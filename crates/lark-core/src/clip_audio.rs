@@ -116,7 +116,9 @@ pub struct MicTap {
 impl MicTap {
     pub fn open() -> Result<Self, String> {
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or("No microphone is available.")?;
+        let device = host
+            .default_input_device()
+            .ok_or("No microphone is available.")?;
         let supported = device
             .default_input_config()
             .map_err(|err| format!("Couldn't open the microphone: {err}"))?;
@@ -137,7 +139,10 @@ impl MicTap {
                 device.build_input_stream(
                     &config,
                     move |data: &[i16], _| {
-                        let floats: Vec<f32> = data.iter().map(|sample| f32::from(*sample) / 32_768.0).collect();
+                        let floats: Vec<f32> = data
+                            .iter()
+                            .map(|sample| f32::from(*sample) / 32_768.0)
+                            .collect();
                         push_mono(&incoming, &floats, channels);
                     },
                     |_| {},

@@ -160,7 +160,11 @@ impl Session {
     }
 
     pub fn pull_audio(&mut self) -> Vec<f32> {
-        let mut audio = self.state.audio.lock().unwrap_or_else(|err| err.into_inner());
+        let mut audio = self
+            .state
+            .audio
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         std::mem::take(&mut *audio)
     }
 }
@@ -226,8 +230,14 @@ unsafe fn open_stream(
         return Err("No display found.".into());
     }
     let main = CGMainDisplayID();
-    let screen_index = config.source.strip_prefix("screen:").and_then(|text| text.parse::<usize>().ok());
-    let window_id = config.source.strip_prefix("window:").and_then(|text| text.parse::<u32>().ok());
+    let screen_index = config
+        .source
+        .strip_prefix("screen:")
+        .and_then(|text| text.parse::<usize>().ok());
+    let window_id = config
+        .source
+        .strip_prefix("window:")
+        .and_then(|text| text.parse::<u32>().ok());
     let mut chosen: *mut Object = std::ptr::null_mut();
     let mut seen = 0usize;
     for index in 0..count {
@@ -414,7 +424,11 @@ fn capture_audio(this: &Object, sample: *mut Object) {
             mono.push(sum / channels as f32);
             index += channels;
         }
-        let rate = if desc.sample_rate > 1.0 { desc.sample_rate.round() as u32 } else { 48_000 };
+        let rate = if desc.sample_rate > 1.0 {
+            desc.sample_rate.round() as u32
+        } else {
+            48_000
+        };
         if rate != 48_000 && !mono.is_empty() {
             let out_len = ((mono.len() as u64 * 48_000) / u64::from(rate.max(1))).max(1) as usize;
             let mut scaled = Vec::with_capacity(out_len);
@@ -537,7 +551,11 @@ unsafe fn open_encoder(
     let bitrate = cf_number_i32(config.bitrate as i32);
     let frame_rate = cf_number_i32(config.fps.max(1) as i32);
     let idr = if config.stream {
-        if config.idr_interval == 0 { config.fps.max(1).saturating_mul(2) } else { config.idr_interval }
+        if config.idr_interval == 0 {
+            config.fps.max(1).saturating_mul(2)
+        } else {
+            config.idr_interval
+        }
     } else {
         config.fps.max(1)
     };
@@ -924,7 +942,9 @@ unsafe extern "C" {
 
     fn CMSampleBufferGetImageBuffer(sample: *mut c_void) -> *mut c_void;
     fn CMSampleBufferGetFormatDescription(sample: *mut c_void) -> *mut c_void;
-    fn CMAudioFormatDescriptionGetStreamBasicDescription(format: *mut c_void) -> *const AudioStreamBasicDescription;
+    fn CMAudioFormatDescriptionGetStreamBasicDescription(
+        format: *mut c_void,
+    ) -> *const AudioStreamBasicDescription;
     fn CMSampleBufferGetDataBuffer(sample: *mut c_void) -> *mut c_void;
     fn CMSampleBufferGetSampleAttachmentsArray(sample: *mut c_void, create: i32) -> *mut c_void;
     fn CMBlockBufferGetDataLength(block: *mut c_void) -> usize;

@@ -65,4 +65,3 @@ pub fn describe(paths: &ResolvedPaths) -> AppPaths {
         notification_note: lark_core::notification_note(&os).to_string(),
     }
 }
-

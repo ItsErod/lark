@@ -20,8 +20,13 @@ pub fn seal(key: &[u8; 32], plaintext: &str) -> Result<String, String> {
     seal_with_nonce(key, &nonce, plaintext)
 }
 
-pub fn seal_with_nonce(key: &[u8; 32], nonce: &[u8; 12], plaintext: &str) -> Result<String, String> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| "Draft key was the wrong size.".to_string())?;
+pub fn seal_with_nonce(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    plaintext: &str,
+) -> Result<String, String> {
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|_| "Draft key was the wrong size.".to_string())?;
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(nonce), plaintext.as_bytes())
         .map_err(|_| "Couldn't encrypt drafts.".to_string())?;
@@ -45,10 +50,13 @@ pub fn open(key: &[u8; 32], sealed: &str) -> Result<String, String> {
         return Err("Saved drafts are incomplete.".into());
     }
     let (nonce, ciphertext) = packed.split_at(12);
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| "Draft key was the wrong size.".to_string())?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|_| "Draft key was the wrong size.".to_string())?;
     let plain = cipher
         .decrypt(Nonce::from_slice(nonce), ciphertext)
-        .map_err(|_| "Couldn't open drafts. The key in the credential store does not match.".to_string())?;
+        .map_err(|_| {
+            "Couldn't open drafts. The key in the credential store does not match.".to_string()
+        })?;
     String::from_utf8(plain).map_err(|_| "Saved drafts were not text.".to_string())
 }
 
@@ -75,7 +83,10 @@ mod tests {
     #[test]
     fn known_nonce_is_stable_and_not_plaintext() {
         let sealed = seal_with_nonce(&key(), &nonce(), "hello drafts").unwrap();
-        assert_eq!(sealed, seal_with_nonce(&key(), &nonce(), "hello drafts").unwrap());
+        assert_eq!(
+            sealed,
+            seal_with_nonce(&key(), &nonce(), "hello drafts").unwrap()
+        );
         assert!(!sealed.contains("hello"));
         assert_eq!(open(&key(), &sealed).unwrap(), "hello drafts");
     }

@@ -26,7 +26,8 @@ const LOGIN_LABEL: &str = "discord-login";
 const LOGIN_URL: &str = "https://discord.com/login";
 const POLL_EVERY: Duration = Duration::from_millis(500);
 const LOGIN_LOAD_WAIT: Duration = Duration::from_secs(20);
-const LOGIN_DID_NOT_LOAD: &str = "Discord's login page did not load in the app window. Use Sign in in your browser.";
+const LOGIN_DID_NOT_LOAD: &str =
+    "Discord's login page did not load in the app window. Use Sign in in your browser.";
 
 struct LoginWatch {
     poll_id: AtomicU64,

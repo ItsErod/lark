@@ -1197,7 +1197,10 @@ pub fn encode_user_lists(
         if channel_ids.is_empty() {
             continue;
         }
-        pins.push(GuildChannelPins { guild_id, channel_ids });
+        pins.push(GuildChannelPins {
+            guild_id,
+            channel_ids,
+        });
     }
     let mut bytes = encode_favorites_field(&favorites, favorites_muted, favorite_extras)?;
     bytes.extend(encode_rail_field(&pinned_dms, &pins));
@@ -1335,10 +1338,17 @@ fn guild_pins_from_body(bytes: &[u8]) -> Option<GuildChannelPins> {
     if !snowflake_ok(&guild_id) || channel_ids.is_empty() {
         return None;
     }
-    Some(GuildChannelPins { guild_id, channel_ids })
+    Some(GuildChannelPins {
+        guild_id,
+        channel_ids,
+    })
 }
 
-fn encode_favorites_field(ids: &[String], muted: bool, extras: &[String]) -> Result<Vec<u8>, String> {
+fn encode_favorites_field(
+    ids: &[String],
+    muted: bool,
+    extras: &[String],
+) -> Result<Vec<u8>, String> {
     let mut body = Vec::new();
     for (index, id) in ids.iter().enumerate() {
         let value = id.parse::<u64>().unwrap_or(0);
@@ -1653,7 +1663,10 @@ mod tests {
         let parsed = user_lists_from_proto(&proto_len(15, &body));
         assert_eq!(
             parsed.favorites.unwrap(),
-            vec!["100000000000000033".to_string(), "100000000000000032".to_string()]
+            vec![
+                "100000000000000033".to_string(),
+                "100000000000000032".to_string()
+            ]
         );
         assert_eq!(parsed.favorite_extras.as_ref().map(Vec::len), Some(1));
         assert_eq!(parsed.favorites_muted, Some(false));

@@ -420,7 +420,11 @@ fn clip_slug(label: &str) -> Option<String> {
     while slug.ends_with('-') {
         slug.pop();
     }
-    if slug.is_empty() { None } else { Some(slug) }
+    if slug.is_empty() {
+        None
+    } else {
+        Some(slug)
+    }
 }
 
 /// New clips are `.mp4`. Older `.avi` names still attach.
@@ -545,7 +549,8 @@ fn inspect_avi(bytes: &[u8]) -> SavedClipInfo {
 }
 
 fn avi_frames(bytes: &[u8]) -> Result<Vec<EncodedFrame>, String> {
-    let movi = find_tag(bytes, b"movi").ok_or_else(|| "That clip is not a readable AVI.".to_string())?;
+    let movi =
+        find_tag(bytes, b"movi").ok_or_else(|| "That clip is not a readable AVI.".to_string())?;
     let mut cursor = movi + 4;
     let end = find_tag(bytes, b"idx1").unwrap_or(bytes.len());
     let mut frames = Vec::new();
@@ -910,18 +915,33 @@ mod tests {
             clip_file_name_for(0, Some("Overwatch 2")),
             "lark-clip-overwatch-2-19700101-000000Z.mp4"
         );
-        assert!(is_clip_name(&clip_file_name_for(0, Some("Grand Theft Auto V"))));
-        assert_eq!(clip_game_label("Overwatch.exe").as_deref(), Some("Overwatch 2"));
+        assert!(is_clip_name(&clip_file_name_for(
+            0,
+            Some("Grand Theft Auto V")
+        )));
+        assert_eq!(
+            clip_game_label("Overwatch.exe").as_deref(),
+            Some("Overwatch 2")
+        );
         assert_eq!(clip_game_label("deadlock.exe").as_deref(), Some("Deadlock"));
         assert_eq!(clip_game_label("cod.exe").as_deref(), Some("Call of Duty"));
-        assert_eq!(clip_game_label("GTA5.exe").as_deref(), Some("Grand Theft Auto V"));
+        assert_eq!(
+            clip_game_label("GTA5.exe").as_deref(),
+            Some("Grand Theft Auto V")
+        );
         assert_eq!(clip_game_label("Lark"), None);
         assert_eq!(
             clip_name_label(Some("Overwatch.exe"), "Lark").as_deref(),
             Some("Overwatch 2")
         );
-        assert_eq!(clip_name_label(Some("Lark"), "deadlock.exe").as_deref(), Some("Deadlock"));
-        assert_eq!(clip_name_label(None, "cod.exe").as_deref(), Some("Call of Duty"));
+        assert_eq!(
+            clip_name_label(Some("Lark"), "deadlock.exe").as_deref(),
+            Some("Deadlock")
+        );
+        assert_eq!(
+            clip_name_label(None, "cod.exe").as_deref(),
+            Some("Call of Duty")
+        );
         assert_eq!(clip_name_label(Some(""), ""), None);
         assert_eq!(
             clip_file_name(1_700_000_000),

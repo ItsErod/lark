@@ -138,7 +138,10 @@ pub struct AudioPiece<'a> {
 }
 
 /// Faststart MP4 with the video track plus the named AAC tracks, in order.
-pub fn mux_encoded_audio(video: &EncodedVideo<'_>, tracks: &[AudioPiece<'_>]) -> Result<Vec<u8>, String> {
+pub fn mux_encoded_audio(
+    video: &EncodedVideo<'_>,
+    tracks: &[AudioPiece<'_>],
+) -> Result<Vec<u8>, String> {
     if tracks.is_empty() {
         return mux_encoded(video);
     }
@@ -160,7 +163,11 @@ pub fn mux_encoded_audio(video: &EncodedVideo<'_>, tracks: &[AudioPiece<'_>]) ->
         }
         payload.extend_from_slice(sample);
     }
-    let units: u64 = video.durations.iter().map(|duration| u64::from(*duration)).sum();
+    let units: u64 = video
+        .durations
+        .iter()
+        .map(|duration| u64::from(*duration))
+        .sum();
     let video_ms = ((units.saturating_mul(1000)) / u64::from(video.timescale.max(1))).max(1) as u32;
     let needed = aac_frame_count_ms(video_ms);
     let mut pieces = Vec::with_capacity(tracks.len());
@@ -173,7 +180,8 @@ pub fn mux_encoded_audio(video: &EncodedVideo<'_>, tracks: &[AudioPiece<'_>]) ->
         }
         pieces.push(frames);
     }
-    let audio_ms = (u64::from(needed) * u64::from(AAC_FRAME_SAMPLES) * 1000 / u64::from(AAC_SAMPLE_RATE)) as u32;
+    let audio_ms = (u64::from(needed) * u64::from(AAC_FRAME_SAMPLES) * 1000
+        / u64::from(AAC_SAMPLE_RATE)) as u32;
     let movie_ms = video_ms.max(audio_ms).max(1);
     let ftyp = if video.hevc { ftyp_hevc() } else { ftyp() };
     let mut moov = moov_with_audio(
@@ -238,12 +246,24 @@ fn moov_with_audio(
     body.extend(video_trak_timed(video, duration_units, video_ms, 0));
     for (index, frames) in pieces.iter().enumerate() {
         let name = tracks.get(index).map(|track| track.name).unwrap_or("Audio");
-        body.extend(audio_piece_trak((index as u32) + 2, name, audio_ms, frames, 0));
+        body.extend(audio_piece_trak(
+            (index as u32) + 2,
+            name,
+            audio_ms,
+            frames,
+            0,
+        ));
     }
     box_wrap(b"moov", &body)
 }
 
-fn audio_piece_trak(track_id: u32, name: &str, duration_ms: u32, frames: &[Vec<u8>], chunk_offset: u32) -> Vec<u8> {
+fn audio_piece_trak(
+    track_id: u32,
+    name: &str,
+    duration_ms: u32,
+    frames: &[Vec<u8>],
+    chunk_offset: u32,
+) -> Vec<u8> {
     let sizes: Vec<u32> = frames.iter().map(|frame| frame.len() as u32).collect();
     let count = frames.len() as u32;
     let stbl = concat(&[

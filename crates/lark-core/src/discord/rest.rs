@@ -16,7 +16,9 @@ use crate::ratelimit::{
 use crate::redact::redact;
 
 use super::guild_admin::{build_admin_call, GuildAdminRequest};
-use super::shell::{encode_guild_folders, invite_code_ok, invite_from_json, ClientFolder, ClientInvite};
+use super::shell::{
+    encode_guild_folders, invite_code_ok, invite_from_json, ClientFolder, ClientInvite,
+};
 use super::types::{
     channel_to_client, friends_from_relationships, member_to_client, message_to_client,
     profile_from_guild, role_to_client, safe_file_name, snowflake_ok, validate_outgoing,
@@ -29,11 +31,18 @@ const NOTE_LIMIT: usize = 256;
 
 /// Discord notes are short. Drop a NUL and keep the first 256 characters.
 pub fn clamp_note(note: &str) -> String {
-    note.chars().filter(|ch| *ch != '\0').take(NOTE_LIMIT).collect()
+    note.chars()
+        .filter(|ch| *ch != '\0')
+        .take(NOTE_LIMIT)
+        .collect()
 }
 
 pub fn note_from_value(value: &Value) -> String {
-    value.get("note").and_then(|item| item.as_str()).map(clamp_note).unwrap_or_default()
+    value
+        .get("note")
+        .and_then(|item| item.as_str())
+        .map(clamp_note)
+        .unwrap_or_default()
 }
 
 /// Nonce Discord will echo on MESSAGE_CREATE. Empty, long, or odd values are omitted.
@@ -42,13 +51,21 @@ pub fn usable_nonce(nonce: Option<&str>) -> Option<String> {
     if text.is_empty() || text.len() > 25 {
         return None;
     }
-    if !text.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+    if !text
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
         return None;
     }
     Some(text.to_string())
 }
 
-pub fn outgoing_payload(content: &str, channel_id: &str, reply_to: Option<&str>, nonce: Option<&str>) -> Value {
+pub fn outgoing_payload(
+    content: &str,
+    channel_id: &str,
+    reply_to: Option<&str>,
+    nonce: Option<&str>,
+) -> Value {
     let mut payload = json!({ "content": content });
     if let Some(reply_to) = reply_to {
         payload["message_reference"] = json!({
@@ -315,7 +332,13 @@ impl DiscordRest {
         self.ensure_snowflake(user_id)?;
         let path = format!("/users/@me/notes/{user_id}");
         let response = self
-            .send(Method::GET, "GET /users/@me/notes/{user.id}", &path, None, &[])
+            .send(
+                Method::GET,
+                "GET /users/@me/notes/{user.id}",
+                &path,
+                None,
+                &[],
+            )
             .await?;
         if response.status().as_u16() == 404 {
             return Ok(String::new());
@@ -410,7 +433,11 @@ impl DiscordRest {
     }
 
     /// Ring the other people in a DM or group call. Discord shows them the incoming call.
-    pub async fn ring_call(&self, channel_id: &str, recipients: &[String]) -> Result<(), RestError> {
+    pub async fn ring_call(
+        &self,
+        channel_id: &str,
+        recipients: &[String],
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         if recipients.is_empty() || recipients.len() > 16 {
             return Err(RestError::Message("Choose who to ring.".into()));
@@ -420,18 +447,35 @@ impl DiscordRest {
         }
         let path = format!("/channels/{channel_id}/call/ring");
         let route = route_key("POST", "/channels/{channel.id}/call/ring", channel_id);
-        self.finish_call(Method::POST, &route, &path, json!({ "recipients": recipients })).await
+        self.finish_call(
+            Method::POST,
+            &route,
+            &path,
+            json!({ "recipients": recipients }),
+        )
+        .await
     }
 
     /// Leave the ringing list without joining. This is Decline.
     pub async fn stop_ringing(&self, channel_id: &str) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}/call/stop-ringing");
-        let route = route_key("POST", "/channels/{channel.id}/call/stop-ringing", channel_id);
-        self.finish_call(Method::POST, &route, &path, json!({})).await
+        let route = route_key(
+            "POST",
+            "/channels/{channel.id}/call/stop-ringing",
+            channel_id,
+        );
+        self.finish_call(Method::POST, &route, &path, json!({}))
+            .await
     }
 
-    async fn finish_call(&self, method: Method, route: &str, path: &str, body: Value) -> Result<(), RestError> {
+    async fn finish_call(
+        &self,
+        method: Method,
+        route: &str,
+        path: &str,
+        body: Value,
+    ) -> Result<(), RestError> {
         let response = self.send(method, route, path, Some(body), &[]).await?;
         if response.status().is_success() || response.status().as_u16() == 204 {
             return Ok(());
@@ -578,8 +622,7 @@ impl DiscordRest {
             self.ensure_snowflake(reply_to)?;
         }
         let total: u64 = files.iter().map(|f| f.bytes.len() as u64).sum();
-        validate_outgoing(content, files.len(), total, limit_bytes)
-            .map_err(RestError::Message)?;
+        validate_outgoing(content, files.len(), total, limit_bytes).map_err(RestError::Message)?;
         let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
         let path = format!("/channels/{channel_id}/messages");
         let payload = outgoing_payload(content, channel_id, reply_to, nonce);
@@ -600,7 +643,8 @@ impl DiscordRest {
     ) -> Result<ClientMessage, RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
-        validate_outgoing(content, 0, 0, crate::clip_fit::NITRO_LIMIT).map_err(RestError::Message)?;
+        validate_outgoing(content, 0, 0, crate::clip_fit::NITRO_LIMIT)
+            .map_err(RestError::Message)?;
         let route = route_key(
             "PATCH",
             "/channels/{channel.id}/messages/{message.id}",
@@ -701,7 +745,13 @@ impl DiscordRest {
         self.ensure_invite(code)?;
         let path = format!("/invites/{code}");
         let value = self
-            .send_json(Method::POST, "POST /invites/{code}", "invites", &path, Some(json!({})))
+            .send_json(
+                Method::POST,
+                "POST /invites/{code}",
+                "invites",
+                &path,
+                Some(json!({})),
+            )
             .await?;
         Ok(invite_from_json(code, &value))
     }
@@ -751,7 +801,13 @@ impl DiscordRest {
                 bytes: file.bytes.clone(),
             };
             let response = self
-                .send(call.method, &call.route, &call.path, call.body, std::slice::from_ref(&upload))
+                .send(
+                    call.method,
+                    &call.route,
+                    &call.path,
+                    call.body,
+                    std::slice::from_ref(&upload),
+                )
                 .await?;
             Self::json_body(response, &self.token).await?
         } else {
@@ -773,7 +829,9 @@ impl DiscordRest {
             self.send_json(Method::GET, "GET /users/@me", "me", "/users/@me", None)
                 .await?,
         );
-        let sessions = self.optional_get("GET /auth/sessions", "/auth/sessions").await;
+        let sessions = self
+            .optional_get("GET /auth/sessions", "/auth/sessions")
+            .await;
         let connections = self
             .optional_get("GET /users/@me/connections", "/users/@me/connections")
             .await;
@@ -790,7 +848,9 @@ impl DiscordRest {
 
     pub async fn remove_connection(&self, kind: &str, id: &str) -> Result<(), RestError> {
         if !connection_token_ok(kind) || !connection_token_ok(id) {
-            return Err(RestError::Message("That connection id is not valid.".into()));
+            return Err(RestError::Message(
+                "That connection id is not valid.".into(),
+            ));
         }
         let path = format!("/users/@me/connections/{kind}/{id}");
         self.send_json(
@@ -811,7 +871,9 @@ impl DiscordRest {
         }
     }
 
-    pub async fn list_relationships(&self) -> Result<Vec<super::types::ClientRelationship>, RestError> {
+    pub async fn list_relationships(
+        &self,
+    ) -> Result<Vec<super::types::ClientRelationship>, RestError> {
         let value = self
             .send_json(
                 Method::GET,
@@ -825,16 +887,26 @@ impl DiscordRest {
     }
 
     /// Accept a request or send one to a user id. Discord type 1.
-    pub async fn add_relationship(&self, user_id: &str) -> Result<super::types::ClientRelationship, RestError> {
+    pub async fn add_relationship(
+        &self,
+        user_id: &str,
+    ) -> Result<super::types::ClientRelationship, RestError> {
         self.put_relationship(user_id, 1).await
     }
 
     /// Block. Discord type 2.
-    pub async fn block_user(&self, user_id: &str) -> Result<super::types::ClientRelationship, RestError> {
+    pub async fn block_user(
+        &self,
+        user_id: &str,
+    ) -> Result<super::types::ClientRelationship, RestError> {
         self.put_relationship(user_id, 2).await
     }
 
-    async fn put_relationship(&self, user_id: &str, kind: i64) -> Result<super::types::ClientRelationship, RestError> {
+    async fn put_relationship(
+        &self,
+        user_id: &str,
+        kind: i64,
+    ) -> Result<super::types::ClientRelationship, RestError> {
         self.ensure_snowflake(user_id)?;
         let path = format!("/users/@me/relationships/{user_id}");
         let value = self
@@ -846,14 +918,20 @@ impl DiscordRest {
                 Some(json!({ "type": kind })),
             )
             .await?;
-        super::types::relationship_from_value(&value).ok_or_else(|| RestError::Message("Could not update that relationship".into()))
+        super::types::relationship_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not update that relationship".into()))
     }
 
     /// Remove a friend, cancel a request, or unblock.
     pub async fn delete_relationship(&self, user_id: &str) -> Result<(), RestError> {
         self.ensure_snowflake(user_id)?;
         let path = format!("/users/@me/relationships/{user_id}");
-        self.send_empty(Method::DELETE, "DELETE /users/@me/relationships/{user.id}", &path).await
+        self.send_empty(
+            Method::DELETE,
+            "DELETE /users/@me/relationships/{user.id}",
+            &path,
+        )
+        .await
     }
 
     /// Ignore an incoming friend request.
@@ -874,7 +952,10 @@ impl DiscordRest {
     }
 
     /// Send a friend request by username. Discord no longer uses discriminators.
-    pub async fn send_friend_request(&self, username: &str) -> Result<super::types::ClientRelationship, RestError> {
+    pub async fn send_friend_request(
+        &self,
+        username: &str,
+    ) -> Result<super::types::ClientRelationship, RestError> {
         let username = username.trim();
         if !super::types::friend_username_ok(username) {
             return Err(RestError::Message("Enter a Discord username.".into()));
@@ -888,10 +969,15 @@ impl DiscordRest {
                 Some(json!({ "username": username, "discriminator": null })),
             )
             .await?;
-        super::types::relationship_from_value(&value).ok_or_else(|| RestError::Message("Could not send that friend request".into()))
+        super::types::relationship_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not send that friend request".into()))
     }
 
-    pub async fn set_friend_nickname(&self, user_id: &str, nickname: &str) -> Result<(), RestError> {
+    pub async fn set_friend_nickname(
+        &self,
+        user_id: &str,
+        nickname: &str,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(user_id)?;
         let path = format!("/users/@me/relationships/{user_id}");
         self.send_json(
@@ -909,12 +995,18 @@ impl DiscordRest {
     pub async fn close_dm(&self, channel_id: &str) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}");
-        self.send_empty(Method::DELETE, "DELETE /channels/{channel.id}", &path).await
+        self.send_empty(Method::DELETE, "DELETE /channels/{channel.id}", &path)
+            .await
     }
 
-    pub async fn create_group_dm(&self, recipient_ids: &[String]) -> Result<ClientChannel, RestError> {
+    pub async fn create_group_dm(
+        &self,
+        recipient_ids: &[String],
+    ) -> Result<ClientChannel, RestError> {
         if recipient_ids.len() < 2 || recipient_ids.len() > 10 {
-            return Err(RestError::Message("A group needs two to ten people besides you.".into()));
+            return Err(RestError::Message(
+                "A group needs two to ten people besides you.".into(),
+            ));
         }
         for id in recipient_ids {
             self.ensure_snowflake(id)?;
@@ -933,7 +1025,11 @@ impl DiscordRest {
         Ok(super::types::channel_to_client(&channel))
     }
 
-    pub async fn rename_group_dm(&self, channel_id: &str, name: &str) -> Result<ClientChannel, RestError> {
+    pub async fn rename_group_dm(
+        &self,
+        channel_id: &str,
+        name: &str,
+    ) -> Result<ClientChannel, RestError> {
         self.ensure_snowflake(channel_id)?;
         let name = super::types::clamp_group_name(name);
         if name.is_empty() {
@@ -982,7 +1078,14 @@ impl DiscordRest {
                 }
             }
         });
-        self.send_json(Method::PATCH, "PATCH /users/@me/guilds/@me/settings", "me", path, Some(body)).await?;
+        self.send_json(
+            Method::PATCH,
+            "PATCH /users/@me/guilds/@me/settings",
+            "me",
+            path,
+            Some(body),
+        )
+        .await?;
         Ok(())
     }
 
@@ -995,7 +1098,9 @@ impl DiscordRest {
                 "POST /channels/{channel.id}/invites",
                 channel_id,
                 &path,
-                Some(json!({ "max_age": 86400, "max_uses": 0, "temporary": false, "unique": true })),
+                Some(
+                    json!({ "max_age": 86400, "max_uses": 0, "temporary": false, "unique": true }),
+                ),
             )
             .await?;
         value
@@ -1020,12 +1125,16 @@ impl DiscordRest {
             "nick": if nick.is_empty() { serde_json::Value::Null } else { json!(nick) },
             "bio": bio,
         });
-        if let Some(avatar) = avatar.map(str::trim).filter(|value| value.starts_with("data:image/") && value.len() <= 360_000) {
+        if let Some(avatar) = avatar
+            .map(str::trim)
+            .filter(|value| value.starts_with("data:image/") && value.len() <= 360_000)
+        {
             body["avatar"] = json!(avatar);
         }
         let path = format!("/guilds/{guild_id}/members/@me");
         let route = route_key("PATCH", "/guilds/{guild.id}/members/@me", guild_id);
-        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body)).await?;
+        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body))
+            .await?;
         Ok(())
     }
 
@@ -1042,16 +1151,27 @@ impl DiscordRest {
         self.ensure_snowflake(guild_id)?;
         let path = format!("/guilds/{guild_id}/soundboard-sounds");
         let route = route_key("GET", "/guilds/{guild.id}/soundboard-sounds", guild_id);
-        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
         Ok(soundboard_from_json(&value))
     }
 
-    pub async fn send_soundboard_sound(&self, channel_id: &str, sound_id: &str, source_guild_id: &str) -> Result<(), RestError> {
+    pub async fn send_soundboard_sound(
+        &self,
+        channel_id: &str,
+        sound_id: &str,
+        source_guild_id: &str,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(sound_id)?;
         self.ensure_snowflake(source_guild_id)?;
         let path = format!("/channels/{channel_id}/send-soundboard-sound");
-        let route = route_key("POST", "/channels/{channel.id}/send-soundboard-sound", channel_id);
+        let route = route_key(
+            "POST",
+            "/channels/{channel.id}/send-soundboard-sound",
+            channel_id,
+        );
         self.send_json(
             Method::POST,
             &route,
@@ -1063,7 +1183,11 @@ impl DiscordRest {
         Ok(())
     }
 
-    pub async fn create_invite(&self, channel_id: &str, application_id: Option<&str>) -> Result<String, RestError> {
+    pub async fn create_invite(
+        &self,
+        channel_id: &str,
+        application_id: Option<&str>,
+    ) -> Result<String, RestError> {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}/invites");
         let route = route_key("POST", "/channels/{channel.id}/invites", channel_id);
@@ -1073,11 +1197,18 @@ impl DiscordRest {
             body["target_type"] = json!(2);
             body["target_application_id"] = json!(application_id);
         }
-        let value = self.send_json(Method::POST, &route, channel_id, &path, Some(body)).await?;
+        let value = self
+            .send_json(Method::POST, &route, channel_id, &path, Some(body))
+            .await?;
         Ok(invite_link(&value))
     }
 
-    pub async fn modify_channel(&self, channel_id: &str, name: Option<&str>, topic: Option<&str>) -> Result<(), RestError> {
+    pub async fn modify_channel(
+        &self,
+        channel_id: &str,
+        name: Option<&str>,
+        topic: Option<&str>,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}");
         let route = route_key("PATCH", "/channels/{channel.id}", channel_id);
@@ -1088,7 +1219,14 @@ impl DiscordRest {
         if let Some(topic) = topic {
             body.insert("topic".into(), json!(topic));
         }
-        self.send_json(Method::PATCH, &route, channel_id, &path, Some(Value::Object(body))).await?;
+        self.send_json(
+            Method::PATCH,
+            &route,
+            channel_id,
+            &path,
+            Some(Value::Object(body)),
+        )
+        .await?;
         Ok(())
     }
 
@@ -1096,21 +1234,34 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}");
         let route = route_key("GET", "/channels/{channel.id}", channel_id);
-        self.send_json(Method::GET, &route, channel_id, &path, None).await
+        self.send_json(Method::GET, &route, channel_id, &path, None)
+            .await
     }
 
-    pub async fn create_guild_channel(&self, guild_id: &str, body: Value) -> Result<Value, RestError> {
+    pub async fn create_guild_channel(
+        &self,
+        guild_id: &str,
+        body: Value,
+    ) -> Result<Value, RestError> {
         self.ensure_snowflake(guild_id)?;
         let path = format!("/guilds/{guild_id}/channels");
         let route = route_key("POST", "/guilds/{guild.id}/channels", guild_id);
-        self.send_json(Method::POST, &route, guild_id, &path, Some(body)).await
+        self.send_json(Method::POST, &route, guild_id, &path, Some(body))
+            .await
     }
 
     pub async fn set_voice_status(&self, channel_id: &str, status: &str) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/channels/{channel_id}/voice-status");
         let route = route_key("PUT", "/channels/{channel.id}/voice-status", channel_id);
-        self.send_json(Method::PUT, &route, channel_id, &path, Some(json!({ "status": status }))).await?;
+        self.send_json(
+            Method::PUT,
+            &route,
+            channel_id,
+            &path,
+            Some(json!({ "status": status })),
+        )
+        .await?;
         Ok(())
     }
 
@@ -1128,12 +1279,18 @@ impl DiscordRest {
         Ok(())
     }
 
-    pub async fn set_member_voice(&self, guild_id: &str, user_id: &str, body: Value) -> Result<(), RestError> {
+    pub async fn set_member_voice(
+        &self,
+        guild_id: &str,
+        user_id: &str,
+        body: Value,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(guild_id)?;
         self.ensure_snowflake(user_id)?;
         let path = format!("/guilds/{guild_id}/members/{user_id}");
         let route = route_key("PATCH", "/guilds/{guild.id}/members/{user.id}", guild_id);
-        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body)).await?;
+        self.send_json(Method::PATCH, &route, guild_id, &path, Some(body))
+            .await?;
         Ok(())
     }
 
@@ -1279,11 +1436,16 @@ impl DiscordRest {
     }
 
     async fn optional_json(&self, method: Method, route: &str, path: &str) -> Option<Value> {
-        self.send_json(method, route, "threads", path, None).await.ok()
+        self.send_json(method, route, "threads", path, None)
+            .await
+            .ok()
     }
 
     /// Active threads plus archived public and private lists. A 403 on a private list is empty.
-    pub async fn thread_index(&self, channel_id: &str) -> Result<super::types::ClientThreadIndex, RestError> {
+    pub async fn thread_index(
+        &self,
+        channel_id: &str,
+    ) -> Result<super::types::ClientThreadIndex, RestError> {
         self.ensure_snowflake(channel_id)?;
         let parent_path = format!("/channels/{channel_id}");
         let parent_route = route_key("GET", "/channels/{channel.id}", channel_id);
@@ -1392,22 +1554,37 @@ impl DiscordRest {
             .ok_or_else(|| RestError::Message("Could not read the new thread".into()))
     }
 
-    pub async fn edit_thread(&self, thread_id: &str, archived: bool) -> Result<super::types::ClientThreadRecord, RestError> {
+    pub async fn edit_thread(
+        &self,
+        thread_id: &str,
+        archived: bool,
+    ) -> Result<super::types::ClientThreadRecord, RestError> {
         self.ensure_snowflake(thread_id)?;
         let path = format!("/channels/{thread_id}");
         let route = route_key("PATCH", "/channels/{channel.id}", thread_id);
         let value = self
-            .send_json(Method::PATCH, &route, thread_id, &path, Some(json!({ "archived": archived })))
+            .send_json(
+                Method::PATCH,
+                &route,
+                thread_id,
+                &path,
+                Some(json!({ "archived": archived })),
+            )
             .await?;
         super::types::thread_record_from_value(&value)
             .ok_or_else(|| RestError::Message("Could not update that thread".into()))
     }
 
-    pub async fn thread_members(&self, thread_id: &str) -> Result<Vec<super::types::ClientThreadMember>, RestError> {
+    pub async fn thread_members(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<super::types::ClientThreadMember>, RestError> {
         self.ensure_snowflake(thread_id)?;
         let path = format!("/channels/{thread_id}/thread-members?with_member=true");
         let route = route_key("GET", "/channels/{channel.id}/thread-members", thread_id);
-        let value = self.send_json(Method::GET, &route, thread_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, thread_id, &path, None)
+            .await?;
         let members = value
             .as_array()
             .cloned()
@@ -1423,14 +1600,22 @@ impl DiscordRest {
     }
 
     pub async fn leave_thread(&self, thread_id: &str) -> Result<(), RestError> {
-        self.thread_member_me(thread_id, Method::DELETE, "DELETE").await
+        self.thread_member_me(thread_id, Method::DELETE, "DELETE")
+            .await
     }
 
-    async fn thread_member_me(&self, thread_id: &str, method: Method, verb: &str) -> Result<(), RestError> {
+    async fn thread_member_me(
+        &self,
+        thread_id: &str,
+        method: Method,
+        verb: &str,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(thread_id)?;
         let path = format!("/channels/{thread_id}/thread-members/@me");
         let route = route_key(verb, "/channels/{channel.id}/thread-members/@me", thread_id);
-        let _ = self.send_json(method, &route, thread_id, &path, None).await?;
+        let _ = self
+            .send_json(method, &route, thread_id, &path, None)
+            .await?;
         Ok(())
     }
 
@@ -1438,26 +1623,52 @@ impl DiscordRest {
     pub async fn follow_thread(&self, thread_id: &str, follow: bool) -> Result<(), RestError> {
         self.ensure_snowflake(thread_id)?;
         let path = format!("/channels/{thread_id}/thread-members/@me/settings");
-        let route = route_key("PUT", "/channels/{channel.id}/thread-members/@me/settings", thread_id);
+        let route = route_key(
+            "PUT",
+            "/channels/{channel.id}/thread-members/@me/settings",
+            thread_id,
+        );
         let flags = if follow { 2 } else { 4 };
         let _ = self
-            .send_json(Method::PUT, &route, thread_id, &path, Some(json!({ "flags": flags })))
+            .send_json(
+                Method::PUT,
+                &route,
+                thread_id,
+                &path,
+                Some(json!({ "flags": flags })),
+            )
             .await?;
         Ok(())
     }
 
-    pub async fn set_thread_member(&self, thread_id: &str, user_id: &str, add: bool) -> Result<(), RestError> {
+    pub async fn set_thread_member(
+        &self,
+        thread_id: &str,
+        user_id: &str,
+        add: bool,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(thread_id)?;
         self.ensure_snowflake(user_id)?;
         let path = format!("/channels/{thread_id}/thread-members/{user_id}");
         let verb = if add { "PUT" } else { "DELETE" };
-        let route = route_key(verb, "/channels/{channel.id}/thread-members/{user.id}", thread_id);
+        let route = route_key(
+            verb,
+            "/channels/{channel.id}/thread-members/{user.id}",
+            thread_id,
+        );
         let method = if add { Method::PUT } else { Method::DELETE };
-        let _ = self.send_json(method, &route, thread_id, &path, None).await?;
+        let _ = self
+            .send_json(method, &route, thread_id, &path, None)
+            .await?;
         Ok(())
     }
 
-    pub async fn follow_forum(&self, guild_id: &str, channel_id: &str, follow: bool) -> Result<(), RestError> {
+    pub async fn follow_forum(
+        &self,
+        guild_id: &str,
+        channel_id: &str,
+        follow: bool,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(guild_id)?;
         self.ensure_snowflake(channel_id)?;
         let path = format!("/users/@me/guilds/{guild_id}/settings");
@@ -1488,32 +1699,58 @@ impl DiscordRest {
         allow_multiselect: bool,
     ) -> Result<super::types::ClientPoll, RestError> {
         self.ensure_snowflake(channel_id)?;
-        let body = super::types::poll_message_body(question, answers, duration, allow_multiselect).map_err(RestError::Message)?;
+        let body = super::types::poll_message_body(question, answers, duration, allow_multiselect)
+            .map_err(RestError::Message)?;
         let path = format!("/channels/{channel_id}/messages");
         let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
-        let value = self.send_json(Method::POST, &route, channel_id, &path, Some(body)).await?;
-        super::types::poll_from_message(&value).ok_or_else(|| RestError::Message("Could not read that poll".into()))
+        let value = self
+            .send_json(Method::POST, &route, channel_id, &path, Some(body))
+            .await?;
+        super::types::poll_from_message(&value)
+            .ok_or_else(|| RestError::Message("Could not read that poll".into()))
     }
 
-    pub async fn vote_poll(&self, channel_id: &str, message_id: &str, answer_id: i64) -> Result<(), RestError> {
+    pub async fn vote_poll(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        answer_id: i64,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         if answer_id <= 0 {
             return Err(RestError::Message("That answer is missing.".into()));
         }
         let path = format!("/channels/{channel_id}/polls/{message_id}/answers/{answer_id}");
-        let route = route_key("PUT", "/channels/{channel.id}/polls/{message.id}/answers/{answer.id}", channel_id);
-        let _ = self.send_json(Method::PUT, &route, channel_id, &path, None).await?;
+        let route = route_key(
+            "PUT",
+            "/channels/{channel.id}/polls/{message.id}/answers/{answer.id}",
+            channel_id,
+        );
+        let _ = self
+            .send_json(Method::PUT, &route, channel_id, &path, None)
+            .await?;
         Ok(())
     }
 
-    pub async fn end_poll(&self, channel_id: &str, message_id: &str) -> Result<super::types::ClientPoll, RestError> {
+    pub async fn end_poll(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+    ) -> Result<super::types::ClientPoll, RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let path = format!("/channels/{channel_id}/polls/{message_id}/expire");
-        let route = route_key("POST", "/channels/{channel.id}/polls/{message.id}/expire", channel_id);
-        let value = self.send_json(Method::POST, &route, channel_id, &path, None).await?;
-        super::types::poll_from_message(&value).ok_or_else(|| RestError::Message("Could not end that poll".into()))
+        let route = route_key(
+            "POST",
+            "/channels/{channel.id}/polls/{message.id}/expire",
+            channel_id,
+        );
+        let value = self
+            .send_json(Method::POST, &route, channel_id, &path, None)
+            .await?;
+        super::types::poll_from_message(&value)
+            .ok_or_else(|| RestError::Message("Could not end that poll".into()))
     }
 
     pub async fn poll_voters(
@@ -1524,84 +1761,164 @@ impl DiscordRest {
     ) -> Result<Vec<super::types::ClientPollVoter>, RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
-        let path = format!("/channels/{channel_id}/polls/{message_id}/answers/{answer_id}?limit=25");
-        let route = route_key("GET", "/channels/{channel.id}/polls/{message.id}/answers/{answer.id}", channel_id);
-        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let path =
+            format!("/channels/{channel_id}/polls/{message_id}/answers/{answer_id}?limit=25");
+        let route = route_key(
+            "GET",
+            "/channels/{channel.id}/polls/{message.id}/answers/{answer.id}",
+            channel_id,
+        );
+        let value = self
+            .send_json(Method::GET, &route, channel_id, &path, None)
+            .await?;
         Ok(super::types::poll_voters_from_value(&value))
     }
 
-    pub async fn scheduled_events(&self, guild_id: &str) -> Result<Vec<super::types::ClientScheduledEvent>, RestError> {
+    pub async fn scheduled_events(
+        &self,
+        guild_id: &str,
+    ) -> Result<Vec<super::types::ClientScheduledEvent>, RestError> {
         self.ensure_snowflake(guild_id)?;
         let path = format!("/guilds/{guild_id}/scheduled-events?with_user_count=true");
         let route = route_key("GET", "/guilds/{guild.id}/scheduled-events", guild_id);
-        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
         Ok(super::types::events_from_value(&value))
     }
 
-    pub async fn create_scheduled_event(&self, guild_id: &str, body: Value) -> Result<super::types::ClientScheduledEvent, RestError> {
+    pub async fn create_scheduled_event(
+        &self,
+        guild_id: &str,
+        body: Value,
+    ) -> Result<super::types::ClientScheduledEvent, RestError> {
         self.ensure_snowflake(guild_id)?;
         if body.get("privacy_level").and_then(|item| item.as_i64()) != Some(2) {
-            return Err(RestError::Message("Events are visible to the server.".into()));
+            return Err(RestError::Message(
+                "Events are visible to the server.".into(),
+            ));
         }
         let path = format!("/guilds/{guild_id}/scheduled-events");
         let route = route_key("POST", "/guilds/{guild.id}/scheduled-events", guild_id);
-        let value = self.send_json(Method::POST, &route, guild_id, &path, Some(body)).await?;
-        super::types::event_from_value(&value).ok_or_else(|| RestError::Message("Could not create that event".into()))
+        let value = self
+            .send_json(Method::POST, &route, guild_id, &path, Some(body))
+            .await?;
+        super::types::event_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not create that event".into()))
     }
 
-    pub async fn rsvp_event(&self, guild_id: &str, event_id: &str, interested: bool) -> Result<(), RestError> {
+    pub async fn rsvp_event(
+        &self,
+        guild_id: &str,
+        event_id: &str,
+        interested: bool,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(guild_id)?;
         self.ensure_snowflake(event_id)?;
         let path = format!("/guilds/{guild_id}/scheduled-events/{event_id}/users/@me");
         let verb = if interested { "PUT" } else { "DELETE" };
-        let route = route_key(verb, "/guilds/{guild.id}/scheduled-events/{event.id}/users/@me", guild_id);
-        let method = if interested { Method::PUT } else { Method::DELETE };
-        let _ = self.send_json(method, &route, guild_id, &path, None).await?;
+        let route = route_key(
+            verb,
+            "/guilds/{guild.id}/scheduled-events/{event.id}/users/@me",
+            guild_id,
+        );
+        let method = if interested {
+            Method::PUT
+        } else {
+            Method::DELETE
+        };
+        let _ = self
+            .send_json(method, &route, guild_id, &path, None)
+            .await?;
         Ok(())
     }
 
-    pub async fn start_scheduled_event(&self, guild_id: &str, event_id: &str) -> Result<super::types::ClientScheduledEvent, RestError> {
+    pub async fn start_scheduled_event(
+        &self,
+        guild_id: &str,
+        event_id: &str,
+    ) -> Result<super::types::ClientScheduledEvent, RestError> {
         self.ensure_snowflake(guild_id)?;
         self.ensure_snowflake(event_id)?;
         let path = format!("/guilds/{guild_id}/scheduled-events/{event_id}");
-        let route = route_key("PATCH", "/guilds/{guild.id}/scheduled-events/{event.id}", guild_id);
+        let route = route_key(
+            "PATCH",
+            "/guilds/{guild.id}/scheduled-events/{event.id}",
+            guild_id,
+        );
         let value = self
-            .send_json(Method::PATCH, &route, guild_id, &path, Some(json!({ "status": 2 })))
+            .send_json(
+                Method::PATCH,
+                &route,
+                guild_id,
+                &path,
+                Some(json!({ "status": 2 })),
+            )
             .await?;
-        super::types::event_from_value(&value).ok_or_else(|| RestError::Message("Could not start that event".into()))
+        super::types::event_from_value(&value)
+            .ok_or_else(|| RestError::Message("Could not start that event".into()))
     }
 
     pub async fn ack_bulk(&self, states: &[(String, String)]) -> Result<(), RestError> {
         let body = super::types::ack_bulk_body(states).map_err(RestError::Message)?;
         let route = route_key("POST", "/read-states/ack-bulk", "read-states");
         let _ = self
-            .send_json(Method::POST, &route, "read-states", "/read-states/ack-bulk", Some(body))
+            .send_json(
+                Method::POST,
+                &route,
+                "read-states",
+                "/read-states/ack-bulk",
+                Some(body),
+            )
             .await?;
         Ok(())
     }
 
     pub async fn mentions(&self) -> Result<Vec<ClientMessage>, RestError> {
         let value = self
-            .send_json(Method::GET, "GET /users/@me/mentions", "me", "/users/@me/mentions?limit=25", None)
+            .send_json(
+                Method::GET,
+                "GET /users/@me/mentions",
+                "me",
+                "/users/@me/mentions?limit=25",
+                None,
+            )
             .await?;
         let messages: Vec<DiscordMessage> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read mentions".into()))?;
         Ok(messages.iter().map(message_to_client).collect())
     }
 
-    pub async fn friend_requests(&self) -> Result<Vec<super::types::ClientFriendRequest>, RestError> {
+    pub async fn friend_requests(
+        &self,
+    ) -> Result<Vec<super::types::ClientFriendRequest>, RestError> {
         let value = self
-            .send_json(Method::GET, "GET /users/@me/relationships", "me", "/users/@me/relationships", None)
+            .send_json(
+                Method::GET,
+                "GET /users/@me/relationships",
+                "me",
+                "/users/@me/relationships",
+                None,
+            )
             .await?;
         Ok(super::types::friend_requests_from_value(&value))
     }
 
     /// Discord's client message-request inbox. `spam` selects the spam folder.
-    pub async fn list_message_requests(&self, spam: bool) -> Result<Vec<super::types::ClientMessageRequest>, RestError> {
+    pub async fn list_message_requests(
+        &self,
+        spam: bool,
+    ) -> Result<Vec<super::types::ClientMessageRequest>, RestError> {
         let flag = if spam { "true" } else { "false" };
         let path = format!("/users/@me/message-requests?spam={flag}&include_message=true");
         let value = self
-            .send_json(Method::GET, "GET /users/@me/message-requests", "me", &path, None)
+            .send_json(
+                Method::GET,
+                "GET /users/@me/message-requests",
+                "me",
+                &path,
+                None,
+            )
             .await?;
         Ok(super::types::message_requests_from_value(&value, spam))
     }
@@ -1626,17 +1943,30 @@ impl DiscordRest {
     pub async fn ignore_message_request(&self, channel_id: &str) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         let path = format!("/users/@me/message-requests/{channel_id}");
-        self.send_empty(Method::DELETE, "DELETE /users/@me/message-requests/{channel.id}", &path).await
+        self.send_empty(
+            Method::DELETE,
+            "DELETE /users/@me/message-requests/{channel.id}",
+            &path,
+        )
+        .await
     }
 }
 
 pub fn soundboard_from_json(value: &Value) -> Vec<Value> {
-    let items = value.get("items").and_then(|item| item.as_array()).or_else(|| value.as_array());
-    let Some(items) = items else { return Vec::new() };
+    let items = value
+        .get("items")
+        .and_then(|item| item.as_array())
+        .or_else(|| value.as_array());
+    let Some(items) = items else {
+        return Vec::new();
+    };
     items
         .iter()
         .filter_map(|item| {
-            let id = item.get("sound_id").and_then(|id| id.as_str()).unwrap_or("");
+            let id = item
+                .get("sound_id")
+                .and_then(|id| id.as_str())
+                .unwrap_or("");
             if id.is_empty() {
                 return None;
             }
@@ -1653,14 +1983,29 @@ pub fn soundboard_from_json(value: &Value) -> Vec<Value> {
 }
 
 pub fn invite_link(value: &Value) -> String {
-    let code = value.get("code").and_then(|code| code.as_str()).unwrap_or("").trim();
-    if code.is_empty() || code.len() > 32 || !code.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+    let code = value
+        .get("code")
+        .and_then(|code| code.as_str())
+        .unwrap_or("")
+        .trim();
+    if code.is_empty()
+        || code.len() > 32
+        || !code
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    {
         return String::new();
     }
     format!("https://discord.gg/{code}")
 }
 
-pub fn member_voice_json(mute: Option<bool>, deaf: Option<bool>, channel_id: Option<&str>, disconnect: bool, suppress: Option<bool>) -> Value {
+pub fn member_voice_json(
+    mute: Option<bool>,
+    deaf: Option<bool>,
+    channel_id: Option<&str>,
+    disconnect: bool,
+    suppress: Option<bool>,
+) -> Value {
     let mut body = serde_json::Map::new();
     if let Some(mute) = mute {
         body.insert("mute".into(), json!(mute));
@@ -1740,7 +2085,14 @@ pub fn discord_settings_url_ok(url: &str) -> bool {
 
 fn strip_account_secrets(mut me: Value) -> Value {
     if let Some(obj) = me.as_object_mut() {
-        for key in ["password", "token", "totp", "secret", "mfa_secret", "backup_codes"] {
+        for key in [
+            "password",
+            "token",
+            "totp",
+            "secret",
+            "mfa_secret",
+            "backup_codes",
+        ] {
             obj.remove(key);
         }
     }
@@ -1863,7 +2215,10 @@ mod tests {
         }));
         assert_eq!(sounds.len(), 1);
         assert_eq!(sounds[0]["sound_id"], "100000000000000099");
-        assert_eq!(invite_link(&json!({ "code": "abc123" })), "https://discord.gg/abc123");
+        assert_eq!(
+            invite_link(&json!({ "code": "abc123" })),
+            "https://discord.gg/abc123"
+        );
         assert!(invite_link(&json!({ "code": "bad code" })).is_empty());
         let moved = member_voice_json(None, None, Some("100000000000000026"), false, None);
         assert_eq!(moved["channel_id"], "100000000000000026");
@@ -1903,10 +2258,18 @@ mod tests {
         assert!(!connection_token_ok(""));
         assert!(!connection_token_ok("../me"));
         assert!(!connection_token_ok("a/b"));
-        assert!(discord_settings_url_ok("https://discord.com/settings/account"));
-        assert!(!discord_settings_url_ok("https://discord.com.evil/settings"));
-        assert!(!discord_settings_url_ok("https://example.com/settings/account"));
-        assert!(!discord_settings_url_ok("https://discord.com/settings/../login"));
+        assert!(discord_settings_url_ok(
+            "https://discord.com/settings/account"
+        ));
+        assert!(!discord_settings_url_ok(
+            "https://discord.com.evil/settings"
+        ));
+        assert!(!discord_settings_url_ok(
+            "https://example.com/settings/account"
+        ));
+        assert!(!discord_settings_url_ok(
+            "https://discord.com/settings/../login"
+        ));
         let cleaned = strip_account_secrets(json!({
             "id": "1",
             "email": "a@b.co",
@@ -1932,11 +2295,23 @@ mod tests {
         assert_eq!(payload["content"], "test");
         assert_eq!(payload["nonce"], "local-abc");
         assert!(payload.get("message_reference").is_none());
-        let reply = outgoing_payload("test", "100000000000000022", Some("100000000000000001"), Some(" "));
+        let reply = outgoing_payload(
+            "test",
+            "100000000000000022",
+            Some("100000000000000001"),
+            Some(" "),
+        );
         assert!(reply.get("nonce").is_none());
-        assert_eq!(reply["message_reference"]["message_id"], "100000000000000001");
-        assert!(outgoing_payload("test", "1", None, Some("no spaces")).get("nonce").is_none());
-        assert!(outgoing_payload("test", "1", None, Some(&"n".repeat(26))).get("nonce").is_none());
+        assert_eq!(
+            reply["message_reference"]["message_id"],
+            "100000000000000001"
+        );
+        assert!(outgoing_payload("test", "1", None, Some("no spaces"))
+            .get("nonce")
+            .is_none());
+        assert!(outgoing_payload("test", "1", None, Some(&"n".repeat(26)))
+            .get("nonce")
+            .is_none());
     }
 
     #[test]
@@ -2008,7 +2383,9 @@ pub struct ForwardRef {
     pub guild_id: Option<String>,
 }
 
-const SEARCH_HAS: &[&str] = &["link", "embed", "file", "video", "image", "sound", "sticker", "poll", "snapshot"];
+const SEARCH_HAS: &[&str] = &[
+    "link", "embed", "file", "video", "image", "sound", "sticker", "poll", "snapshot",
+];
 
 pub fn message_search_query(search: &MessageSearch) -> String {
     let mut parts = vec![
@@ -2047,7 +2424,11 @@ pub fn message_search_query(search: &MessageSearch) -> String {
     parts.join("&")
 }
 
-pub fn message_search_path(guild_id: Option<&str>, channel_id: Option<&str>, query: &str) -> Result<String, String> {
+pub fn message_search_path(
+    guild_id: Option<&str>,
+    channel_id: Option<&str>,
+    query: &str,
+) -> Result<String, String> {
     if let Some(guild_id) = guild_id.filter(|id| snowflake_ok(id)) {
         return Ok(format!("/guilds/{guild_id}/messages/search?{query}"));
     }
@@ -2071,7 +2452,12 @@ pub fn composed_payload(
         if forward.is_some() { None } else { reply_to },
         nonce,
     );
-    let stickers: Vec<&str> = sticker_ids.iter().copied().filter(|id| snowflake_ok(id)).take(3).collect();
+    let stickers: Vec<&str> = sticker_ids
+        .iter()
+        .copied()
+        .filter(|id| snowflake_ok(id))
+        .take(3)
+        .collect();
     if !stickers.is_empty() {
         payload["sticker_ids"] = json!(stickers);
     }
@@ -2103,10 +2489,22 @@ pub fn gifs_from_value(value: &Value) -> Vec<super::types::ClientGif> {
         let url = https_field(item, &["url", "gif_src", "src"]);
         let Some(url) = url else { continue };
         let preview = https_field(item, &["preview", "src"]).unwrap_or_else(|| url.clone());
-        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
         out.push(super::types::ClientGif {
-            id: item.get("id").and_then(|v| v.as_str()).unwrap_or("gif").to_string(),
-            title: if title.is_empty() { "GIF".into() } else { title.to_string() },
+            id: item
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("gif")
+                .to_string(),
+            title: if title.is_empty() {
+                "GIF".into()
+            } else {
+                title.to_string()
+            },
             url,
             preview,
         });
@@ -2142,7 +2540,10 @@ pub fn app_commands_from_value(value: &Value) -> Vec<super::types::ClientAppComm
     let mut out = Vec::new();
     for item in list {
         let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let application_id = item.get("application_id").and_then(|v| v.as_str()).unwrap_or("");
+        let application_id = item
+            .get("application_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if !snowflake_ok(id) || !snowflake_ok(application_id) || name.is_empty() {
             continue;
@@ -2160,9 +2561,17 @@ pub fn app_commands_from_value(value: &Value) -> Vec<super::types::ClientAppComm
                         }
                         Some(super::types::ClientAppOption {
                             name: name.to_string(),
-                            description: option.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            type_id: option.get("type").and_then(|v| v.as_i64()).unwrap_or(3) as i32,
-                            required: option.get("required").and_then(|v| v.as_bool()).unwrap_or(false),
+                            description: option
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            type_id: option.get("type").and_then(|v| v.as_i64()).unwrap_or(3)
+                                as i32,
+                            required: option
+                                .get("required")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
                         })
                     })
                     .collect()
@@ -2172,9 +2581,17 @@ pub fn app_commands_from_value(value: &Value) -> Vec<super::types::ClientAppComm
             id: id.to_string(),
             application_id: application_id.to_string(),
             name: name.to_string(),
-            description: item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            description: item
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             kind: item.get("type").and_then(|v| v.as_i64()).unwrap_or(1) as i32,
-            version: item.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            version: item
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             options,
         });
     }
@@ -2185,7 +2602,9 @@ pub fn discord_page_ok(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url) else {
         return false;
     };
-    parsed.scheme() == "https" && parsed.host_str() == Some("discord.com") && parsed.username().is_empty()
+    parsed.scheme() == "https"
+        && parsed.host_str() == Some("discord.com")
+        && parsed.username().is_empty()
 }
 
 impl DiscordRest {
@@ -2197,13 +2616,17 @@ impl DiscordRest {
     ) -> Result<Vec<ClientMessage>, RestError> {
         let query = message_search_query(search);
         let path = message_search_path(guild_id, channel_id, &query).map_err(RestError::Message)?;
-        let major = guild_id.filter(|id| snowflake_ok(id)).unwrap_or(channel_id.unwrap_or("search"));
+        let major = guild_id
+            .filter(|id| snowflake_ok(id))
+            .unwrap_or(channel_id.unwrap_or("search"));
         let route = if guild_id.filter(|id| snowflake_ok(id)).is_some() {
             route_key("GET", "/guilds/{guild.id}/messages/search", major)
         } else {
             route_key("GET", "/channels/{channel.id}/messages/search", major)
         };
-        let value = self.send_json(Method::GET, &route, major, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, major, &path, None)
+            .await?;
         Ok(messages_from_search(&value))
     }
 
@@ -2231,21 +2654,32 @@ impl DiscordRest {
                 self.ensure_snowflake(guild_id)?;
             }
         }
-        let stickers: Vec<&str> = sticker_ids.iter().map(String::as_str).filter(|id| snowflake_ok(id)).take(3).collect();
+        let stickers: Vec<&str> = sticker_ids
+            .iter()
+            .map(String::as_str)
+            .filter(|id| snowflake_ok(id))
+            .take(3)
+            .collect();
         let total: u64 = files.iter().map(|file| file.bytes.len() as u64).sum();
         let extras = stickers.len() + usize::from(forward.is_some());
-        super::types::validate_composed(content, files.len(), total, limit_bytes, extras).map_err(RestError::Message)?;
+        super::types::validate_composed(content, files.len(), total, limit_bytes, extras)
+            .map_err(RestError::Message)?;
         let route = route_key("POST", "/channels/{channel.id}/messages", channel_id);
         let path = format!("/channels/{channel_id}/messages");
         let payload = composed_payload(content, channel_id, reply_to, nonce, &stickers, forward);
-        let response = self.send(Method::POST, &route, &path, Some(payload), files).await?;
+        let response = self
+            .send(Method::POST, &route, &path, Some(payload), files)
+            .await?;
         let value = Self::json_body(response, &self.token).await?;
         let message: DiscordMessage = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read the sent message".into()))?;
         Ok(message_to_client(&message))
     }
 
-    pub async fn search_gifs(&self, query: &str) -> Result<Vec<super::types::ClientGif>, RestError> {
+    pub async fn search_gifs(
+        &self,
+        query: &str,
+    ) -> Result<Vec<super::types::ClientGif>, RestError> {
         let query = query.trim();
         if query.len() > 80 {
             return Err(RestError::Message("GIF search needs a short query.".into()));
@@ -2259,15 +2693,22 @@ impl DiscordRest {
             )
         };
         let route = route_key("GET", "/gifs/search", "gifs");
-        let value = self.send_json(Method::GET, &route, "gifs", &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, "gifs", &path, None)
+            .await?;
         Ok(gifs_from_value(&value))
     }
 
-    pub async fn guild_stickers(&self, guild_id: &str) -> Result<Vec<super::types::ClientSticker>, RestError> {
+    pub async fn guild_stickers(
+        &self,
+        guild_id: &str,
+    ) -> Result<Vec<super::types::ClientSticker>, RestError> {
         self.ensure_snowflake(guild_id)?;
         let path = format!("/guilds/{guild_id}/stickers");
         let route = route_key("GET", "/guilds/{guild.id}/stickers", guild_id);
-        let value = self.send_json(Method::GET, &route, guild_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, guild_id, &path, None)
+            .await?;
         let stickers: Vec<WireSticker> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read stickers".into()))?;
         Ok(stickers
@@ -2276,7 +2717,11 @@ impl DiscordRest {
             .map(|sticker| super::types::ClientSticker {
                 url: sticker_picker_url(&sticker.id, sticker.format_type),
                 id: sticker.id,
-                name: if sticker.name.is_empty() { "Sticker".into() } else { sticker.name },
+                name: if sticker.name.is_empty() {
+                    "Sticker".into()
+                } else {
+                    sticker.name
+                },
             })
             .collect())
     }
@@ -2291,13 +2736,16 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let encoded = reaction_emoji_path(emoji, emoji_id);
-        let path = format!("/channels/{channel_id}/messages/{message_id}/reactions/{encoded}?limit=25");
+        let path =
+            format!("/channels/{channel_id}/messages/{message_id}/reactions/{encoded}?limit=25");
         let route = route_key(
             "GET",
             "/channels/{channel.id}/messages/{message.id}/reactions/{emoji}",
             channel_id,
         );
-        let value = self.send_json(Method::GET, &route, channel_id, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, channel_id, &path, None)
+            .await?;
         let users: Vec<DiscordUser> = serde_json::from_value(value)
             .map_err(|_| RestError::Message("Could not read reactions".into()))?;
         Ok(users
@@ -2307,7 +2755,11 @@ impl DiscordRest {
                 avatar_url: super::types::avatar_url(&user.id, &user.avatar),
                 name: {
                     let name = user.display_name();
-                    if name.is_empty() { "Unknown".into() } else { name }
+                    if name.is_empty() {
+                        "Unknown".into()
+                    } else {
+                        name
+                    }
                 },
                 id: user.id.clone(),
             })
@@ -2325,7 +2777,9 @@ impl DiscordRest {
         let kind = if kind == 3 { 3 } else { 1 };
         let query = query.trim();
         if query.len() > 80 {
-            return Err(RestError::Message("Command search needs a short query.".into()));
+            return Err(RestError::Message(
+                "Command search needs a short query.".into(),
+            ));
         }
         let encoded = urlencoding::encode(query);
         let (path, route, major) = if let Some(guild_id) = guild_id.filter(|id| snowflake_ok(id)) {
@@ -2341,24 +2795,36 @@ impl DiscordRest {
                 channel_id.to_string(),
             )
         };
-        let value = self.send_json(Method::GET, &route, &major, &path, None).await?;
+        let value = self
+            .send_json(Method::GET, &route, &major, &path, None)
+            .await?;
         Ok(app_commands_from_value(&value))
     }
 
     pub async fn post_interaction(&self, mut payload: Value) -> Result<(), RestError> {
         if payload.get("type").and_then(|v| v.as_i64()) != Some(2) {
-            return Err(RestError::Message("Only application commands can be sent from the composer.".into()));
+            return Err(RestError::Message(
+                "Only application commands can be sent from the composer.".into(),
+            ));
         }
-        let session = payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let session = payload
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
         if session.is_empty() {
             let known = super::gateway::gateway_session();
             if known.is_empty() {
-                return Err(RestError::Message("Connect to Discord before using an app command.".into()));
+                return Err(RestError::Message(
+                    "Connect to Discord before using an app command.".into(),
+                ));
             }
             payload["session_id"] = json!(known);
         }
         let route = route_key("POST", "/interactions", "interactions");
-        let response = self.send(Method::POST, &route, "/interactions", Some(payload), &[]).await?;
+        let response = self
+            .send(Method::POST, &route, "/interactions", Some(payload), &[])
+            .await?;
         if response.status().is_success() || response.status().as_u16() == 204 {
             return Ok(());
         }
@@ -2375,8 +2841,14 @@ impl DiscordRest {
         pinned_dms: &[String],
         channel_pins: &[super::shell::GuildChannelPins],
     ) -> Result<(), RestError> {
-        let settings = super::shell::encode_user_lists(favorites, favorites_muted, favorite_extras, pinned_dms, channel_pins)
-            .map_err(RestError::Message)?;
+        let settings = super::shell::encode_user_lists(
+            favorites,
+            favorites_muted,
+            favorite_extras,
+            pinned_dms,
+            channel_pins,
+        )
+        .map_err(RestError::Message)?;
         let path = "/users/@me/settings-proto/1";
         let route = route_key("PATCH", "/users/@me/settings-proto/1", "me");
         self.send_json(
@@ -2406,18 +2878,37 @@ impl DiscordRest {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let path = format!("/users/@me/saved-messages/{channel_id}/{message_id}");
-        let route = route_key("PUT", "/users/@me/saved-messages/{channel.id}/{message.id}", "me");
-        self.send_json(Method::PUT, &route, "me", &path, Some(json!({ "due_at": due_at })))
-            .await?;
+        let route = route_key(
+            "PUT",
+            "/users/@me/saved-messages/{channel.id}/{message.id}",
+            "me",
+        );
+        self.send_json(
+            Method::PUT,
+            &route,
+            "me",
+            &path,
+            Some(json!({ "due_at": due_at })),
+        )
+        .await?;
         Ok(())
     }
 
-    pub async fn delete_saved_message(&self, channel_id: &str, message_id: &str) -> Result<(), RestError> {
+    pub async fn delete_saved_message(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+    ) -> Result<(), RestError> {
         self.ensure_snowflake(channel_id)?;
         self.ensure_snowflake(message_id)?;
         let path = format!("/users/@me/saved-messages/{channel_id}/{message_id}");
-        let route = route_key("DELETE", "/users/@me/saved-messages/{channel.id}/{message.id}", "me");
-        self.send_json(Method::DELETE, &route, "me", &path, None).await?;
+        let route = route_key(
+            "DELETE",
+            "/users/@me/saved-messages/{channel.id}/{message.id}",
+            "me",
+        );
+        self.send_json(Method::DELETE, &route, "me", &path, None)
+            .await?;
         Ok(())
     }
 }
@@ -2457,7 +2948,9 @@ fn sticker_picker_url(id: &str, format: i32) -> Option<String> {
         1 | 2 => "png",
         _ => "png",
     };
-    Some(format!("https://media.discordapp.net/stickers/{id}.{ext}?size=160"))
+    Some(format!(
+        "https://media.discordapp.net/stickers/{id}.{ext}?size=160"
+    ))
 }
 
 #[cfg(test)]
@@ -2486,12 +2979,16 @@ mod messaging_search {
         assert!(query.contains("min_id=100000000000000222"));
         assert!(query.contains("channel_id=100000000000000022"));
         assert!(query.contains("pinned=true"));
-        assert!(message_search_path(Some("100000000000000010"), None, &query)
-            .unwrap()
-            .starts_with("/guilds/100000000000000010/messages/search?"));
-        assert!(message_search_path(None, Some("100000000000000022"), "content=a")
-            .unwrap()
-            .starts_with("/channels/100000000000000022/messages/search?"));
+        assert!(
+            message_search_path(Some("100000000000000010"), None, &query)
+                .unwrap()
+                .starts_with("/guilds/100000000000000010/messages/search?")
+        );
+        assert!(
+            message_search_path(None, Some("100000000000000022"), "content=a")
+                .unwrap()
+                .starts_with("/channels/100000000000000022/messages/search?")
+        );
 
         let payload = composed_payload(
             "",
@@ -2509,7 +3006,9 @@ mod messaging_search {
         assert_eq!(payload["sticker_ids"][0], "100000000000000055");
         assert!(discord_page_ok("https://discord.com/nitro"));
         assert!(!discord_page_ok("https://evil.example/nitro"));
-        let gifs = gifs_from_value(&json!({"gifs": [{"id": "1", "title": "wave", "url": "https://media.tenor.com/wave.gif", "preview": "https://media.tenor.com/tiny.gif"}, {"url": "http://evil.example/x.gif"}]}));
+        let gifs = gifs_from_value(
+            &json!({"gifs": [{"id": "1", "title": "wave", "url": "https://media.tenor.com/wave.gif", "preview": "https://media.tenor.com/tiny.gif"}, {"url": "http://evil.example/x.gif"}]}),
+        );
         assert_eq!(gifs.len(), 1);
         assert_eq!(gifs[0].title, "wave");
     }
@@ -2538,12 +3037,22 @@ impl DiscordRest {
             let parsed = reqwest::Url::parse(&url)
                 .map_err(|_| RestError::Message("That sound URL is not allowed.".into()))?;
             if !crate::soundboard::guild_cdn_host(parsed.host_str().unwrap_or("")) {
-                return Err(RestError::Message("That sound URL is not on Discord's CDN.".into()));
+                return Err(RestError::Message(
+                    "That sound URL is not on Discord's CDN.".into(),
+                ));
             }
-            let response = match client.get(parsed).header(AUTHORIZATION, &self.token).send().await {
+            let response = match client
+                .get(parsed)
+                .header(AUTHORIZATION, &self.token)
+                .send()
+                .await
+            {
                 Ok(response) => response,
                 Err(err) => {
-                    last = RestError::Message(explain_transport(&redact(&err.to_string(), &[&self.token])));
+                    last = RestError::Message(explain_transport(&redact(
+                        &err.to_string(),
+                        &[&self.token],
+                    )));
                     continue;
                 }
             };
@@ -2565,7 +3074,9 @@ impl DiscordRest {
                 match body.chunk().await {
                     Ok(Some(chunk)) => {
                         if bytes.len().saturating_add(chunk.len()) > crate::soundboard::MAX_BYTES {
-                            return Err(RestError::Message("That sound file is larger than 8 MB.".into()));
+                            return Err(RestError::Message(
+                                "That sound file is larger than 8 MB.".into(),
+                            ));
                         }
                         bytes.extend_from_slice(&chunk);
                     }

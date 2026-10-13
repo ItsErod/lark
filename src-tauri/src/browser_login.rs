@@ -104,11 +104,18 @@ pub fn open_profile_https(url: &str) -> Result<(), String> {
 }
 
 fn profile_host_ok(url: &str) -> bool {
-    if url.chars().any(|ch| ch.is_control() || ch == '"' || ch == '\'' || ch == ' ') {
+    if url
+        .chars()
+        .any(|ch| ch.is_control() || ch == '"' || ch == '\'' || ch == ' ')
+    {
         return false;
     }
-    let Some(rest) = url.strip_prefix("https://") else { return false };
-    let Some((host, path)) = rest.split_once('/') else { return false };
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let Some((host, path)) = rest.split_once('/') else {
+        return false;
+    };
     if host != "steamcommunity.com" && host != "overwatch.blizzard.com" {
         return false;
     }

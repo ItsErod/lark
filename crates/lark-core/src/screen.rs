@@ -22,22 +22,41 @@ pub fn capture_backends(os: &str) -> &'static [&'static str] {
 
 /// A small JPEG the share dialog can show. Returns nothing when the buffer is short.
 pub fn thumbnail_jpeg(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    if width == 0 || height == 0 || width > 4096 || height > 4096 || rgba.len() < (width as usize) * (height as usize) * 4 {
+    if width == 0
+        || height == 0
+        || width > 4096
+        || height > 4096
+        || rgba.len() < (width as usize) * (height as usize) * 4
+    {
         return None;
     }
     let mut buf = Vec::new();
     let encoder = jpeg_encoder::Encoder::new(&mut buf, 70);
-    encoder.encode(rgba, width as u16, height as u16, jpeg_encoder::ColorType::Rgba).ok()?;
+    encoder
+        .encode(
+            rgba,
+            width as u16,
+            height as u16,
+            jpeg_encoder::ColorType::Rgba,
+        )
+        .ok()?;
     Some(buf)
 }
 
 /// Box-filter a thumbnail so the picker does not hold a full desktop frame.
-pub fn scale_rgba(rgba: &[u8], width: u32, height: u32, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+pub fn scale_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    max_edge: u32,
+) -> Option<(Vec<u8>, u32, u32)> {
     if width < 2 || height < 2 || rgba.len() < width as usize * height as usize * 4 {
         return None;
     }
     let edge = max_edge.max(2);
-    let scale = (edge as f32 / width as f32).min(edge as f32 / height as f32).min(1.0);
+    let scale = (edge as f32 / width as f32)
+        .min(edge as f32 / height as f32)
+        .min(1.0);
     let out_w = ((width as f32 * scale).round() as u32).max(2) & !1;
     let out_h = ((height as f32 * scale).round() as u32).max(2) & !1;
     let mut out = vec![0u8; out_w as usize * out_h as usize * 4];
@@ -65,7 +84,12 @@ pub fn encoder_order(os: &str) -> &'static [&'static str] {
 /// fraction of tiles that changed. The thumbnail is capped by the caller so the
 /// compare stays on a few kilobytes, not a 4K framebuffer.
 pub fn luma_diff(prev: &[u8], next: &[u8], width: u32, tile: u32) -> (f32, Vec<Rect>) {
-    if width == 0 || tile == 0 || next.is_empty() || prev.len() != next.len() || next.len() % width as usize != 0 {
+    if width == 0
+        || tile == 0
+        || next.is_empty()
+        || prev.len() != next.len()
+        || next.len() % width as usize != 0
+    {
         return if next.is_empty() {
             (0.0, Vec::new())
         } else {
@@ -91,7 +115,11 @@ pub fn luma_diff(prev: &[u8], next: &[u8], width: u32, tile: u32) -> (f32, Vec<R
         }
         y += tile;
     }
-    let ratio = if tiles == 0 { 0.0 } else { dirty as f32 / tiles as f32 };
+    let ratio = if tiles == 0 {
+        0.0
+    } else {
+        dirty as f32 / tiles as f32
+    };
     (ratio, regions)
 }
 
@@ -126,7 +154,15 @@ mod tests {
         let (ratio, regions) = luma_diff(&prev, &next, 64, 16);
         assert!(ratio > 0.0);
         assert_eq!(regions.len(), 1);
-        assert_eq!(regions[0], Rect { x: 0, y: 0, w: 16, h: 16 });
+        assert_eq!(
+            regions[0],
+            Rect {
+                x: 0,
+                y: 0,
+                w: 16,
+                h: 16
+            }
+        );
     }
 
     #[test]

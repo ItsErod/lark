@@ -16,7 +16,8 @@ use lark_core::clip::{prepare_frame, ClipBuffer, CLIP_SAMPLE_INTERVAL_MS};
 use lark_core::clip_audio::{MicTap, PcmRing};
 use lark_core::clip_rate::{
     buffer_window_ms, frame_duration_ticks, resolve_clip_capture, sample_is_key, take_access_unit,
-    AccessUnit, ClipRequest, DisplayCaps, EncoderCaps, EncoderKind, PacketRing, RateWatch, VideoCodec,
+    AccessUnit, ClipRequest, DisplayCaps, EncoderCaps, EncoderKind, PacketRing, RateWatch,
+    VideoCodec,
 };
 use serde::Serialize;
 
@@ -511,11 +512,15 @@ impl ClipEngine {
     ) -> Result<ClipSaved, String> {
         let path = resolve_clip(&self.inner.dir, name)?;
         let bytes = std::fs::read(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
-        let next_name = unique_clip_name(&self.inner.dir, &lark_core::clip_fit::trimmed_clip_name(name));
+        let next_name = unique_clip_name(
+            &self.inner.dir,
+            &lark_core::clip_fit::trimmed_clip_name(name),
+        );
         let dest = self.inner.dir.join(&next_name);
         if lark_core::clip::clip_extension(name) == "avi" {
             let trimmed = lark_core::clip::trim_saved_clip(&bytes, start_ms, end_ms)?;
-            std::fs::write(&dest, &trimmed).map_err(|err| format!("Couldn't write the trim: {err}"))?;
+            std::fs::write(&dest, &trimmed)
+                .map_err(|err| format!("Couldn't write the trim: {err}"))?;
             let info = lark_core::clip::inspect_saved_clip(&trimmed);
             return Ok(ClipSaved::ready(
                 next_name,
@@ -545,11 +550,15 @@ impl ClipEngine {
         on_progress: &mut dyn FnMut(u8),
     ) -> Result<ClipSaved, String> {
         let path = resolve_clip(&self.inner.dir, name)?;
-        let meta = std::fs::metadata(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
+        let meta =
+            std::fs::metadata(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
         if meta.len() <= limit_bytes {
             return Err("That clip is already under the upload limit.".into());
         }
-        let next_name = unique_clip_name(&self.inner.dir, &lark_core::clip_fit::fitted_clip_name(name));
+        let next_name = unique_clip_name(
+            &self.inner.dir,
+            &lark_core::clip_fit::fitted_clip_name(name),
+        );
         let dest = self.inner.dir.join(&next_name);
         let bytes = std::fs::read(&path).map_err(|err| format!("Couldn't read the clip: {err}"))?;
         let info = lark_core::clip::inspect_saved_clip(&bytes);
@@ -609,7 +618,9 @@ impl ClipEngine {
         let bytes = std::fs::read(source).unwrap_or_default();
         let info = lark_core::clip::inspect_saved_clip(&bytes);
         let duration = info.duration_ms.max(1_000);
-        let rate = video_bps.unwrap_or_else(|| lark_core::clip_fit::video_bitrate(duration, lark_core::clip_fit::DEFAULT_UPLOAD_LIMIT));
+        let rate = video_bps.unwrap_or_else(|| {
+            lark_core::clip_fit::video_bitrate(duration, lark_core::clip_fit::DEFAULT_UPLOAD_LIMIT)
+        });
         let args = lark_core::clip_fit::encode_args(
             &encoder,
             &source.display().to_string(),
@@ -619,7 +630,8 @@ impl ClipEngine {
             end_ms,
         );
         lark_core::clip_fit::run_ffmpeg(&ffmpeg, &args, duration, on_progress)?;
-        let meta = std::fs::metadata(dest).map_err(|err| format!("Couldn't read the new clip: {err}"))?;
+        let meta =
+            std::fs::metadata(dest).map_err(|err| format!("Couldn't read the new clip: {err}"))?;
         Ok(ClipSaved::ready(
             name.to_string(),
             dest.display().to_string(),
@@ -741,7 +753,13 @@ impl ClipEngine {
             return;
         };
         let path = PathBuf::from(&saved.path);
-        if let Ok(bytes) = lark_core::clip_fit::mix_captured_audio(&ffmpeg, &path, &system, &mic, saved.span_ms.max(1)) {
+        if let Ok(bytes) = lark_core::clip_fit::mix_captured_audio(
+            &ffmpeg,
+            &path,
+            &system,
+            &mic,
+            saved.span_ms.max(1),
+        ) {
             saved.bytes = bytes;
         }
     }
@@ -800,8 +818,16 @@ fn sample_loop(inner: Arc<Inner>) {
                 session_key.clear();
                 mic = None;
                 mic_tried = false;
-                inner.system_pcm.lock().unwrap_or_else(|err| err.into_inner()).clear();
-                inner.mic_pcm.lock().unwrap_or_else(|err| err.into_inner()).clear();
+                inner
+                    .system_pcm
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .clear();
+                inner
+                    .mic_pcm
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .clear();
                 was_active = false;
             }
             thread::sleep(Duration::from_millis(100));
@@ -814,7 +840,11 @@ fn sample_loop(inner: Arc<Inner>) {
         if let Some(tap) = mic.as_ref() {
             let samples = tap.pull();
             if !samples.is_empty() {
-                inner.mic_pcm.lock().unwrap_or_else(|err| err.into_inner()).push(&samples);
+                inner
+                    .mic_pcm
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .push(&samples);
             }
         }
         was_active = true;
@@ -862,7 +892,8 @@ fn sample_loop(inner: Arc<Inner>) {
                     };
                     let backend = opened.backend();
                     store_view(&inner, &resolved, Some(backend), &extra);
-                    let mut ring = PacketRing::new(codec, resolved.width, resolved.height, resolved.fps);
+                    let mut ring =
+                        PacketRing::new(codec, resolved.width, resolved.height, resolved.fps);
                     ring.set_window(inner.window_ms.load(Ordering::Relaxed));
                     *inner.ring.lock().unwrap_or_else(|err| err.into_inner()) = ring;
                     watch.reset(resolved.fps);
@@ -1204,10 +1235,7 @@ pub fn open_dir(dir: &Path) -> Result<(), String> {
     {
         let mut command = std::process::Command::new("open");
         lark_core::hide_console(&mut command);
-        let status = command
-            .arg(dir)
-            .status()
-            .map_err(|err| err.to_string())?;
+        let status = command.arg(dir).status().map_err(|err| err.to_string())?;
         if status.success() {
             Ok(())
         } else {

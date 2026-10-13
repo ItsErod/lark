@@ -10,17 +10,17 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::redact::redact;
 
+use super::shell::user_lists_from_b64;
 use super::shell::{
     access_from_guild, folder_snapshot, guild_prefs, my_roles_from_merged, read_markers,
     ClientFolder, ClientGuildAccess, ClientGuildPref,
 };
-use super::shell::user_lists_from_b64;
 use super::types::{
-    activity_parts, blocked_user_ids, channel_kind_name, channel_to_client, friends_from_relationships,
-    guild_to_client, message_to_client, parse_guild_voice_states, parse_voice_state, role_to_client,
-    roster_from_chunk, roster_from_guild, user_to_client, ClientChannel, ClientGuild, ClientMember,
-    ClientMessage, ClientRole, ClientUser, ClientVoiceState, DiscordChannel, DiscordGuild,
-    DiscordMessage, DiscordRole, DiscordUser,
+    activity_parts, blocked_user_ids, channel_kind_name, channel_to_client,
+    friends_from_relationships, guild_to_client, message_to_client, parse_guild_voice_states,
+    parse_voice_state, role_to_client, roster_from_chunk, roster_from_guild, user_to_client,
+    ClientChannel, ClientGuild, ClientMember, ClientMessage, ClientRole, ClientUser,
+    ClientVoiceState, DiscordChannel, DiscordGuild, DiscordMessage, DiscordRole, DiscordUser,
 };
 
 /// Guilds, presence, messages, reactions, typing, and direct messages.
@@ -295,7 +295,9 @@ pub enum ClientEvent {
         saved_at: Option<String>,
     },
     /// A voice handshake step for the diagnostics log. Not forwarded to the shell.
-    VoiceStep { step: String },
+    VoiceStep {
+        step: String,
+    },
     /// CALL_CREATE / CALL_UPDATE, or CALL_DELETE when `ended` is set.
     /// `ringing` is the users who should see the incoming-call UI.
     Call {
@@ -440,7 +442,11 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
             channel_id,
             ranges,
         } => lazy_guild_payload(guild_id, channel_id, ranges),
-        GatewayCommand::StreamCreate { guild, guild_id, channel_id } => {
+        GatewayCommand::StreamCreate {
+            guild,
+            guild_id,
+            channel_id,
+        } => {
             let kind = if *guild {
                 super::stream::StreamKind::Guild
             } else {
@@ -448,17 +454,27 @@ pub fn gateway_command_payload(command: &GatewayCommand) -> String {
             };
             super::stream::stream_create_payload(kind, guild_id.as_deref(), channel_id)
         }
-        GatewayCommand::StreamDelete { stream_key } => super::stream::stream_delete_payload(stream_key),
-        GatewayCommand::StreamWatch { stream_key } => super::stream::stream_watch_payload(stream_key),
+        GatewayCommand::StreamDelete { stream_key } => {
+            super::stream::stream_delete_payload(stream_key)
+        }
+        GatewayCommand::StreamWatch { stream_key } => {
+            super::stream::stream_watch_payload(stream_key)
+        }
         GatewayCommand::StreamSetPaused { stream_key, paused } => {
             super::stream::stream_set_paused_payload(stream_key, *paused)
         }
-        GatewayCommand::Presence { status, custom, game } => {
-            super::types::presence_payload(status, custom, game)
-        }
-        GatewayCommand::CustomStatus { status, custom, emoji, expires_at, game } => {
-            super::types::custom_status_payload(status, custom, emoji, *expires_at, game)
-        }
+        GatewayCommand::Presence {
+            status,
+            custom,
+            game,
+        } => super::types::presence_payload(status, custom, game),
+        GatewayCommand::CustomStatus {
+            status,
+            custom,
+            emoji,
+            expires_at,
+            game,
+        } => super::types::custom_status_payload(status, custom, emoji, *expires_at, game),
         GatewayCommand::VoiceStateVideo {
             guild_id,
             channel_id,
@@ -547,12 +563,22 @@ impl GatewayOut {
 
     fn note_voice(&mut self, command: &GatewayCommand) {
         match command {
-            GatewayCommand::VoiceState { channel_id: Some(_), .. }
-            | GatewayCommand::VoiceStateVideo { channel_id: Some(_), .. } => {
+            GatewayCommand::VoiceState {
+                channel_id: Some(_),
+                ..
+            }
+            | GatewayCommand::VoiceStateVideo {
+                channel_id: Some(_),
+                ..
+            } => {
                 self.voice = Some(command.clone());
             }
-            GatewayCommand::VoiceState { channel_id: None, .. }
-            | GatewayCommand::VoiceStateVideo { channel_id: None, .. } => {
+            GatewayCommand::VoiceState {
+                channel_id: None, ..
+            }
+            | GatewayCommand::VoiceStateVideo {
+                channel_id: None, ..
+            } => {
                 self.voice = None;
             }
             _ => {}
@@ -562,26 +588,45 @@ impl GatewayOut {
 
 fn voice_command_step(command: &GatewayCommand) -> Option<String> {
     match command {
-        GatewayCommand::VoiceState { guild_id, channel_id: Some(_), .. }
-        | GatewayCommand::VoiceStateVideo { guild_id, channel_id: Some(_), .. } => {
+        GatewayCommand::VoiceState {
+            guild_id,
+            channel_id: Some(_),
+            ..
+        }
+        | GatewayCommand::VoiceStateVideo {
+            guild_id,
+            channel_id: Some(_),
+            ..
+        } => {
             if guild_id.as_deref().unwrap_or("").trim().is_empty() {
                 Some("op4 sent call".to_string())
             } else {
                 Some("op4 sent".to_string())
             }
         }
-        GatewayCommand::VoiceState { channel_id: None, .. }
-        | GatewayCommand::VoiceStateVideo { channel_id: None, .. } => Some("op4 sent leave".to_string()),
+        GatewayCommand::VoiceState {
+            channel_id: None, ..
+        }
+        | GatewayCommand::VoiceStateVideo {
+            channel_id: None, ..
+        } => Some("op4 sent leave".to_string()),
         _ => None,
     }
 }
 
 fn endpoint_host(endpoint: &str) -> String {
-    let trimmed = endpoint.trim().trim_start_matches("wss://").trim_start_matches("ws://");
+    let trimmed = endpoint
+        .trim()
+        .trim_start_matches("wss://")
+        .trim_start_matches("ws://");
     let host = trimmed.split('/').next().unwrap_or(trimmed);
     let host = host.split(':').next().unwrap_or(host);
     let host: String = host.chars().take(80).collect();
-    if host.is_empty() { "voice".to_string() } else { host }
+    if host.is_empty() {
+        "voice".to_string()
+    } else {
+        host
+    }
 }
 
 async fn write_gateway_commands<S>(
@@ -1127,13 +1172,18 @@ fn handle_dispatch(
                     }
                 }
                 if let Some(relationships) = ready.relationships.as_ref() {
-                    let friends = friends_from_relationships(relationships, ready.presences.as_ref());
+                    let friends =
+                        friends_from_relationships(relationships, ready.presences.as_ref());
                     if !friends.is_empty() {
                         emit(ClientEvent::Friends { friends });
                     }
                     let rows = super::types::relationships_from_value(relationships);
                     if !rows.is_empty() {
-                        emit(ClientEvent::Relationships { relationships: rows, replace: true, removed: false });
+                        emit(ClientEvent::Relationships {
+                            relationships: rows,
+                            replace: true,
+                            removed: false,
+                        });
                     }
                     emit(ClientEvent::Blocked {
                         user_ids: blocked_user_ids(relationships),
@@ -1152,9 +1202,12 @@ fn handle_dispatch(
                         mention_count: marker.mention_count,
                     });
                 }
-                let folders = folder_snapshot(&ready.user_settings, ready.user_settings_proto.as_deref());
+                let folders =
+                    folder_snapshot(&ready.user_settings, ready.user_settings_proto.as_deref());
                 if !folders.folders.is_empty() {
-                    emit(ClientEvent::Folders { folders: folders.folders });
+                    emit(ClientEvent::Folders {
+                        folders: folders.folders,
+                    });
                 }
                 let entries = guild_prefs(&ready.user_guild_settings);
                 if !entries.is_empty() {
@@ -1163,12 +1216,20 @@ fn handle_dispatch(
                 emit_user_lists(ready.user_settings_proto.as_deref(), true, emit);
                 if let Some(guilds) = data.get("guilds").and_then(|value| value.as_array()) {
                     for guild in guilds {
-                        let Some(states) = parse_guild_voice_states(guild) else { continue };
-                        let guild_id = guild.get("id").and_then(|value| value.as_str()).unwrap_or("");
+                        let Some(states) = parse_guild_voice_states(guild) else {
+                            continue;
+                        };
+                        let guild_id = guild
+                            .get("id")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("");
                         if guild_id.is_empty() {
                             continue;
                         }
-                        emit(ClientEvent::VoiceStates { guild_id: guild_id.to_string(), states });
+                        emit(ClientEvent::VoiceStates {
+                            guild_id: guild_id.to_string(),
+                            states,
+                        });
                     }
                 }
                 return true;
@@ -1199,7 +1260,10 @@ fn handle_dispatch(
                     });
                 }
                 if let Some(states) = parse_guild_voice_states(data) {
-                    emit(ClientEvent::VoiceStates { guild_id: guild.id.clone(), states });
+                    emit(ClientEvent::VoiceStates {
+                        guild_id: guild.id.clone(),
+                        states,
+                    });
                 }
             }
             false
@@ -1302,7 +1366,11 @@ fn handle_dispatch(
         }
         "RELATIONSHIP_ADD" | "RELATIONSHIP_UPDATE" => {
             if let Some(row) = super::types::relationship_from_value(data) {
-                emit(ClientEvent::Relationships { relationships: vec![row], replace: false, removed: false });
+                emit(ClientEvent::Relationships {
+                    relationships: vec![row],
+                    replace: false,
+                    removed: false,
+                });
             }
             let blocked = blocked_user_ids(&Value::Array(vec![data.clone()]));
             if !blocked.is_empty() {
@@ -1319,7 +1387,9 @@ fn handle_dispatch(
                     replace: false,
                     removed: true,
                 });
-                emit(ClientEvent::Friends { friends: vec![friend] });
+                emit(ClientEvent::Friends {
+                    friends: vec![friend],
+                });
             } else if let Some(user_id) = data
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -1350,12 +1420,18 @@ fn handle_dispatch(
                         .map(|id| id.to_string())
                 });
             if let Some(user_id) = user_id {
-                let row = super::types::relationship_from_value(data).unwrap_or(super::types::ClientRelationship {
-                    id: user_id.clone(),
-                    kind: String::new(),
-                    ..super::types::ClientRelationship::default()
+                let row = super::types::relationship_from_value(data).unwrap_or(
+                    super::types::ClientRelationship {
+                        id: user_id.clone(),
+                        kind: String::new(),
+                        ..super::types::ClientRelationship::default()
+                    },
+                );
+                emit(ClientEvent::Relationships {
+                    relationships: vec![row],
+                    replace: false,
+                    removed: true,
                 });
-                emit(ClientEvent::Relationships { relationships: vec![row], replace: false, removed: true });
                 emit(ClientEvent::Blocked {
                     user_ids: vec![user_id.clone()],
                     replace: false,
@@ -1380,7 +1456,9 @@ fn handle_dispatch(
                 .or_else(|| data.get("proto").and_then(|value| value.as_str()));
             let folders = folder_snapshot(&Value::Null, encoded);
             if !folders.folders.is_empty() {
-                emit(ClientEvent::Folders { folders: folders.folders });
+                emit(ClientEvent::Folders {
+                    folders: folders.folders,
+                });
             }
             emit_user_lists(encoded, false, emit);
             false
@@ -1460,7 +1538,11 @@ fn handle_dispatch(
         "USER_NOTE_UPDATE" => {
             let user_id = json_str(data, "id");
             if !user_id.is_empty() {
-                let note = super::rest::clamp_note(data.get("note").and_then(|value| value.as_str()).unwrap_or(""));
+                let note = super::rest::clamp_note(
+                    data.get("note")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(""),
+                );
                 emit(ClientEvent::UserNote { user_id, note });
             }
             false
@@ -1516,23 +1598,31 @@ fn handle_dispatch(
             let token = json_str(data, "token");
             if !endpoint.is_empty() && !token.is_empty() {
                 let host = endpoint_host(&endpoint);
-                emit(ClientEvent::VoiceStep { step: format!("server update {host}") });
+                emit(ClientEvent::VoiceStep {
+                    step: format!("server update {host}"),
+                });
                 emit(ClientEvent::VoiceServer {
                     guild_id: json_str(data, "guild_id"),
                     endpoint,
                     token,
                 });
             } else if endpoint.is_empty() {
-                emit(ClientEvent::VoiceStep { step: "server update missing endpoint".into() });
+                emit(ClientEvent::VoiceStep {
+                    step: "server update missing endpoint".into(),
+                });
             } else {
-                emit(ClientEvent::VoiceStep { step: "server update missing token".into() });
+                emit(ClientEvent::VoiceStep {
+                    step: "server update missing token".into(),
+                });
             }
             false
         }
         "VOICE_STATE_UPDATE" => {
             match parse_voice_state(data, "") {
                 Some(state) => {
-                    let mine = session.as_ref().is_some_and(|current| current.user_id == state.user_id);
+                    let mine = session
+                        .as_ref()
+                        .is_some_and(|current| current.user_id == state.user_id);
                     if mine {
                         let step = if state.session_id.is_empty() {
                             "state update missing session"
@@ -1544,7 +1634,9 @@ fn handle_dispatch(
                     emit(ClientEvent::VoiceState(state));
                 }
                 None if data.get("user_id").is_some() || data.get("member").is_some() => {
-                    emit(ClientEvent::VoiceStep { step: "state update dropped".into() });
+                    emit(ClientEvent::VoiceStep {
+                        step: "state update dropped".into(),
+                    });
                 }
                 None => {}
             }
@@ -1600,7 +1692,10 @@ fn handle_dispatch(
         "MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" => {
             let channel_id = json_str(data, "channel_id");
             let message_id = json_str(data, "message_id");
-            let answer_id = data.get("answer_id").and_then(|value| value.as_i64()).unwrap_or(0);
+            let answer_id = data
+                .get("answer_id")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
             if !channel_id.is_empty() && !message_id.is_empty() && answer_id > 0 {
                 emit(ClientEvent::PollVote {
                     channel_id,
@@ -1612,14 +1707,22 @@ fn handle_dispatch(
             }
             false
         }
-        "GUILD_SCHEDULED_EVENT_CREATE" | "GUILD_SCHEDULED_EVENT_UPDATE" | "GUILD_SCHEDULED_EVENT_DELETE" => {
+        "GUILD_SCHEDULED_EVENT_CREATE"
+        | "GUILD_SCHEDULED_EVENT_UPDATE"
+        | "GUILD_SCHEDULED_EVENT_DELETE" => {
             if name == "GUILD_SCHEDULED_EVENT_DELETE" {
                 if let Some(mut event) = super::types::event_from_value(data) {
                     event.status = 4;
-                    emit(ClientEvent::ScheduledEvent { event, removed: true });
+                    emit(ClientEvent::ScheduledEvent {
+                        event,
+                        removed: true,
+                    });
                 }
             } else if let Some(event) = super::types::event_from_value(data) {
-                emit(ClientEvent::ScheduledEvent { event, removed: false });
+                emit(ClientEvent::ScheduledEvent {
+                    event,
+                    removed: false,
+                });
             }
             false
         }
@@ -1678,10 +1781,15 @@ fn emit_guild_shell(
 fn soundboard_effect(data: &Value) -> Option<ClientEvent> {
     let sound_id = json_str(data, "sound_id");
     let channel_id = json_str(data, "channel_id");
-    if !crate::soundboard::guild_sound_id_ok(&sound_id) || !crate::soundboard::guild_sound_id_ok(&channel_id) {
+    if !crate::soundboard::guild_sound_id_ok(&sound_id)
+        || !crate::soundboard::guild_sound_id_ok(&channel_id)
+    {
         return None;
     }
-    let volume = data.get("sound_volume").and_then(|value| value.as_f64()).unwrap_or(1.0);
+    let volume = data
+        .get("sound_volume")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(1.0);
     Some(ClientEvent::Soundboard {
         channel_id,
         guild_id: json_str(data, "guild_id"),
@@ -1742,8 +1850,14 @@ fn member_list_event(data: &Value) -> Option<ClientEvent> {
         .and_then(|value| value.as_array())
         .map(|list| list.iter().filter_map(parse_member_op).collect())
         .unwrap_or_default();
-    let member_count = data.get("member_count").and_then(|value| value.as_u64()).unwrap_or(0) as u32;
-    let online_count = data.get("online_count").and_then(|value| value.as_u64()).unwrap_or(0) as u32;
+    let member_count = data
+        .get("member_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u32;
+    let online_count = data
+        .get("online_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u32;
     if ops.is_empty() && groups.is_empty() && member_count == 0 {
         return None;
     }
@@ -1764,7 +1878,10 @@ fn parse_member_group(value: &Value) -> Option<ClientMemberGroup> {
     }
     Some(ClientMemberGroup {
         id: id.to_string(),
-        count: value.get("count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+        count: value
+            .get("count")
+            .and_then(|item| item.as_u64())
+            .unwrap_or(0) as u32,
     })
 }
 
@@ -1784,7 +1901,10 @@ fn parse_list_item(value: &Value) -> MemberListItem {
         if !id.is_empty() {
             return MemberListItem::Group {
                 id: id.to_string(),
-                count: group.get("count").and_then(|item| item.as_u64()).unwrap_or(0) as u32,
+                count: group
+                    .get("count")
+                    .and_then(|item| item.as_u64())
+                    .unwrap_or(0) as u32,
             };
         }
     }
@@ -1829,12 +1949,32 @@ fn parse_member_op(value: &Value) -> Option<MemberListOp> {
 
 fn stream_client_event(name: &str, data: &Value) -> Option<ClientEvent> {
     match super::stream::parse_stream_dispatch(name, data)? {
-        super::stream::StreamDispatch::Create { stream_key, paused, region } => Some(ClientEvent::StreamCreate { stream_key, paused, region }),
-        super::stream::StreamDispatch::Server { stream_key, endpoint, token, guild_id } => {
-            Some(ClientEvent::StreamServer { stream_key, endpoint, token, guild_id })
+        super::stream::StreamDispatch::Create {
+            stream_key,
+            paused,
+            region,
+        } => Some(ClientEvent::StreamCreate {
+            stream_key,
+            paused,
+            region,
+        }),
+        super::stream::StreamDispatch::Server {
+            stream_key,
+            endpoint,
+            token,
+            guild_id,
+        } => Some(ClientEvent::StreamServer {
+            stream_key,
+            endpoint,
+            token,
+            guild_id,
+        }),
+        super::stream::StreamDispatch::Update { stream_key, paused } => {
+            Some(ClientEvent::StreamUpdate { stream_key, paused })
         }
-        super::stream::StreamDispatch::Update { stream_key, paused } => Some(ClientEvent::StreamUpdate { stream_key, paused }),
-        super::stream::StreamDispatch::Delete { stream_key } => Some(ClientEvent::StreamDelete { stream_key }),
+        super::stream::StreamDispatch::Delete { stream_key } => {
+            Some(ClientEvent::StreamDelete { stream_key })
+        }
     }
 }
 
@@ -1872,7 +2012,9 @@ mod tests {
     fn user_note_update_keeps_the_text() {
         let data = json!({"id": "100000000000000002", "note": "booth quiet"});
         let mut events = Vec::new();
-        handle_dispatch("USER_NOTE_UPDATE", &data, None, &mut None, &mut |event| events.push(event));
+        handle_dispatch("USER_NOTE_UPDATE", &data, None, &mut None, &mut |event| {
+            events.push(event)
+        });
         match &events[0] {
             ClientEvent::UserNote { user_id, note } => {
                 assert_eq!(user_id, "100000000000000002");
@@ -1920,7 +2062,9 @@ mod tests {
             }),
         );
         match event {
-            Some(ClientEvent::StreamServer { token, endpoint, .. }) => {
+            Some(ClientEvent::StreamServer {
+                token, endpoint, ..
+            }) => {
                 assert_eq!(token, "secret");
                 assert!(endpoint.contains("discord.media"));
             }
@@ -2014,8 +2158,22 @@ mod tests {
         });
         let mut events = Vec::new();
         let mut session = None;
-        handle_dispatch("GUILD_MEMBER_LIST_UPDATE", &data, Some(4), &mut session, &mut |event| events.push(event));
-        let ClientEvent::MemberList { list_id, member_count, online_count, groups, ops, .. } = &events[0] else {
+        handle_dispatch(
+            "GUILD_MEMBER_LIST_UPDATE",
+            &data,
+            Some(4),
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        let ClientEvent::MemberList {
+            list_id,
+            member_count,
+            online_count,
+            groups,
+            ops,
+            ..
+        } = &events[0]
+        else {
             panic!("expected member list");
         };
         assert_eq!(list_id, "100000000000000021");
@@ -2040,7 +2198,10 @@ mod tests {
         }
         assert!(matches!(ops[1], MemberListOp::Insert { index: 2, .. }));
         assert!(matches!(ops[2], MemberListOp::Delete { index: 9 }));
-        assert!(matches!(ops[3], MemberListOp::Invalidate { range: [100, 199] }));
+        assert!(matches!(
+            ops[3],
+            MemberListOp::Invalidate { range: [100, 199] }
+        ));
 
         let ready = json!({
             "user": {"id": "100000000000000001", "username": "ethan", "global_name": "Ethan"},
@@ -2059,14 +2220,28 @@ mod tests {
             "guilds": [{"id": "100000000000000010", "name": "Agartha", "roles": [{"id": "100000000000000099", "name": "Mods", "color": 14852442, "position": 3, "hoist": true}]}]
         });
         events.clear();
-        handle_dispatch("READY", &ready, Some(1), &mut session, &mut |event| events.push(event));
+        handle_dispatch("READY", &ready, Some(1), &mut session, &mut |event| {
+            events.push(event)
+        });
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Ready { dms, guild_channels, .. } if dms.len() == 1 && dms[0].name == "Maya Chen" && dms[0].recipients.len() == 1 && guild_channels.is_empty())));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Friends { friends } if friends.len() == 1 && friends[0].status == "online")));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Roles { roles, .. } if roles.len() == 1 && roles[0].hoist && roles[0].color.as_deref() == Some("#e2a15a"))));
-        assert!(events.iter().any(|event| matches!(event, ClientEvent::ReadState { mention_count: 1, .. })));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::ReadState {
+                mention_count: 1,
+                ..
+            }
+        )));
 
         events.clear();
-        handle_dispatch("CHANNEL_CREATE", &json!({"id": "100000000000000043", "type": 3, "recipients": [{"id": "100000000000000002", "username": "maya", "global_name": "Maya"}, {"id": "100000000000000003", "username": "jonah", "global_name": "Jonah"}]}), Some(5), &mut session, &mut |event| events.push(event));
+        handle_dispatch(
+            "CHANNEL_CREATE",
+            &json!({"id": "100000000000000043", "type": 3, "recipients": [{"id": "100000000000000002", "username": "maya", "global_name": "Maya"}, {"id": "100000000000000003", "username": "jonah", "global_name": "Jonah"}]}),
+            Some(5),
+            &mut session,
+            &mut |event| events.push(event),
+        );
         assert!(events.iter().any(|event| matches!(event, ClientEvent::DirectChannel { removed: false, channel } if channel.kind == "group" && channel.name.contains("Maya"))));
     }
 
@@ -2086,8 +2261,13 @@ mod tests {
         });
         let mut events = Vec::new();
         let mut session = None;
-        handle_dispatch("GUILD_CREATE", &data, Some(1), &mut session, &mut |event| events.push(event));
-        match events.iter().find(|event| matches!(event, ClientEvent::VoiceStates { .. })) {
+        handle_dispatch("GUILD_CREATE", &data, Some(1), &mut session, &mut |event| {
+            events.push(event)
+        });
+        match events
+            .iter()
+            .find(|event| matches!(event, ClientEvent::VoiceStates { .. }))
+        {
             Some(ClientEvent::VoiceStates { guild_id, states }) => {
                 assert_eq!(guild_id, "100000000000000010");
                 assert_eq!(states.len(), 1);
@@ -2105,7 +2285,13 @@ mod tests {
             "self_mute": true
         });
         let mut left = Vec::new();
-        handle_dispatch("VOICE_STATE_UPDATE", &leave, Some(2), &mut session, &mut |event| left.push(event));
+        handle_dispatch(
+            "VOICE_STATE_UPDATE",
+            &leave,
+            Some(2),
+            &mut session,
+            &mut |event| left.push(event),
+        );
         let effect = json!({
             "channel_id": "100000000000000026",
             "guild_id": "100000000000000010",
@@ -2114,9 +2300,20 @@ mod tests {
             "sound_volume": 1.4
         });
         let mut heard = Vec::new();
-        handle_dispatch("VOICE_CHANNEL_EFFECT_SEND", &effect, Some(3), &mut session, &mut |event| heard.push(event));
+        handle_dispatch(
+            "VOICE_CHANNEL_EFFECT_SEND",
+            &effect,
+            Some(3),
+            &mut session,
+            &mut |event| heard.push(event),
+        );
         match &heard[0] {
-            ClientEvent::Soundboard { sound_id, volume, channel_id, .. } => {
+            ClientEvent::Soundboard {
+                sound_id,
+                volume,
+                channel_id,
+                ..
+            } => {
                 assert_eq!(sound_id, "100000000000000201");
                 assert_eq!(channel_id, "100000000000000026");
                 assert!((volume - 1.0).abs() < 0.001);
@@ -2125,7 +2322,13 @@ mod tests {
         }
         let emoji = json!({ "channel_id": "100000000000000026", "emoji": { "name": "🔥" } });
         let mut skipped = Vec::new();
-        handle_dispatch("VOICE_CHANNEL_EFFECT_SEND", &emoji, Some(4), &mut session, &mut |event| skipped.push(event));
+        handle_dispatch(
+            "VOICE_CHANNEL_EFFECT_SEND",
+            &emoji,
+            Some(4),
+            &mut session,
+            &mut |event| skipped.push(event),
+        );
         assert!(skipped.is_empty());
         match &left[0] {
             ClientEvent::VoiceState(state) => {
@@ -2154,7 +2357,10 @@ mod tests {
         assert!(gate.accept(presence.clone()).is_empty());
         assert!(gate.accept(join.clone()).is_empty());
         assert_eq!(gate.identified(), vec![presence, join.clone()]);
-        assert!(gate.identified().is_empty(), "ready twice does not send the join again");
+        assert!(
+            gate.identified().is_empty(),
+            "ready twice does not send the join again"
+        );
         gate.begin_socket();
         assert_eq!(gate.identified(), vec![join]);
 
@@ -2201,7 +2407,9 @@ mod tests {
             &mut session,
             &mut |event| events.push(event),
         );
-        assert!(events.iter().any(|event| matches!(event, ClientEvent::VoiceStep { step } if step == "state update")));
+        assert!(events.iter().any(
+            |event| matches!(event, ClientEvent::VoiceStep { step } if step == "state update")
+        ));
         assert!(events.iter().any(|event| matches!(
             event,
             ClientEvent::VoiceState(state) if state.user_id == "42" && state.channel_id == "7" && state.guild_id == "9" && state.session_id == "abc"
@@ -2214,7 +2422,9 @@ mod tests {
             &mut session,
             &mut |event| events.push(event),
         );
-        assert!(events.iter().all(|event| !matches!(event, ClientEvent::VoiceStep { .. })));
+        assert!(events
+            .iter()
+            .all(|event| !matches!(event, ClientEvent::VoiceStep { .. })));
         events.clear();
         handle_dispatch(
             "VOICE_SERVER_UPDATE",
@@ -2224,8 +2434,15 @@ mod tests {
             &mut |event| events.push(event),
         );
         assert!(events.iter().any(|event| matches!(event, ClientEvent::VoiceStep { step } if step == "server update c-ord.discord.gg")));
-        match events.iter().find(|event| matches!(event, ClientEvent::VoiceServer { .. })) {
-            Some(ClientEvent::VoiceServer { token, endpoint, guild_id }) => {
+        match events
+            .iter()
+            .find(|event| matches!(event, ClientEvent::VoiceServer { .. }))
+        {
+            Some(ClientEvent::VoiceServer {
+                token,
+                endpoint,
+                guild_id,
+            }) => {
                 assert_eq!(guild_id, "9");
                 assert_eq!(endpoint, "c-ord.discord.gg:443");
                 assert_eq!(token, "secret-token");
@@ -2241,7 +2458,9 @@ mod tests {
             &mut |event| events.push(event),
         );
         assert!(events.iter().any(|event| matches!(event, ClientEvent::VoiceStep { step } if step == "server update missing endpoint")));
-        assert!(events.iter().all(|event| !matches!(event, ClientEvent::VoiceServer { .. })));
+        assert!(events
+            .iter()
+            .all(|event| !matches!(event, ClientEvent::VoiceServer { .. })));
     }
 
     #[test]
@@ -2427,7 +2646,13 @@ mod tests {
         });
         let mut events = Vec::new();
         let mut session = None;
-        assert!(handle_dispatch("READY", &data, Some(1), &mut session, &mut |event| events.push(event)));
+        assert!(handle_dispatch(
+            "READY",
+            &data,
+            Some(1),
+            &mut session,
+            &mut |event| events.push(event)
+        ));
         assert!(events.iter().any(|event| matches!(
             event,
             ClientEvent::Ready { guild_channels, .. }
@@ -2436,13 +2661,21 @@ mod tests {
                     && guild_channels[0].channels[0].name == "general"
         )));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::Folders { folders } if folders[0].name.as_deref() == Some("Work"))));
-        assert!(events.iter().any(|event| matches!(event, ClientEvent::ReadState { mention_count: 1, .. })));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ClientEvent::ReadState {
+                mention_count: 1,
+                ..
+            }
+        )));
         assert!(events.iter().any(|event| matches!(event, ClientEvent::GuildAccess { access } if access.my_roles == vec!["100000000000000099"] && access.permissions == "1024")));
         assert!(events.iter().any(|event| matches!(
             event,
             ClientEvent::Channels { replace: true, channels, .. } if channels[0].overwrites.len() == 1 && channels[0].last_message_id.as_deref() == Some("100000000000000300")
         )));
-        assert!(events.iter().any(|event| matches!(event, ClientEvent::GuildNotify { .. })));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, ClientEvent::GuildNotify { .. })));
     }
 
     #[test]
@@ -2514,9 +2747,21 @@ mod tests {
         });
         let mut events = Vec::new();
         let mut session = None;
-        handle_dispatch("SAVED_MESSAGE_CREATE", &data, None, &mut session, &mut |event| events.push(event));
+        handle_dispatch(
+            "SAVED_MESSAGE_CREATE",
+            &data,
+            None,
+            &mut session,
+            &mut |event| events.push(event),
+        );
         match &events[0] {
-            ClientEvent::SavedMessage { channel_id, due_at, removed, excerpt, .. } => {
+            ClientEvent::SavedMessage {
+                channel_id,
+                due_at,
+                removed,
+                excerpt,
+                ..
+            } => {
                 assert_eq!(channel_id, "100000000000000021");
                 assert_eq!(due_at.as_deref(), Some("2026-10-13T15:00:00.000Z"));
                 assert_eq!(excerpt.as_deref(), Some("later"));
@@ -2536,9 +2781,17 @@ mod tests {
         });
         let mut events = Vec::new();
         let mut session = None;
-        handle_dispatch("CALL_CREATE", &data, None, &mut session, &mut |event| events.push(event));
+        handle_dispatch("CALL_CREATE", &data, None, &mut session, &mut |event| {
+            events.push(event)
+        });
         match &events[0] {
-            ClientEvent::Call { channel_id, ringing, video, ended, .. } => {
+            ClientEvent::Call {
+                channel_id,
+                ringing,
+                video,
+                ended,
+                ..
+            } => {
                 assert_eq!(channel_id, "100000000000000041");
                 assert_eq!(ringing, &vec!["100000000000000001".to_string()]);
                 assert!(*video);
@@ -2547,8 +2800,21 @@ mod tests {
             _ => panic!("expected call"),
         }
         events.clear();
-        handle_dispatch("CALL_DELETE", &json!({"channel_id": "100000000000000041"}), None, &mut session, &mut |event| events.push(event));
-        assert!(matches!(events[0], ClientEvent::Call { ended: true, video: false, .. }));
+        handle_dispatch(
+            "CALL_DELETE",
+            &json!({"channel_id": "100000000000000041"}),
+            None,
+            &mut session,
+            &mut |event| events.push(event),
+        );
+        assert!(matches!(
+            events[0],
+            ClientEvent::Call {
+                ended: true,
+                video: false,
+                ..
+            }
+        ));
     }
 }
 
@@ -2565,7 +2831,10 @@ pub fn note_gateway_session(id: &str) {
 }
 
 pub fn gateway_session() -> String {
-    GATEWAY_SESSION.lock().map(|slot| slot.clone()).unwrap_or_default()
+    GATEWAY_SESSION
+        .lock()
+        .map(|slot| slot.clone())
+        .unwrap_or_default()
 }
 
 fn emit_user_lists(encoded: Option<&str>, from_ready: bool, emit: &mut impl FnMut(ClientEvent)) {
@@ -2574,7 +2843,8 @@ fn emit_user_lists(encoded: Option<&str>, from_ready: bool, emit: &mut impl FnMu
         return;
     }
     let lists = user_lists_from_b64(proto);
-    let any = lists.favorites.is_some() || lists.pinned_dms.is_some() || lists.channel_pins.is_some();
+    let any =
+        lists.favorites.is_some() || lists.pinned_dms.is_some() || lists.channel_pins.is_some();
     if !any && !from_ready {
         return;
     }
@@ -2615,7 +2885,9 @@ fn call_has_video(data: &Value) -> bool {
     data.get("voice_states")
         .and_then(|value| value.as_array())
         .is_some_and(|states| {
-            states.iter().any(|state| state.get("self_video").and_then(|value| value.as_bool()) == Some(true))
+            states.iter().any(|state| {
+                state.get("self_video").and_then(|value| value.as_bool()) == Some(true)
+            })
         })
 }
 
@@ -2627,11 +2899,22 @@ fn emit_saved_message(name: &str, data: &Value, emit: &mut impl FnMut(ClientEven
     if channel_id.is_empty() || message_id.is_empty() {
         return;
     }
-    let due_at = save.get("due_at").and_then(|value| value.as_str()).filter(|text| !text.is_empty()).map(str::to_string);
-    let saved_at = save.get("saved_at").and_then(|value| value.as_str()).map(str::to_string);
+    let due_at = save
+        .get("due_at")
+        .and_then(|value| value.as_str())
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+    let saved_at = save
+        .get("saved_at")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
     let message = data.get("message");
     let author_name = message
-        .and_then(|value| value.pointer("/author/global_name").or_else(|| value.pointer("/author/username")))
+        .and_then(|value| {
+            value
+                .pointer("/author/global_name")
+                .or_else(|| value.pointer("/author/username"))
+        })
         .and_then(|value| value.as_str())
         .map(str::to_string);
     let excerpt = message

@@ -211,8 +211,16 @@ pub fn mix_captured_audio(
     };
     let system = crate::clip_audio::fit_pcm(system, duration_ms);
     let mic = crate::clip_audio::fit_pcm(mic, duration_ms);
-    if std::fs::write(&system_wav, crate::clip_audio::wav_mono_i16(&system, crate::clip_audio::PCM_RATE)).is_err()
-        || std::fs::write(&mic_wav, crate::clip_audio::wav_mono_i16(&mic, crate::clip_audio::PCM_RATE)).is_err()
+    if std::fs::write(
+        &system_wav,
+        crate::clip_audio::wav_mono_i16(&system, crate::clip_audio::PCM_RATE),
+    )
+    .is_err()
+        || std::fs::write(
+            &mic_wav,
+            crate::clip_audio::wav_mono_i16(&mic, crate::clip_audio::PCM_RATE),
+        )
+        .is_err()
     {
         cleanup();
         return Err("Couldn't write the clip audio.".into());
@@ -523,7 +531,9 @@ mod tests {
             Some(1_500),
             Some(8_000),
         );
-        assert!(args.windows(2).any(|pair| pair == ["-c:v", "h264_videotoolbox"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-c:v", "h264_videotoolbox"]));
         assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
         assert!(args.iter().any(|arg| arg == "0:a:0?"));
         let mix = mix_audio_args("clip.mp4", "system.wav", "mic.wav", "out.mp4");

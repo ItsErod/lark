@@ -71,13 +71,14 @@ impl Config {
         self.voice.sensitivity = self.voice.sensitivity.min(100);
         self.voice.overlay_opacity = self.voice.overlay_opacity.clamp(35, 100);
         self.voice.speak_color = normalize_speak_color(&self.voice.speak_color);
-        self.voice.share_resolution = match self.voice.share_resolution.to_ascii_lowercase().as_str() {
-            "720" | "720p" => "720".into(),
-            "1440" | "1440p" => "1440".into(),
-            "2160" | "2160p" | "4k" => "2160".into(),
-            "source" => "source".into(),
-            _ => "1080".into(),
-        };
+        self.voice.share_resolution =
+            match self.voice.share_resolution.to_ascii_lowercase().as_str() {
+                "720" | "720p" => "720".into(),
+                "1440" | "1440p" => "1440".into(),
+                "2160" | "2160p" | "4k" => "2160".into(),
+                "source" => "source".into(),
+                _ => "1080".into(),
+            };
         self.voice.share_fps = match self.voice.share_fps {
             15 => 15,
             60 => 60,
@@ -100,7 +101,9 @@ impl Config {
         });
         if self.voice.levels.len() > 200 {
             let keep: Vec<String> = self.voice.levels.keys().take(200).cloned().collect();
-            self.voice.levels.retain(|id, _| keep.iter().any(|saved| saved == id));
+            self.voice
+                .levels
+                .retain(|id, _| keep.iter().any(|saved| saved == id));
         }
         self.soundboard.clips = normalize_clips(self.soundboard.clips);
         self.clips.fps = crate::clip_rate::snap_fps(self.clips.fps);
@@ -122,7 +125,8 @@ impl Config {
         });
         if self.games.len() > 40 {
             let keep: Vec<String> = self.games.keys().take(40).cloned().collect();
-            self.games.retain(|name, _| keep.iter().any(|item| item == name));
+            self.games
+                .retain(|name, _| keep.iter().any(|item| item == name));
         }
         self.accents.retain(|id, color| {
             (5..=22).contains(&id.len())
@@ -443,7 +447,10 @@ pub struct UserLevel {
 
 impl Default for UserLevel {
     fn default() -> Self {
-        Self { volume: 100, muted: false }
+        Self {
+            volume: 100,
+            muted: false,
+        }
     }
 }
 
@@ -769,21 +776,38 @@ fn pick(value: &str, allowed: &[&str], fallback: &str) -> String {
 
 fn normalize_preferences(mut prefs: Preferences) -> Preferences {
     prefs.color_mode = pick(&prefs.color_mode, &["light", "ash", "dark", "onyx"], "");
-    prefs.app_icon = pick(&prefs.app_icon, &["blurple", "dark", "light", "midnight", "dusk"], "blurple");
+    prefs.app_icon = pick(
+        &prefs.app_icon,
+        &["blurple", "dark", "light", "midnight", "dusk"],
+        "blurple",
+    );
     prefs.ui_density = pick(&prefs.ui_density, &["cozy", "compact"], "cozy");
     prefs.message_density = pick(&prefs.message_density, &["cozy", "compact"], "cozy");
     prefs.group_spacing = prefs.group_spacing.min(24);
     prefs.saturation = prefs.saturation.min(100);
-    prefs.explicit_filter = pick(&prefs.explicit_filter, &["off", "friends", "everyone"], "everyone");
-    prefs.spam_filter = pick(&prefs.spam_filter, &["off", "non_friends", "everyone"], "non_friends");
-    prefs.dm_permission = pick(&prefs.dm_permission, &["everyone", "friends", "none"], "everyone");
+    prefs.explicit_filter = pick(
+        &prefs.explicit_filter,
+        &["off", "friends", "everyone"],
+        "everyone",
+    );
+    prefs.spam_filter = pick(
+        &prefs.spam_filter,
+        &["off", "non_friends", "everyone"],
+        "non_friends",
+    );
+    prefs.dm_permission = pick(
+        &prefs.dm_permission,
+        &["everyone", "friends", "none"],
+        "everyone",
+    );
     prefs.friend_requests = pick(
         &prefs.friend_requests,
         &["everyone", "friends_of_friends", "server_members"],
         "everyone",
     );
     let languages = [
-        "en", "en-GB", "es", "fr", "de", "pt-BR", "ja", "ko", "zh-CN", "ru", "pl", "tr", "nl", "it", "sv",
+        "en", "en-GB", "es", "fr", "de", "pt-BR", "ja", "ko", "zh-CN", "ru", "pl", "tr", "nl",
+        "it", "sv",
     ];
     if !languages.contains(&prefs.language.as_str()) {
         prefs.language = "en".into();
@@ -792,25 +816,63 @@ fn normalize_preferences(mut prefs: Preferences) -> Preferences {
     prefs
 }
 
-fn default_mark_server_read() -> String { "shift+escape".into() }
-fn default_toggle_hotkeys() -> String { "mod+slash".into() }
-fn default_return_previous_text() -> String { "alt+arrowleft".into() }
-fn default_return_previous_audio() -> String { "alt+arrowright".into() }
-fn default_toggle_pins() -> String { "mod+p".into() }
-fn default_toggle_inbox() -> String { "mod+i".into() }
-fn default_toggle_emoji_picker() -> String { "mod+e".into() }
-fn default_toggle_gif_picker() -> String { "mod+g".into() }
-fn default_toggle_sticker_picker() -> String { "mod+s".into() }
-fn default_scroll_chat_up() -> String { "pageup".into() }
-fn default_scroll_chat_down() -> String { "pagedown".into() }
-fn default_create_or_join_server() -> String { "mod+shift+n".into() }
-fn default_answer_call() -> String { "mod+enter".into() }
-fn default_decline_call() -> String { "mod+shift+escape".into() }
-fn default_create_group() -> String { "mod+shift+t".into() }
-fn default_start_call() -> String { "mod+quote".into() }
-fn default_upload_file() -> String { "mod+u".into() }
-fn default_search_key() -> String { "mod+f".into() }
-fn default_push_to_mute() -> String { "mod+shift+alt+b".into() }
+fn default_mark_server_read() -> String {
+    "shift+escape".into()
+}
+fn default_toggle_hotkeys() -> String {
+    "mod+slash".into()
+}
+fn default_return_previous_text() -> String {
+    "alt+arrowleft".into()
+}
+fn default_return_previous_audio() -> String {
+    "alt+arrowright".into()
+}
+fn default_toggle_pins() -> String {
+    "mod+p".into()
+}
+fn default_toggle_inbox() -> String {
+    "mod+i".into()
+}
+fn default_toggle_emoji_picker() -> String {
+    "mod+e".into()
+}
+fn default_toggle_gif_picker() -> String {
+    "mod+g".into()
+}
+fn default_toggle_sticker_picker() -> String {
+    "mod+s".into()
+}
+fn default_scroll_chat_up() -> String {
+    "pageup".into()
+}
+fn default_scroll_chat_down() -> String {
+    "pagedown".into()
+}
+fn default_create_or_join_server() -> String {
+    "mod+shift+n".into()
+}
+fn default_answer_call() -> String {
+    "mod+enter".into()
+}
+fn default_decline_call() -> String {
+    "mod+shift+escape".into()
+}
+fn default_create_group() -> String {
+    "mod+shift+t".into()
+}
+fn default_start_call() -> String {
+    "mod+quote".into()
+}
+fn default_upload_file() -> String {
+    "mod+u".into()
+}
+fn default_search_key() -> String {
+    "mod+f".into()
+}
+fn default_push_to_mute() -> String {
+    "mod+shift+alt+b".into()
+}
 
 /// Discord's keybind list. Lark's shortcuts stay on `Shortcuts`.
 /// An empty string is unbound. Unknown fields are ignored.
@@ -900,15 +962,24 @@ fn normalize_keybinds(keys: DiscordKeybinds) -> DiscordKeybinds {
         mark_server_read: keep_key(&keys.mark_server_read, &default_mark_server_read()),
         toggle_hotkeys: keep_key(&keys.toggle_hotkeys, &default_toggle_hotkeys()),
         return_previous_text: keep_key(&keys.return_previous_text, &default_return_previous_text()),
-        return_previous_audio: keep_key(&keys.return_previous_audio, &default_return_previous_audio()),
+        return_previous_audio: keep_key(
+            &keys.return_previous_audio,
+            &default_return_previous_audio(),
+        ),
         toggle_pins: keep_key(&keys.toggle_pins, &default_toggle_pins()),
         toggle_inbox: keep_key(&keys.toggle_inbox, &default_toggle_inbox()),
         toggle_emoji_picker: keep_key(&keys.toggle_emoji_picker, &default_toggle_emoji_picker()),
         toggle_gif_picker: keep_key(&keys.toggle_gif_picker, &default_toggle_gif_picker()),
-        toggle_sticker_picker: keep_key(&keys.toggle_sticker_picker, &default_toggle_sticker_picker()),
+        toggle_sticker_picker: keep_key(
+            &keys.toggle_sticker_picker,
+            &default_toggle_sticker_picker(),
+        ),
         scroll_chat_up: keep_key(&keys.scroll_chat_up, &default_scroll_chat_up()),
         scroll_chat_down: keep_key(&keys.scroll_chat_down, &default_scroll_chat_down()),
-        create_or_join_server: keep_key(&keys.create_or_join_server, &default_create_or_join_server()),
+        create_or_join_server: keep_key(
+            &keys.create_or_join_server,
+            &default_create_or_join_server(),
+        ),
         answer_call: keep_key(&keys.answer_call, &default_answer_call()),
         decline_call: keep_key(&keys.decline_call, &default_decline_call()),
         create_group: keep_key(&keys.create_group, &default_create_group()),
@@ -929,7 +1000,10 @@ pub struct SavedSession {
 
 impl Default for SavedSession {
     fn default() -> Self {
-        Self { id: String::new(), name: String::new() }
+        Self {
+            id: String::new(),
+            name: String::new(),
+        }
     }
 }
 
@@ -946,7 +1020,8 @@ fn session_name(name: &str, id: &str) -> String {
         .filter(|ch| !ch.is_control())
         .take(64)
         .collect();
-    let suspicious = trimmed.contains("mfa.") || (trimmed.matches('.').count() >= 2 && trimmed.len() > 40);
+    let suspicious =
+        trimmed.contains("mfa.") || (trimmed.matches('.').count() >= 2 && trimmed.len() > 40);
     if trimmed.is_empty() || suspicious {
         format!("Account {}", &id[id.len().saturating_sub(4)..])
     } else {
@@ -962,7 +1037,10 @@ fn normalize_sessions(sessions: Vec<SavedSession>) -> Vec<SavedSession> {
         if !snowflake_id(&id) || !seen.insert(id.clone()) {
             continue;
         }
-        out.push(SavedSession { name: session_name(&session.name, &id), id });
+        out.push(SavedSession {
+            name: session_name(&session.name, &id),
+            id,
+        });
         if out.len() == 5 {
             break;
         }
@@ -1005,7 +1083,9 @@ fn clip_id_ok(id: &str) -> bool {
     !bytes.is_empty()
         && bytes.len() <= 41
         && bytes[0].is_ascii_alphanumeric()
-        && bytes.iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
 }
 
 fn normalize_clips(clips: Vec<SoundClip>) -> Vec<SoundClip> {
@@ -1021,7 +1101,13 @@ fn normalize_clips(clips: Vec<SoundClip>) -> Vec<SoundClip> {
         if path.is_empty() || path.len() > 512 || path.chars().any(|ch| ch.is_control()) {
             continue;
         }
-        let mut name: String = clip.name.trim().chars().filter(|ch| !ch.is_control()).take(40).collect();
+        let mut name: String = clip
+            .name
+            .trim()
+            .chars()
+            .filter(|ch| !ch.is_control())
+            .take(40)
+            .collect();
         if name.is_empty() {
             name = "Sound".into();
         }
@@ -1104,9 +1190,7 @@ fn normalize_alert_list(values: Vec<String>) -> Vec<String> {
 
 fn is_hex_color(value: &str) -> bool {
     let bytes = value.as_bytes();
-    bytes.len() == 7
-        && bytes[0] == b'#'
-        && bytes[1..].iter().all(|c| c.is_ascii_hexdigit())
+    bytes.len() == 7 && bytes[0] == b'#' && bytes[1..].iter().all(|c| c.is_ascii_hexdigit())
 }
 
 impl Notifications {
@@ -1423,7 +1507,10 @@ fn parse_css_blocks(css: &str) -> Result<Vec<CssBlock>, ConfigError> {
                     "theme css can only set variables on :root and html.is-vibrancy".into(),
                 ));
             }
-            decls.push((item[..colon].trim().to_string(), item[colon + 1..].trim().to_string()));
+            decls.push((
+                item[..colon].trim().to_string(),
+                item[colon + 1..].trim().to_string(),
+            ));
         }
         blocks.push(CssBlock { selector, decls });
         i = body_start + close + 1;
@@ -1571,7 +1658,12 @@ fn canonical_key(key: &str) -> String {
 }
 
 fn is_key(key: &str) -> bool {
-    if key.len() == 1 && key.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) {
+    if key.len() == 1
+        && key
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+    {
         return true;
     }
     matches!(
@@ -1649,7 +1741,10 @@ pub fn mod_means(os: &str) -> &'static str {
 }
 
 pub fn paths_for(os: &str) -> (&'static str, &'static str) {
-    (platform::config_dir_hint(os), platform::credential_store_label(os).unwrap_or("unavailable"))
+    (
+        platform::config_dir_hint(os),
+        platform::credential_store_label(os).unwrap_or("unavailable"),
+    )
 }
 
 #[cfg(test)]
@@ -1709,7 +1804,12 @@ mod tests {
     #[test]
     fn streamer_mode_stays_off_until_the_config_turns_it_on() {
         assert!(!parse_config("").unwrap().privacy.streamer);
-        assert!(!parse_config("[privacy]\nstreamer_auto = true\n").unwrap().privacy.streamer);
+        assert!(
+            !parse_config("[privacy]\nstreamer_auto = true\n")
+                .unwrap()
+                .privacy
+                .streamer
+        );
         let on = parse_config("[privacy]\nstreamer = true\nstreamer_auto = true\n").unwrap();
         assert!(on.privacy.streamer);
         assert!(on.privacy.streamer_auto);
@@ -1742,9 +1842,15 @@ mode = "suppress"
         assert_eq!(custom.notifications.quiet.start, "22:00");
         assert_eq!(custom.notifications.quiet.end, "17:00");
         assert_eq!(custom.notifications.quiet.mode, QuietMode::Suppress);
-        assert_eq!(custom.notifications.alert_keywords, vec!["ship".to_string()]);
+        assert_eq!(
+            custom.notifications.alert_keywords,
+            vec!["ship".to_string()]
+        );
         assert_eq!(custom.notifications.people, vec!["Ada".to_string()]);
-        assert_eq!(custom.notifications.blocked, vec!["100000000000000025".to_string()]);
+        assert_eq!(
+            custom.notifications.blocked,
+            vec!["100000000000000025".to_string()]
+        );
     }
 
     #[test]
@@ -1755,7 +1861,8 @@ mode = "suppress"
         let picked = parse_config("[clips]\nfps = 120\nresolution = 2160\n").unwrap();
         assert_eq!(picked.clips.fps, 120);
         assert_eq!(picked.clips.resolution, 2160);
-        let snapped = parse_config("[clips]\nfps = 90\nresolution = 480\nbuffer_sec = 45\n").unwrap();
+        let snapped =
+            parse_config("[clips]\nfps = 90\nresolution = 480\nbuffer_sec = 45\n").unwrap();
         assert_eq!(snapped.clips.fps, 60);
         assert_eq!(snapped.clips.resolution, 1440);
         assert_eq!(snapped.clips.buffer_sec, 30);
@@ -1766,17 +1873,51 @@ mode = "suppress"
     #[test]
     fn hardware_status_stays_off_until_the_config_turns_it_on() {
         assert!(!parse_config("").unwrap().desktop.hardware_status);
-        assert!(!parse_config("[desktop]\nframe_cap = 60\n").unwrap().desktop.hardware_status);
-        assert!(parse_config("[desktop]\nhardware_status = true\n").unwrap().desktop.hardware_status);
+        assert!(
+            !parse_config("[desktop]\nframe_cap = 60\n")
+                .unwrap()
+                .desktop
+                .hardware_status
+        );
+        assert!(
+            parse_config("[desktop]\nhardware_status = true\n")
+                .unwrap()
+                .desktop
+                .hardware_status
+        );
     }
 
     #[test]
     fn frame_cap_matches_the_display_or_clamps_at_240() {
         assert_eq!(parse_config("").unwrap().desktop.frame_cap, 240);
-        assert_eq!(parse_config("desktop.frame_cap = 0\n").unwrap().desktop.frame_cap, 0);
-        assert_eq!(parse_config("desktop.frame_cap = 144\n").unwrap().desktop.frame_cap, 144);
-        assert_eq!(parse_config("desktop.frame_cap = 999\n").unwrap().desktop.frame_cap, 240);
-        assert_eq!(parse_config("desktop.frame_cap = 1\n").unwrap().desktop.frame_cap, 30);
+        assert_eq!(
+            parse_config("desktop.frame_cap = 0\n")
+                .unwrap()
+                .desktop
+                .frame_cap,
+            0
+        );
+        assert_eq!(
+            parse_config("desktop.frame_cap = 144\n")
+                .unwrap()
+                .desktop
+                .frame_cap,
+            144
+        );
+        assert_eq!(
+            parse_config("desktop.frame_cap = 999\n")
+                .unwrap()
+                .desktop
+                .frame_cap,
+            240
+        );
+        assert_eq!(
+            parse_config("desktop.frame_cap = 1\n")
+                .unwrap()
+                .desktop
+                .frame_cap,
+            30
+        );
     }
 
     #[test]
@@ -1790,7 +1931,11 @@ mode = "suppress"
     #[test]
     fn invalid_density_errors() {
         let err = parse_config("appearance.density = \"wide\"\n").unwrap_err();
-        assert!(err.to_string().contains("parse") || err.to_string().contains("density") || err.to_string().contains("unknown"));
+        assert!(
+            err.to_string().contains("parse")
+                || err.to_string().contains("density")
+                || err.to_string().contains("unknown")
+        );
     }
 
     #[test]
@@ -1877,7 +2022,10 @@ mode = "suppress"
 
     #[test]
     fn shortcut_table_accepts_unknown_and_missing_fields() {
-        let newer = parse_config("[shortcuts]\ntoggle_call = \"mod+shift+v\"\ntoggle_future = \"mod+shift+9\"\n").unwrap();
+        let newer = parse_config(
+            "[shortcuts]\ntoggle_call = \"mod+shift+v\"\ntoggle_future = \"mod+shift+9\"\n",
+        )
+        .unwrap();
         assert_eq!(newer.shortcuts.toggle_call, "mod+shift+v");
         assert_eq!(newer.shortcuts.quick_switcher, "mod+k");
 
@@ -1927,7 +2075,13 @@ mode = "suppress"
         assert!(celeste.game_mode);
         assert!(!celeste.voice_overlay);
         assert!(parse_config("[games.Hades]\nptt_key = \"mod+\"\n").is_err());
-        assert!(parse_config("[desktop]\ndetect_games = false\n").unwrap().desktop.detect_games == false);
+        assert!(
+            parse_config("[desktop]\ndetect_games = false\n")
+                .unwrap()
+                .desktop
+                .detect_games
+                == false
+        );
     }
 
     #[test]
@@ -2001,9 +2155,15 @@ hotkey = "!!!"
 
     #[test]
     fn overlay_hotkey_uses_the_platform_mod_key() {
-        assert_eq!(global_accelerator("mod+shift+o").unwrap(), "CommandOrControl+Shift+O");
+        assert_eq!(
+            global_accelerator("mod+shift+o").unwrap(),
+            "CommandOrControl+Shift+O"
+        );
         assert_eq!(global_accelerator("backquote").unwrap(), "BACKQUOTE");
-        assert_eq!(global_accelerator("alt+shift+down").unwrap(), "Alt+Shift+ARROWDOWN");
+        assert_eq!(
+            global_accelerator("alt+shift+down").unwrap(),
+            "Alt+Shift+ARROWDOWN"
+        );
         assert!(global_accelerator("mod+").is_err());
     }
 
@@ -2019,12 +2179,14 @@ hotkey = "!!!"
         assert!(missing.display.show_embeds);
         assert!(!missing.display.show_spoilers);
 
-        let partial = parse_config("[display]\ndeveloper_mode = true\nshow_future = true\n").unwrap();
+        let partial =
+            parse_config("[display]\ndeveloper_mode = true\nshow_future = true\n").unwrap();
         assert!(partial.display.developer_mode);
         assert!(partial.display.show_embeds);
         assert!(!partial.display.show_spoilers);
 
-        let hidden = parse_config("[display]\nshow_embeds = false\nshow_spoilers = true\n").unwrap();
+        let hidden =
+            parse_config("[display]\nshow_embeds = false\nshow_spoilers = true\n").unwrap();
         assert!(!hidden.display.show_embeds);
         assert!(hidden.display.show_spoilers);
 
@@ -2073,8 +2235,14 @@ hotkey = "!!!"
         let ok = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }";
         assert!(validate_theme_css(ok).is_ok());
         assert!(validate_theme_css(".shell { backdrop-filter: blur(20px); }").is_err());
-        assert!(validate_theme_css(":root { --bg-0: #000; --text: #fff; --accent: url(https://example.test); }").is_err());
-        assert!(validate_theme_css(":root { --bg-0: #000; --text: #fff; --accent: #fff; } @keyframes spin { }").is_err());
+        assert!(validate_theme_css(
+            ":root { --bg-0: #000; --text: #fff; --accent: url(https://example.test); }"
+        )
+        .is_err());
+        assert!(validate_theme_css(
+            ":root { --bg-0: #000; --text: #fff; --accent: #fff; } @keyframes spin { }"
+        )
+        .is_err());
         let heavy = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 24px 200px #000; }";
         assert!(validate_theme_css(heavy).is_err());
         let legacy = ":root { color-scheme: dark; --bg-0: #000; --text: #fff; --accent: #fff; --shadow: 0 24px 60px rgba(0, 0, 0, 0.38); }";
@@ -2085,7 +2253,11 @@ hotkey = "!!!"
         match (frontend, saved) {
             (serde_json::Value::Object(front), serde_json::Value::Object(back)) => {
                 for (key, value) in front {
-                    let next = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+                    let next = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
                     let Some(got) = back.get(key) else {
                         panic!("save_config dropped {next}");
                     };
@@ -2117,10 +2289,16 @@ hotkey = "!!!"
         std::fs::write(src.join("notes.txt"), "no").unwrap();
         std::fs::write(dst.join("nord.css"), "custom").unwrap();
         assert_eq!(copy_missing_themes(&dst, &src), 0);
-        assert_eq!(std::fs::read_to_string(dst.join("nord.css")).unwrap(), "custom");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("nord.css")).unwrap(),
+            "custom"
+        );
         std::fs::write(src.join("oled.css"), "oled").unwrap();
         assert_eq!(copy_missing_themes(&dst, &src), 1);
-        assert_eq!(std::fs::read_to_string(dst.join("oled.css")).unwrap(), "oled");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("oled.css")).unwrap(),
+            "oled"
+        );
         assert!(!dst.join("notes.txt").exists());
         let _ = std::fs::remove_dir_all(&root);
     }

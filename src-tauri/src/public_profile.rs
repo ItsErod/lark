@@ -23,23 +23,41 @@ pub fn steam_xml_url(id: &str) -> Result<String, String> {
 
 pub fn overwatch_url(input: &str) -> Result<String, String> {
     let raw = input.trim();
-    if raw.len() < 32 || raw.len() > 200 || raw.chars().any(|ch| ch.is_control() || ch == '"' || ch == '\'') {
+    if raw.len() < 32
+        || raw.len() > 200
+        || raw
+            .chars()
+            .any(|ch| ch.is_control() || ch == '"' || ch == '\'')
+    {
         return Err("Paste a public career link from overwatch.blizzard.com.".into());
     }
     let Some(rest) = raw.strip_prefix("https://overwatch.blizzard.com") else {
         return Err("Paste a public career link from overwatch.blizzard.com.".into());
     };
-    if rest.contains('?') || rest.contains('#') || rest.contains('@') || rest.contains("..") || rest.contains('\\') {
+    if rest.contains('?')
+        || rest.contains('#')
+        || rest.contains('@')
+        || rest.contains("..")
+        || rest.contains('\\')
+    {
         return Err("Paste a public career link from overwatch.blizzard.com.".into());
     }
-    let raw_path = if rest.is_empty() { "/".to_string() } else { rest.to_string() };
+    let raw_path = if rest.is_empty() {
+        "/".to_string()
+    } else {
+        rest.to_string()
+    };
     let Some(path) = decode_bar(&raw_path) else {
         return Err("Paste a public career link from overwatch.blizzard.com.".into());
     };
     if !career_path(&path) {
         return Err("Paste a public career link from overwatch.blizzard.com.".into());
     }
-    let pathname = if path.ends_with('/') { path } else { format!("{path}/") };
+    let pathname = if path.ends_with('/') {
+        path
+    } else {
+        format!("{path}/")
+    };
     Ok(format!("https://{OVERWATCH}{pathname}"))
 }
 
@@ -70,7 +88,10 @@ pub async fn read_steam_profile(id: &str) -> Result<String, String> {
     if response.content_length().is_some_and(|len| len > 65_536) {
         return Err("That profile page is too large.".into());
     }
-    let bytes = response.bytes().await.map_err(|_| "The profile stopped.".to_string())?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| "The profile stopped.".to_string())?;
     if bytes.len() > 65_536 {
         return Err("That profile page is too large.".into());
     }
@@ -83,11 +104,15 @@ fn is_steam64(id: &str) -> bool {
 
 fn is_vanity(id: &str) -> bool {
     (2..=32).contains(&id.len())
-        && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
 fn career_path(path: &str) -> bool {
-    let Some(rest) = path.strip_prefix('/') else { return false };
+    let Some(rest) = path.strip_prefix('/') else {
+        return false;
+    };
     let mut parts = rest.split('/');
     let locale = parts.next().unwrap_or("");
     if !locale_ok(locale) || parts.next() != Some("career") {
@@ -167,9 +192,12 @@ mod tests {
         assert!(overwatch_url("https://my.callofduty.com/api/papi-client/stats").is_err());
         assert!(overwatch_url("http://overwatch.blizzard.com/en-us/career/abc12345def/").is_err());
         assert_eq!(
-            overwatch_url("https://overwatch.blizzard.com/en-us/career/abc12345%7Cdef67890/").unwrap(),
+            overwatch_url("https://overwatch.blizzard.com/en-us/career/abc12345%7Cdef67890/")
+                .unwrap(),
             "https://overwatch.blizzard.com/en-us/career/abc12345|def67890/"
         );
-        assert!(overwatch_url("https://overwatch.blizzard.com/en-us/career/abc12345%2e%2e/").is_err());
+        assert!(
+            overwatch_url("https://overwatch.blizzard.com/en-us/career/abc12345%2e%2e/").is_err()
+        );
     }
 }

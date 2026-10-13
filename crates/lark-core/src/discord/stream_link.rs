@@ -16,16 +16,16 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use super::    stream::{
-    decrypt_rtcp, encrypt_rtp, h264_codec, packetize_h264, parse_rtcp, soundshare_payload, ssrcs_from_ready,
-    stream_identify, stream_select_protocol, video_attributes, video_timestamp_step, CodecSupport,
-    H264Assembler, RtcpFeedback, VideoSpan,
+use super::stream::{
+    decrypt_rtcp, encrypt_rtp, h264_codec, packetize_h264, parse_rtcp, soundshare_payload,
+    ssrcs_from_ready, stream_identify, stream_select_protocol, video_attributes,
+    video_timestamp_step, CodecSupport, H264Assembler, RtcpFeedback, VideoSpan,
 };
 use super::voice::{
-    choose_mode, dave_protocol_version, ip_discovery_request, parse_dave_server_binary, parse_ip_discovery,
-    voice_close_error, voice_error_should_stop, voice_gateway_url, voice_heartbeat, voice_heartbeat_interval_ms,
-    voice_poll_slice,
-    voice_reconnect_delay_ms, CipherMode, OPUS_SILENCE,
+    choose_mode, dave_protocol_version, ip_discovery_request, parse_dave_server_binary,
+    parse_ip_discovery, voice_close_error, voice_error_should_stop, voice_gateway_url,
+    voice_heartbeat, voice_heartbeat_interval_ms, voice_poll_slice, voice_reconnect_delay_ms,
+    CipherMode, OPUS_SILENCE,
 };
 use super::voice_dave::{DaveCall, DaveWire};
 use super::voice_media::AppOpus;
@@ -67,11 +67,21 @@ pub async fn maintain_stream<F>(
     let mut attempt = 0u32;
     loop {
         if *cancel.borrow() {
-            emit(StreamLinkEvent::Status { state: "stopped".into(), detail: String::new() });
+            emit(StreamLinkEvent::Status {
+                state: "stopped".into(),
+                detail: String::new(),
+            });
             return;
         }
-        let state = if attempt == 0 { "connecting" } else { "reconnecting" };
-        emit(StreamLinkEvent::Status { state: state.into(), detail: String::new() });
+        let state = if attempt == 0 {
+            "connecting"
+        } else {
+            "reconnecting"
+        };
+        emit(StreamLinkEvent::Status {
+            state: state.into(),
+            detail: String::new(),
+        });
         match stream_once(
             &hello,
             &mut cancel,
@@ -85,22 +95,34 @@ pub async fn maintain_stream<F>(
         .await
         {
             Ok(()) => {
-                emit(StreamLinkEvent::Status { state: "stopped".into(), detail: String::new() });
+                emit(StreamLinkEvent::Status {
+                    state: "stopped".into(),
+                    detail: String::new(),
+                });
                 return;
             }
             Err(err) => {
                 if err == "Cancelled" || *cancel.borrow() {
-                    emit(StreamLinkEvent::Status { state: "stopped".into(), detail: String::new() });
+                    emit(StreamLinkEvent::Status {
+                        state: "stopped".into(),
+                        detail: String::new(),
+                    });
                     return;
                 }
                 if voice_error_should_stop(&err) {
                     let detail = err.trim_start_matches("fatal:").to_string();
-                    emit(StreamLinkEvent::Status { state: "failed".into(), detail });
+                    emit(StreamLinkEvent::Status {
+                        state: "failed".into(),
+                        detail,
+                    });
                     return;
                 }
                 let delay = voice_reconnect_delay_ms(attempt);
                 attempt = attempt.saturating_add(1);
-                emit(StreamLinkEvent::Status { state: "reconnecting".into(), detail: err });
+                emit(StreamLinkEvent::Status {
+                    state: "reconnecting".into(),
+                    detail: err,
+                });
                 tokio::select! {
                     _ = cancel.changed() => {
                         if *cancel.borrow() {
@@ -128,40 +150,88 @@ async fn stream_once<F>(
 where
     F: FnMut(StreamLinkEvent) + Send,
 {
-    let url = voice_gateway_url(&hello.endpoint).ok_or_else(|| "Bad stream endpoint".to_string())?;
-    let (socket, _) = connect_async(url).await.map_err(|_| "Stream gateway refused the connection".to_string())?;
+    let url =
+        voice_gateway_url(&hello.endpoint).ok_or_else(|| "Bad stream endpoint".to_string())?;
+    let (socket, _) = connect_async(url)
+        .await
+        .map_err(|_| "Stream gateway refused the connection".to_string())?;
     let (mut write, mut read) = socket.split();
-    let identify = stream_identify(&hello.server_id, &hello.user_id, &hello.session_id, &hello.token, hello.publish);
-    write.send(Message::Text(identify)).await.map_err(|_| "Stream identify failed".to_string())?;
+    let identify = stream_identify(
+        &hello.server_id,
+        &hello.user_id,
+        &hello.session_id,
+        &hello.token,
+        hello.publish,
+    );
+    write
+        .send(Message::Text(identify))
+        .await
+        .map_err(|_| "Stream identify failed".to_string())?;
 
     let mut beat = Heart::new();
     let mut seq_ack: Option<i64> = None;
     let ready = read_ready(&mut read, &mut write, cancel, &mut beat, &mut seq_ack).await?;
-    let (audio_ssrc, video_ssrc, rtx_ssrc) = ssrcs_from_ready(&ready).ok_or_else(|| "Stream ready was incomplete".to_string())?;
-    let ip = ready.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let (audio_ssrc, video_ssrc, rtx_ssrc) =
+        ssrcs_from_ready(&ready).ok_or_else(|| "Stream ready was incomplete".to_string())?;
+    let ip = ready
+        .get("ip")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let port = ready.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
     if ip.is_empty() || port == 0 {
         return Err("Stream ready was incomplete".into());
     }
 
-    let udp = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| err.to_string())?;
-    udp.connect((ip.as_str(), port)).await.map_err(|err| err.to_string())?;
-    udp.send(&ip_discovery_request(audio_ssrc)).await.map_err(|err| err.to_string())?;
-    let (address, discovered) = discover(&udp, &mut read, &mut write, cancel, &mut beat, &mut seq_ack).await?;
+    let udp = UdpSocket::bind("0.0.0.0:0")
+        .await
+        .map_err(|err| err.to_string())?;
+    udp.connect((ip.as_str(), port))
+        .await
+        .map_err(|err| err.to_string())?;
+    udp.send(&ip_discovery_request(audio_ssrc))
+        .await
+        .map_err(|err| err.to_string())?;
+    let (address, discovered) =
+        discover(&udp, &mut read, &mut write, cancel, &mut beat, &mut seq_ack).await?;
 
     let offered: Vec<String> = ready
         .get("modes")
         .and_then(|v| v.as_array())
-        .map(|modes| modes.iter().filter_map(|item| item.as_str().map(str::to_string)).collect())
+        .map(|modes| {
+            modes
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default();
-    let mode = choose_mode(&offered).ok_or_else(|| "fatal:No supported stream encryption".to_string())?;
+    let mode =
+        choose_mode(&offered).ok_or_else(|| "fatal:No supported stream encryption".to_string())?;
     write
-        .send(Message::Text(stream_select_protocol(&address, discovered, mode, CodecSupport::watch())))
+        .send(Message::Text(stream_select_protocol(
+            &address,
+            discovered,
+            mode,
+            CodecSupport::watch(),
+        )))
         .await
         .map_err(|_| "Stream select protocol failed".to_string())?;
-    let description = next_op(&mut read, &mut write, cancel, &mut beat, &mut seq_ack, 4, Duration::from_secs(8)).await?;
-    let chosen = description.get("mode").and_then(|v| v.as_str()).unwrap_or(mode.name());
-    let mode = choose_mode(&[chosen.to_string()]).ok_or_else(|| "fatal:No supported stream encryption".to_string())?;
+    let description = next_op(
+        &mut read,
+        &mut write,
+        cancel,
+        &mut beat,
+        &mut seq_ack,
+        4,
+        Duration::from_secs(8),
+    )
+    .await?;
+    let chosen = description
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or(mode.name());
+    let mode = choose_mode(&[chosen.to_string()])
+        .ok_or_else(|| "fatal:No supported stream encryption".to_string())?;
     let key = secret_key(&description).ok_or_else(|| "Stream key missing".to_string())?;
     let dave = start_dave(hello, dave_protocol_version(&description))?;
     if let Some(dave) = dave.as_ref() {
@@ -178,10 +248,15 @@ where
     };
     if hello.publish {
         let _ = write
-            .send(Message::Text(video_attributes(audio_ssrc, video_ssrc, rtx_ssrc, span)))
+            .send(Message::Text(video_attributes(
+                audio_ssrc, video_ssrc, rtx_ssrc, span,
+            )))
             .await;
     }
-    emit(StreamLinkEvent::Status { state: "live".into(), detail: mode.name().into() });
+    emit(StreamLinkEvent::Status {
+        state: "live".into(),
+        detail: mode.name().into(),
+    });
 
     let udp = Arc::new(udp);
     let mut sequence = 1u16;
@@ -352,14 +427,22 @@ async fn handle_udp<F>(
     if packet.len() < 12 {
         return;
     }
-    if packet[1] == 200 || packet[1] == 201 || packet[1] == 205 || packet[1] == 206 || (packet[1] >= 192 && packet[1] <= 223) {
+    if packet[1] == 200
+        || packet[1] == 201
+        || packet[1] == 205
+        || packet[1] == 206
+        || (packet[1] >= 192 && packet[1] <= 223)
+    {
         let plain = decrypt_rtcp(mode, key, packet).unwrap_or_else(|_| packet.to_vec());
         for feedback in parse_rtcp(&plain) {
             match feedback {
                 RtcpFeedback::Pli { media_ssrc } if media_ssrc == video_ssrc || media_ssrc == 0 => {
                     force_idr.store(true, Ordering::Relaxed);
                 }
-                RtcpFeedback::Nack { media_ssrc, sequences } if media_ssrc == video_ssrc => {
+                RtcpFeedback::Nack {
+                    media_ssrc,
+                    sequences,
+                } if media_ssrc == video_ssrc => {
                     for seq in sequences {
                         if let Some((_, bytes)) = history.iter().find(|(item, _)| *item == seq) {
                             let _ = udp.send(bytes).await;
@@ -371,20 +454,30 @@ async fn handle_udp<F>(
         }
         return;
     }
-    let Ok(payload) = super::voice::decrypt_voice(mode, key, packet) else { return };
+    let Ok(payload) = super::voice::decrypt_voice(mode, key, packet) else {
+        return;
+    };
     let marker = packet.get(1).map(|byte| byte & 0x80 != 0).unwrap_or(false);
     if let Some(unit) = assembler.push(&payload, marker) {
         emit(StreamLinkEvent::Frame { annex_b: unit });
     }
 }
 
-fn handle_text(text: &str, dave: Option<&Arc<Mutex<DaveCall>>>, seq_ack: &mut Option<i64>) -> Result<(), String> {
-    let Ok(value) = serde_json::from_str::<Value>(text) else { return Ok(()) };
+fn handle_text(
+    text: &str,
+    dave: Option<&Arc<Mutex<DaveCall>>>,
+    seq_ack: &mut Option<i64>,
+) -> Result<(), String> {
+    let Ok(value) = serde_json::from_str::<Value>(text) else {
+        return Ok(());
+    };
     if let Some(seq) = value.get("seq").and_then(|v| v.as_i64()) {
         *seq_ack = Some(seq);
     }
     if let Some(dave) = dave {
-        let Ok(mut call) = dave.lock() else { return Ok(()) };
+        let Ok(mut call) = dave.lock() else {
+            return Ok(());
+        };
         apply_dave(&mut call, &value)?;
     }
     Ok(())
@@ -397,7 +490,10 @@ struct Heart {
 
 impl Heart {
     fn new() -> Self {
-        Self { every: None, next: None }
+        Self {
+            every: None,
+            next: None,
+        }
     }
     fn note_hello(&mut self, raw: u64) {
         if self.every.is_some() {
@@ -408,7 +504,10 @@ impl Heart {
         self.next = Some(Instant::now() + every / 2);
     }
     fn until(&self) -> Duration {
-        let wait = self.next.map(|at| at.saturating_duration_since(Instant::now())).unwrap_or(Duration::from_secs(60));
+        let wait = self
+            .next
+            .map(|at| at.saturating_duration_since(Instant::now()))
+            .unwrap_or(Duration::from_secs(60));
         voice_poll_slice(wait)
     }
     fn due(&self) -> bool {
@@ -432,7 +531,16 @@ where
     R: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
     W: SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
-    next_op(read, write, cancel, beat, seq_ack, 2, Duration::from_secs(8)).await
+    next_op(
+        read,
+        write,
+        cancel,
+        beat,
+        seq_ack,
+        2,
+        Duration::from_secs(8),
+    )
+    .await
 }
 
 async fn next_op<R, W>(
@@ -555,10 +663,18 @@ fn start_dave(hello: &StreamHello, version: u16) -> Result<Option<Arc<Mutex<Dave
     if version == 0 {
         return Ok(None);
     }
-    let user_id = snowflake(&hello.user_id).ok_or_else(|| "fatal:Stream user id was not a snowflake".to_string())?;
-    let channel = if hello.channel_id.is_empty() { hello.server_id.as_str() } else { hello.channel_id.as_str() };
-    let channel_id = snowflake(channel).ok_or_else(|| "fatal:Stream channel id was not a snowflake".to_string())?;
-    Ok(Some(Arc::new(Mutex::new(DaveCall::start(user_id, channel_id, version)?))))
+    let user_id = snowflake(&hello.user_id)
+        .ok_or_else(|| "fatal:Stream user id was not a snowflake".to_string())?;
+    let channel = if hello.channel_id.is_empty() {
+        hello.server_id.as_str()
+    } else {
+        hello.channel_id.as_str()
+    };
+    let channel_id = snowflake(channel)
+        .ok_or_else(|| "fatal:Stream channel id was not a snowflake".to_string())?;
+    Ok(Some(Arc::new(Mutex::new(DaveCall::start(
+        user_id, channel_id, version,
+    )?))))
 }
 
 fn apply_dave(dave: &mut DaveCall, value: &Value) -> Result<(), String> {
@@ -566,32 +682,56 @@ fn apply_dave(dave: &mut DaveCall, value: &Value) -> Result<(), String> {
     let data = value.get("d");
     match op {
         11 => {
-            if let Some(ids) = data.and_then(|item| item.get("user_ids")).and_then(|item| item.as_array()) {
+            if let Some(ids) = data
+                .and_then(|item| item.get("user_ids"))
+                .and_then(|item| item.as_array())
+            {
                 dave.note_users(ids.iter().filter_map(json_snowflake));
             }
         }
         12 => {
-            if let Some(id) = data.and_then(|item| item.get("user_id")).and_then(json_snowflake) {
+            if let Some(id) = data
+                .and_then(|item| item.get("user_id"))
+                .and_then(json_snowflake)
+            {
                 dave.note_users([id]);
             }
         }
         13 => {
-            if let Some(id) = data.and_then(|item| item.get("user_id")).and_then(json_snowflake) {
+            if let Some(id) = data
+                .and_then(|item| item.get("user_id"))
+                .and_then(json_snowflake)
+            {
                 dave.forget_user(id);
             }
         }
         21 => {
-            let version = data.and_then(|item| item.get("protocol_version")).and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-            let transition = data.and_then(|item| item.get("transition_id")).and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+            let version = data
+                .and_then(|item| item.get("protocol_version"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u16;
+            let transition = data
+                .and_then(|item| item.get("transition_id"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u16;
             dave.prepare_transition(version, transition);
         }
         22 => {
-            let transition = data.and_then(|item| item.get("transition_id")).and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+            let transition = data
+                .and_then(|item| item.get("transition_id"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u16;
             dave.execute_transition(transition);
         }
         24 => {
-            let version = data.and_then(|item| item.get("protocol_version")).and_then(|v| v.as_u64()).unwrap_or(1) as u16;
-            let epoch = data.and_then(|item| item.get("epoch")).and_then(|v| v.as_u64()).unwrap_or(0);
+            let version = data
+                .and_then(|item| item.get("protocol_version"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1) as u16;
+            let epoch = data
+                .and_then(|item| item.get("epoch"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             dave.prepare_epoch(version, epoch)?;
         }
         _ => {}
@@ -604,7 +744,9 @@ where
     W: SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
     let wires = {
-        let Ok(mut call) = dave.lock() else { return Ok(()) };
+        let Ok(mut call) = dave.lock() else {
+            return Ok(());
+        };
         call.take_outbound()
     };
     for message in wires {
@@ -612,7 +754,10 @@ where
             DaveWire::Text(text) => Message::Text(text),
             DaveWire::Binary(bytes) => Message::Binary(bytes),
         };
-        write.send(frame).await.map_err(|_| "DAVE write failed".to_string())?;
+        write
+            .send(frame)
+            .await
+            .map_err(|_| "DAVE write failed".to_string())?;
     }
     Ok(())
 }
@@ -631,19 +776,34 @@ fn secret_key(description: &Value) -> Option<[u8; 32]> {
 
 fn snowflake(value: &str) -> Option<u64> {
     let id = value.parse::<u64>().ok()?;
-    if id == 0 { None } else { Some(id) }
+    if id == 0 {
+        None
+    } else {
+        Some(id)
+    }
 }
 
 fn json_snowflake(value: &Value) -> Option<u64> {
-    value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())).filter(|id| *id != 0)
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        .filter(|id| *id != 0)
 }
 
 fn close_error(frame: Option<tokio_tungstenite::tungstenite::protocol::CloseFrame>) -> String {
-    let code = frame.as_ref().map(|item| u16::from(item.code)).unwrap_or(1005);
-    let reason = frame.map(|item| item.reason.to_string()).unwrap_or_default();
+    let code = frame
+        .as_ref()
+        .map(|item| u16::from(item.code))
+        .unwrap_or(1005);
+    let reason = frame
+        .map(|item| item.reason.to_string())
+        .unwrap_or_default();
     voice_close_error(code, &reason)
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }

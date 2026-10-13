@@ -115,7 +115,9 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .register_uri_scheme_protocol("larkui", |ctx, request| ui_hot::serve(ctx.app_handle(), request))
+        .register_uri_scheme_protocol("larkui", |ctx, request| {
+            ui_hot::serve(ctx.app_handle(), request)
+        })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -158,7 +160,8 @@ pub fn run() {
             let overlay_mute = config.shortcuts.toggle_mute.clone();
             let overlay_deafen = config.shortcuts.toggle_deafen.clone();
             let (speaking, _) = watch::channel(false);
-            let (voice_audio, _) = watch::channel(lark_core::discord::voice_media::VoiceAudio::default());
+            let (voice_audio, _) =
+                watch::channel(lark_core::discord::voice_media::VoiceAudio::default());
             let shared = Shared {
                 config: Mutex::new(config),
                 paths: Resolved {
@@ -170,7 +173,9 @@ pub fn run() {
                 gateway: Mutex::new(None),
                 shutdown: Mutex::new(None),
                 _watcher: Mutex::new(None),
-                voice_log: Arc::new(std::sync::Mutex::new(lark_core::discord::voice_log::VoiceLog::default())),
+                voice_log: Arc::new(std::sync::Mutex::new(
+                    lark_core::discord::voice_log::VoiceLog::default(),
+                )),
                 voice: Arc::new(std::sync::Mutex::new(VoiceSlot {
                     user_id: String::new(),
                     endpoint: String::new(),
@@ -238,7 +243,13 @@ pub fn run() {
                     if let Err(err) = install_clip_hotkey(&shell, &clip_shortcut) {
                         log::warn!("clip hotkey: {err}");
                     }
-                    let sound_clips = shell.state::<Shared>().config.blocking_lock().soundboard.clips.clone();
+                    let sound_clips = shell
+                        .state::<Shared>()
+                        .config
+                        .blocking_lock()
+                        .soundboard
+                        .clips
+                        .clone();
                     sync_sound_hotkeys(&shell, &sound_clips);
                     install_tray(&shell);
                 });
@@ -442,7 +453,10 @@ async fn interface_check(app: AppHandle, manual: bool) -> Result<ui_hot::Interfa
 }
 
 #[tauri::command]
-fn interface_set_channel(app: AppHandle, channel: String) -> Result<ui_hot::InterfaceStatus, String> {
+fn interface_set_channel(
+    app: AppHandle,
+    channel: String,
+) -> Result<ui_hot::InterfaceStatus, String> {
     ui_hot::set_channel(&app, &channel)
 }
 
@@ -519,7 +533,11 @@ async fn get_config(app: AppHandle, state: State<'_, Shared>) -> Result<Config, 
 }
 
 #[tauri::command]
-async fn save_config(app: AppHandle, state: State<'_, Shared>, config: Config) -> Result<Config, String> {
+async fn save_config(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    config: Config,
+) -> Result<Config, String> {
     let normalized = prepare_saved_config(config)?;
     let pretty = toml::to_string_pretty(&normalized).map_err(|err| err.to_string())?;
     fs::write(&state.paths.config_file, pretty).map_err(|err| err.to_string())?;
@@ -664,7 +682,9 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
     let rest = Arc::new(DiscordRest::new(token.clone()).map_err(|err| err.to_string())?);
     match rest.current_user().await {
         Ok(user) => {
-            state.premium_type.store(user.premium_type, Ordering::Relaxed);
+            state
+                .premium_type
+                .store(user.premium_type, Ordering::Relaxed);
             if let Ok(mut slot) = state.voice.lock() {
                 slot.user_id = user.id;
             }
@@ -691,7 +711,11 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
                     }
                     serde_json::to_value(&event).ok()
                 }
-                ClientEvent::VoiceServer { guild_id, endpoint, token } => {
+                ClientEvent::VoiceServer {
+                    guild_id,
+                    endpoint,
+                    token,
+                } => {
                     if let Ok(mut slot) = voice_slot.lock() {
                         if !endpoint.is_empty() && !token.is_empty() {
                             slot.guild_id = guild_id.clone();
@@ -706,7 +730,12 @@ async fn connect(app: AppHandle, state: State<'_, Shared>) -> Result<(), String>
                         "token": ""
                     }))
                 }
-                ClientEvent::StreamServer { stream_key, endpoint, token, guild_id } => {
+                ClientEvent::StreamServer {
+                    stream_key,
+                    endpoint,
+                    token,
+                    guild_id,
+                } => {
                     streams.note_server(stream_key, endpoint, token);
                     Some(serde_json::json!({
                         "kind": "streamServer",
@@ -988,13 +1017,7 @@ async fn toggle_reaction(
 ) -> Result<(), String> {
     rest(&state)
         .await?
-        .toggle_reaction(
-            &channel_id,
-            &message_id,
-            &emoji,
-            emoji_id.as_deref(),
-            add,
-        )
+        .toggle_reaction(&channel_id, &message_id, &emoji, emoji_id.as_deref(), add)
         .await
         .map_err(|err| err.to_string())
 }
@@ -1083,15 +1106,16 @@ fn native_effects() -> tauri::utils::config::WindowEffectsConfig {
 
 #[tauri::command]
 fn list_plugins(state: State<'_, Shared>) -> Result<Vec<PluginInfo>, String> {
-    let mut on_disk: Vec<PluginInfo> = store::records(&state.paths.plugins_dir, &state.paths.themes_dir)
-        .into_iter()
-        .filter(|item| item.kind == "plugin")
-        .map(|item| PluginInfo {
-            id: item.id,
-            name: item.name,
-            description: item.description,
-        })
-        .collect();
+    let mut on_disk: Vec<PluginInfo> =
+        store::records(&state.paths.plugins_dir, &state.paths.themes_dir)
+            .into_iter()
+            .filter(|item| item.kind == "plugin")
+            .map(|item| PluginInfo {
+                id: item.id,
+                name: item.name,
+                description: item.description,
+            })
+            .collect();
     on_disk.sort_by(|a, b| a.id.cmp(&b.id));
     let order = manifest_order(&state.paths.plugins_dir.join("manifest.json"));
     if order.is_empty() {
@@ -1118,7 +1142,10 @@ async fn store_index() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn install_store_item(state: State<'_, Shared>, id: String) -> Result<store::InstalledRecord, String> {
+async fn install_store_item(
+    state: State<'_, Shared>,
+    id: String,
+) -> Result<store::InstalledRecord, String> {
     let plugins_dir = state.paths.plugins_dir.clone();
     let themes_dir = state.paths.themes_dir.clone();
     store::install(&plugins_dir, &themes_dir, &id).await
@@ -1172,10 +1199,11 @@ fn manifest_order(path: &std::path::Path) -> Vec<String> {
     };
     let mut ids = Vec::new();
     for item in list {
-        let id = item
-            .as_str()
-            .map(|s| s.to_string())
-            .or_else(|| item.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        let id = item.as_str().map(|s| s.to_string()).or_else(|| {
+            item.get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
         if let Some(id) = id {
             if lark_core::config::validate_theme_name(&id).is_ok() {
                 ids.push(id);
@@ -1197,8 +1225,10 @@ fn install_tray(app: &AppHandle) {
     let Ok(menu) = Menu::with_items(app, &[&show, &quit]) else {
         return;
     };
-    let mut builder = TrayIconBuilder::with_id("lark").menu(&menu).tooltip("Lark").on_menu_event(|app, event| {
-        match event.id.as_ref() {
+    let mut builder = TrayIconBuilder::with_id("lark")
+        .menu(&menu)
+        .tooltip("Lark")
+        .on_menu_event(|app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             _ => {
                 if let Some(window) = app.get_webview_window("main") {
@@ -1206,8 +1236,7 @@ fn install_tray(app: &AppHandle) {
                     let _ = window.set_focus();
                 }
             }
-        }
-    });
+        });
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -1230,9 +1259,17 @@ async fn join_voice(
     output_device: String,
 ) -> Result<(), String> {
     stop_voice(&state).await;
-    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
     {
-        let mut slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        let mut slot = state
+            .voice
+            .lock()
+            .map_err(|_| "Voice state locked".to_string())?;
         slot.session_id.clear();
         slot.token.clear();
         slot.endpoint.clear();
@@ -1258,19 +1295,21 @@ async fn join_voice(
     *state.voice_stop.lock().await = Some(tx);
     let _ = state.speaking.send(!mute && vad);
     let previous = state.voice_audio.borrow().clone();
-    let _ = state.voice_audio.send(lark_core::discord::voice_media::VoiceAudio {
-        deafened: deaf,
-        vad,
-        sensitivity: sensitivity.min(100),
-        noise_suppression,
-        input_device,
-        output_device,
-        echo_cancellation: previous.echo_cancellation,
-        agc: previous.agc,
-        input_volume: previous.input_volume,
-        output_volume: previous.output_volume,
-        noise_quality: previous.noise_quality,
-    });
+    let _ = state
+        .voice_audio
+        .send(lark_core::discord::voice_media::VoiceAudio {
+            deafened: deaf,
+            vad,
+            sensitivity: sensitivity.min(100),
+            noise_suppression,
+            input_device,
+            output_device,
+            echo_cancellation: previous.echo_cancellation,
+            agc: previous.agc,
+            input_volume: previous.input_volume,
+            output_volume: previous.output_volume,
+            noise_quality: previous.noise_quality,
+        });
     let speaking = state.speaking.subscribe();
     let audio = state.voice_audio.subscribe();
     let volumes = state.voice_volumes.clone();
@@ -1368,7 +1407,10 @@ fn voice_wait_detail(slot: &Arc<std::sync::Mutex<VoiceSlot>>) -> String {
     if missing.is_empty() {
         "Voice server did not answer".to_string()
     } else {
-        format!("Voice server did not answer; missing {}", missing.join(", "))
+        format!(
+            "Voice server did not answer; missing {}",
+            missing.join(", ")
+        )
     }
 }
 
@@ -1383,10 +1425,18 @@ async fn wait_for_voice(
             return Err(());
         }
         if let Ok(guard) = slot.lock() {
-            if !guard.endpoint.is_empty() && !guard.token.is_empty() && !guard.session_id.is_empty() && !guard.user_id.is_empty() {
+            if !guard.endpoint.is_empty()
+                && !guard.token.is_empty()
+                && !guard.session_id.is_empty()
+                && !guard.user_id.is_empty()
+            {
                 return Ok(lark_core::discord::voice_link::VoiceHello {
                     endpoint: guard.endpoint.clone(),
-                    server_id: if guard.guild_id.is_empty() { server_id.to_string() } else { guard.guild_id.clone() },
+                    server_id: if guard.guild_id.is_empty() {
+                        server_id.to_string()
+                    } else {
+                        guard.guild_id.clone()
+                    },
                     channel_id: guard.channel_id.clone(),
                     user_id: guard.user_id.clone(),
                     session_id: guard.session_id.clone(),
@@ -1443,10 +1493,21 @@ async fn set_voice_self(state: State<'_, Shared>, mute: bool, deaf: bool) -> Res
     audio.deafened = deaf;
     let _ = state.voice_audio.send(audio);
     let (guild_id, channel_id) = {
-        let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        let slot = state
+            .voice
+            .lock()
+            .map_err(|_| "Voice state locked".to_string())?;
         (
-            if slot.guild_id.is_empty() { None } else { Some(slot.guild_id.clone()) },
-            if slot.channel_id.is_empty() { None } else { Some(slot.channel_id.clone()) },
+            if slot.guild_id.is_empty() {
+                None
+            } else {
+                Some(slot.guild_id.clone())
+            },
+            if slot.channel_id.is_empty() {
+                None
+            } else {
+                Some(slot.channel_id.clone())
+            },
         )
     };
     if let Some(gateway) = state.gateway.lock().await.clone() {
@@ -1477,19 +1538,21 @@ async fn set_voice_audio(
     output_device: String,
 ) -> Result<(), String> {
     let previous = state.voice_audio.borrow().clone();
-    let _ = state.voice_audio.send(lark_core::discord::voice_media::VoiceAudio {
-        deafened,
-        vad,
-        sensitivity: sensitivity.min(100),
-        noise_suppression,
-        input_device,
-        output_device,
-        echo_cancellation: previous.echo_cancellation,
-        agc: previous.agc,
-        input_volume: previous.input_volume,
-        output_volume: previous.output_volume,
-        noise_quality: previous.noise_quality,
-    });
+    let _ = state
+        .voice_audio
+        .send(lark_core::discord::voice_media::VoiceAudio {
+            deafened,
+            vad,
+            sensitivity: sensitivity.min(100),
+            noise_suppression,
+            input_device,
+            output_device,
+            echo_cancellation: previous.echo_cancellation,
+            agc: previous.agc,
+            input_volume: previous.input_volume,
+            output_volume: previous.output_volume,
+            noise_quality: previous.noise_quality,
+        });
     Ok(())
 }
 
@@ -1508,7 +1571,11 @@ fn set_voice_processing(
     audio.input_volume = input_volume.min(200);
     audio.output_volume = output_volume.min(200);
     if let Some(quality) = noise_quality {
-        audio.noise_quality = if quality == "high" { "high".into() } else { "standard".into() };
+        audio.noise_quality = if quality == "high" {
+            "high".into()
+        } else {
+            "standard".into()
+        };
     }
     let _ = state.voice_audio.send(audio);
     Ok(())
@@ -1521,7 +1588,13 @@ fn set_voice_camera(state: State<'_, Shared>, active: bool) {
 
 #[tauri::command]
 fn push_camera_frame(state: State<'_, Shared>, width: u32, height: u32, rgba: Vec<u8>) {
-    state.camera.push(lark_core::discord::voice_camera::CameraFrame { width, height, rgba });
+    state
+        .camera
+        .push(lark_core::discord::voice_camera::CameraFrame {
+            width,
+            height,
+            rgba,
+        });
 }
 
 #[tauri::command]
@@ -1535,7 +1608,12 @@ async fn set_voice_video(
     request_to_speak: Option<String>,
 ) -> Result<(), String> {
     state.camera.set_active(video);
-    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
     gateway
         .send(lark_core::discord::GatewayCommand::VoiceStateVideo {
             guild_id,
@@ -1549,8 +1627,15 @@ async fn set_voice_video(
 }
 
 #[tauri::command]
-async fn fetch_soundboard(state: State<'_, Shared>, guild_id: String) -> Result<Vec<serde_json::Value>, String> {
-    rest(&state).await?.guild_soundboard(&guild_id).await.map_err(|err| err.to_string())
+async fn fetch_soundboard(
+    state: State<'_, Shared>,
+    guild_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    rest(&state)
+        .await?
+        .guild_soundboard(&guild_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1570,16 +1655,28 @@ async fn play_guild_sound(
 }
 
 #[tauri::command]
-async fn hear_guild_sound(state: State<'_, Shared>, sound_id: String, volume: Option<f64>) -> Result<(), String> {
+async fn hear_guild_sound(
+    state: State<'_, Shared>,
+    sound_id: String,
+    volume: Option<f64>,
+) -> Result<(), String> {
     let client = rest(&state).await?;
     queue_heard(&state, &client, &sound_id, volume).await
 }
 
 /// Download a guild sound and queue it for the speakers. It is not sent on the voice socket.
-async fn queue_heard(state: &Shared, client: &DiscordRest, sound_id: &str, volume: Option<f64>) -> Result<(), String> {
+async fn queue_heard(
+    state: &Shared,
+    client: &DiscordRest,
+    sound_id: &str,
+    volume: Option<f64>,
+) -> Result<(), String> {
     let pcm = load_guild_pcm(client, state, sound_id).await?;
     let gain = volume.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
-    let gained: Vec<f32> = pcm.into_iter().map(|sample| (sample * gain).clamp(-1.0, 1.0)).collect();
+    let gained: Vec<f32> = pcm
+        .into_iter()
+        .map(|sample| (sample * gain).clamp(-1.0, 1.0))
+        .collect();
     state
         .sound_mix
         .lock()
@@ -1589,7 +1686,11 @@ async fn queue_heard(state: &Shared, client: &DiscordRest, sound_id: &str, volum
 }
 
 #[tauri::command]
-async fn create_activity_invite(state: State<'_, Shared>, channel_id: String, application_id: String) -> Result<String, String> {
+async fn create_activity_invite(
+    state: State<'_, Shared>,
+    channel_id: String,
+    application_id: String,
+) -> Result<String, String> {
     rest(&state)
         .await?
         .create_invite(&channel_id, Some(&application_id))
@@ -1598,17 +1699,40 @@ async fn create_activity_invite(state: State<'_, Shared>, channel_id: String, ap
 }
 
 #[tauri::command]
-async fn modify_channel(state: State<'_, Shared>, channel_id: String, name: Option<String>, topic: Option<String>) -> Result<(), String> {
-    let name = name.as_deref().map(str::trim).filter(|name| !name.is_empty());
+async fn modify_channel(
+    state: State<'_, Shared>,
+    channel_id: String,
+    name: Option<String>,
+    topic: Option<String>,
+) -> Result<(), String> {
+    let name = name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
     let topic = topic.as_deref();
-    rest(&state).await?.modify_channel(&channel_id, name, topic).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .modify_channel(&channel_id, name, topic)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn duplicate_channel(state: State<'_, Shared>, guild_id: String, channel_id: String, name: String) -> Result<(), String> {
+async fn duplicate_channel(
+    state: State<'_, Shared>,
+    guild_id: String,
+    channel_id: String,
+    name: String,
+) -> Result<(), String> {
     let client = rest(&state).await?;
-    let source = client.channel_json(&channel_id).await.map_err(|err| err.to_string())?;
-    let kind = source.get("type").and_then(|kind| kind.as_i64()).unwrap_or(2);
+    let source = client
+        .channel_json(&channel_id)
+        .await
+        .map_err(|err| err.to_string())?;
+    let kind = source
+        .get("type")
+        .and_then(|kind| kind.as_i64())
+        .unwrap_or(2);
     let mut body = serde_json::json!({
         "name": name.trim(),
         "type": kind,
@@ -1622,20 +1746,39 @@ async fn duplicate_channel(state: State<'_, Shared>, guild_id: String, channel_i
     if let Some(limit) = source.get("user_limit") {
         body["user_limit"] = limit.clone();
     }
-    client.create_guild_channel(&guild_id, body).await.map_err(|err| err.to_string())?;
+    client
+        .create_guild_channel(&guild_id, body)
+        .await
+        .map_err(|err| err.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-async fn set_voice_status(state: State<'_, Shared>, channel_id: String, status: String) -> Result<(), String> {
+async fn set_voice_status(
+    state: State<'_, Shared>,
+    channel_id: String,
+    status: String,
+) -> Result<(), String> {
     let status = status.trim().chars().take(500).collect::<String>();
-    rest(&state).await?.set_voice_status(&channel_id, &status).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .set_voice_status(&channel_id, &status)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn start_stage(state: State<'_, Shared>, channel_id: String, topic: String) -> Result<(), String> {
+async fn start_stage(
+    state: State<'_, Shared>,
+    channel_id: String,
+    topic: String,
+) -> Result<(), String> {
     let topic = topic.trim().chars().take(120).collect::<String>();
-    rest(&state).await?.start_stage(&channel_id, &topic).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .start_stage(&channel_id, &topic)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1656,14 +1799,21 @@ async fn set_member_voice(
         disconnect.unwrap_or(false),
         suppress,
     );
-    rest(&state).await?.set_member_voice(&guild_id, &user_id, body).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .set_member_voice(&guild_id, &user_id, body)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 fn push_clip(state: &Shared, clip: &lark_core::config::SoundClip) -> Result<(), String> {
     let bytes = fs::read(&clip.path).map_err(|_| format!("Could not read {}.", clip.name))?;
     let pcm = lark_core::soundboard::decode_wav_mono(&bytes)?;
     let gain = (f32::from(clip.volume) / 100.0).clamp(0.0, 2.0);
-    let gained: Vec<f32> = pcm.into_iter().map(|sample| (sample * gain).clamp(-1.0, 1.0)).collect();
+    let gained: Vec<f32> = pcm
+        .into_iter()
+        .map(|sample| (sample * gain).clamp(-1.0, 1.0))
+        .collect();
     state
         .sound_mix
         .lock()
@@ -1678,7 +1828,12 @@ fn queue_sound(state: &Shared, id: &str) -> Result<(), String> {
     }
     let clip = {
         let config = state.config.blocking_lock();
-        config.soundboard.clips.iter().find(|clip| clip.id == id).cloned()
+        config
+            .soundboard
+            .clips
+            .iter()
+            .find(|clip| clip.id == id)
+            .cloned()
     };
     let Some(clip) = clip else {
         return Err("That sound is not on the board.".into());
@@ -1687,7 +1842,10 @@ fn queue_sound(state: &Shared, id: &str) -> Result<(), String> {
 }
 
 fn soundboard_dir(config_file: &std::path::Path) -> PathBuf {
-    config_file.parent().unwrap_or_else(|| std::path::Path::new(".")).join("soundboard")
+    config_file
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("soundboard")
 }
 
 fn window_focused(app: &AppHandle) -> bool {
@@ -1698,7 +1856,10 @@ fn window_focused(app: &AppHandle) -> bool {
 
 fn sync_sound_hotkeys(app: &AppHandle, clips: &[lark_core::config::SoundClip]) {
     let state = app.state::<Shared>();
-    let mut registered = state.sound_hotkeys.lock().unwrap_or_else(|err| err.into_inner());
+    let mut registered = state
+        .sound_hotkeys
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
     let shortcuts = app.global_shortcut();
     for accel in registered.drain(..) {
         let _ = shortcuts.unregister(accel.as_str());
@@ -1718,7 +1879,10 @@ fn sync_sound_hotkeys(app: &AppHandle, clips: &[lark_core::config::SoundClip]) {
             let state = app.state::<Shared>();
             if let Err(error) = queue_sound(&*state, &id) {
                 log::info!("soundboard: {error}");
-                let _ = app.emit("soundboard", serde_json::json!({ "id": id, "error": error }));
+                let _ = app.emit(
+                    "soundboard",
+                    serde_json::json!({ "id": id, "error": error }),
+                );
             }
         }) {
             Ok(()) => registered.push(accel),
@@ -1734,7 +1898,12 @@ async fn play_soundboard(state: State<'_, Shared>, id: String) -> Result<(), Str
     }
     let clip = {
         let config = state.config.lock().await;
-        config.soundboard.clips.iter().find(|clip| clip.id == id).cloned()
+        config
+            .soundboard
+            .clips
+            .iter()
+            .find(|clip| clip.id == id)
+            .cloned()
     };
     let Some(clip) = clip else {
         return Err("That sound is not on the board.".into());
@@ -1743,7 +1912,11 @@ async fn play_soundboard(state: State<'_, Shared>, id: String) -> Result<(), Str
 }
 
 #[tauri::command]
-fn import_sound_clip(state: State<'_, Shared>, name: String, bytes: Vec<u8>) -> Result<lark_core::config::SoundClip, String> {
+fn import_sound_clip(
+    state: State<'_, Shared>,
+    name: String,
+    bytes: Vec<u8>,
+) -> Result<lark_core::config::SoundClip, String> {
     let pcm = lark_core::soundboard::decode_wav_mono(&bytes)?;
     if pcm.is_empty() {
         return Err("That WAV file has no audio.".into());
@@ -1769,7 +1942,11 @@ fn sound_clip_id(name: &str, salt: u8) -> String {
         .flat_map(|ch| ch.to_lowercase())
         .take(12)
         .collect();
-    let slug = if slug.is_empty() { "clip".to_string() } else { slug };
+    let slug = if slug.is_empty() {
+        "clip".to_string()
+    } else {
+        slug
+    };
     let tick = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -1782,8 +1959,17 @@ fn sound_clip_name(name: &str) -> String {
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or(name);
-    let cleaned: String = stem.trim().chars().filter(|ch| !ch.is_control()).take(40).collect();
-    if cleaned.is_empty() { "Sound".into() } else { cleaned }
+    let cleaned: String = stem
+        .trim()
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(40)
+        .collect();
+    if cleaned.is_empty() {
+        "Sound".into()
+    } else {
+        cleaned
+    }
 }
 
 #[tauri::command]
@@ -1804,16 +1990,32 @@ fn delete_sound_clip(state: State<'_, Shared>, path: String) -> Result<(), Strin
 
 #[tauri::command]
 async fn fetch_user_note(state: State<'_, Shared>, user_id: String) -> Result<String, String> {
-    rest(&state).await?.user_note(&user_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .user_note(&user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn save_user_note(state: State<'_, Shared>, user_id: String, note: String) -> Result<(), String> {
-    rest(&state).await?.set_user_note(&user_id, &note).await.map_err(|err| err.to_string())
+async fn save_user_note(
+    state: State<'_, Shared>,
+    user_id: String,
+    note: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_user_note(&user_id, &note)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn set_voice_volume(state: State<'_, Shared>, user_id: String, volume: u16) -> Result<(), String> {
+async fn set_voice_volume(
+    state: State<'_, Shared>,
+    user_id: String,
+    volume: u16,
+) -> Result<(), String> {
     let gain = (volume as f32 / 100.0).clamp(0.0, lark_core::discord::voice_media::USER_GAIN_CAP);
     if let Ok(mut volumes) = state.voice_volumes.lock() {
         volumes.insert(user_id, gain);
@@ -1853,7 +2055,11 @@ fn sync_overlay_hotkeys(app: &AppHandle, config: &Config) {
 /// Full reads stay behind Hardware in status. A load read (CPU, RAM, game) also
 /// runs for the performance overlay and game detection.
 #[tauri::command]
-async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>, game: Option<bool>) -> Result<HardwareSnapshot, String> {
+async fn hardware_snapshot(
+    state: State<'_, Shared>,
+    full: Option<bool>,
+    game: Option<bool>,
+) -> Result<HardwareSnapshot, String> {
     let full = full.unwrap_or(true);
     let game = game.unwrap_or(false);
     let allowed = {
@@ -1861,7 +2067,10 @@ async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>, game: O
         if full {
             config.desktop.hardware_status
         } else {
-            config.desktop.hardware_status || config.desktop.perf_overlay || config.desktop.detect_games || game
+            config.desktop.hardware_status
+                || config.desktop.perf_overlay
+                || config.desktop.detect_games
+                || game
         }
     };
     if !allowed {
@@ -1893,60 +2102,139 @@ async fn hardware_snapshot(state: State<'_, Shared>, full: Option<bool>, game: O
 }
 
 #[tauri::command]
-async fn set_presence(state: State<'_, Shared>, status: String, custom: String, game: Option<String>) -> Result<(), String> {
-    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+async fn set_presence(
+    state: State<'_, Shared>,
+    status: String,
+    custom: String,
+    game: Option<String>,
+) -> Result<(), String> {
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
     let allowed = ["online", "idle", "dnd", "invisible"];
     if !allowed.contains(&status.as_str()) {
         return Err("Unknown status.".into());
     }
     gateway
-        .send(lark_core::discord::GatewayCommand::Presence { status, custom, game: game.unwrap_or_default() })
+        .send(lark_core::discord::GatewayCommand::Presence {
+            status,
+            custom,
+            game: game.unwrap_or_default(),
+        })
         .map_err(|_| "Gateway is closed.".to_string())
 }
 
 #[tauri::command]
-async fn ring_call(state: State<'_, Shared>, channel_id: String, recipients: Vec<String>) -> Result<(), String> {
-    rest(&state).await?.ring_call(&channel_id, &recipients).await.map_err(|err| err.to_string())
+async fn ring_call(
+    state: State<'_, Shared>,
+    channel_id: String,
+    recipients: Vec<String>,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .ring_call(&channel_id, &recipients)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn stop_ringing(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
-    rest(&state).await?.stop_ringing(&channel_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .stop_ringing(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn ack_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
-    rest(&state).await?.ack_message(&channel_id, &message_id).await.map_err(|err| err.to_string())
+async fn ack_message(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .ack_message(&channel_id, &message_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_pins(state: State<'_, Shared>, channel_id: String) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
-    rest(&state).await?.pins(&channel_id).await.map_err(|err| err.to_string())
+async fn fetch_pins(
+    state: State<'_, Shared>,
+    channel_id: String,
+) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    rest(&state)
+        .await?
+        .pins(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn pin_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
-    rest(&state).await?.set_pin(&channel_id, &message_id, true).await.map_err(|err| err.to_string())
+async fn pin_message(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_pin(&channel_id, &message_id, true)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn unpin_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
-    rest(&state).await?.set_pin(&channel_id, &message_id, false).await.map_err(|err| err.to_string())
+async fn unpin_message(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_pin(&channel_id, &message_id, false)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_emojis(state: State<'_, Shared>, guild_id: String) -> Result<Vec<lark_core::discord::ClientEmoji>, String> {
-    rest(&state).await?.emojis(&guild_id).await.map_err(|err| err.to_string())
+async fn fetch_emojis(
+    state: State<'_, Shared>,
+    guild_id: String,
+) -> Result<Vec<lark_core::discord::ClientEmoji>, String> {
+    rest(&state)
+        .await?
+        .emojis(&guild_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_threads(state: State<'_, Shared>, channel_id: String) -> Result<Vec<lark_core::discord::ClientChannel>, String> {
-    rest(&state).await?.active_threads(&channel_id).await.map_err(|err| err.to_string())
+async fn fetch_threads(
+    state: State<'_, Shared>,
+    channel_id: String,
+) -> Result<Vec<lark_core::discord::ClientChannel>, String> {
+    rest(&state)
+        .await?
+        .active_threads(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn search_messages(state: State<'_, Shared>, guild_id: String, query: String) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
-    rest(&state).await?.search_guild(&guild_id, &query).await.map_err(|err| err.to_string())
+async fn search_messages(
+    state: State<'_, Shared>,
+    guild_id: String,
+    query: String,
+) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    rest(&state)
+        .await?
+        .search_guild(&guild_id, &query)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1958,23 +2246,45 @@ fn set_unread(app: AppHandle, count: u32) {
             format!("Lark · {count} unread")
         };
         let _ = tray.set_tooltip(Some(&tip));
-        let title = if count == 0 { None } else { Some(count.to_string()) };
+        let title = if count == 0 {
+            None
+        } else {
+            Some(count.to_string())
+        };
         let _ = tray.set_title(title);
     }
     if let Some(window) = app.get_webview_window("main") {
-        let badge = if count == 0 { None } else { Some(i64::from(count)) };
+        let badge = if count == 0 {
+            None
+        } else {
+            Some(i64::from(count))
+        };
         let _ = window.set_badge_count(badge);
     }
 }
 
 #[tauri::command]
-async fn preview_invite(state: State<'_, Shared>, code: String) -> Result<lark_core::discord::shell::ClientInvite, String> {
-    rest(&state).await?.invite_preview(&code).await.map_err(|err| err.to_string())
+async fn preview_invite(
+    state: State<'_, Shared>,
+    code: String,
+) -> Result<lark_core::discord::shell::ClientInvite, String> {
+    rest(&state)
+        .await?
+        .invite_preview(&code)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn accept_invite(state: State<'_, Shared>, code: String) -> Result<lark_core::discord::shell::ClientInvite, String> {
-    rest(&state).await?.accept_invite(&code).await.map_err(|err| err.to_string())
+async fn accept_invite(
+    state: State<'_, Shared>,
+    code: String,
+) -> Result<lark_core::discord::shell::ClientInvite, String> {
+    rest(&state)
+        .await?
+        .accept_invite(&code)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2030,7 +2340,11 @@ async fn remember_account(app: AppHandle, user_id: String) -> Result<(), String>
 }
 
 #[tauri::command]
-async fn switch_account(app: AppHandle, state: State<'_, Shared>, user_id: String) -> Result<(), String> {
+async fn switch_account(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    user_id: String,
+) -> Result<(), String> {
     let slot = keychain::account_slot(&user_id)?;
     let token = keychain::on_main(&app, move || keychain::load_named(&slot))??
         .filter(|token| !token.is_empty())
@@ -2060,7 +2374,11 @@ async fn account_overview(state: State<'_, Shared>) -> Result<serde_json::Value,
 }
 
 #[tauri::command]
-async fn remove_connection(state: State<'_, Shared>, kind: String, id: String) -> Result<(), String> {
+async fn remove_connection(
+    state: State<'_, Shared>,
+    kind: String,
+    id: String,
+) -> Result<(), String> {
     rest(&state)
         .await?
         .remove_connection(&kind, &id)
@@ -2101,7 +2419,10 @@ async fn start_screen_share(
     source_height: u32,
 ) -> Result<(), String> {
     let request = {
-        let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
+        let slot = state
+            .voice
+            .lock()
+            .map_err(|_| "Voice state locked".to_string())?;
         golive::ShareStart {
             guild_id: slot.guild_id.clone(),
             channel_id: slot.channel_id.clone(),
@@ -2116,7 +2437,12 @@ async fn start_screen_share(
             source_height,
         }
     };
-    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
     state.clips.set_share(true);
     let started = golive::start_share(app, state.streams.clone(), gateway, request).await;
     if started.is_err() {
@@ -2157,18 +2483,55 @@ fn set_share_quality(
     source_width: u32,
     source_height: u32,
 ) -> lark_core::discord::stream::VideoSpan {
-    golive::set_quality(&state.streams, &resolution, fps, source_width, source_height)
+    golive::set_quality(
+        &state.streams,
+        &resolution,
+        fps,
+        source_width,
+        source_height,
+    )
 }
 
 #[tauri::command]
-async fn watch_stream(app: AppHandle, state: State<'_, Shared>, stream_key: String) -> Result<(), String> {
+async fn watch_stream(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    stream_key: String,
+) -> Result<(), String> {
     let (server_id, channel_id, user_id, session_id) = {
-        let slot = state.voice.lock().map_err(|_| "Voice state locked".to_string())?;
-        let server_id = if slot.guild_id.is_empty() { slot.channel_id.clone() } else { slot.guild_id.clone() };
-        (server_id, slot.channel_id.clone(), slot.user_id.clone(), slot.session_id.clone())
+        let slot = state
+            .voice
+            .lock()
+            .map_err(|_| "Voice state locked".to_string())?;
+        let server_id = if slot.guild_id.is_empty() {
+            slot.channel_id.clone()
+        } else {
+            slot.guild_id.clone()
+        };
+        (
+            server_id,
+            slot.channel_id.clone(),
+            slot.user_id.clone(),
+            slot.session_id.clone(),
+        )
     };
-    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
-    golive::watch_stream(app, state.streams.clone(), gateway, stream_key, server_id, channel_id, user_id, session_id).await
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
+    golive::watch_stream(
+        app,
+        state.streams.clone(),
+        gateway,
+        stream_key,
+        server_id,
+        channel_id,
+        user_id,
+        session_id,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2311,13 +2674,27 @@ async fn search_filtered(
 }
 
 #[tauri::command]
-async fn search_gifs(state: State<'_, Shared>, query: String) -> Result<Vec<lark_core::discord::ClientGif>, String> {
-    rest(&state).await?.search_gifs(&query).await.map_err(|err| err.to_string())
+async fn search_gifs(
+    state: State<'_, Shared>,
+    query: String,
+) -> Result<Vec<lark_core::discord::ClientGif>, String> {
+    rest(&state)
+        .await?
+        .search_gifs(&query)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_stickers(state: State<'_, Shared>, guild_id: String) -> Result<Vec<lark_core::discord::ClientSticker>, String> {
-    rest(&state).await?.guild_stickers(&guild_id).await.map_err(|err| err.to_string())
+async fn fetch_stickers(
+    state: State<'_, Shared>,
+    guild_id: String,
+) -> Result<Vec<lark_core::discord::ClientSticker>, String> {
+    rest(&state)
+        .await?
+        .guild_stickers(&guild_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2351,8 +2728,15 @@ async fn search_app_commands(
 }
 
 #[tauri::command]
-async fn invoke_command(state: State<'_, Shared>, payload: serde_json::Value) -> Result<(), String> {
-    rest(&state).await?.post_interaction(payload).await.map_err(|err| err.to_string())
+async fn invoke_command(
+    state: State<'_, Shared>,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .post_interaction(payload)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2400,7 +2784,9 @@ fn on_clip_hotkey(app: &AppHandle) {
 fn apply_clip_hotkey(app: &AppHandle, shortcut: &str) {
     let state = app.state::<Shared>();
     if !state.clips.plugin_ready() {
-        state.clips.set_hotkey_error("The global clip hotkey is not available.".into());
+        state
+            .clips
+            .set_hotkey_error("The global clip hotkey is not available.".into());
         return;
     }
     match sync_clip_hotkey(app, shortcut) {
@@ -2442,7 +2828,9 @@ fn sync_clip_hotkey(app: &AppHandle, shortcut: &str) -> Result<(), String> {
 
 fn apply_clip_config(app: &AppHandle, config: &Config) {
     let state = app.state::<Shared>();
-    state.clips.set_quality(config.clips.fps, config.clips.resolution);
+    state
+        .clips
+        .set_quality(config.clips.fps, config.clips.resolution);
     state.clips.set_window(config.clips.buffer_sec);
     state.clips.set_game(config.clips.game_capture);
     apply_clip_hotkey(app, &config.shortcuts.save_clip);
@@ -2463,7 +2851,11 @@ struct AckItemIn {
     message_id: String,
 }
 
-fn upload_from_base64(name: Option<String>, mime: Option<String>, encoded: Option<String>) -> Result<Vec<lark_core::discord::rest::OutFile>, String> {
+fn upload_from_base64(
+    name: Option<String>,
+    mime: Option<String>,
+    encoded: Option<String>,
+) -> Result<Vec<lark_core::discord::rest::OutFile>, String> {
     let Some(encoded) = encoded.filter(|value| !value.trim().is_empty()) else {
         return Ok(Vec::new());
     };
@@ -2480,8 +2872,15 @@ fn upload_from_base64(name: Option<String>, mime: Option<String>, encoded: Optio
 }
 
 #[tauri::command]
-async fn fetch_thread_index(state: State<'_, Shared>, channel_id: String) -> Result<lark_core::discord::ClientThreadIndex, String> {
-    rest(&state).await?.thread_index(&channel_id).await.map_err(|err| err.to_string())
+async fn fetch_thread_index(
+    state: State<'_, Shared>,
+    channel_id: String,
+) -> Result<lark_core::discord::ClientThreadIndex, String> {
+    rest(&state)
+        .await?
+        .thread_index(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2525,38 +2924,87 @@ async fn start_thread(
 }
 
 #[tauri::command]
-async fn edit_thread(state: State<'_, Shared>, thread_id: String, archived: bool) -> Result<lark_core::discord::ClientThreadRecord, String> {
-    rest(&state).await?.edit_thread(&thread_id, archived).await.map_err(|err| err.to_string())
+async fn edit_thread(
+    state: State<'_, Shared>,
+    thread_id: String,
+    archived: bool,
+) -> Result<lark_core::discord::ClientThreadRecord, String> {
+    rest(&state)
+        .await?
+        .edit_thread(&thread_id, archived)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_thread_members(state: State<'_, Shared>, thread_id: String) -> Result<Vec<lark_core::discord::ClientThreadMember>, String> {
-    rest(&state).await?.thread_members(&thread_id).await.map_err(|err| err.to_string())
+async fn fetch_thread_members(
+    state: State<'_, Shared>,
+    thread_id: String,
+) -> Result<Vec<lark_core::discord::ClientThreadMember>, String> {
+    rest(&state)
+        .await?
+        .thread_members(&thread_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn join_thread(state: State<'_, Shared>, thread_id: String) -> Result<(), String> {
-    rest(&state).await?.join_thread(&thread_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .join_thread(&thread_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn leave_thread(state: State<'_, Shared>, thread_id: String) -> Result<(), String> {
-    rest(&state).await?.leave_thread(&thread_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .leave_thread(&thread_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn follow_thread(state: State<'_, Shared>, thread_id: String, follow: bool) -> Result<(), String> {
-    rest(&state).await?.follow_thread(&thread_id, follow).await.map_err(|err| err.to_string())
+async fn follow_thread(
+    state: State<'_, Shared>,
+    thread_id: String,
+    follow: bool,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .follow_thread(&thread_id, follow)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn set_thread_member(state: State<'_, Shared>, thread_id: String, user_id: String, add: bool) -> Result<(), String> {
-    rest(&state).await?.set_thread_member(&thread_id, &user_id, add).await.map_err(|err| err.to_string())
+async fn set_thread_member(
+    state: State<'_, Shared>,
+    thread_id: String,
+    user_id: String,
+    add: bool,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_thread_member(&thread_id, &user_id, add)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn follow_forum(state: State<'_, Shared>, guild_id: String, channel_id: String, follow: bool) -> Result<(), String> {
-    rest(&state).await?.follow_forum(&guild_id, &channel_id, follow).await.map_err(|err| err.to_string())
+async fn follow_forum(
+    state: State<'_, Shared>,
+    guild_id: String,
+    channel_id: String,
+    follow: bool,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .follow_forum(&guild_id, &channel_id, follow)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2568,22 +3016,48 @@ async fn create_poll(
     duration_hours: i32,
     allow_multiselect: bool,
 ) -> Result<lark_core::discord::ClientPoll, String> {
-    let answers: Vec<(String, Option<String>)> = answers.into_iter().map(|answer| (answer.text, answer.emoji_name)).collect();
+    let answers: Vec<(String, Option<String>)> = answers
+        .into_iter()
+        .map(|answer| (answer.text, answer.emoji_name))
+        .collect();
     rest(&state)
         .await?
-        .create_poll(&channel_id, &question, &answers, duration_hours, allow_multiselect)
+        .create_poll(
+            &channel_id,
+            &question,
+            &answers,
+            duration_hours,
+            allow_multiselect,
+        )
         .await
         .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn vote_poll(state: State<'_, Shared>, channel_id: String, message_id: String, answer_id: i64) -> Result<(), String> {
-    rest(&state).await?.vote_poll(&channel_id, &message_id, answer_id).await.map_err(|err| err.to_string())
+async fn vote_poll(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+    answer_id: i64,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .vote_poll(&channel_id, &message_id, answer_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn end_poll(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<lark_core::discord::ClientPoll, String> {
-    rest(&state).await?.end_poll(&channel_id, &message_id).await.map_err(|err| err.to_string())
+async fn end_poll(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+) -> Result<lark_core::discord::ClientPoll, String> {
+    rest(&state)
+        .await?
+        .end_poll(&channel_id, &message_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2601,8 +3075,15 @@ async fn fetch_poll_voters(
 }
 
 #[tauri::command]
-async fn fetch_events(state: State<'_, Shared>, guild_id: String) -> Result<Vec<lark_core::discord::ClientScheduledEvent>, String> {
-    rest(&state).await?.scheduled_events(&guild_id).await.map_err(|err| err.to_string())
+async fn fetch_events(
+    state: State<'_, Shared>,
+    guild_id: String,
+) -> Result<Vec<lark_core::discord::ClientScheduledEvent>, String> {
+    rest(&state)
+        .await?
+        .scheduled_events(&guild_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2611,48 +3092,109 @@ async fn create_scheduled_event(
     guild_id: String,
     body: serde_json::Value,
 ) -> Result<lark_core::discord::ClientScheduledEvent, String> {
-    rest(&state).await?.create_scheduled_event(&guild_id, body).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .create_scheduled_event(&guild_id, body)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn rsvp_event(state: State<'_, Shared>, guild_id: String, event_id: String, interested: bool) -> Result<(), String> {
-    rest(&state).await?.rsvp_event(&guild_id, &event_id, interested).await.map_err(|err| err.to_string())
+async fn rsvp_event(
+    state: State<'_, Shared>,
+    guild_id: String,
+    event_id: String,
+    interested: bool,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .rsvp_event(&guild_id, &event_id, interested)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn start_scheduled_event(state: State<'_, Shared>, guild_id: String, event_id: String) -> Result<lark_core::discord::ClientScheduledEvent, String> {
-    rest(&state).await?.start_scheduled_event(&guild_id, &event_id).await.map_err(|err| err.to_string())
+async fn start_scheduled_event(
+    state: State<'_, Shared>,
+    guild_id: String,
+    event_id: String,
+) -> Result<lark_core::discord::ClientScheduledEvent, String> {
+    rest(&state)
+        .await?
+        .start_scheduled_event(&guild_id, &event_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn ack_bulk(state: State<'_, Shared>, states: Vec<AckItemIn>) -> Result<(), String> {
-    let pairs: Vec<(String, String)> = states.into_iter().map(|item| (item.channel_id, item.message_id)).collect();
-    rest(&state).await?.ack_bulk(&pairs).await.map_err(|err| err.to_string())
+    let pairs: Vec<(String, String)> = states
+        .into_iter()
+        .map(|item| (item.channel_id, item.message_id))
+        .collect();
+    rest(&state)
+        .await?
+        .ack_bulk(&pairs)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_mentions(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
-    rest(&state).await?.mentions().await.map_err(|err| err.to_string())
+async fn fetch_mentions(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::ClientMessage>, String> {
+    rest(&state)
+        .await?
+        .mentions()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_friend_requests(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientFriendRequest>, String> {
-    rest(&state).await?.friend_requests().await.map_err(|err| err.to_string())
+async fn fetch_friend_requests(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::ClientFriendRequest>, String> {
+    rest(&state)
+        .await?
+        .friend_requests()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn fetch_message_requests(state: State<'_, Shared>, spam: bool) -> Result<Vec<lark_core::discord::ClientMessageRequest>, String> {
-    rest(&state).await?.list_message_requests(spam).await.map_err(|err| err.to_string())
+async fn fetch_message_requests(
+    state: State<'_, Shared>,
+    spam: bool,
+) -> Result<Vec<lark_core::discord::ClientMessageRequest>, String> {
+    rest(&state)
+        .await?
+        .list_message_requests(spam)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn accept_message_request(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
-    rest(&state).await?.accept_message_request(&channel_id).await.map_err(|err| err.to_string())
+async fn accept_message_request(
+    state: State<'_, Shared>,
+    channel_id: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .accept_message_request(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn ignore_message_request(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
-    rest(&state).await?.ignore_message_request(&channel_id).await.map_err(|err| err.to_string())
+async fn ignore_message_request(
+    state: State<'_, Shared>,
+    channel_id: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .ignore_message_request(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 async fn apply_saved_clip_settings(app: &AppHandle) {
@@ -2714,68 +3256,149 @@ fn list_stems(dir: &std::path::Path, ext: &str) -> Vec<String> {
 }
 
 #[tauri::command]
-async fn fetch_relationships(state: State<'_, Shared>) -> Result<Vec<lark_core::discord::ClientRelationship>, String> {
-    rest(&state).await?.list_relationships().await.map_err(|err| err.to_string())
+async fn fetch_relationships(
+    state: State<'_, Shared>,
+) -> Result<Vec<lark_core::discord::ClientRelationship>, String> {
+    rest(&state)
+        .await?
+        .list_relationships()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn add_relationship(state: State<'_, Shared>, user_id: String) -> Result<lark_core::discord::ClientRelationship, String> {
-    rest(&state).await?.add_relationship(&user_id).await.map_err(|err| err.to_string())
+async fn add_relationship(
+    state: State<'_, Shared>,
+    user_id: String,
+) -> Result<lark_core::discord::ClientRelationship, String> {
+    rest(&state)
+        .await?
+        .add_relationship(&user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn add_friend_username(state: State<'_, Shared>, username: String) -> Result<lark_core::discord::ClientRelationship, String> {
-    rest(&state).await?.send_friend_request(&username).await.map_err(|err| err.to_string())
+async fn add_friend_username(
+    state: State<'_, Shared>,
+    username: String,
+) -> Result<lark_core::discord::ClientRelationship, String> {
+    rest(&state)
+        .await?
+        .send_friend_request(&username)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn remove_relationship(state: State<'_, Shared>, user_id: String) -> Result<(), String> {
-    rest(&state).await?.delete_relationship(&user_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .delete_relationship(&user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn block_user(state: State<'_, Shared>, user_id: String) -> Result<lark_core::discord::ClientRelationship, String> {
-    rest(&state).await?.block_user(&user_id).await.map_err(|err| err.to_string())
+async fn block_user(
+    state: State<'_, Shared>,
+    user_id: String,
+) -> Result<lark_core::discord::ClientRelationship, String> {
+    rest(&state)
+        .await?
+        .block_user(&user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn ignore_user(state: State<'_, Shared>, user_id: String) -> Result<(), String> {
-    rest(&state).await?.ignore_relationship(&user_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .ignore_relationship(&user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn set_friend_nickname(state: State<'_, Shared>, user_id: String, nickname: String) -> Result<(), String> {
-    rest(&state).await?.set_friend_nickname(&user_id, &nickname).await.map_err(|err| err.to_string())
+async fn set_friend_nickname(
+    state: State<'_, Shared>,
+    user_id: String,
+    nickname: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .set_friend_nickname(&user_id, &nickname)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn close_dm(state: State<'_, Shared>, channel_id: String) -> Result<(), String> {
-    rest(&state).await?.close_dm(&channel_id).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .close_dm(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn create_group_dm(state: State<'_, Shared>, recipient_ids: Vec<String>) -> Result<lark_core::discord::ClientChannel, String> {
-    rest(&state).await?.create_group_dm(&recipient_ids).await.map_err(|err| err.to_string())
+async fn create_group_dm(
+    state: State<'_, Shared>,
+    recipient_ids: Vec<String>,
+) -> Result<lark_core::discord::ClientChannel, String> {
+    rest(&state)
+        .await?
+        .create_group_dm(&recipient_ids)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn rename_group_dm(state: State<'_, Shared>, channel_id: String, name: String) -> Result<lark_core::discord::ClientChannel, String> {
-    rest(&state).await?.rename_group_dm(&channel_id, &name).await.map_err(|err| err.to_string())
+async fn rename_group_dm(
+    state: State<'_, Shared>,
+    channel_id: String,
+    name: String,
+) -> Result<lark_core::discord::ClientChannel, String> {
+    rest(&state)
+        .await?
+        .rename_group_dm(&channel_id, &name)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn add_dm_recipient(state: State<'_, Shared>, channel_id: String, user_id: String) -> Result<(), String> {
-    rest(&state).await?.add_dm_recipient(&channel_id, &user_id).await.map_err(|err| err.to_string())
+async fn add_dm_recipient(
+    state: State<'_, Shared>,
+    channel_id: String,
+    user_id: String,
+) -> Result<(), String> {
+    rest(&state)
+        .await?
+        .add_dm_recipient(&channel_id, &user_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn mute_dm(state: State<'_, Shared>, channel_id: String, muted: bool) -> Result<(), String> {
-    rest(&state).await?.mute_dm(&channel_id, muted).await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .mute_dm(&channel_id, muted)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-async fn create_channel_invite(state: State<'_, Shared>, channel_id: String) -> Result<String, String> {
-    rest(&state).await?.create_channel_invite(&channel_id).await.map_err(|err| err.to_string())
+async fn create_channel_invite(
+    state: State<'_, Shared>,
+    channel_id: String,
+) -> Result<String, String> {
+    rest(&state)
+        .await?
+        .create_channel_invite(&channel_id)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2802,13 +3425,24 @@ async fn set_custom_status(
     expires_at: Option<i64>,
     game: Option<String>,
 ) -> Result<(), String> {
-    let gateway = state.gateway.lock().await.clone().ok_or_else(|| "Not connected.".to_string())?;
+    let gateway = state
+        .gateway
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected.".to_string())?;
     let allowed = ["online", "idle", "dnd", "invisible"];
     if !allowed.contains(&status.as_str()) {
         return Err("Unknown status.".into());
     }
     gateway
-        .send(lark_core::discord::GatewayCommand::CustomStatus { status, custom, emoji, expires_at, game: game.unwrap_or_default() })
+        .send(lark_core::discord::GatewayCommand::CustomStatus {
+            status,
+            custom,
+            emoji,
+            expires_at,
+            game: game.unwrap_or_default(),
+        })
         .map_err(|_| "Gateway is closed.".to_string())
 }
 
@@ -2825,7 +3459,11 @@ fn forum_uploads(files: &[ForumUpload]) -> Result<Vec<lark_core::discord::rest::
     }
     let mut out = Vec::new();
     for file in files {
-        out.extend(upload_from_base64(Some(file.name.clone()), Some(file.mime.clone()), Some(file.base64.clone()))?);
+        out.extend(upload_from_base64(
+            Some(file.name.clone()),
+            Some(file.mime.clone()),
+            Some(file.base64.clone()),
+        )?);
     }
     Ok(out)
 }
@@ -2864,7 +3502,11 @@ async fn start_forum_post(
 }
 
 /// Cached guild sound, or a fresh CDN download, as 48 kHz mono. Not the local chime.
-async fn load_guild_pcm(client: &DiscordRest, state: &Shared, sound_id: &str) -> Result<Vec<f32>, String> {
+async fn load_guild_pcm(
+    client: &DiscordRest,
+    state: &Shared,
+    sound_id: &str,
+) -> Result<Vec<f32>, String> {
     let dir = soundboard_dir(&state.paths.config_file).join("guild");
     let path = lark_core::soundboard::guild_cache_path(&dir, sound_id)?;
     if let Ok(bytes) = fs::read(&path) {
@@ -2872,7 +3514,10 @@ async fn load_guild_pcm(client: &DiscordRest, state: &Shared, sound_id: &str) ->
             return Ok(pcm);
         }
     }
-    let downloaded = client.download_soundboard_sound(sound_id).await.map_err(|err| err.to_string())?;
+    let downloaded = client
+        .download_soundboard_sound(sound_id)
+        .await
+        .map_err(|err| err.to_string())?;
     let pcm = lark_core::soundboard::decode_guild_audio(&downloaded)?;
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -2905,7 +3550,11 @@ async fn set_user_lists(
 
 #[tauri::command]
 async fn list_saved_messages(state: State<'_, Shared>) -> Result<serde_json::Value, String> {
-    rest(&state).await?.list_saved_messages().await.map_err(|err| err.to_string())
+    rest(&state)
+        .await?
+        .list_saved_messages()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -2923,7 +3572,11 @@ async fn put_saved_message(
 }
 
 #[tauri::command]
-async fn delete_saved_message(state: State<'_, Shared>, channel_id: String, message_id: String) -> Result<(), String> {
+async fn delete_saved_message(
+    state: State<'_, Shared>,
+    channel_id: String,
+    message_id: String,
+) -> Result<(), String> {
     rest(&state)
         .await?
         .delete_saved_message(&channel_id, &message_id)

@@ -25,7 +25,11 @@ pub struct NoiseSuppressor {
 
 impl NoiseSuppressor {
     pub fn new() -> Self {
-        Self { state: DenoiseState::new(), hp_x: 0.0, hp_y: 0.0 }
+        Self {
+            state: DenoiseState::new(),
+            hp_x: 0.0,
+            hp_y: 0.0,
+        }
     }
 
     /// `samples` are mono PCM in `-1.0..1.0` at 48 kHz. Lengths that are not a
@@ -40,12 +44,16 @@ impl NoiseSuppressor {
             for (slot, sample) in input.iter_mut().zip(view.iter()) {
                 *slot = sample * 32_768.0;
             }
-            let vad = self.state.process_frame(&mut output, &input).clamp(0.0, 1.0);
+            let vad = self
+                .state
+                .process_frame(&mut output, &input)
+                .clamp(0.0, 1.0);
             let keep = (vad * 0.2).min(0.2);
             for (index, cleaned) in output.iter().enumerate() {
                 let original = samples[offset + index];
                 let denoised = (cleaned / 32_768.0).clamp(-1.0, 1.0);
-                samples[offset + index] = (denoised * (1.0 - keep) + original * keep).clamp(-1.0, 1.0);
+                samples[offset + index] =
+                    (denoised * (1.0 - keep) + original * keep).clamp(-1.0, 1.0);
             }
             offset += FRAME;
         }
@@ -75,7 +83,10 @@ pub struct SpectralSuppressor {
 
 impl SpectralSuppressor {
     pub fn new() -> Self {
-        Self { noise: [0.0; BINS], frames: 0 }
+        Self {
+            noise: [0.0; BINS],
+            frames: 0,
+        }
     }
 
     pub fn process(&mut self, samples: &mut [f32]) {
@@ -130,7 +141,10 @@ pub struct FirAec {
 
 impl FirAec {
     pub fn new() -> Self {
-        Self { weights: [0.0; FIR], hist: [0.0; FIR] }
+        Self {
+            weights: [0.0; FIR],
+            hist: [0.0; FIR],
+        }
     }
 
     pub fn process(&mut self, frame: &mut [f32], reference: &[f32]) {
@@ -148,7 +162,8 @@ impl FirAec {
             let near = frame[index].abs();
             let far = reference[index].abs();
             let far_energy: f32 = self.hist.iter().map(|sample| sample * sample).sum();
-            let freeze = far_energy < 0.01 || (near > 0.15 && far < 0.05 && echo.abs() < near * 0.3);
+            let freeze =
+                far_energy < 0.01 || (near > 0.15 && far < 0.05 && echo.abs() < near * 0.3);
             if !freeze {
                 let step = 0.45 / power;
                 for tap in 0..FIR {
@@ -232,7 +247,9 @@ mod tests {
         let mut frame = vec![0f32; FRAME * 2];
         denoiser.process(&mut frame);
         denoiser.process(&mut frame);
-        assert!(frame.iter().all(|sample| sample.is_finite() && sample.abs() < 0.02));
+        assert!(frame
+            .iter()
+            .all(|sample| sample.is_finite() && sample.abs() < 0.02));
     }
 
     #[test]
@@ -246,7 +263,9 @@ mod tests {
             denoiser.process(&mut last);
         }
         let after = energy(&last);
-        assert!(last.iter().all(|sample| sample.is_finite() && sample.abs() <= 1.0));
+        assert!(last
+            .iter()
+            .all(|sample| sample.is_finite() && sample.abs() <= 1.0));
         assert!(after < before * 0.5, "hum energy {before} -> {after}");
     }
 

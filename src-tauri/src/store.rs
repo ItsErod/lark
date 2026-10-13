@@ -64,7 +64,11 @@ pub async fn fetch_index() -> Result<String, String> {
     Ok(text)
 }
 
-pub async fn install(plugins_dir: &Path, themes_dir: &Path, id: &str) -> Result<InstalledRecord, String> {
+pub async fn install(
+    plugins_dir: &Path,
+    themes_dir: &Path,
+    id: &str,
+) -> Result<InstalledRecord, String> {
     validate_theme_name(id).map_err(|err| err.to_string())?;
     let index = parse_index(&fetch_index().await?)?;
     let plugin = index.plugins.iter().find(|item| item.id == id);
@@ -77,7 +81,11 @@ pub async fn install(plugins_dir: &Path, themes_dir: &Path, id: &str) -> Result<
     if !version_ok(env!("CARGO_PKG_VERSION"), &item.min_lark) {
         return Err(format!("\"{id}\" needs Lark {} or newer.", item.min_lark));
     }
-    let limit = if kind == "theme" { THEME_LIMIT } else { PLUGIN_LIMIT };
+    let limit = if kind == "theme" {
+        THEME_LIMIT
+    } else {
+        PLUGIN_LIMIT
+    };
     if item.bytes == 0 || item.bytes > limit {
         return Err("That store item is the wrong size.".into());
     }
@@ -93,12 +101,33 @@ pub async fn install(plugins_dir: &Path, themes_dir: &Path, id: &str) -> Result<
     if digest != item.sha256 {
         return Err("The download does not match the store hash.".into());
     }
-    let text = String::from_utf8(bytes.clone()).map_err(|_| "That download is not text.".to_string())?;
+    let text =
+        String::from_utf8(bytes.clone()).map_err(|_| "That download is not text.".to_string())?;
     if kind == "theme" {
         validate_theme_css(&text).map_err(|err| err.to_string())?;
-        write_pair(themes_dir, id, "css", &text, &digest, "theme", &item.name, &item.description, &item.version)?;
+        write_pair(
+            themes_dir,
+            id,
+            "css",
+            &text,
+            &digest,
+            "theme",
+            &item.name,
+            &item.description,
+            &item.version,
+        )?;
     } else {
-        write_pair(plugins_dir, id, "js", &text, &digest, "plugin", &item.name, &item.description, &item.version)?;
+        write_pair(
+            plugins_dir,
+            id,
+            "js",
+            &text,
+            &digest,
+            "plugin",
+            &item.name,
+            &item.description,
+            &item.version,
+        )?;
     }
     Ok(InstalledRecord {
         id: id.to_string(),
@@ -165,7 +194,8 @@ pub fn open_store_page() -> Result<(), String> {
 }
 
 fn parse_index(text: &str) -> Result<StoreIndex, String> {
-    let index: StoreIndex = serde_json::from_str(text).map_err(|_| "The store index could not be read.".to_string())?;
+    let index: StoreIndex =
+        serde_json::from_str(text).map_err(|_| "The store index could not be read.".to_string())?;
     if index.version != 1 {
         return Err("This Lark build does not understand that store index.".into());
     }
@@ -178,7 +208,11 @@ fn file_url(kind: &str, id: &str, file: &str, entry: &str) -> Result<String, Str
     } else {
         format!("plugins/{id}/plugin.js")
     };
-    let expected_entry = if kind == "theme" { "theme.css" } else { "plugin.js" };
+    let expected_entry = if kind == "theme" {
+        "theme.css"
+    } else {
+        "plugin.js"
+    };
     if file != expected || entry != expected_entry || file.contains("..") || file.contains('\\') {
         return Err("The store path was refused.".into());
     }
@@ -204,7 +238,9 @@ fn version_parts(value: &str) -> Option<(u64, u64, u64)> {
 }
 
 fn hex_ok(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) && value.bytes().all(|byte| !byte.is_ascii_uppercase())
+    value.len() == 64
+        && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && value.bytes().all(|byte| !byte.is_ascii_uppercase())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -219,8 +255,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn verify_sidecar(path: &Path, bytes: &[u8], kind: &str) -> Result<(), String> {
-    let raw = fs::read_to_string(path).map_err(|_| "This item is not installed from the store.".to_string())?;
-    let meta: Meta = serde_json::from_str(&raw).map_err(|_| "The install record could not be read.".to_string())?;
+    let raw = fs::read_to_string(path)
+        .map_err(|_| "This item is not installed from the store.".to_string())?;
+    let meta: Meta = serde_json::from_str(&raw)
+        .map_err(|_| "The install record could not be read.".to_string())?;
     if meta.kind != kind || !hex_ok(&meta.sha256) || sha256_hex(bytes) != meta.sha256 {
         return Err("The installed file does not match its store hash.".into());
     }
@@ -332,10 +370,16 @@ async fn http_get(url: &str, limit: usize) -> Result<Vec<u8>, String> {
     if !response.status().is_success() {
         return Err(format!("The store returned {}.", response.status()));
     }
-    if response.content_length().is_some_and(|len| len > limit as u64) {
+    if response
+        .content_length()
+        .is_some_and(|len| len > limit as u64)
+    {
         return Err("That download is too large.".into());
     }
-    let bytes = response.bytes().await.map_err(|_| "The download stopped.".to_string())?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| "The download stopped.".to_string())?;
     if bytes.len() > limit {
         return Err("That download is too large.".into());
     }
@@ -358,9 +402,24 @@ mod tests {
 
     #[test]
     fn file_url_is_the_entry_for_that_id() {
-        let plugin = file_url("plugin", "quiet-media", "plugins/quiet-media/plugin.js", "plugin.js").unwrap();
-        assert_eq!(plugin, "https://itserod.github.io/lark/store/plugins/quiet-media/plugin.js");
-        assert!(file_url("plugin", "quiet-media", "plugins/other/plugin.js", "plugin.js").is_err());
+        let plugin = file_url(
+            "plugin",
+            "quiet-media",
+            "plugins/quiet-media/plugin.js",
+            "plugin.js",
+        )
+        .unwrap();
+        assert_eq!(
+            plugin,
+            "https://itserod.github.io/lark/store/plugins/quiet-media/plugin.js"
+        );
+        assert!(file_url(
+            "plugin",
+            "quiet-media",
+            "plugins/other/plugin.js",
+            "plugin.js"
+        )
+        .is_err());
         assert!(file_url("theme", "nord", "../themes/nord/theme.css", "theme.css").is_err());
         assert!(file_url("theme", "nord", "themes/nord/theme.css", "plugin.js").is_err());
     }
@@ -372,12 +431,31 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let text = "function onMessage(message){return message}\n";
         let digest = sha256_hex(text.as_bytes());
-        write_pair(&dir, "quiet-media", "js", text, &digest, "plugin", "Quiet", "Hide", "1.0.0").unwrap();
+        write_pair(
+            &dir,
+            "quiet-media",
+            "js",
+            text,
+            &digest,
+            "plugin",
+            "Quiet",
+            "Hide",
+            "1.0.0",
+        )
+        .unwrap();
         assert_eq!(read_verified_plugin(&dir, "quiet-media").unwrap(), text);
-        assert_eq!(records(&dir, &dir).iter().filter(|item| item.id == "quiet-media").count(), 1);
+        assert_eq!(
+            records(&dir, &dir)
+                .iter()
+                .filter(|item| item.id == "quiet-media")
+                .count(),
+            1
+        );
         fs::write(dir.join("quiet-media.js"), "tampered").unwrap();
         assert!(read_verified_plugin(&dir, "quiet-media").is_err());
-        assert!(records(&dir, &dir).iter().all(|item| item.id != "quiet-media"));
+        assert!(records(&dir, &dir)
+            .iter()
+            .all(|item| item.id != "quiet-media"));
         uninstall(&dir, &dir, "quiet-media").unwrap();
         let _ = fs::remove_dir_all(&dir);
     }

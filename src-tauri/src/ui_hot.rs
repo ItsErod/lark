@@ -144,7 +144,10 @@ pub fn manage(app: &AppHandle) {
     app.manage(UiRuntime {
         root,
         native_version,
-        inner: Mutex::new(Inner { watch: 0, serving: None }),
+        inner: Mutex::new(Inner {
+            watch: 0,
+            serving: None,
+        }),
     });
 }
 
@@ -174,7 +177,11 @@ pub fn serve(app: &AppHandle, request: http::Request<Vec<u8>>) -> http::Response
     let Some(runtime) = app.try_state::<UiRuntime>() else {
         return empty(404);
     };
-    let dir = runtime.inner.lock().ok().and_then(|inner| inner.serving.clone());
+    let dir = runtime
+        .inner
+        .lock()
+        .ok()
+        .and_then(|inner| inner.serving.clone());
     let Some(dir) = dir else {
         return empty(404);
     };
@@ -247,7 +254,10 @@ pub fn reload_interface(app: &AppHandle) -> Result<(), String> {
         BootKind::Builtin
     };
     let watch = {
-        let mut inner = runtime.inner.lock().map_err(|_| "The interface lock was interrupted.".to_string())?;
+        let mut inner = runtime
+            .inner
+            .lock()
+            .map_err(|_| "The interface lock was interrupted.".to_string())?;
         inner.watch = inner.watch.wrapping_add(1);
         inner.serving = match kind {
             BootKind::Bundle => serving_dir(&runtime.root, &state),
@@ -305,7 +315,11 @@ pub async fn check_interface(app: AppHandle, manual: bool) -> Result<InterfaceRe
         }
     };
     let status = view_status(&read_state(&root).unwrap_or(state), &native);
-    Ok(InterfaceReport { status, outcome, message })
+    Ok(InterfaceReport {
+        status,
+        outcome,
+        message,
+    })
 }
 
 fn arm_watchdog(app: AppHandle, watch: u64) {
@@ -357,24 +371,43 @@ fn on_interface_origin(app: &AppHandle) -> bool {
 }
 
 fn navigate(app: &AppHandle, url: &str) -> Result<(), String> {
-    let window = app.get_webview_window("main").ok_or("The main window is not open.")?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or("The main window is not open.")?;
     let parsed = tauri::Url::parse(url).map_err(|err| err.to_string())?;
     window.navigate(parsed).map_err(|err| err.to_string())
 }
 
 fn runtime(app: &AppHandle) -> Result<tauri::State<'_, UiRuntime>, String> {
-    app.try_state::<UiRuntime>().ok_or_else(|| "Interface updates are not available.".to_string())
+    app.try_state::<UiRuntime>()
+        .ok_or_else(|| "Interface updates are not available.".to_string())
 }
 
 pub fn view_status(state: &HotState, native: &str) -> InterfaceStatus {
     let bundle = !state.force_builtin && state.loaded_build > 0;
     InterfaceStatus {
-        channel: if state.channel == "canary" { "canary".into() } else { "stable".into() },
-        source: if bundle { "bundle".into() } else { "builtin".into() },
+        channel: if state.channel == "canary" {
+            "canary".into()
+        } else {
+            "stable".into()
+        },
+        source: if bundle {
+            "bundle".into()
+        } else {
+            "builtin".into()
+        },
         build: if bundle { state.loaded_build } else { 0 },
-        version: if bundle { state.loaded_version.clone() } else { String::new() },
+        version: if bundle {
+            state.loaded_version.clone()
+        } else {
+            String::new()
+        },
         pending_build: state.pending.as_ref().map(|item| item.build).unwrap_or(0),
-        pending_version: state.pending.as_ref().map(|item| item.version.clone()).unwrap_or_default(),
+        pending_version: state
+            .pending
+            .as_ref()
+            .map(|item| item.version.clone())
+            .unwrap_or_default(),
         reload_ready: state.reload_ready,
         bad: state.bad.clone(),
         native_version: native.to_string(),
@@ -397,9 +430,13 @@ pub fn apply_channel(state: &mut HotState, channel: &str) -> Result<(), String> 
 }
 
 pub fn apply_reset(root: &Path, state: &mut HotState) -> Result<(), String> {
-    let had = state.pending.is_some() || (state.good.is_some() && !state.force_builtin) || state.loaded_build > 0;
+    let had = state.pending.is_some()
+        || (state.good.is_some() && !state.force_builtin)
+        || state.loaded_build > 0;
     if let Some(pending) = state.pending.take() {
-        let build = pending.build.max(state.good.as_ref().map(|item| item.build).unwrap_or(0));
+        let build = pending
+            .build
+            .max(state.good.as_ref().map(|item| item.build).unwrap_or(0));
         state.skipped_build = state.skipped_build.max(build);
         let _ = fs::remove_dir_all(root.join("pending"));
     } else if let Some(good) = &state.good {
@@ -501,7 +538,12 @@ fn remember_bad(state: &mut HotState, build: u64) {
     }
 }
 
-pub fn consider(state: &HotState, manifest: &Manifest, native: &str, manual: bool) -> Result<(), Reject> {
+pub fn consider(
+    state: &HotState,
+    manifest: &Manifest,
+    native: &str,
+    manual: bool,
+) -> Result<(), Reject> {
     if manifest.file != "bundle.zip"
         || manifest.version.is_empty()
         || manifest.min_native.is_empty()
@@ -521,13 +563,20 @@ pub fn consider(state: &HotState, manifest: &Manifest, native: &str, manual: boo
     let current = if state.force_builtin {
         0
     } else {
-        state.pending.as_ref().map(|item| item.build).unwrap_or(0).max(state.good.as_ref().map(|item| item.build).unwrap_or(0))
+        state
+            .pending
+            .as_ref()
+            .map(|item| item.build)
+            .unwrap_or(0)
+            .max(state.good.as_ref().map(|item| item.build).unwrap_or(0))
     };
     if manifest.build <= current {
         return Err(Reject::Current);
     }
     if !compatible(native, &manifest.min_native) {
-        return Err(Reject::Incompatible { min_native: manifest.min_native.clone() });
+        return Err(Reject::Incompatible {
+            min_native: manifest.min_native.clone(),
+        });
     }
     Ok(())
 }
@@ -558,7 +607,12 @@ fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-pub fn install_verified(root: &Path, state: &mut HotState, manifest: &Manifest, zip_bytes: &[u8]) -> Result<(), String> {
+pub fn install_verified(
+    root: &Path,
+    state: &mut HotState,
+    manifest: &Manifest,
+    zip_bytes: &[u8],
+) -> Result<(), String> {
     if zip_bytes.len() > MAX_ZIP {
         return Err("The interface bundle is too large.".into());
     }
@@ -588,21 +642,30 @@ fn verify_signature(bytes: &[u8], encoded: &str) -> Result<(), String> {
     let raw = base64::engine::general_purpose::STANDARD
         .decode(encoded.trim())
         .map_err(|_| "The interface signature could not be read.".to_string())?;
-    let signature = Signature::from_slice(&raw).map_err(|_| "The interface signature could not be read.".to_string())?;
-    key.verify(bytes, &signature).map_err(|_| "The interface signature does not match this bundle.".to_string())
+    let signature = Signature::from_slice(&raw)
+        .map_err(|_| "The interface signature could not be read.".to_string())?;
+    key.verify(bytes, &signature)
+        .map_err(|_| "The interface signature does not match this bundle.".to_string())
 }
 
 fn verifying_key() -> Result<VerifyingKey, String> {
-    let config: PublishedKey = serde_json::from_str(include_str!("../../interface.json")).map_err(|err| err.to_string())?;
+    let config: PublishedKey = serde_json::from_str(include_str!("../../interface.json"))
+        .map_err(|err| err.to_string())?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(config.public_key.trim())
         .map_err(|err| err.to_string())?;
-    let array: [u8; 32] = bytes.as_slice().try_into().map_err(|_| "The interface public key is not 32 bytes.".to_string())?;
+    let array: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "The interface public key is not 32 bytes.".to_string())?;
     VerifyingKey::from_bytes(&array).map_err(|err| err.to_string())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 pub fn safe_zip_path(name: &str) -> Result<PathBuf, String> {
@@ -628,13 +691,16 @@ fn unpack_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
         fs::remove_dir_all(dest).map_err(|err| err.to_string())?;
     }
     fs::create_dir_all(dest).map_err(|err| err.to_string())?;
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| "The interface bundle could not be opened.".to_string())?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|_| "The interface bundle could not be opened.".to_string())?;
     if archive.len() > MAX_FILES {
         return Err("The interface bundle has too many files.".into());
     }
     let mut total = 0u64;
     for index in 0..archive.len() {
-        let mut file = archive.by_index(index).map_err(|_| "The interface bundle could not be read.".to_string())?;
+        let mut file = archive
+            .by_index(index)
+            .map_err(|_| "The interface bundle could not be read.".to_string())?;
         if file.is_dir() {
             continue;
         }
@@ -674,9 +740,17 @@ async fn fetch_decision(state: &HotState, native: &str, manual: bool) -> Result<
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|err| err.to_string())?;
-    let channel = if state.channel == "canary" { "canary" } else { "stable" };
+    let channel = if state.channel == "canary" {
+        "canary"
+    } else {
+        "stable"
+    };
     let manifest_url = format!("{PAGES_ORIGIN}/ui/{channel}/manifest.json");
-    let response = client.get(&manifest_url).send().await.map_err(|err| err.to_string())?;
+    let response = client
+        .get(&manifest_url)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(Decision::Leave {
             outcome: "unavailable".into(),
@@ -684,10 +758,14 @@ async fn fetch_decision(state: &HotState, native: &str, manual: bool) -> Result<
         });
     }
     if !response.status().is_success() {
-        return Err(format!("The interface manifest returned {}.", response.status()));
+        return Err(format!(
+            "The interface manifest returned {}.",
+            response.status()
+        ));
     }
     let text = response.text().await.map_err(|err| err.to_string())?;
-    let manifest: Manifest = serde_json::from_str(&text).map_err(|_| "The interface manifest could not be read.".to_string())?;
+    let manifest: Manifest = serde_json::from_str(&text)
+        .map_err(|_| "The interface manifest could not be read.".to_string())?;
     match consider(state, &manifest, native, manual) {
         Err(Reject::Current) | Err(Reject::Skipped) => Ok(Decision::Leave {
             outcome: "current".into(),
@@ -695,24 +773,39 @@ async fn fetch_decision(state: &HotState, native: &str, manual: bool) -> Result<
         }),
         Err(Reject::Bad) => Ok(Decision::Leave {
             outcome: "bad".into(),
-            message: format!("Interface build {} failed to start and was rolled back.", manifest.build),
+            message: format!(
+                "Interface build {} failed to start and was rolled back.",
+                manifest.build
+            ),
         }),
         Err(Reject::Incompatible { min_native }) => Ok(Decision::Leave {
             outcome: "incompatible".into(),
-            message: format!("This interface needs Lark {min_native}. The app update installs that version."),
+            message: format!(
+                "This interface needs Lark {min_native}. The app update installs that version."
+            ),
         }),
         Err(Reject::Malformed) => Err("The interface manifest is incomplete.".into()),
         Ok(()) => {
             let bundle_url = format!("{PAGES_ORIGIN}/ui/{channel}/bundle.zip");
-            let bundle = client.get(&bundle_url).send().await.map_err(|err| err.to_string())?;
+            let bundle = client
+                .get(&bundle_url)
+                .send()
+                .await
+                .map_err(|err| err.to_string())?;
             if !bundle.status().is_success() {
-                return Err(format!("The interface bundle returned {}.", bundle.status()));
+                return Err(format!(
+                    "The interface bundle returned {}.",
+                    bundle.status()
+                ));
             }
             let bytes = bundle.bytes().await.map_err(|err| err.to_string())?;
             if bytes.len() > MAX_ZIP {
                 return Err("The interface bundle is too large.".into());
             }
-            Ok(Decision::Install { manifest, bytes: bytes.to_vec() })
+            Ok(Decision::Install {
+                manifest,
+                bytes: bytes.to_vec(),
+            })
         }
     }
 }
@@ -756,7 +849,11 @@ fn request_path(path: &str) -> Option<PathBuf> {
     let bare = path.split('?').next().unwrap_or(path);
     let decoded = percent_decode(bare);
     let trimmed = decoded.trim_start_matches('/');
-    let relative = if trimmed.is_empty() { "index.html" } else { trimmed };
+    let relative = if trimmed.is_empty() {
+        "index.html"
+    } else {
+        trimmed
+    };
     safe_zip_path(relative).ok()
 }
 
@@ -766,7 +863,10 @@ fn percent_decode(value: &str) -> String {
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or(""), 16) {
+            if let Ok(byte) = u8::from_str_radix(
+                std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or(""),
+                16,
+            ) {
                 out.push(byte);
                 index += 3;
                 continue;
@@ -842,18 +942,34 @@ mod tests {
     #[test]
     fn newer_compatible_bundles_are_accepted() {
         let mut state = HotState::default();
-        state.good = Some(BundleMeta { build: 4, version: "3.0.0".into(), min_native: "3.0.0".into() });
-        assert_eq!(consider(&state, &manifest(4), "3.0.0", false), Err(Reject::Current));
+        state.good = Some(BundleMeta {
+            build: 4,
+            version: "3.0.0".into(),
+            min_native: "3.0.0".into(),
+        });
+        assert_eq!(
+            consider(&state, &manifest(4), "3.0.0", false),
+            Err(Reject::Current)
+        );
         assert_eq!(consider(&state, &manifest(5), "3.0.0", false), Ok(()));
         state.bad.push(5);
-        assert_eq!(consider(&state, &manifest(5), "3.0.0", false), Err(Reject::Bad));
+        assert_eq!(
+            consider(&state, &manifest(5), "3.0.0", false),
+            Err(Reject::Bad)
+        );
         state.bad.clear();
         state.skipped_build = 8;
-        assert_eq!(consider(&state, &manifest(8), "3.0.0", false), Err(Reject::Skipped));
+        assert_eq!(
+            consider(&state, &manifest(8), "3.0.0", false),
+            Err(Reject::Skipped)
+        );
         assert_eq!(consider(&state, &manifest(8), "3.0.0", true), Ok(()));
         let mut ahead = manifest(9);
         ahead.min_native = "9.0.0".into();
-        assert!(matches!(consider(&state, &ahead, "3.0.0", true), Err(Reject::Incompatible { .. })));
+        assert!(matches!(
+            consider(&state, &ahead, "3.0.0", true),
+            Err(Reject::Incompatible { .. })
+        ));
     }
 
     #[test]
@@ -861,7 +977,10 @@ mod tests {
         assert!(safe_zip_path("../secret").is_err());
         assert!(safe_zip_path("/etc/passwd").is_err());
         assert!(safe_zip_path("assets/../../secret").is_err());
-        assert_eq!(safe_zip_path("assets/app.js").unwrap(), PathBuf::from("assets/app.js"));
+        assert_eq!(
+            safe_zip_path("assets/app.js").unwrap(),
+            PathBuf::from("assets/app.js")
+        );
     }
 
     #[test]
@@ -873,15 +992,26 @@ mod tests {
         fs::create_dir_all(root.join("pending")).unwrap();
         fs::write(root.join("pending").join("index.html"), "new").unwrap();
         let mut state = HotState {
-            pending: Some(BundleMeta { build: 7, version: "3.0.0".into(), min_native: "3.0.0".into() }),
-            good: Some(BundleMeta { build: 3, version: "3.0.0".into(), min_native: "3.0.0".into() }),
+            pending: Some(BundleMeta {
+                build: 7,
+                version: "3.0.0".into(),
+                min_native: "3.0.0".into(),
+            }),
+            good: Some(BundleMeta {
+                build: 3,
+                version: "3.0.0".into(),
+                min_native: "3.0.0".into(),
+            }),
             ..HotState::default()
         };
         rollback(&root, &mut state).unwrap();
         assert!(state.bad.contains(&7));
         assert!(state.pending.is_none());
         assert_eq!(state.good.as_ref().map(|item| item.build), Some(3));
-        assert_eq!(fs::read_to_string(root.join("good").join("index.html")).unwrap(), "good");
+        assert_eq!(
+            fs::read_to_string(root.join("good").join("index.html")).unwrap(),
+            "good"
+        );
         assert!(!root.join("pending").exists());
         let _ = fs::remove_dir_all(&root);
     }
@@ -895,8 +1025,16 @@ mod tests {
         fs::create_dir_all(root.join("pending")).unwrap();
         fs::write(root.join("pending").join("index.html"), "new").unwrap();
         let mut state = HotState {
-            pending: Some(BundleMeta { build: 8, version: "3.0.1".into(), min_native: "3.0.0".into() }),
-            good: Some(BundleMeta { build: 2, version: "3.0.0".into(), min_native: "3.0.0".into() }),
+            pending: Some(BundleMeta {
+                build: 8,
+                version: "3.0.1".into(),
+                min_native: "3.0.0".into(),
+            }),
+            good: Some(BundleMeta {
+                build: 2,
+                version: "3.0.0".into(),
+                min_native: "3.0.0".into(),
+            }),
             reload_ready: true,
             ..HotState::default()
         };
@@ -904,8 +1042,14 @@ mod tests {
         assert_eq!(state.loaded_build, 8);
         assert!(state.pending.is_none());
         assert!(!state.reload_ready);
-        assert_eq!(fs::read_to_string(root.join("good").join("index.html")).unwrap(), "new");
-        assert_eq!(fs::read_to_string(root.join("previous").join("index.html")).unwrap(), "old");
+        assert_eq!(
+            fs::read_to_string(root.join("good").join("index.html")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("previous").join("index.html")).unwrap(),
+            "old"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -921,7 +1065,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("lark-ui-hot-reset-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let mut state = HotState {
-            good: Some(BundleMeta { build: 6, version: "3.0.0".into(), min_native: "3.0.0".into() }),
+            good: Some(BundleMeta {
+                build: 6,
+                version: "3.0.0".into(),
+                min_native: "3.0.0".into(),
+            }),
             loaded_build: 6,
             loaded_version: "3.0.0".into(),
             ..HotState::default()
@@ -930,7 +1078,10 @@ mod tests {
         assert!(state.force_builtin);
         assert!(state.reload_ready);
         assert_eq!(state.skipped_build, 6);
-        assert_eq!(consider(&state, &manifest(6), "3.0.0", false), Err(Reject::Skipped));
+        assert_eq!(
+            consider(&state, &manifest(6), "3.0.0", false),
+            Err(Reject::Skipped)
+        );
         assert_eq!(boot_kind(&state), BootKind::Builtin);
         let _ = fs::remove_dir_all(&root);
     }

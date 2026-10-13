@@ -9,8 +9,9 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use dave::{
-    MediaFrame, MediaType, Opus, PassthroughMode, ProcessProposalsError, ProposalsOperation, Session, SessionConfig,
-    SessionIdentity, SessionOptions, SetExternalSenderError, OPUS_SILENCE_FRAME,
+    MediaFrame, MediaType, Opus, PassthroughMode, ProcessProposalsError, ProposalsOperation,
+    Session, SessionConfig, SessionIdentity, SessionOptions, SetExternalSenderError,
+    OPUS_SILENCE_FRAME,
 };
 
 use super::voice::{
@@ -54,12 +55,16 @@ impl DaveCall {
             return Err("fatal:DAVE version was missing".into());
         }
         if protocol_version > MAX_DAVE_PROTOCOL_VERSION {
-            return Err(format!("fatal:DAVE protocol {protocol_version} is newer than this client"));
+            return Err(format!(
+                "fatal:DAVE protocol {protocol_version} is newer than this client"
+            ));
         }
         let session = Session::new(SessionConfig {
             self_user_id: user_id,
             channel_id,
-            options: SessionOptions { identity: SessionIdentity::Ephemeral },
+            options: SessionOptions {
+                identity: SessionIdentity::Ephemeral,
+            },
         })
         .map_err(|err| format!("fatal:DAVE session failed to start ({err})"))?;
         let mut call = Self {
@@ -159,7 +164,9 @@ impl DaveCall {
     fn receive_allows(&self) -> bool {
         self.receive_on
             || self.passthrough
-            || self.receive_until.is_some_and(|until| Instant::now() < until)
+            || self
+                .receive_until
+                .is_some_and(|until| Instant::now() < until)
     }
 
     pub fn note_users(&mut self, ids: impl IntoIterator<Item = u64>) {
@@ -177,7 +184,9 @@ impl DaveCall {
     }
 
     pub fn ingest_binary(&mut self, bytes: &[u8]) {
-        let Some((_seq, opcode, payload)) = parse_dave_server_binary(bytes) else { return };
+        let Some((_seq, opcode, payload)) = parse_dave_server_binary(bytes) else {
+            return;
+        };
         match opcode {
             25 => {
                 let next = payload.to_vec();
@@ -204,7 +213,9 @@ impl DaveCall {
     }
 
     pub fn prepare_transition(&mut self, protocol_version: u16, transition_id: u16) {
-        self.trace(format!("prepare transition {transition_id} protocol {protocol_version}"));
+        self.trace(format!(
+            "prepare transition {transition_id} protocol {protocol_version}"
+        ));
         self.pending_version = protocol_version;
         if protocol_version == 0 {
             // Downgrade: receivers pass plaintext through immediately. Senders
@@ -268,7 +279,9 @@ impl DaveCall {
         self.session = Session::new(SessionConfig {
             self_user_id: self.user_id,
             channel_id: self.channel_id,
-            options: SessionOptions { identity: SessionIdentity::Ephemeral },
+            options: SessionOptions {
+                identity: SessionIdentity::Ephemeral,
+            },
         })
         .map_err(|err| format!("fatal:DAVE session failed to restart ({err})"))?;
         self.executed = None;
@@ -286,7 +299,8 @@ impl DaveCall {
         if package.is_empty() {
             return Err("fatal:DAVE key package was empty".into());
         }
-        self.outbound.push(DaveWire::Binary(dave_key_package_frame(&package)));
+        self.outbound
+            .push(DaveWire::Binary(dave_key_package_frame(&package)));
         self.key_package_sent = true;
         self.trace(format!("key package queued ({} bytes)", package.len()));
         Ok(())
@@ -354,24 +368,32 @@ impl DaveCall {
     }
 
     fn apply_proposals(&mut self, payload: &[u8]) -> ProposalApply {
-        let Some((&operation, rest)) = payload.split_first() else { return ProposalApply::Done };
+        let Some((&operation, rest)) = payload.split_first() else {
+            return ProposalApply::Done;
+        };
         let operation = match operation {
             0 => ProposalsOperation::Append,
             1 => ProposalsOperation::Revoke,
             _ => return ProposalApply::Done,
         };
         let expected = self.roster.iter().copied().collect::<Vec<_>>();
-        match self.session.process_proposals(operation, rest, expected.as_slice()) {
+        match self
+            .session
+            .process_proposals(operation, rest, expected.as_slice())
+        {
             Ok(Some(commit)) => {
                 self.trace("commit welcome queued");
-                self.outbound.push(DaveWire::Binary(dave_commit_welcome_frame(
-                    &commit.commit,
-                    commit.welcome.as_deref(),
-                )));
+                self.outbound
+                    .push(DaveWire::Binary(dave_commit_welcome_frame(
+                        &commit.commit,
+                        commit.welcome.as_deref(),
+                    )));
                 ProposalApply::Done
             }
             Ok(None) => ProposalApply::Done,
-            Err(ProcessProposalsError::NoGroup | ProcessProposalsError::UnexpectedUser(_)) => ProposalApply::Later,
+            Err(ProcessProposalsError::NoGroup | ProcessProposalsError::UnexpectedUser(_)) => {
+                ProposalApply::Later
+            }
             Err(err) => {
                 self.trace(format!("proposals dropped ({err})"));
                 ProposalApply::Done
@@ -383,11 +405,13 @@ impl DaveCall {
         if !self.readied.insert(transition_id) {
             return;
         }
-        self.outbound.push(DaveWire::Text(dave_transition_ready(transition_id)));
+        self.outbound
+            .push(DaveWire::Text(dave_transition_ready(transition_id)));
     }
 
     fn fail_transition(&mut self, transition_id: u16) -> Result<(), String> {
-        self.outbound.push(DaveWire::Text(dave_invalid_commit(transition_id)));
+        self.outbound
+            .push(DaveWire::Text(dave_invalid_commit(transition_id)));
         self.recreate()?;
         self.external_ready = false;
         self.key_package_sent = false;
@@ -438,7 +462,11 @@ mod tests {
         match &outbound[0] {
             DaveWire::Binary(frame) => {
                 assert_eq!(frame[0], 26);
-                assert!(frame.len() > 64, "key package was only {} bytes", frame.len());
+                assert!(
+                    frame.len() > 64,
+                    "key package was only {} bytes",
+                    frame.len()
+                );
             }
             DaveWire::Text(text) => panic!("expected a binary key package, got {text}"),
         }
@@ -484,9 +512,15 @@ mod tests {
             DaveWire::Binary(_) => panic!("transition ready is json"),
         }
         assert!(session.seal_opus(&[0x11, 0x22, 0x33, 0x44]).is_err());
-        assert_eq!(session.open_unmapped(&[0x11, 0x22, 0x33]).unwrap(), vec![0x11, 0x22, 0x33]);
+        assert_eq!(
+            session.open_unmapped(&[0x11, 0x22, 0x33]).unwrap(),
+            vec![0x11, 0x22, 0x33]
+        );
         assert!(session.open_unmapped(&[0x11, 0xFA, 0xFA]).is_err());
-        assert_eq!(session.open_opus(222, &[0x11, 0x22, 0x33]).unwrap(), vec![0x11, 0x22, 0x33]);
+        assert_eq!(
+            session.open_opus(222, &[0x11, 0x22, 0x33]).unwrap(),
+            vec![0x11, 0x22, 0x33]
+        );
         assert!(session.open_opus(222, &[0x11, 0xFA, 0xFA]).is_err());
     }
 
@@ -497,7 +531,11 @@ mod tests {
         session.ingest_binary(&[0x00, 0x01, 27, 0, 1, 2, 3]);
         assert_eq!(session.pending_proposals(), 1);
         session.note_users([1]);
-        assert_eq!(session.pending_proposals(), 1, "a proposal must not be dropped before the group exists");
+        assert_eq!(
+            session.pending_proposals(),
+            1,
+            "a proposal must not be dropped before the group exists"
+        );
     }
 
     #[test]
