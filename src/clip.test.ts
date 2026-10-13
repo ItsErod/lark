@@ -33,7 +33,8 @@ describe("clips", () => {
       expect(note).toContain("2160p");
       expect(note).toContain("120");
       expect(note).toContain("240");
-      expect(note).toContain("HEVC");
+      expect(note).toContain("HEVC is not saved");
+      expect(note).toContain("WebView2");
       expect(note).toContain("caps");
       expect(note).toContain("5 frames");
       expect(note).toContain("960");

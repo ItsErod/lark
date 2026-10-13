@@ -4,6 +4,7 @@
 //! Windows, ScreenCaptureKit on macOS) and feeds a hardware encoder. This module
 //! decides the size, rate, codec, and bitrate, and it keeps the encoded packets
 //! for the last 30 seconds. Saving remuxes those packets. It does not keep raw frames.
+//! Saved clips are H.264. WebView2 has no HEVC decoder, so a HEVC file stays black.
 
 use std::collections::VecDeque;
 
@@ -445,6 +446,39 @@ pub fn resolve_capture(
         hardware: true,
         note: notes.join(" "),
     }
+}
+
+/// What the clip recorder actually opens. HEVC is dropped even when the encoder
+/// offers it: the embedded player on Windows cannot decode it.
+pub fn resolve_clip_capture(
+    request: ClipRequest,
+    display: DisplayCaps,
+    encoder: EncoderCaps,
+    runtime_fps_cap: u32,
+) -> ResolvedCapture {
+    let hevc_only = encoder.hevc && !encoder.h264;
+    let playable = EncoderCaps {
+        kind: if encoder.h264 {
+            encoder.kind
+        } else {
+            EncoderKind::Unavailable
+        },
+        hevc: false,
+        h264: encoder.h264,
+    };
+    let mut resolved = resolve_capture(request, display, playable, runtime_fps_cap);
+    if resolved.codec == VideoCodec::Hevc {
+        resolved.codec = VideoCodec::H264;
+    }
+    if hevc_only {
+        let extra = "This encoder only offers HEVC, which WebView2 cannot play, so Lark is using the H.264 fallback.";
+        if resolved.note.is_empty() {
+            resolved.note = extra.into();
+        } else if !resolved.note.contains(extra) {
+            resolved.note = format!("{} {}", resolved.note, extra);
+        }
+    }
+    resolved
 }
 
 fn fps_within_budget(fps: u32, pixels: u64, hevc_budget: u64, h264_budget: u64) -> u32 {
@@ -979,6 +1013,43 @@ mod tests {
         assert_eq!(resolved.fps, 120);
         assert_eq!(resolved.codec, VideoCodec::Hevc);
         assert!(resolved.note.contains("120 fps"));
+    }
+
+    #[test]
+    fn saved_clips_stay_h264_so_webview_can_play_them() {
+        let resolved = resolve_clip_capture(
+            ClipRequest::new(240, 1440),
+            display(2560, 1440, 240),
+            nvenc_hevc(),
+            0,
+        );
+        assert_eq!(resolved.codec, VideoCodec::H264);
+        assert!(resolved.hardware);
+        assert!(resolved.fps <= 60);
+        assert!(!resolved.note.is_empty());
+        let hevc_only = resolve_clip_capture(
+            ClipRequest::new(60, 1080),
+            display(1920, 1080, 60),
+            EncoderCaps {
+                kind: EncoderKind::Nvenc,
+                hevc: true,
+                h264: false,
+            },
+            0,
+        );
+        assert_eq!(hevc_only.codec, VideoCodec::H264);
+        assert!(!hevc_only.hardware);
+        assert!(hevc_only.note.contains("WebView2"));
+        let normal = resolve_clip_capture(
+            ClipRequest::new(60, 1440),
+            display(2560, 1440, 60),
+            nvenc_hevc(),
+            0,
+        );
+        assert_eq!(
+            (normal.codec, normal.width, normal.height, normal.fps),
+            (VideoCodec::H264, 2560, 1440, 60)
+        );
     }
 
     #[test]

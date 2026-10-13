@@ -85,5 +85,16 @@ describe("production CSP", () => {
     expect(policy["img-src"]).toContain("https://media.discordapp.net");
     expect(policy["img-src"]).toContain("https://*.discordapp.net");
     expect(policy["img-src"]).toContain("https://*.discordapp.com");
+    // <video> falls back to default-src when media-src is absent. 'self' does not
+    // match blob: or asset:, so a saved clip never starts in WebView2 or WKWebView.
+    const media = policy["media-src"];
+    expect(media).toBeTruthy();
+    expect(media).toContain("blob:");
+    expect(media).toContain("asset:");
+    expect(media).toContain("http://asset.localhost");
+    expect(media).toContain("https://cdn.discordapp.com");
+    expect(media).toContain("https://media.discordapp.net");
+    expect(media).toContain("https://media.tenor.com");
+    expect(policy["default-src"]).toBe("'self'");
   });
 });

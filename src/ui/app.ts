@@ -179,6 +179,7 @@ import { bytesFromBase64, clipBehaviorNote, CLIP_FPS_OPTIONS, CLIP_RESOLUTION_OP
 import {
   CLIP_DRAG,
   clipMime,
+  clipPlaybackBlock,
   clipAttachAction,
   compressCopy,
   demoClips,
@@ -871,6 +872,7 @@ class LarkApp {
   private clipStamp = "";
   private clipAsk: ClipAsk | null = null;
   private clipPlayer: string | null = null;
+  private clipPlayNote = "";
   private clipTrim: string | null = null;
   private clipSendFor: string | null = null;
   private clipRename: string | null = null;
@@ -8328,12 +8330,19 @@ class LarkApp {
 
   private async playClip(name: string) {
     this.clipPlayer = name;
+    this.clipPlayNote = "";
     const clip = this.clipItems.find((item) => item.name === name);
     if (!this.demo && isTauri() && clip && !clip.poster.startsWith("blob:")) {
       try {
         const encoded = await invoke<string>("read_clip", { name });
+        if (this.clipPlayer !== name) return;
         const bytes = bytesFromBase64(encoded);
-        clip.poster = URL.createObjectURL(new Blob([bytes], { type: clipMime(name) }));
+        const block = clipPlaybackBlock(name, bytes);
+        if (block) {
+          this.clipPlayNote = block;
+        } else {
+          clip.poster = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+        }
       } catch (err) {
         this.toast("Clip", commandError(err, "Couldn't play the clip."));
       }
@@ -8460,10 +8469,16 @@ class LarkApp {
       card.append(actions);
     } else if (playing) {
       card.append(el("h2", "", playing.name));
-      if (playing.poster.startsWith("blob:") && playing.name.endsWith(".mp4")) {
+      if (this.clipPlayNote) card.append(el("p", "warning", this.clipPlayNote));
+      if (!this.clipPlayNote && playing.poster.startsWith("blob:") && playing.name.endsWith(".mp4")) {
         const video = el("video", "clip-video");
         video.controls = true;
-        video.src = playing.poster;
+        video.playsInline = true;
+        video.preload = "auto";
+        const source = document.createElement("source");
+        source.src = playing.poster;
+        source.type = "video/mp4";
+        video.append(source);
         card.append(video);
       } else {
         const image = document.createElement("img");
@@ -8474,6 +8489,7 @@ class LarkApp {
       }
       card.append(this.clipAction("Close", () => {
         this.clipPlayer = null;
+        this.clipPlayNote = "";
         this.paintClipDialog();
       }));
     } else if (trimming) {
@@ -8506,6 +8522,7 @@ class LarkApp {
       if (event.target !== this.clipDialog) return;
       this.clipAsk = null;
       this.clipPlayer = null;
+      this.clipPlayNote = "";
       this.clipTrim = null;
       this.paintClipDialog();
     };

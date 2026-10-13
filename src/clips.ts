@@ -94,6 +94,77 @@ export function clipMime(name: string): string {
   return name.endsWith(".mp4") ? "video/mp4" : "video/x-msvideo";
 }
 
+interface Mp4Box {
+  kind: string;
+  start: number;
+  total: number;
+}
+
+/** Why the embedded player cannot start this file. Null means an H.264 faststart MP4. */
+export function clipPlaybackBlock(name: string, bytes: Uint8Array): string | null {
+  if (/\.avi$/i.test(name) || isAvi(bytes)) {
+    return "This clip is an AVI. The player only plays an H.264/AAC MP4.";
+  }
+  if (bytes.length < 16 || fourcc(bytes, 4) !== "ftyp") {
+    return "This clip is not an MP4 the player can open.";
+  }
+  const boxes = topBoxes(bytes);
+  const moov = boxes.find((item) => item.kind === "moov");
+  const mdat = boxes.find((item) => item.kind === "mdat");
+  if (!moov) return "This clip is missing a moov atom.";
+  if (!mdat) return "This clip is missing media data.";
+  if (moov.start > mdat.start) {
+    return "This clip is missing faststart. The moov atom is after the media, so playback cannot start.";
+  }
+  const header = bytes.subarray(moov.start, moov.start + moov.total);
+  const hevc = indexOfFourcc(header, "hvc1") >= 0 || indexOfFourcc(header, "hev1") >= 0;
+  const avc = indexOfFourcc(header, "avc1") >= 0;
+  if (hevc && !avc) {
+    return "This clip is HEVC. WebView2 cannot play it. New clips are saved as H.264.";
+  }
+  if (!avc) return "This clip is not H.264, so the player cannot open it.";
+  return null;
+}
+
+function isAvi(bytes: Uint8Array): boolean {
+  return bytes.length >= 12 && fourcc(bytes, 0) === "RIFF" && fourcc(bytes, 8) === "AVI ";
+}
+
+function fourcc(bytes: Uint8Array, offset: number): string {
+  if (offset + 4 > bytes.length) return "";
+  return String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+}
+
+function topBoxes(bytes: Uint8Array): Mp4Box[] {
+  const boxes: Mp4Box[] = [];
+  let cursor = 0;
+  while (cursor + 8 <= bytes.length) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + cursor, 8);
+    let total = view.getUint32(0);
+    let header = 8;
+    if (total === 1 && cursor + 16 <= bytes.length) {
+      const wide = new DataView(bytes.buffer, bytes.byteOffset + cursor + 8, 8);
+      const big = wide.getUint32(4);
+      total = big;
+      header = 16;
+    }
+    if (total < header || cursor + total > bytes.length) break;
+    boxes.push({ kind: fourcc(bytes, cursor + 4), start: cursor, total });
+    cursor += total;
+  }
+  return boxes;
+}
+
+function indexOfFourcc(bytes: Uint8Array, tag: string): number {
+  const needle = [tag.charCodeAt(0), tag.charCodeAt(1), tag.charCodeAt(2), tag.charCodeAt(3)];
+  for (let index = 0; index + 4 <= bytes.length; index += 1) {
+    if (bytes[index] === needle[0] && bytes[index + 1] === needle[1] && bytes[index + 2] === needle[2] && bytes[index + 3] === needle[3]) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 export function fittedClipName(current: string): string {
   const ext = current.endsWith(".mp4") ? ".mp4" : ".avi";
   const stem = current.slice(0, -ext.length).replace(/-fit$/, "");
