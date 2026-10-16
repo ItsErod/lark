@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { catalogSize, ensurePhrases, hasPhrase, localizeTree, setLocale, t } from "./i18n";
 import { phrases } from "./i18n-phrases";
+import { cjkPhrases } from "./i18n-cjk";
+import { LANGUAGES } from "./user-settings";
 
 class FakeLabel {
   dataset: Record<string, string> = {};
@@ -72,6 +74,22 @@ describe("i18n", () => {
     setLocale("de");
     expect(t("No direct messages yet.")).toBe("Noch keine Direktnachrichten.");
     setLocale("en");
+  });
+
+  it("ships a catalog for every listed language", async () => {
+    await ensurePhrases();
+    for (const { id } of LANGUAGES) {
+      if (id === "en" || id === "en-GB") continue;
+      expect(catalogSize(id), id).toBeGreaterThan(300);
+    }
+    setLocale("ja");
+    expect(t("Friends")).toBe("フレンド");
+    setLocale("ko");
+    expect(t("Settings")).toBe("설정");
+    setLocale("zh-CN");
+    expect(t("Search")).toBe("搜索");
+    setLocale("en");
+    for (const row of Object.values(cjkPhrases)) for (const cell of row) expect(cell.length).toBeGreaterThan(0);
   });
 
   it("rewrites a painted label without rebuilding the node", () => {

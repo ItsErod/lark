@@ -436,6 +436,9 @@ const frCatalog: Record<string, string> = { ...fr };
 const esCatalog: Record<string, string> = { ...es };
 const deCatalog: Record<string, string> = { ...de };
 const ptCatalog: Record<string, string> = { ...pt };
+const jaCatalog: Record<string, string> = {};
+const koCatalog: Record<string, string> = {};
+const zhCatalog: Record<string, string> = {};
 
 /** Inline chrome only. The long phrase file joins these on a non-English locale. */
 const catalogs: Record<string, Record<string, string>> = {
@@ -444,6 +447,10 @@ const catalogs: Record<string, Record<string, string>> = {
   de: deCatalog,
   "pt-BR": ptCatalog,
   pt: ptCatalog,
+  ja: jaCatalog,
+  ko: koCatalog,
+  "zh-CN": zhCatalog,
+  zh: zhCatalog,
 };
 
 let current = "en";
@@ -477,7 +484,13 @@ let phraseTask: Promise<void> | null = null;
 export function ensurePhrases(): Promise<void> {
   if (phrasesReady) return Promise.resolve();
   if (!phraseTask) {
-    phraseTask = import("./i18n-phrases").then(({ phrases }) => {
+    phraseTask = Promise.all([import("./i18n-phrases"), import("./i18n-cjk")]).then(([{ phrases }, { cjkPhrases }]) => {
+      for (const [source, row] of Object.entries(cjkPhrases)) {
+        known.add(source);
+        jaCatalog[source] = row[0];
+        koCatalog[source] = row[1];
+        zhCatalog[source] = row[2];
+      }
       absorbPhrases(phrases);
     });
   }

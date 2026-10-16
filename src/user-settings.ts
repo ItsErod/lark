@@ -18,6 +18,7 @@ export const APP_ICONS = [
   { id: "dusk", label: "Dusk" },
 ] as const;
 
+/** Only languages with a shipped catalog. A saved id that is not listed falls back to English. */
 export const LANGUAGES: readonly { id: string; label: string }[] = [
   { id: "en", label: "English" },
   { id: "en-GB", label: "English, UK" },
@@ -28,12 +29,6 @@ export const LANGUAGES: readonly { id: string; label: string }[] = [
   { id: "ja", label: "日本語" },
   { id: "ko", label: "한국어" },
   { id: "zh-CN", label: "中文" },
-  { id: "ru", label: "Русский" },
-  { id: "pl", label: "Polski" },
-  { id: "tr", label: "Türkçe" },
-  { id: "nl", label: "Nederlands" },
-  { id: "it", label: "Italiano" },
-  { id: "sv", label: "Svenska" },
 ];
 
 export const DISCORD_KEYBINDS = [
