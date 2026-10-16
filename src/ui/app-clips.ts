@@ -17,7 +17,9 @@ import {
   trimPresets,
   trimRange,
   uploadLimitBytes,
-  type ClipCard
+  type ClipCard,
+  clipGame,
+  clipGames,
 } from "../clips";
 import type { RawMessage } from "../types";
 import { commandError } from "../signin";
@@ -232,7 +234,7 @@ export const clipMethods = defineMethods({
     this.clipItems = next;
   },
   paintClipLibrary() {
-    const stamp = `${this.clipStamp}|${this.channelId ?? ""}|${this.clipSendFor ?? ""}|${this.clipRename ?? ""}|${this.clipProgress?.name ?? ""}:${this.clipProgress?.percent ?? ""}|${this.premiumType}|${this.config.clips.compress}`;
+    const stamp = `${this.clipStamp}|${this.channelId ?? ""}|${this.clipSendFor ?? ""}|${this.clipRename ?? ""}|${this.clipProgress?.name ?? ""}:${this.clipProgress?.percent ?? ""}|${this.premiumType}|${this.config.clips.compress}|${this.clipGameFilter ?? ""}`;
     if (stamp === this.msgSig && this.messagesEl.querySelector(".clip-library")) return;
     this.msgSig = stamp;
     clear(this.messagesEl);
@@ -259,7 +261,31 @@ export const clipMethods = defineMethods({
       return;
     }
     const grid = el("div", "clip-grid");
-    for (const clip of this.clipItems) grid.append(this.clipCard(clip, limit));
+    const games = clipGames(this.clipItems.map((clip) => clip.name));
+    if (this.clipGameFilter && !games.some((g) => g.game === this.clipGameFilter)) this.clipGameFilter = null;
+    if (games.length > 1) {
+      const bar = el("div", "clip-filter");
+      bar.setAttribute("role", "toolbar");
+      bar.setAttribute("aria-label", "Filter clips by game");
+      const chip = (label: string, value: string | null, count: number) => {
+        const button = el("button", "clip-filter-chip", `${label} ${count}`);
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(this.clipGameFilter === value));
+        button.addEventListener("click", () => {
+          this.clipGameFilter = value;
+          this.msgSig = "";
+          this.paint();
+        });
+        bar.append(button);
+      };
+      chip("All", null, this.clipItems.length);
+      for (const g of games) chip(g.game, g.game, g.count);
+      board.append(bar);
+    }
+    for (const clip of this.clipItems) {
+      if (this.clipGameFilter && clipGame(clip.name) !== this.clipGameFilter) continue;
+      grid.append(this.clipCard(clip, limit));
+    }
     board.append(grid);
     parent.append(board);
   },

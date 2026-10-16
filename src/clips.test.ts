@@ -173,3 +173,23 @@ function box(kind: string, payload: Uint8Array): Uint8Array {
   bytes.set(payload, 8);
   return bytes;
 }
+
+describe("clip game filter", () => {
+  it("groups clips by detected game with Other last", async () => {
+    const { clipGame, clipGames } = await import("./clips");
+    expect(clipGame("lark-clip-valorant-20260101-120000Z-trim.mp4")).toBe("Valorant");
+    expect(clipGame("lark-clip-20260101-120000Z.mp4")).toBe("Other");
+    expect(
+      clipGames([
+        "lark-clip-20260101-120000Z.mp4",
+        "lark-clip-valorant-20260101-120000Z.mp4",
+        "lark-clip-valorant-20260102-120000Z.mp4",
+        "lark-clip-apex-legends-20260101-120000Z.mp4",
+      ]),
+    ).toEqual([
+      { game: "Valorant", count: 2 },
+      { game: "Apex Legends", count: 1 },
+      { game: "Other", count: 1 },
+    ]);
+  });
+});

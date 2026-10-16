@@ -469,6 +469,7 @@ export class LarkApp {
   clipsOpen = false;
   clipItems: ClipCard[] = [];
   clipStamp = "";
+  clipGameFilter: string | null = null;
   clipAsk: ClipAsk | null = null;
   clipPlayer: string | null = null;
   clipPlayNote = "";
