@@ -1,5 +1,6 @@
 mod browser_login;
 mod clip_rec;
+mod clip_toast;
 mod golive;
 mod keychain;
 mod login;
@@ -2626,6 +2627,7 @@ async fn stop_watch_stream(state: State<'_, Shared>) -> Result<(), String> {
 fn save_clip(app: AppHandle, state: State<'_, Shared>) -> Result<clip_rec::ClipSaved, String> {
     match state.clips.save() {
         Ok(saved) => {
+            clip_toast::show(app, true, &saved.name);
             let _ = app.emit("clip-ready", &saved);
             Ok(saved)
         }
@@ -2979,6 +2981,7 @@ fn on_clip_hotkey(app: &AppHandle) {
         }
         Err(error) => {
             log::info!("clip hotkey: {error}");
+            clip_toast::show(app, false, &error);
             let _ = app.emit("clip-ready", clip_rec::ClipSaved::failed(error));
         }
     }
@@ -3039,6 +3042,7 @@ fn apply_clip_config(app: &AppHandle, config: &Config) {
         .clips
         .set_audio(config.clips.system_audio, config.clips.mic_audio);
     state.clips.set_game(config.clips.game_capture);
+    clip_toast::set_enabled(config.clips.save_notice);
     apply_clip_hotkey(app, &config.shortcuts.save_clip);
 }
 

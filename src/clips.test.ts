@@ -141,6 +141,7 @@ describe("clip library", () => {
       buffer_sec: 30,
       system_audio: true,
       mic_audio: true,
+      save_notice: true,
     });
     expect(sanitizeConfig({ clips: { compress: "nope" } }).clips.compress).toBe("ask");
     expect(sanitizeConfig({ clips: { mic_audio: false, system_audio: "x" } }).clips).toMatchObject({ mic_audio: false, system_audio: true });
